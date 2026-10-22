@@ -1,4 +1,4 @@
-// Stack fix: every open review comment of every stack row goes to ONE agent that walks the rows bottom-up,
+// Stack fix: the open review comments of every stack row (all, or the ones picked or accepted on the findings board) go to ONE agent that walks the rows bottom-up,
 // commits each row's fixes on its branch and restacks the children; cocopilot then ingests and re-anchors.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { isLocal, rowKey } from './stack.mjs';
 import { byFileThenLine, capitalize, commentSection, fenced as fence, sharedRules } from './review-agent.mjs';
+import { blocksToMarkdown } from './blocks.mjs';
 
 const MAX_COMMENTS = 60;
 const SETTLE_MS = 15000;
@@ -38,6 +39,44 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
   const runFile = (slug, id) => path.join(dir(slug), `stack-run-${id}.json`);
   const briefFile = (slug, id) => path.join(dir(slug), `stack-run-${id}.md`);
   const resultFile = (slug, id) => path.join(dir(slug), `stack-run-${id}-result.json`);
+  const readJson = (file, fallback) => (fs.existsSync(file) ? parseJson(fs.readFileSync(file, 'utf8'), fallback) : fallback);
+  const Owner = capitalize(config.owner.name);
+
+  // findings-board verdicts by comment id
+  const verdicts = (slug) => new Map(Object.values(readJson(path.join(DATA, 'works', slug, 'findings.json'), {}) || {}).filter((e) => e?.commentId).map((e) => [e.commentId, e]));
+  const acceptedIds = (slug) => new Set([...verdicts(slug)].filter(([, e]) => e.status === 'accepted').map(([id]) => id));
+
+  // which open comments go: all (Plan tab), 'accepted' (findings accepted on the board), or { <row key>: [comment ids] }
+  function pickerOf(slug, select) {
+    if (select == null) return () => true;
+    if (select === 'accepted') {
+      const ids = acceptedIds(slug);
+      return (key, c) => ids.has(c.id);
+    }
+    if (typeof select !== 'object' || Array.isArray(select) || !Object.values(select).every(Array.isArray)) throw new HttpError(400, "select must be 'accepted' or { <row key>: [comment ids] }");
+    return (key, c) => (select[String(key)] || []).includes(c.id);
+  }
+
+  // what the owner said when triaging a comment: the board note, their thread messages and the agent's last answer
+  function triageOf(slug, key, c, byComment) {
+    const thread = readJson(path.join(DATA, 'works', slug, 'threads', `c.${String(key).replaceAll(':', '~')}.${c.id}.json`), null);
+    const messages = thread?.messages || [];
+    const last = messages.findLast((m) => m.role === 'agent');
+    return {
+      note: byComment.get(c.id)?.reason || '',
+      said: messages.filter((m) => m.role === 'user' && m.text?.trim()).map((m) => m.text.trim()),
+      reply: last ? (last.blocks ? blocksToMarkdown({ blocks: last.blocks }) : last.text || '').trim() : '',
+    };
+  }
+  const quote = (text) => text.split('\n').map((l) => `> ${l}`.trimEnd()).join('\n');
+  function triageSection({ note, said, reply }) {
+    if (!note && !said.length && !reply) return [];
+    const out = [`**${Owner}'s triage**`, ''];
+    if (note) out.push(`Note: ${note}`, '');
+    if (said.length) out.push(`${Owner} in the thread:`, '', ...said.flatMap((t) => [quote(t), '']));
+    if (reply) out.push('Last agent reply in the thread:', '', quote(reply), '');
+    return out;
+  }
 
   const checkSlug = (slug) => {
     if (!/^[\w.-]+$/.test(String(slug)) || String(slug).startsWith('.')) throw new HttpError(400, 'bad slug');
@@ -67,12 +106,12 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
   };
 
   // rows from the first one with open comments to the top; merged or closed PRs drop out of the chain
-  async function chainOf(work) {
+  async function chainOf(work, picked = () => true) {
     const rows = [];
     for (const [index, s] of (work.stack || []).entries()) {
       const key = rowKey(s);
       if (!key) throw new HttpError(400, `row ${index + 1} has neither a PR number nor a planned branch`);
-      const open = (comments.list(work.slug, key).comments || []).filter((c) => c.status === 'open');
+      const open = (comments.list(work.slug, key).comments || []).filter((c) => c.status === 'open' && picked(key, c));
       if (!rows.length && !open.length) continue;
       const pr = await reviewAgent.rowPr(work, index);
       if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue;
@@ -89,12 +128,13 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     return rows;
   }
 
-  async function refuseBusy(rows) {
+  // the agent that asked for the run is not in the way of it
+  async function refuseBusy(rows, requestedBy) {
     const agents = await reviewAgent.agentsList();
     for (const row of rows.filter((r) => r.worktree)) {
       const st = await exec('git', ['-C', row.worktree, 'status', '--porcelain', '--untracked-files=no']);
       if (st.ok && st.stdout.trim()) throw new HttpError(409, `${row.worktree} has uncommitted changes on ${row.branch}`);
-      const busy = agents.find((a) => a.cwd && a.status === 'running' && reviewAgent.sameDir(a.cwd, row.worktree));
+      const busy = agents.find((a) => a.cwd && a.status === 'running' && a.id !== requestedBy && reviewAgent.sameDir(a.cwd, row.worktree));
       if (busy) throw new HttpError(409, `agent ${String(busy.id).slice(0, 8)} is running in ${row.worktree}`);
     }
   }
@@ -111,6 +151,8 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       "- Work on each row's branch in that row's place (listed below). Never switch an existing worktree to another branch.",
       ...SHARED_RULES,
       '- A restack conflict: `git rebase --abort`, mark that row failed in the result with the conflicting files, and stop. Do not touch the rows above it.',
+      `- A comment's triage (${Owner}'s note and thread) is the agreed outcome: follow it over the comment's own recommendation. When it settles on no code change, decline the comment with that outcome as the note.`,
+      '- A comment that needs a GitHub write (PR body, title, review reply) is declined: put the drafted text in the note, never post it.',
       '',
     );
 
@@ -135,6 +177,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     }
 
     out.push('## Rows', '');
+    const byComment = verdicts(work.slug);
     for (const [i, row] of rows.entries()) {
       out.push(`### Row ${i + 1} — \`${row.branch}\` (${isLocal(row.key) ? 'local, no PR yet' : `PR #${row.key}`})`, '');
       out.push(
@@ -146,7 +189,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
         '',
       );
       if (!row.comments.length) out.push('No comment on this row: restack only.', '');
-      for (const c of row.comments) out.push(...commentSection(c, '####'));
+      for (const c of row.comments) out.push(...commentSection(c, '####'), ...triageSection(triageOf(work.slug, row.key, c, byComment)));
     }
 
     out.push('## How to report', '');
@@ -180,11 +223,11 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       if (!work) throw new HttpError(404, 'no such work');
       if (list(slug).some((r) => r.status === 'running')) throw new HttpError(409, 'a stack fix is already running for this work');
       const commits = input.commits === 'squash' ? 'squash' : 'one';
-      const rows = await chainOf(work);
+      const rows = await chainOf(work, pickerOf(slug, input.select));
       const total = rows.reduce((n, r) => n + r.comments.length, 0);
-      if (!total) throw new HttpError(400, 'no open comment on the stack');
+      if (!total) throw new HttpError(400, input.select === 'accepted' ? 'no accepted finding left to fix' : input.select ? 'none of the picked comments is open' : 'no open comment on the stack');
       if (total > MAX_COMMENTS) throw new HttpError(400, `at most ${MAX_COMMENTS} comments per stack fix (got ${total})`);
-      await refuseBusy(rows);
+      await refuseBusy(rows, input.requestedBy);
 
       const id = crypto.randomBytes(4).toString('hex');
       const brief = briefFile(slug, id);
@@ -205,6 +248,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
         cwd: runner.cwd || null,
         commits,
         provider,
+        select: input.select === 'accepted' ? 'accepted' : input.select ? 'picked' : 'all',
         briefPath: brief,
         resultPath,
         rows: rows.map(({ key, branch, title, tipBefore, parent, parentTipBefore, worktree, remoteBefore, comments: cs }) => ({ key, branch, title, tipBefore, parent, parentTipBefore, worktree, remoteBefore, commentIds: cs.map((c) => c.id), tipAfter: null, restacked: null, error: null })),
@@ -301,7 +345,11 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
         const agents = await reviewAgent.agentsList();
         for (const run of running) await ingestRun(run, agents);
       }
-      const open = (works.get(slug)?.stack || []).map(rowKey).filter(Boolean).map((key) => ({ key, count: (comments.list(slug, key).comments || []).filter((c) => c.status === 'open').length }));
+      const accepted = acceptedIds(slug);
+      const open = (works.get(slug)?.stack || []).map(rowKey).filter(Boolean).map((key) => {
+        const cs = (comments.list(slug, key).comments || []).filter((c) => c.status === 'open');
+        return { key, count: cs.length, accepted: cs.filter((c) => accepted.has(c.id)).length };
+      });
       return { runs: list(slug), open };
     });
   }

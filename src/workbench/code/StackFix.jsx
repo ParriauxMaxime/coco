@@ -12,8 +12,9 @@ const POLL_MS = 5000;
 const STATUS_CHIP = { running: 'c-orange', done: 'c-green', failed: 'c-red' };
 const short = (sha) => (sha ? sha.slice(0, 9) : '…');
 
-function useStackFix(slug, live) {
+export function useStackFix(slug, live) {
   const [state, setState] = useState({ runs: [], open: [] });
+  const [nonce, setNonce] = useState(0);
   const running = state.runs.some((r) => r.status === 'running');
   useEffect(() => {
     if (!live) return undefined;
@@ -22,11 +23,26 @@ function useStackFix(slug, live) {
     load();
     const t = setInterval(load, running ? POLL_MS : 30000);
     return () => { on = false; clearInterval(t); };
-  }, [slug, live, running]);
-  return state;
+  }, [slug, live, running, nonce]);
+  return { ...state, reload: () => setNonce((n) => n + 1) };
 }
 
-function FixDialog({ slug, open, onClose, onSent }) {
+export const openStackRun = (id, group) => useWorkbench.getState().open(`stack-${id}`, { group });
+
+export function StackRunLink({ run, onOpen }) {
+  return (
+    <span className="status">
+      <a href="#" onClick={(e) => { e.preventDefault(); onOpen(run.id); }}>stack fix {run.id}</a> <span className={`chip ${STATUS_CHIP[run.status] || 'c-grey'}`}>{run.status}</span> {new Date(run.startedAt).toLocaleString()}
+      {run.pushWarned && <span className="chip c-red">remote head moved</span>}
+    </span>
+  );
+}
+
+// select 'accepted': only the findings accepted on the board, with their triage
+export function FixDialog({ slug, open, select, onClose, onSent }) {
+  const accepted = select === 'accepted';
+  const countOf = (r) => (accepted ? r.accepted || 0 : r.count);
+  const chain = open.slice(Math.max(0, open.findIndex(countOf)));
   const [commits, setCommits] = useState('one');
   const models = useConfig((s) => s.models);
   const providers = [...new Set([models.default, models.fast].filter(Boolean))];
@@ -34,12 +50,12 @@ function FixDialog({ slug, open, onClose, onSent }) {
   const provider = picked || providers[0] || '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const total = open.reduce((n, r) => n + r.count, 0);
+  const total = open.reduce((n, r) => n + countOf(r), 0);
   const send = async () => {
     setBusy(true);
     setError('');
     try {
-      onSent(await reviewApi.startStackFix(slug, { commits, ...(provider ? { provider } : {}) }));
+      onSent(await reviewApi.startStackFix(slug, { commits, ...(select ? { select } : {}), ...(provider ? { provider } : {}) }));
     } catch (e) {
       setError(e.message);
       setBusy(false);
@@ -47,17 +63,17 @@ function FixDialog({ slug, open, onClose, onSent }) {
   };
   return (
     <div className="cc-scrim" onMouseDown={() => !busy && onClose()}>
-      <div className="card cc-dialog" role="dialog" aria-label="Fix all comments" onMouseDown={(e) => e.stopPropagation()}>
-        <b>Fix all comments · one agent, bottom-up</b>
+      <div className="card cc-dialog" role="dialog" aria-label={accepted ? 'Fix accepted findings' : 'Fix all comments'} onMouseDown={(e) => e.stopPropagation()}>
+        <b>{accepted ? 'Fix accepted findings' : 'Fix all comments'} · one agent, bottom-up</b>
         <ul className="sd-list">
-          {open.map((r, i) => <li key={r.key}><code>{i + 1}</code> {keyLabel(r.key)} · {r.count ? `${r.count} open` : 'restack only when its parent moves'}</li>)}
+          {chain.map((r, i) => <li key={r.key}><code>{i + 1}</code> {keyLabel(r.key)} · {countOf(r) ? `${countOf(r)} ${accepted ? 'accepted' : 'open'}` : 'restack only when its parent moves'}</li>)}
         </ul>
         <div className="row">
           <label className="row"><input type="radio" name="sf-commits" checked={commits === 'one'} onChange={() => setCommits('one')} /> one commit per comment</label>
           <label className="row"><input type="radio" name="sf-commits" checked={commits === 'squash'} onChange={() => setCommits('squash')} /> one commit per row</label>
           {providers.length > 0 && <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ marginLeft: 'auto' }}>{providers.map((p) => <option key={p}>{p}</option>)}</select>}
         </div>
-        <pre className="sd-preview">{`${total} comments · row 1 first, each row fixed on its branch, children restacked with git rebase --onto\na restack conflict stops the chain · never push, never post`}</pre>
+        <pre className="sd-preview">{`${total} ${accepted ? 'accepted findings, with their notes and threads' : 'comments'} · row 1 first, each row fixed on its branch, children restacked with git rebase --onto\na restack conflict stops the chain · never push, never post`}</pre>
         {error && <div className="card danger" style={{ margin: '8px 0 0' }}>{error}</div>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           <button className="sm" disabled={busy} onClick={onClose}>Cancel</button>
@@ -121,12 +137,12 @@ const RowLine = ({ row, i }) => (
 
 export function StackFixCard({ group }) {
   const { slug } = useWork();
-  const { runs, open } = useStackFix(slug, true);
+  const { runs, open, reload } = useStackFix(slug, true);
   const [dialog, setDialog] = useState(null);
   const total = open.reduce((n, r) => n + r.count, 0);
   const rows = open.filter((r) => r.count).length;
   const last = runs[0];
-  const openTab = (id) => useWorkbench.getState().open(`stack-${id}`, { group: group === 1 ? 2 : 1 });
+  const openTab = (id) => openStackRun(id, group === 1 ? 2 : 1);
   const refresh = () => open.forEach((r) => loadReview(slug, r.key));
   return (
     <div className="card" style={{ marginTop: 8 }}>
@@ -137,13 +153,8 @@ export function StackFixCard({ group }) {
           <button className="sm primary" disabled={!total || last?.status === 'running'} onClick={() => setDialog('fix')}>Fix all comments ({total} on {rows} row{rows === 1 ? '' : 's'})</button>
         </span>
       </div>
-      {last && (
-        <div className="status" style={{ marginTop: 6 }}>
-          <a href="#" onClick={(e) => { e.preventDefault(); openTab(last.id); }}>stack fix {last.id}</a> <span className={`chip ${STATUS_CHIP[last.status] || 'c-grey'}`}>{last.status}</span> {new Date(last.startedAt).toLocaleString()}
-          {last.pushWarned && <span className="chip c-red">remote head moved</span>}
-        </div>
-      )}
-      {dialog === 'fix' && <FixDialog slug={slug} open={open} onClose={() => setDialog(null)} onSent={(run) => { setDialog(null); refresh(); openTab(run.id); }} />}
+      {last && <div style={{ marginTop: 6 }}><StackRunLink run={last} onOpen={openTab} /></div>}
+      {dialog === 'fix' && <FixDialog slug={slug} open={open} onClose={() => setDialog(null)} onSent={(run) => { setDialog(null); refresh(); reload(); openTab(run.id); }} />}
       {dialog === 'import' && <ImportDialog slug={slug} onClose={() => setDialog(null)} onDone={refresh} />}
     </div>
   );

@@ -11,6 +11,7 @@ import { useWorkbench } from '../workbench-store.js';
 import { openCodeAt, useLocal } from './Code.jsx';
 import { findingsKeyOfTab, keyLabel } from '../code/ids.js';
 import { CHIP } from '../code/ReviewSidebar.jsx';
+import { FixDialog, StackRunLink, openStackRun, useStackFix } from '../code/StackFix.jsx';
 import '../code/code.css';
 
 const RANK = { blocking: 0, major: 1, minor: 2, nit: 3 };
@@ -190,6 +191,8 @@ export default function Findings({ tabId }) {
   const [picked, setPicked] = useState(() => new Set());
   const [pick, setPick] = useState('');
   const [note, setNote] = useState('');
+  const [fixing, setFixing] = useState(false);
+  const stackFix = useStackFix(slug, true);
   const pr = n == null ? null : String(n);
 
   const load = (fresh) => api.findings(slug, pr, fresh).then((d) => { setData(d); setError(''); }, (e) => setError(e.message));
@@ -218,6 +221,7 @@ export default function Findings({ tabId }) {
     try {
       const next = await api.findingAction(slug, { action, keys, reason, pr });
       setData(next);
+      stackFix.reload();
       setNote((next.pruned || []).map((p) => (p.outcome === 'pruned' ? `agent of group ${p.group} pruned` : p.outcome === 'left' ? `left group ${p.group}, its agent stays for ${p.others} other item(s)` : `agent kept: ${p.reason}`)).join(' · '));
       setPicked(new Set());
       setPick('');
@@ -244,6 +248,9 @@ export default function Findings({ tabId }) {
   const counts = shown.reduce((acc, r) => ((acc[r.status] = (acc[r.status] || 0) + 1), acc), {});
   const chosen = [...picked].map((k) => byKey.get(k)).filter(Boolean);
   const rowProps = { slug, onAct: act };
+  const toFix = stackFix.open.reduce((sum, r) => sum + (r.accepted || 0), 0);
+  const lastRun = stackFix.runs[0];
+  const openRun = (id) => openStackRun(id, useWorkbench.getState().otherGroup());
   let i = 0;
   return (
     <CodeRefScope n={n ?? undefined}>
@@ -254,10 +261,13 @@ export default function Findings({ tabId }) {
           {groupBy === 'spot' && grouped.length < shown.length && <span className="status">{grouped.length} spots</span>}
           {data.stale && <span className="status"><span className="spinner" aria-hidden /> refreshing · saved {new Date(data.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
           <span className="cc-spacer" />
+          {lastRun && <StackRunLink run={lastRun} onOpen={openRun} />}
+          <button type="button" className="sm primary" disabled={!toFix || lastRun?.status === 'running'} title="One agent fixes every accepted, still open finding of the stack, with your notes and threads" onClick={() => setFixing(true)}>Fix accepted ({toFix})</button>
           <span className="rv-seg">{GROUP_BY.map((v) => <button key={v} type="button" className={groupBy === v ? 'on' : ''} onClick={() => setGroupBy(v)}>{v}</button>)}</span>
           <span className="rv-seg">{VIEWS.map((v) => <button key={v} type="button" className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v}</button>)}</span>
           <button type="button" className="sm" disabled={busy} onClick={() => load(true)}>↻</button>
         </div>
+        {fixing && <FixDialog slug={slug} open={stackFix.open} select="accepted" onClose={() => setFixing(false)} onSent={(run) => { setFixing(false); stackFix.reload(); load(true); openRun(run.id); }} />}
         <ReviewerStrip rows={inView} hidden={hidden} setHidden={setHidden} />
         <div className="fd-bar">
           <span className="cc-spacer" />

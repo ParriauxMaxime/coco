@@ -40,7 +40,8 @@ gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
 - **Findings board.** Every remark on a PR in one list: persona reviews,
   agent reviews, your comments, GitHub reviewers, bots and failed CI.
   Grouped by spot, sorted worst first; accept, dismiss with a reason, or
-  dispatch to an agent.
+  dispatch to an agent. "Fix accepted" sends every accepted finding, with
+  your notes and thread outcomes, to one agent that fixes the stack.
 - **Agent threads.** Discuss a comment, a finding or a decision with a small
   scoped agent. It answers inline and suggests a commit; you approve, and
   cocopilot cherry-picks it onto the PR branch.
