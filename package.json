@@ -1,0 +1,39 @@
+{
+  "name": "cocopilot",
+  "version": "0.1.0",
+  "description": "Local workbench to run large features and PR stacks with Claude Code agents through Paseo: stack plan, code review, findings board, agent threads, checklist gates.",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "paseo",
+    "code-review",
+    "pull-requests",
+    "stacked-prs",
+    "ai-agents",
+    "workbench"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 8778",
+    "build": "vite build",
+    "serve": "node server/index.mjs",
+    "start": "vite build && node server/index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "marked": "^15.0.0",
+    "mermaid": "^12.2.0",
+    "monaco-editor": "^0.57.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.6.7",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "vite": "^6.0.0"
+  }
+}

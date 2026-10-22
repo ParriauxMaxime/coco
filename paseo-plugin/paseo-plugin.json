@@ -1,0 +1,8 @@
+{
+  "id": "cocopilot",
+  "name": "cocopilot",
+  "description": "Links Paseo workspaces to their cocopilot work, PR review and review runs",
+  "requirements": {
+    "paseo": ">=0.12.0"
+  }
+}

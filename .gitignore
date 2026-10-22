@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+*.bak
+server/mcp-config.json
+coco.config.json
+.claude/
+paseo-plugin/node_modules

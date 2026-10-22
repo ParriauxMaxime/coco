@@ -1,0 +1,59 @@
+{
+  "owner": { "name": "Alice", "login": "alice" },
+  "repo": {
+    "path": "~/code/widgets",
+    "github": "acme/widgets",
+    "defaultBranch": "main",
+    "tsconfig": "tsconfig.json",
+    "rules": ["AGENTS.md", "CLAUDE.md", "docs/rules/"],
+    "reviewsDir": ".claude/reviews",
+    "commitConvention": "Conventional Commits: <type>(<scope>): <subject>"
+  },
+  "baseUrl": "http://127.0.0.1:8777",
+  "dataDir": "~/.cocopilot/data",
+  "briefsDir": "/tmp/cocopilot-handoffs",
+  "skillsDir": "~/.claude/skills",
+  "skillPrefix": "coco-",
+  "methodSkill": "coco-work",
+  "personasDir": "~/.cocopilot/personas",
+  "personaFiles": { "ignore": ["README", "CHANGELOG"], "companionSuffixes": ["notes"] },
+  "kitBody": { "maxChars": 4000, "mustMatch": "" },
+  "models": { "default": "claude/claude-opus-5-5", "fast": "claude/claude-sonnet-5-5" },
+  "importRoots": ["/tmp", "/private/tmp", "~/.paseo/worktrees", "~/code/widgets"],
+  "kitKinds": ["body", "diagram", "video", "docs"],
+  "gateSkills": {
+    "self-review": ["simplify", "code-review"],
+    "history": [],
+    "kit-body": [],
+    "kit-diagram": [],
+    "kit-video": [],
+    "review-pr": ["code-review"]
+  },
+  "fileLayers": {
+    "layers": [
+      ["/api/routes/|\\.routes?\\.[jt]s$", "controller"],
+      ["/services?/", "service"],
+      ["/models?/", "domain"],
+      ["/db/|-repository\\.[jt]s$", "repository"],
+      ["/client/", "client"]
+    ],
+    "wiring": [
+      ["\\.d\\.ts$", "type declarations only"],
+      ["(^|/)index\\.[cm]?[jt]sx?$", "index re-exports"]
+    ],
+    "other": [
+      ["\\.mdx?$", "docs"],
+      ["(^|/)(package-lock\\.json|pnpm-lock\\.yaml)$", "generated file"]
+    ]
+  },
+  "botGroups": { "sentry": "sentry" },
+  "seedRules": [
+    ["Never push: commit locally; the user pushes.", "team practice"],
+    ["Code comments rare, one line, only when the why is not visible.", "team practice"]
+  ],
+  "rituals": [
+    { "kind": "review-as", "label": "Review a PR as a persona", "prompt": "/review-as {login} {pr}" },
+    { "kind": "self-review", "label": "Self review a PR", "prompt": "/code-review {pr}", "hint": "Runs a local review and reports findings to the board" }
+  ],
+  "featureFlags": null
+}

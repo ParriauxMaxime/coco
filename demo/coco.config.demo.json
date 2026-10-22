@@ -1,0 +1,35 @@
+{
+  "owner": { "name": "Alex", "login": "alex" },
+  "repo": {
+    "path": "/tmp/coco-demo/widgets",
+    "github": "acme/widgets",
+    "defaultBranch": "main",
+    "tsconfig": "tsconfig.json",
+    "rules": ["AGENTS.md"],
+    "reviewsDir": ".claude/reviews",
+    "commitConvention": "Conventional Commits: <type>(<scope>): <subject>"
+  },
+  "baseUrl": "http://127.0.0.1:8790",
+  "dataDir": "/tmp/coco-demo/data",
+  "briefsDir": "/tmp/coco-demo/briefs",
+  "skillsDir": "/tmp/coco-demo/skills",
+  "skillPrefix": "coco-",
+  "methodSkill": "coco-work",
+  "personasDir": "/tmp/coco-demo/personas",
+  "importRoots": ["/tmp/coco-demo"],
+  "gateSkills": {
+    "self-review": ["code-review"],
+    "history": [],
+    "kit-body": [],
+    "kit-diagram": [],
+    "kit-video": [],
+    "review-pr": ["code-review"]
+  },
+  "seedRules": [
+    ["Never push: commit locally; the user pushes.", "team practice"],
+    ["Money is integer cents end to end.", "AGENTS.md"]
+  ],
+  "rituals": [
+    { "kind": "self-review", "label": "Self review a PR", "prompt": "/code-review {pr}", "hint": "Runs a local review and reports findings to the board" }
+  ]
+}

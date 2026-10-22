@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "claude disabled in demo" >&2
+exit 1

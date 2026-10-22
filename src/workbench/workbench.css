@@ -1,0 +1,86 @@
+.content.wb { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.content.wb .topbar { flex: none; }
+.wb-root { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.wb-group { position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.wb-group[hidden] { display: none; }
+.wb-strip { flex: none; display: flex; align-items: stretch; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
+.wb-tabs { flex: 1; display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.wb-tabs::-webkit-scrollbar { display: none; }
+.wb-tab-h { flex: none; display: flex; align-items: center; gap: 6px; max-width: 240px; height: 36px; padding: 0 6px 0 12px; font-size: 13px; font-weight: 500; color: var(--mute); border-right: 1px solid var(--line-2); border-bottom: 2px solid transparent; cursor: pointer; user-select: none; white-space: nowrap; }
+.wb-tab-h:hover { background: var(--line-2); color: var(--ink-2); }
+.wb-tab-h.active { color: var(--ink); border-bottom-color: var(--line); }
+.wb-group.focus .wb-tab-h.active { border-bottom-color: var(--brand); }
+.wb-tab-h.preview .wb-label { font-style: italic; }
+.wb-label { overflow: hidden; text-overflow: ellipsis; }
+.wb-x { all: unset; box-sizing: border-box; flex: none; width: 18px; height: 18px; line-height: 17px; text-align: center; border-radius: var(--r-sm); font-size: 14px; color: var(--mute); cursor: pointer; opacity: 0; }
+.wb-tab-h:hover .wb-x, .wb-tab-h.active .wb-x { opacity: 1; }
+.wb-x:hover { background: var(--line); color: var(--ink); }
+.wb-acts { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
+.wb-act { background: transparent; border: 0; color: var(--mute); padding: 4px 8px; font-size: 12px; border-radius: var(--r); }
+.wb-act:hover { background: var(--line-2); color: var(--ink); }
+.wb-act.on { background: var(--brand-50); color: var(--brand-700); }
+.wb-body { flex: 1; min-height: 0; position: relative; }
+.wb-pane { position: absolute; inset: 0; overflow: auto; padding: 14px 16px 60px; }
+.wb-pane[hidden] { display: none; }
+.wb-pane.flush { padding: 0; overflow: hidden; }
+.wb-plan { max-width: 1120px; margin: 0 auto; }
+.wb-handle { position: absolute; z-index: 2; background: var(--line-2); transition: background .12s; touch-action: none; }
+.wb-handle.row { cursor: col-resize; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.wb-handle.col { cursor: row-resize; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.wb-handle:hover, .wb-handle.on { background: var(--brand-100); }
+.wb-root:has(.wb-handle.on) { user-select: none; }
+.wb-root:has(.wb-handle.on) .wb-body { pointer-events: none; }
+.wb-tab-h.dragging { opacity: .4; }
+.wb-tab-h.drop-before { box-shadow: inset 2px 0 0 var(--brand); }
+.wb-tabs.drop-end::after { content: ''; flex: none; width: 2px; background: var(--brand); }
+.wb-dropzone { position: absolute; inset: 0; z-index: 5; }
+.wb-drop { position: absolute; inset: 0; background: var(--brand-shadow); border: 2px solid var(--brand); border-radius: var(--r); pointer-events: none; transition: inset .08s; }
+.wb-drop.left { right: 50%; }
+.wb-drop.right { left: 50%; }
+.wb-drop.top { bottom: 50%; }
+.wb-drop.bottom { top: 50%; }
+.wb-exit { position: fixed; right: 16px; bottom: 16px; z-index: 30; border-radius: 999px; padding: 6px 14px; font-size: 12px; box-shadow: var(--shadow-hover); }
+body.wb-max .sidebar, body.wb-max .topbar { display: none; }
+body.wb-max .shell { grid-template-columns: 1fr; }
+@media (max-width: 900px) {
+  .wb-pane { padding: 12px 12px 60px; }
+  .wb-pane.flush { padding: 0; }
+}
+
+.fd { max-width: 1280px; margin: 0 auto; }
+.fd-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.fd-pickbox { width: 120px; font-size: 12px; padding: 3px 8px; }
+.fd-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.fd-list > .fd-row, .fd-spot { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
+.fd-row { display: grid; grid-template-columns: 44px 170px 130px 170px minmax(0, 1fr) 80px 150px; align-items: center; gap: 4px 10px; padding: 8px 12px; font-size: 13px; }
+.fd-row.nested { padding-left: 34px; background: var(--grey-bg); border-top: 1px solid var(--line-2); }
+
+.fd, .wb-plan { position: relative; isolation: isolate; overflow-x: clip; }
+.fd-row.dismissed, .fd-row.fixed, .fd-row.declined { color: var(--mute); }
+.fd-pick { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--mute); }
+.fd-src { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--ink-2); }
+.fd-who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-who { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+.fd-sig { display: flex; gap: 4px; }
+.fd-loc { font: 12px ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-claimcell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fd-claim { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.fd-chev { all: unset; cursor: pointer; flex: none; width: 14px; color: var(--mute); font-size: 11px; }
+.fd-claim:hover { color: var(--brand-700); }
+.fd-also { all: unset; cursor: pointer; flex: none; font-size: 11px; color: var(--mute); white-space: nowrap; }
+.fd-also:hover { color: var(--brand-700); }
+.fd-acts { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.fd-body { grid-column: 2 / -1; font-size: 13px; padding-top: 4px; }
+.fd-foot { border-top: 1px solid var(--line-2); padding-top: 10px; }
+.fd-section-title { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 12px 0 4px; }
+@media (max-width: 900px) {
+  .fd-row { grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: 'pick claim claim' 'pick src st' 'pick loc acts'; }
+  .fd-pick { grid-area: pick; align-self: start; }
+  .fd-claimcell { grid-area: claim; flex-wrap: wrap; }
+  .fd-claim { white-space: normal; }
+  .fd-src { grid-area: src; }
+  .fd-sig { display: none; }
+  .fd-st { grid-area: st; justify-self: end; }
+  .fd-loc { grid-area: loc; }
+  .fd-acts { grid-area: acts; }
+}
