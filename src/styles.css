@@ -315,6 +315,8 @@ button.suggest .persona-chip { background: transparent; padding: 0; }
 .gate-detail { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: var(--r); display: grid; gap: 6px; }
 .gate-detail .row { flex-wrap: wrap; }
 .gate-cmd { overflow-x: auto; max-width: 100%; }
+.onboarding { border-color: var(--brand); }
+.onboarding .gate { cursor: default; }
 .rule-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
 .rule-text { flex: 1; min-width: 200px; }
 .rule-line.retired .rule-text { color: var(--mute); text-decoration: line-through; }

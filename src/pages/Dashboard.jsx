@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { ritualFields, useConfig } from '../config.js';
 import Markdown from '../components/Markdown.jsx';
 import TeamPack from '../components/TeamPack.jsx';
+import Onboarding from '../components/Onboarding.jsx';
 
 const statusChip = (s) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
 
@@ -24,6 +25,7 @@ export default function Dashboard() {
     <>
       <h1>cocopilot</h1>
       <p className="sub">Copiloting the copilots: skills, personas, works and Paseo agents, in one place. Runs on your machine; agents never push, post or send on their own.</p>
+      <Onboarding />
       <div className="card kpis">
         <div className="kpi"><div className="label">Personas</div><div className="value">{data.personas.length}</div></div>
         <div className="kpi"><div className="label">Stale (&gt;60d)</div><div className="value">{data.personas.filter((p) => p.stale).length}</div></div>

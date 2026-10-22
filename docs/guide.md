@@ -28,6 +28,22 @@ the app serves your repo and starts agents for anyone who can reach the port.
 Dev loop: `npm run serve` in one shell, `npm run dev` in another (Vite on
 8778 proxies `/api`).
 
+### Setup checklist (first install and updates)
+
+Until the setup is complete, the Dashboard shows a checklist: config file,
+repository, `gh` login, Paseo plugin (installed from this checkout and
+enabled), skills, skills matching this version (optional), personas
+(optional) and a first work. Ticks are derived on each load, never stored;
+each open step shows its command to copy. "Ask an agent to finish the
+setup" starts a Paseo agent in auto mode in the app folder on
+[setup.md](setup.md), which handles a fresh install and an update alike.
+When the config file changed after the server started, the card asks for a
+restart. "Hide" covers the steps open at that moment (`cc.onboarded` in
+this browser); a step that opens later, after an update, shows the card
+again.
+
+Routes: `GET /api/setup` (steps, `done`, `restart`), `POST /api/setup/agent`.
+
 ## What it reads and writes
 
 - Personas: `personasDir/*.md|json` (read, inline edit with a `.bak` copy).

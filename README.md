@@ -9,8 +9,19 @@ what is left before each PR can merge.
 ## Get started
 
 Needs Node 20+, `git`, the [GitHub CLI](https://cli.github.com) logged in,
-and [Paseo](https://paseo.sh) with Claude Code. Paste in a terminal, with
-`COCO_REPO` set to the repository you work in:
+and [Paseo](https://paseo.sh) with Claude Code. Paste this in Claude Code:
+
+```text
+Set up cocopilot for me: follow https://raw.githubusercontent.com/ParriauxMaxime/coco/main/docs/setup.md
+```
+
+The agent checks the prerequisites, installs the skills and the Paseo
+plugin, writes your config, asking only which repository you work in, and
+starts the server. Paste the same line to update: it finds your install,
+pulls, refreshes the skills and the plugin, and keeps your config, data and
+edited skills. The [setup guide](docs/setup.md) lists every step.
+
+Or by hand, with `COCO_REPO` set to the repository you work in:
 
 ```bash
 git clone https://github.com/ParriauxMaxime/coco.git ~/cocopilot && cd ~/cocopilot
@@ -20,7 +31,9 @@ mkdir -p ~/.claude/skills && cp -R skills/* ~/.claude/skills/
 COCO_REPO=~/code/your-repo npm start
 ```
 
-Open <http://127.0.0.1:8777>. To go further, see [Configure](#configure).
+Open <http://127.0.0.1:8777>. Until everything is set, the Dashboard shows
+a checklist: each missing step with its command, and a button that starts
+an agent to finish the setup. To go further, see [Configure](#configure).
 
 ![cocopilot on a demo stack: plan and a decision, code review, findings board, checklist gates](docs/media/overview.gif)
 

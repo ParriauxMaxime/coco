@@ -33,7 +33,7 @@ export const fenced = (text, lang = '') => {
 };
 // The server may run inside a Paseo agent's shell: its PASEO_AGENT_ID would make every launch that agent's subagent and pin it to that agent's workspace.
 const AMBIENT_PASEO = ['PASEO_AGENT_ID', 'PASEO_AGENT_CWD', 'PASEO_WORKSPACE_ID'];
-const launcherEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !AMBIENT_PASEO.includes(k)));
+export const launcherEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !AMBIENT_PASEO.includes(k)));
 const expandHome = (p) => String(p || '').replace(/^~(?=\/|$)/, HOME);
 const parseJson = (text, fallback) => {
   try {

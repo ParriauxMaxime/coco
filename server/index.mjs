@@ -25,6 +25,7 @@ import { createInbox } from './inbox.mjs';
 import { createKit } from './kit.mjs';
 import { createFeatureFlags } from './feature-flags.mjs';
 import { createPack } from './pack.mjs';
+import { createSetup } from './setup.mjs';
 import { loadConfig, personaLogins } from './config.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,7 @@ const gates = createGates({ REPO, config, works, reviewAgent, reviewPlan });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
+const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length });
 const paseoLink = createPaseoLink({ REPO, config, works, comments, code, reviewAgent, stackFix, threads });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
@@ -255,6 +257,7 @@ async function api(req, res, url) {
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
     if (root === 'inbox') return inbox.handle(req, res, parts, readBody, send);
     if (root === 'pack') return pack.handle(req, res, parts, readBody, send);
+    if (root === 'setup') return setup.handle(req, res, parts, readBody, send);
     if (root === 'code' && (['definition', 'references', 'hover', 'open'].includes(c) || a === 'lang')) return lang.handle(req, res, parts, readBody, send);
     if (root === 'code') return code.handle(req, res, parts, readBody, send);
     if (root === 'works' && parts[2] === 'prs' && parts[4] === 'comments') return comments.handle(req, res, parts, readBody, send);

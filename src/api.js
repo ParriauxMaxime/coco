@@ -12,6 +12,8 @@ const asThread = (t) => {
 export const api = {
   config: () => fetch('/api/config').then(json),
   overview: () => fetch('/api/overview').then(json),
+  setup: () => fetch('/api/setup').then(json),
+  setupAgent: () => fetch('/api/setup/agent', { method: 'POST' }).then(json),
   personas: () => fetch('/api/personas').then(json),
   persona: (login) => fetch(`/api/personas/${login}`).then(json),
   personaFile: (login, name) => fetch(`/api/personas/${login}/files/${encodeURIComponent(name)}`).then((r) => r.text()),
