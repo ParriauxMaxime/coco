@@ -26,6 +26,8 @@ export const DEFAULTS = {
   skillPrefix: '',
   methodSkill: '',
   methodNotes: '',
+  // shipped skill → your skill that replaces it; the same name keeps your edited copy of the shipped one
+  skillOverrides: {},
   personasDir: '',
   // files in personasDir that are not personas: exact names, and `<login>-<suffix>.md` companions of a persona
   personaFiles: { ignore: ['README', 'CHANGELOG'], companionSuffixes: [] },
@@ -42,6 +44,8 @@ export const DEFAULTS = {
   featureFlags: null,
 };
 
+export const skillFor = (config, name) => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;
+
 export const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 export const merge = (base, over) => {
   if (!isObject(base) || !isObject(over)) return over === undefined ? base : over;
@@ -54,7 +58,9 @@ export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(AP
   const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const c = merge(DEFAULTS, raw);
   c.repo.path = home(process.env.COCO_REPO || c.repo.path);
-  c.dataDir = home(process.env.COCO_DATA || c.dataDir || path.join(APP, 'data'));
+  // outside the checkout so a `git clean` cannot take the works; `<app>/data` stays for installs that already have it
+  const legacyData = path.join(APP, 'data');
+  c.dataDir = home(process.env.COCO_DATA || c.dataDir || (fs.existsSync(legacyData) ? legacyData : '~/.cocopilot/data'));
   c.skillsDir = home(c.skillsDir);
   c.personasDir = home(c.personasDir || path.join(c.dataDir, 'personas'));
   c.briefsDir = home(c.briefsDir);

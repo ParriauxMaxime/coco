@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { launcherEnv } from './review-agent.mjs';
+import { skillFor } from './config.mjs';
 
 const STARTED = Date.now();
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
@@ -47,7 +48,7 @@ export function setupSteps(f, { APP, skillsDir }) {
     { id: 'gh', label: 'GitHub CLI logged in', done: f.gh, optional: false, hint: 'PR state, CI and reviews come from gh.', command: 'gh auth login' },
     pluginStep(f, APP),
     { id: 'skills', label: 'Agent skills', done: f.missingSkills.length === 0, optional: false, hint: f.missingSkills.length ? `Missing in ${skillsDir}: ${f.missingSkills.join(', ')}.` : 'Agents report findings and decisions through them.', command: installable.length ? copySkills(installable, { APP, skillsDir }) : '' },
-    { id: 'skills-current', label: 'Skills match this version', done: f.changedSkills.length === 0, optional: true, hint: `${f.changedSkills.join(', ')} ${f.changedSkills.length > 1 ? 'differ' : 'differs'} from ${APP}/skills: an older copy, or your own edits. Diff before copying over them.`, command: f.changedSkills.length ? f.changedSkills.map((s) => `diff -r ${APP}/skills/${s} ${skillsDir}/${s}`).join('; ') : '' },
+    { id: 'skills-current', label: 'Skills match this version', done: f.changedSkills.length === 0, optional: true, hint: `${f.changedSkills.join(', ')} ${f.changedSkills.length > 1 ? 'differ' : 'differs'} from ${APP}/skills: an older copy, or your own edits. Diff, then copy over an older copy, or keep yours with \`"skillOverrides": { "<name>": "<name>" }\` in the config.`, command: f.changedSkills.length ? f.changedSkills.map((s) => `diff -r ${APP}/skills/${s} ${skillsDir}/${s}`).join('; ') : '' },
     { id: 'personas', label: 'Reviewer personas', done: f.personas > 0, optional: true, hint: 'Optional. One markdown file per reviewer, format in docs/examples/personas/alice.md.', command: '' },
     { id: 'work', label: 'First work', done: f.works > 0, optional: false, hint: 'A feature shipped as one PR or a stack. Attach a Paseo project, or turn a link into a work from the Inbox.', command: '' },
   ];
@@ -71,6 +72,8 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
       if (p) plugin = { path: real(p.path), enabled: p.enabled };
     } catch {}
     const shippedSkills = shipped();
+    // an overridden skill only has to exist; it is the user's on purpose, never compared with the shipped one
+    const overridden = (s) => s in (config.skillOverrides || {}) || skillFor(config, s) !== s;
     return {
       config: fs.existsSync(configFile),
       repoPath,
@@ -80,9 +83,8 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
       plugin,
       pluginSource: real(path.join(APP, 'paseo-plugin')),
       shippedSkills,
-      // a configured methodSkill stands in for the shipped coco-work
-      missingSkills: shippedSkills.map((s) => (s === 'coco-work' && config.methodSkill ? config.methodSkill : s)).filter((s) => !installed(s)),
-      changedSkills: shippedSkills.filter((s) => installed(s) && !sameSkill(path.join(APP, 'skills', s), path.join(config.skillsDir, s))),
+      missingSkills: shippedSkills.map((s) => skillFor(config, s)).filter((s) => !installed(s)),
+      changedSkills: shippedSkills.filter((s) => !overridden(s) && installed(s) && !sameSkill(path.join(APP, 'skills', s), path.join(config.skillsDir, s))),
       personas: personaCount(),
       works: works.list().length,
     };

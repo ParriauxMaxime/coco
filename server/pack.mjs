@@ -147,7 +147,7 @@ export function createPack({ APP, DATA, config }) {
 
   function offeredSkills() {
     if (!SKILLS || !fs.existsSync(SKILLS)) return [];
-    const named = new Set([config.methodSkill]);
+    const named = new Set([config.methodSkill, ...Object.values(config.skillOverrides || {})]);
     if (config.skillPrefix) for (const d of fs.readdirSync(SKILLS)) if (d.startsWith(config.skillPrefix)) named.add(d);
     for (const list of Object.values(config.gateSkills || {})) for (const s of list || []) named.add(typeof s === 'string' ? s : s?.name);
     for (const r of config.rituals || []) for (const m of String(r.prompt || '').matchAll(/(?:^|\s)\/([\w:-]+)/g)) named.add(m[1]);

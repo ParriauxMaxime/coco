@@ -11,8 +11,8 @@ server over the file system, `git`, `gh` and the `paseo` CLI. Single user,
 local.
 
 In this guide, "the repo" is `repo.path`, "the default branch" is
-`repo.defaultBranch`, and `data/…` paths live in `dataDir` (`<app>/data` by
-default).
+`repo.defaultBranch`, and `data/…` paths live in `dataDir`
+(`~/.cocopilot/data` by default).
 
 ## Run
 
@@ -654,8 +654,8 @@ commit them.
 
 - Personas: every file in `personasDir`, grouped by login (persona,
   `<login>.json`, companions); other files (README, …) as one group.
-- Skills: those named with `skillPrefix`, `methodSkill`, the skills in
-  `gateSkills`, and the `/skill` commands of `rituals` that exist in
+- Skills: those named with `skillPrefix`, `methodSkill`, the targets of
+  `skillOverrides`, the skills in `gateSkills`, and the `/skill` commands of `rituals` that exist in
   `skillsDir`. Symlinks, `node_modules`, `.git`, `dist`, `data`, `*.bak`, the
   cocopilot app folder and `personasDir` are left out of a skill folder.
 - Team config: the raw JSON of your config file minus personal keys

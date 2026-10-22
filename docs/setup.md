@@ -57,14 +57,16 @@ plugin they edited. Not found: this is a **fresh install**.
 
      A refused fast-forward means local commits: stop and ask.
 
-2. **Skills.** For every `$APP/skills/<name>`:
+2. **Skills.** First read `skillOverrides` and `methodSkill` in the config.
+   A shipped skill named in `skillOverrides` (or `coco-work` when
+   `methodSkill` is set) is replaced by the user's own: never install, diff
+   or overwrite it; only check that the replacement exists. For every other
+   `$APP/skills/<name>`:
    - missing in `~/.claude/skills/`: copy it;
    - identical: nothing to do;
-   - different: show `diff -r` and ask whether to replace it. It can be an
-     older copy or the user's own edits; never overwrite without a yes.
-
-   When `methodSkill` is set in the config, that skill replaces `coco-work`:
-   do not install `coco-work` next to it.
+   - different: show `diff -r` and ask. Older copy: replace it. The user's
+     own edits they want to keep: add `"<name>": "<name>"` to
+     `skillOverrides` in the config instead. Never overwrite without a yes.
 
 3. **Paseo plugin.** `paseo plugin ls --json`, entry with id `cocopilot`:
    - absent:
@@ -82,7 +84,8 @@ plugin they edited. Not found: this is a **fresh install**.
    If Paseo answers that plugins are disabled, ask the user before enabling
    them.
 
-4. **Config.** When `$APP/coco.config.json` exists, never rewrite it. On an
+4. **Config.** When `$APP/coco.config.json` exists, never rewrite it; only
+   add the `skillOverrides` entries the user agreed to in step 2. On an
    update, compare its top-level keys with `coco.config.example.json` and
    list the new ones with their line in `docs/configuration.md`; the
    defaults already apply, so adding them is the user's call.

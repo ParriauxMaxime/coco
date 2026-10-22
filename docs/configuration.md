@@ -56,11 +56,12 @@ The server port and bind address are command-line arguments, not config:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `baseUrl` | `"http://127.0.0.1:8777"` | URL agents use to call cocopilot back (briefs, skills). Match the port you start the server on. |
-| `dataDir` | `<app>/data` | Where works, comments, findings, threads and caches are stored. Back it up; it is the only state. |
+| `dataDir` | `~/.cocopilot/data` (`<app>/data` when that folder exists, for older installs) | Where works, comments, findings, threads and caches are stored. Back it up; it is the only state. Keep it outside the checkout: `git clean -x` there would delete it. |
 | `briefsDir` | `<tmp>/cocopilot-handoffs` | Scratch folder for ritual briefs handed to agents. |
 | `skillsDir` | `"~/.claude/skills"` | Claude Code skills folder, listed and editable from the Dashboard. |
 | `skillPrefix` | `""` | Name prefix of your team's own skills (e.g. `"coco-"`): those are listed first and shown on the Dashboard. Empty: no skill is singled out. |
 | `methodSkill` | `""` | Name of the skill that describes how you run a work (e.g. `"coco-work"`). Ask runs can read its files by bare name (`SKILL.md`, …) through the MCP `read_skill` tool. |
+| `skillOverrides` | `{}` | Shipped skill → your skill that replaces it, e.g. `{ "coco-diagram": "my-diagram" }`. Gates run yours, setup checks yours is installed and never installs, compares or overwrites the shipped one. Map a name to itself (`{ "coco-findings": "coco-findings" }`) to keep your edited copy of a shipped skill. `methodSkill` already replaces `coco-work`. |
 | `methodNotes` | `""` | A file of `methodSkill` holding your preferences for scaffolds, stacks and diagrams (e.g. `"preferences.md"`). Ask and Inbox runs read it first when set. |
 | `personasDir` | `<dataDir>/personas` | Reviewer persona files (`<login>.md`, optional `<login>.json`). Format: [examples/personas/alice.md](examples/personas/alice.md). |
 | `personaFiles` | `{ "ignore": ["README", "CHANGELOG"], "companionSuffixes": [] }` | Files in `personasDir` that are not personas: `ignore` lists base names, `companionSuffixes` marks `<login>-<suffix>.md` as extra files of that persona (listed with it, not as a persona). |

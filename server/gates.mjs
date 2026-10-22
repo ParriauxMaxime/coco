@@ -1,6 +1,7 @@
 // Per-PR checklist: the gates from self review to merge, each started as a skill in the PR agent, ticked by the user, or derived from GitHub and git.
 // Push and ready for review have no button: cocopilot never pushes, it shows the command.
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.mjs';
+import { skillFor } from './config.mjs';
 
 const SETTLE_MS = 15000;
 const REMOTE_TTL_MS = 60000;
@@ -17,7 +18,7 @@ export const skillName = (s) => (typeof s === 'string' ? s : s?.name);
 
 // skills per gate from config.gateSkills, one kit gate per config.kitKinds entry
 export function gatesFor(config) {
-  const skills = (id) => config?.gateSkills?.[id] || [];
+  const skills = (id) => (config?.gateSkills?.[id] || []).map((s) => (typeof s === 'string' ? skillFor(config, s) : { ...s, name: skillFor(config, s.name) }));
   const kits = (config?.kitKinds || ['body', 'diagram', 'video']).map((k) => ({ id: `kit-${k}`, label: `kit: ${k}`, skills: skills(`kit-${k}`) }));
   return [
     { id: 'self-review', label: 'self review', skills: skills('self-review') },
