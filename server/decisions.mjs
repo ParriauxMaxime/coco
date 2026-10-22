@@ -1,7 +1,10 @@
 // Shared by the server (notes bullet, timeline) and the Decisions tab (copy as markdown).
 // A card with `rows` is a table of sub-decisions: its `options` are the columns, `choice` maps each row key to an option key.
 
-const optionLabel = (d, key) => d.options.find((o) => o.key === key)?.label || key;
+// an archived card (overtaken by later work) leaves counts, briefs and the review feed; the Decisions tab still lists it under "archived"
+export const isLive = (d) => !d.archivedAt;
+
+const optionLabel =(d, key) => d.options.find((o) => o.key === key)?.label || key;
 
 export const validChoice = (d, choice) =>
   d.rows ? Boolean(choice) && d.rows.every((r) => d.options.some((o) => o.key === choice[r.key])) : d.options.some((o) => o.key === choice);

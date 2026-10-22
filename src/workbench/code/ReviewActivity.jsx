@@ -6,9 +6,12 @@ import { useWork } from '../use-work.js';
 import { useWorkbench } from '../workbench-store.js';
 import { useLocal } from '../tabs/Code.jsx';
 import { DecisionCard } from '../tabs/Decisions.jsx';
+import { isLive } from '../../../server/decisions.mjs';
 import { Confidence, Severity } from '../../components/Signals.jsx';
 import { CommentActions, WatchActions, remarkVerdicts, setStatus } from './CommentZone.jsx';
 import { reviewApi } from './use-comments.js';
+import { toast } from '../../components/Toast.jsx';
+import { useAction, pendingClass } from '../../components/action.js';
 import ReviewPlan from './ReviewPlan.jsx';
 import { CHIP } from './ReviewSidebar.jsx';
 import './code.css';
@@ -16,7 +19,7 @@ import './code.css';
 const MODE = { send: 'c-purple', cwd: 'c-blue', 'checkout-pr': 'c-grey' };
 const FILTERS = ['all', 'open', 'to review'];
 const SEVERITY_RANK = { blocking: 0, major: 1, minor: 2, nit: 3, undefined: 2 };
-const fail = (e) => alert(e.message);
+const fail = (e) => toast.error(e.message);
 const latest = (...ts) => ts.filter(Boolean).sort().at(-1) || '';
 const since = (iso) => {
   if (!iso) return '';
@@ -97,6 +100,7 @@ function DecisionRow({ d, slug, open, onToggle, ts, onDecide, onReply }) {
 }
 
 function RunRow({ run, slug, n, onPushed }) {
+  const { busy, run: go } = useAction();
   const openLogs = () => {
     const s = useWorkbench.getState();
     s.open(`agent-${run.runId}`, { group: s.otherGroup() });
@@ -111,7 +115,7 @@ function RunRow({ run, slug, n, onPushed }) {
       </div>
       <div className="rv-row-h">
         <button type="button" className="cc-link" onClick={openLogs}>open logs</button>
-        {!run.pushedByUser && <button type="button" className="cc-link" onClick={() => reviewApi.pushed(slug, n, run.runId).then(onPushed).catch(fail)}>I pushed</button>}
+        {!run.pushedByUser && <button type="button" className={`cc-link${pendingClass(busy)}`} disabled={busy} onClick={() => go('pushed', () => reviewApi.pushed(slug, n, run.runId).then(onPushed))}>I pushed</button>}
       </div>
     </div>
   );
@@ -135,7 +139,7 @@ export default function ReviewActivity({ slug, n, rv, onJump }) {
       const key = threadKey.comment(n, c.id);
       return { id: key, kind: 'comment', ts: latest(c.createdAt, c.updatedAt, summaries[key]?.lastTs), open: c.status === 'open' || c.status === 'sent', hot: hot(key), c };
     }),
-    ...(w.decisions || []).filter((d) => !prOnly || String(d.pr) === String(n)).map((d) => {
+    ...(w.decisions || []).filter((d) => isLive(d) && (!prOnly || String(d.pr) === String(n))).map((d) => {
       const key = threadKey.decision(d.id);
       return { id: key, kind: 'decision', ts: latest(d.decidedAt, summaries[key]?.lastTs), open: d.status !== 'taken', hot: hot(key), d };
     }),

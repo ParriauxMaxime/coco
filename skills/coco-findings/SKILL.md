@@ -129,6 +129,14 @@ review, and update an existing one with `PUT …/prs/<n>/comments/<id>` (any of
 `title`, `severity`, `confidence`, `category`, `recommendation`, `blocks`,
 `sources`).
 
+### Finding or decision?
+
+A defect at a line of the diff is a finding. A product or tech choice with
+options (scope, behavior, rollout, convention) is a decision card: same
+`summary`, `blocks` and `sources`, posted with
+`PUT …/api/works/<slug>/decisions/<id>` (shape in the `coco-work` skill),
+plus `sha` when it holds a `suggestion`. Never both for one issue.
+
 ## 4. Review page (optional)
 
 When the review also writes `.claude/reviews/<date>-<work>-<pr>.md`, give each

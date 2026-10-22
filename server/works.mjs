@@ -7,6 +7,7 @@ import { globToRegExp, surfaceGlobs } from './glob.mjs';
 import { createNotionSync } from './notion.mjs';
 import { keyLabel, rowKey } from './stack.mjs';
 import { decisionBullet, decisionSummary, validChoice } from './decisions.mjs';
+import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.mjs';
 
 const HOME = os.homedir();
 const run = (cmd, args, opts = {}) =>
@@ -286,7 +287,14 @@ export function createWorks({ DATA, PERSONAS, REPO, config }) {
       work.timeline.unshift({ ts: new Date().toISOString(), kind: body.kind || 'note', text: body.text });
       return send(res, 200, save(work));
     }
-    if (b === 'decisions' && c && req.method === 'PUT') return send(res, 200, upsertDecision(a, { ...JSON.parse(await readBody(req)), id: decodeURIComponent(c) }));
+    if (b === 'decisions' && c && req.method === 'PUT') {
+      const card = { ...JSON.parse(await readBody(req)), id: decodeURIComponent(c) };
+      try {
+        return send(res, 200, await upsertDecision(a, card));
+      } catch (e) {
+        return send(res, 400, { error: e.message });
+      }
+    }
     if (b === 'decisions' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
       const next = decide(a, body);
@@ -350,13 +358,18 @@ export function createWorks({ DATA, PERSONAS, REPO, config }) {
     return `${lines.join('\n')}\n`;
   };
 
-  // a decision taken (or reopened) on a work: the card state, a bullet under "## Decisions taken", a timeline entry
-  const decide = (slug, { id, choice, rationale, status }) => {
+  // a decision taken, reopened or archived on a work: the card state, a bullet under "## Decisions taken", a timeline entry
+  const decide = (slug, { id, choice, rationale, status, archived }) => {
     const work = get(slug);
     const decision = (work?.decisions || []).find((d) => d.id === id);
     if (!decision) return null;
     const ts = new Date().toISOString();
     work.timeline = work.timeline || [];
+    if (typeof archived === 'boolean') {
+      decision.archivedAt = archived ? ts : null;
+      work.timeline.unshift({ ts, kind: 'decision', text: `${decision.title}: ${archived ? 'archived' : 'unarchived'}` });
+      return save(work);
+    }
     if (status === 'pending') {
       Object.assign(decision, { status: 'pending', choice: null, rationale: '', decidedAt: null });
       work.timeline.unshift({ ts, kind: 'decision', text: `${decision.title}: reopened` });
@@ -369,11 +382,18 @@ export function createWorks({ DATA, PERSONAS, REPO, config }) {
     return save(work);
   };
 
-  // one card added or updated by id; fields left out (e.g. the user's choice) stay as they are
-  const upsertDecision = (slug, card) => {
+  // one card added or updated by id; fields left out (e.g. the user's choice) stay as they are.
+  // Typed blocks as on findings: `details` becomes their markdown twin, a suggestion's `before` is read at the card's `sha`.
+  const upsertDecision = async (slug, input) => {
     const work = get(slug);
     work.decisions = work.decisions || [];
-    const decision = work.decisions.find((d) => d.id === card.id);
+    const decision = work.decisions.find((d) => d.id === input.id);
+    const card = { ...input, ...validateRich(input) };
+    if (card.blocks) {
+      const sha = card.sha || decision?.sha;
+      if (sha) await readSuggestionBefore(card.blocks, (p) => run('git', ['-C', REPO, 'show', `${sha}:${p}`]).then((r) => (r.ok ? r.stdout.replace(/\n$/, '').split('\n') : null)));
+      card.details = blocksToMarkdown({ summary: card.summary ?? decision?.summary, blocks: card.blocks, sources: card.sources ?? decision?.sources });
+    }
     if (decision) Object.assign(decision, card);
     else work.decisions.push({ status: 'pending', ...card });
     return save(work);

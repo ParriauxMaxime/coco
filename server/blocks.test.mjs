@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blocksToMarkdown, validateBlocks } from './blocks.mjs';
+import { blocksToMarkdown, readSuggestionBefore, validateBlocks, validateRich } from './blocks.mjs';
+
+test('rich fields come back only for the keys sent, so a patch keeps the rest', async () => {
+  assert.deepEqual(validateRich({ title: 'x' }), {});
+  const rich = validateRich({ summary: '  Members see hidden names.  ', blocks: [{ type: 'suggestion', path: 'a.ts', startLine: 2, endLine: 3, after: 'y', before: 'forged' }] });
+  assert.equal(rich.summary, 'Members see hidden names.');
+  await readSuggestionBefore(rich.blocks, async (p) => (p === 'a.ts' ? ['one', 'two', 'three'] : null));
+  assert.equal(rich.blocks[0].before, 'two\nthree');
+});
 
 test('a bad block is refused with the field that broke', () => {
   assert.throws(() => validateBlocks([{ type: 'text', text: 'ok' }, { type: 'table', columns: ['a', 'b'], rows: [['1']] }]), /blocks\[1\]\.rows\[0\] must hold 2 cells/);

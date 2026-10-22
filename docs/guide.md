@@ -126,7 +126,9 @@ taken` in the notes (a multi-line rationale goes indented under it) and a
 `decision` timeline entry, so agents reading `get_work` see it at once.
 "Reopen" (`{ id, status: 'pending' }`) clears the choice; the notes bullet
 stays as history. "Copy taken as markdown" gives the bullets to paste into
-PLAN.md.
+PLAN.md. `{ id, archived: true }` archives a card overtaken by later work:
+it leaves the counts, the briefs and the review feed, and stays listed under
+"archived" (`archived: false` brings it back).
 
 Agents write cards with `PUT /api/works/<slug>/decisions/<id>`: the body is
 merged into the card with that id, or appended as a new `pending` card. Leave
@@ -134,15 +136,28 @@ merged into the card with that id, or appended as a new `pending` card. Leave
 already took stays. `PUT /api/works/<slug>` with the whole `decisions` array
 still works, but overwrites a decision taken in between.
 
+A card carries its evidence like a finding does: `summary` (one-sentence
+lede), `blocks` (the typed blocks of the `coco-findings` skill: table,
+steps, diagram, code, suggestion, media, callout, text) and `sources`. The
+server validates them, writes the markdown twin into `details` for agents
+and briefs, and reads a suggestion's `before` at the card's `sha`. Findings
+are about code at a line; decisions are product or tech choices with
+options; both share one block format and one renderer. Option `details`
+stay one or two plain sentences.
+
 ```bash
 curl -s -X PUT http://127.0.0.1:8777/api/works/<slug>/decisions/d3-export-denied \
   -H 'Content-Type: application/json' --data @- <<'JSON'
 {
   "title": "D3 · Export CSV · Without the permission",
   "question": "A member without invoices:export opens the invoices page: what do they see?",
-  "details": "Today every member who lists invoices can export them.\n\n| | Before | After |\n|---|---|---|\n| Export CSV button | shown, works | hidden |",
+  "summary": "Today every member who lists invoices can export them.",
+  "blocks": [
+    { "type": "table", "caption": "Invoices page", "columns": ["", "Before", "After"], "rows": [["Export CSV button", "shown, works", { "text": "hidden", "tone": "ok" }]] },
+    { "type": "diagram", "mermaid": "flowchart LR\n  A[Member opens Invoices] --> B{invoices:export?} -->|no| C[No Export CSV button]" }
+  ],
   "options": [
-    { "key": "hidden", "label": "Button hidden", "details": "```mermaid\nflowchart LR\n  A[Member opens Invoices] --> B{invoices:export?} -->|no| C[No Export CSV button]\n```" },
+    { "key": "hidden", "label": "Button hidden", "details": "Same as the other admin-only actions." },
     { "key": "disabled", "label": "Button disabled with a tooltip", "details": "Shows the feature exists; tells them to ask an admin." }
   ],
   "recommended": "hidden",

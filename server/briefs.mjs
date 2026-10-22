@@ -2,7 +2,7 @@
 // A handoff is the same brief with the branch state on top, for a fresh agent in the same worktree.
 import fs from 'node:fs';
 import path from 'node:path';
-import { decisionSummary } from './decisions.mjs';
+import { decisionSummary, isLive } from './decisions.mjs';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.mjs';
 import { capitalize, fenced, listText } from './review-agent.mjs';
 
@@ -84,7 +84,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   ]);
 
   const key = rowKey(row);
-  const taken = (work.decisions || []).filter((d) => d.status === 'taken' && (!d.pr || String(d.pr) === String(key)));
+  const taken = (work.decisions || []).filter((d) => d.status === 'taken' && isLive(d) && (!d.pr || String(d.pr) === String(key)));
   section('Decisions (settled, do not revisit)', [
     ...taken.map((d) => `- ${d.title}: ${decisionSummary(d)}${d.rationale && !d.rationale.includes('\n') ? ` (${d.rationale})` : ''}${d.decidedAt ? `, ${d.decidedAt.slice(0, 10)}` : ''}.`),
     ...notesSection(work.notes, 'Do not revisit').map((l) => `- ${l}`),
@@ -187,7 +187,7 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     const log = fork ? (await git(['log', '--oneline', '--no-decorate', `-${MAX_LOG}`, `${fork}..${tip}`])).split('\n').filter(Boolean) : [];
     const dirty = ctx.worktree ? (await git(['status', '--short'])).split('\n').filter(Boolean) : [];
     const open = (comments.list(ctx.work.slug, ctx.n).comments || []).filter((c) => c.status === 'open' || c.status === 'sent');
-    const decisions = (ctx.work.decisions || []).filter((d) => d.status !== 'taken' && String(d.pr) === String(ctx.n));
+    const decisions = (ctx.work.decisions || []).filter((d) => d.status !== 'taken' && isLive(d) && String(d.pr) === String(ctx.n));
     return { at: new Date().toISOString(), tip, baseTip, remote, baseRef, fork, log, dirty, comments: open, decisions, worktree: ctx.worktree };
   }
 

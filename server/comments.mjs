@@ -4,15 +4,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileKey, parseKey, rowKey } from './stack.mjs';
-import { blocksToMarkdown, validateBlocks, validateSources } from './blocks.mjs';
+import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.mjs';
 
 const CTX = 3;
 const SEARCH_WINDOW = 30;
 const MAX_BODY = 5000;
 const MAX_TITLE = 100;
-const MAX_SUMMARY = 400;
-const MAX_CATEGORY = 80;
-const MAX_RECOMMENDATION = 600;
 const STATUSES = ['open', 'sent', 'fixed', 'declined', 'outdated'];
 const SEVERITIES = ['blocking', 'major', 'minor', 'nit'];
 // a sent comment belongs to its run until the run settles it: only open ones turn outdated
@@ -160,20 +157,13 @@ export function createComments({ DATA, REPO, config, works }) {
 
   // a structured finding (coco-findings skill): category, recommendation, typed blocks, sources; a suggestion's `before` is read at the sha, never trusted
   async function richOf(input, sha) {
-    const out = {};
+    let out;
     try {
-      if ('summary' in input) out.summary = typeof input.summary === 'string' && input.summary.trim() ? input.summary.trim().slice(0, MAX_SUMMARY) : null;
-      if ('category' in input) out.category = typeof input.category === 'string' && input.category.trim() ? input.category.trim().slice(0, MAX_CATEGORY) : null;
-      if ('recommendation' in input) out.recommendation = typeof input.recommendation === 'string' && input.recommendation.trim() ? input.recommendation.trim().slice(0, MAX_RECOMMENDATION) : null;
-      if ('sources' in input) out.sources = validateSources(input.sources || []);
-      if ('blocks' in input) out.blocks = input.blocks == null ? null : validateBlocks(input.blocks);
+      out = validateRich(input);
     } catch (e) {
       throw new HttpError(400, e.message);
     }
-    for (const b of (out.blocks || []).filter((x) => x.type === 'suggestion')) {
-      const lines = await fileLines(sha, b.path);
-      b.before = lines && b.endLine <= lines.length ? lines.slice(b.startLine - 1, b.endLine).join('\n') : undefined;
-    }
+    await readSuggestionBefore(out.blocks, (p) => fileLines(sha, p));
     return out;
   }
   const twin = (c) => blocksToMarkdown(c).slice(0, MAX_BODY);

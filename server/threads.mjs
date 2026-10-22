@@ -157,7 +157,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     }[ref.kind]();
     const rules = {
       decision: [
-        `- To suggest a card change (question, details, options, rows, positions, confidence), write only the fields to change as one JSON object to \`${cardPath}\`. Never status, choice, rationale or decidedAt: ${OWNER} takes the decision. Do not change files in the repo.`,
+        `- To suggest a card change (question, summary, blocks, sources, options, rows, positions, confidence), write only the fields to change as one JSON object to \`${cardPath}\`; evidence goes in \`blocks\`, same types as your reply. Never status, choice, rationale or decidedAt: ${OWNER} takes the decision. Do not change files in the repo.`,
         SHARED_RULES[0],
       ],
       plan: [
@@ -397,7 +397,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   async function apply(slug, work, ref, key, thread, msg) {
     const s = msg.suggestion;
     if (s.kind === 'card') {
-      works.upsertDecision(slug, { ...s.fields, id: ref.id });
+      await works.upsertDecision(slug, { ...s.fields, id: ref.id });
       s.state = 'applied';
       thread.messages.push(message('system', 'Card updated.'));
       return;

@@ -66,8 +66,11 @@ curl -s -X POST "$COCO/api/paseo-link/resolve" -H 'Content-Type: application/jso
 
 - Review findings (yours or a reviewer's you were asked to run): post them
   with the `coco-findings` skill, one finding per issue.
-- An open product question: write it as a decision card instead of asking
-  in chat, so the user answers it on the Decisions tab.
+- An open product or tech question: write it as a decision card instead of
+  asking in chat, so the user answers it on the Decisions tab. Its evidence
+  goes in `summary` + `blocks` + `sources`, the same typed blocks as a
+  finding (see "Blocks" in the `coco-findings` skill), never a markdown
+  `details` wall.
 
   ```bash
   curl -s -X PUT "$COCO/api/works/<slug>/decisions/<id>" \
@@ -75,7 +78,8 @@ curl -s -X POST "$COCO/api/paseo-link/resolve" -H 'Content-Type: application/jso
   {
     "title": "D1 · Export CSV · Scope",
     "question": "What does Export CSV download?",
-    "details": "The invoices page shows a date range and a status filter.",
+    "summary": "The invoices page shows a date range and a status filter; the export ignores both.",
+    "blocks": [{ "type": "table", "columns": ["Filter", "Page", "Export"], "rows": [["Date range", "applied", { "text": "ignored", "tone": "risk" }]] }],
     "options": [
       { "key": "view", "label": "What the page shows" },
       { "key": "all", "label": "Every invoice of the account" }

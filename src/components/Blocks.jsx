@@ -144,7 +144,7 @@ export function FindingBody({ r }) {
         </div>
       )}
       <Blocks blocks={r.blocks} />
-      {r.sources?.length > 0 && <div className="bk-sources">from {r.sources.map((s, i) => <span key={i}>{s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.label}</a> : s.label}{s.path && <> <code>{s.path}</code></>}</span>)}</div>}
+      {r.sources?.length > 0 && <div className="bk-sources">from {r.sources.map((s, i) => <span key={i}>{s.url ? <a href={s.url} {...(s.url.startsWith('#') ? {} : { target: '_blank', rel: 'noreferrer' })}>{s.label}</a> : s.label}{s.path && <> <code>{s.path}</code></>}</span>)}</div>}
     </div>
   );
 }

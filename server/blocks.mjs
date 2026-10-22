@@ -9,6 +9,8 @@ const MAX_ROWS = 40;
 const MAX_COLS = 8;
 const LANGS = /^[\w+-]{1,20}$/;
 const MEDIA_SRC = /^\/api\/works\/[\w-]+\/media\/[\w.-]+$/;
+// an https link, or a tab of the app itself (an artifact holding the long evidence)
+const SOURCE_URL = /^(https:\/\/|#\/work\/[\w-]+\/[\w.~-]+$)/;
 
 const str = (v, max, field) => {
   if (typeof v !== 'string' || !v.trim()) throw new Error(`${field} required`);
@@ -77,7 +79,31 @@ export function validateBlocks(blocks) {
 
 export function validateSources(sources) {
   if (!Array.isArray(sources) || sources.length > 8) throw new Error('sources must hold at most 8 entries');
-  return sources.map((s, i) => strip({ label: str(s?.label, 120, `sources[${i}].label`), path: opt(s.path, 300, `sources[${i}].path`), url: s.url && /^https:\/\//.test(s.url) ? String(s.url).slice(0, 500) : undefined }));
+  return sources.map((s, i) => strip({ label: str(s?.label, 120, `sources[${i}].label`), path: opt(s.path, 300, `sources[${i}].path`), url: s.url && SOURCE_URL.test(s.url) ? String(s.url).slice(0, 500) : undefined }));
+}
+
+const MAX_SUMMARY = 400;
+const MAX_CATEGORY = 80;
+const MAX_RECOMMENDATION = 600;
+const trimmed = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+
+// the structured fields findings and decision cards share; only the keys present in `input` come back, so a patch leaves the others alone
+export function validateRich(input) {
+  const out = {};
+  if ('summary' in input) out.summary = trimmed(input.summary, MAX_SUMMARY);
+  if ('category' in input) out.category = trimmed(input.category, MAX_CATEGORY);
+  if ('recommendation' in input) out.recommendation = trimmed(input.recommendation, MAX_RECOMMENDATION);
+  if ('sources' in input) out.sources = validateSources(input.sources || []);
+  if ('blocks' in input) out.blocks = input.blocks == null ? null : validateBlocks(input.blocks);
+  return out;
+}
+
+// a suggestion's `before` comes from the file at a known sha, never from the writer
+export async function readSuggestionBefore(blocks, fileLines) {
+  for (const b of (blocks || []).filter((x) => x.type === 'suggestion')) {
+    const lines = await fileLines(b.path);
+    b.before = lines && b.endLine <= lines.length ? lines.slice(b.startLine - 1, b.endLine).join('\n') : undefined;
+  }
 }
 
 const plain = (text) => String(text || '').replace(/<\/?(risk|warn|ok|note|mute)>/g, '');
