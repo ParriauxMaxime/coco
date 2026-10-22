@@ -288,6 +288,17 @@ worktree and branch once no item is left; it keeps them while the agent is
 answering or a suggested commit is not applied. "prune agent" in a thread
 does the same by hand.
 
+"Fix accepted (N)" in the board header starts a stack fix (the Plan tab's
+"Fix all comments" runner, `POST …/stack-fix` with `select: "accepted"`)
+limited to the open comments whose finding is accepted in `findings.json`;
+`select` also takes `{ "<row key>": [comment ids] }`, and no `select` keeps
+every open comment. The brief adds each comment's triage: the board note,
+your thread messages and the agent's last reply; the agent follows the
+outcome agreed there and declines anything needing a GitHub write, with the
+drafted text in its note. Sent findings show `sent` until the run settles.
+An agent running in a row's worktree refuses the run, except the one that
+asked for it (`requestedBy`).
+
 Thread agents reply in typed blocks, not markdown: `{ "blocks": [...] }` to
 `threads/<key>-<msg>-reply.json`, rendered like a finding card (a
 `suggestion` shows as a diff, its `before` read at the agent's base sha).
@@ -300,17 +311,6 @@ its own finding: `"finding": { "action": "accept" | "dismiss", "reason",
 "patch": { title, severity, confidence, summary, recommendation, blocks } }`
 in the reply JSON. The patch applies at ingest; accept or dismiss runs right
 after the turn through the findings board (ledger, comment status, agent
-"Fix accepted (N)" in the board header starts a stack fix (the Plan tab's
-"Fix all comments" runner, `POST …/stack-fix` with `select: "accepted"`)
-limited to the open comments whose finding is accepted in `findings.json`;
-`select` also takes `{ "<row key>": [comment ids] }`, and no `select` keeps
-every open comment. The brief adds each comment's triage: the board note,
-your thread messages and the agent's last reply; the agent follows the
-outcome agreed there and declines anything needing a GitHub write, with the
-drafted text in its note. Sent findings show `sent` until the run settles.
-An agent running in a row's worktree refuses the run, except the one that
-asked for it (`requestedBy`).
-
 release), and each step leaves a system note in the thread.
 
 Review agents report through the `coco-findings` skill
