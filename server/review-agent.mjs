@@ -229,7 +229,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     let r;
     if (runner.mode === 'send') {
       await exec('paseo', ['agent', 'update', runner.agentId, ...labelArgs], opts);
-      r = await exec('paseo', ['send', runner.agentId, prompt, '--no-wait'], opts);
+      r = await exec('paseo', ['send', runner.agentId, prompt, '--behavior', 'steer', '--no-wait'], opts);
     } else {
       const args = ['run', '-d', '--title', title.slice(0, 60), '--provider', provider, '--thinking', 'high', '--mode', 'auto'];
       if (runner.mode === 'cwd') args.push('--cwd', runner.cwd);
