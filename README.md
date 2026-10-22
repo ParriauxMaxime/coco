@@ -6,11 +6,27 @@ build each PR in its own worktree, and cocopilot keeps what the agents
 forget: the plan, the decisions, the review comments, the findings, and
 what is left before each PR can merge.
 
-[![cocopilot in one minute: plan, review, findings, gates](docs/media/overview.jpg)](docs/media/overview.mp4)
+## Get started
 
-*One minute on a demo stack: plan and a decision, code review, findings
-board, checklist gates ([mp4](docs/media/overview.mp4) ·
-[webm](docs/media/overview.webm)).*
+Needs Node 20+, `git`, the [GitHub CLI](https://cli.github.com) logged in,
+and [Paseo](https://paseo.sh) with Claude Code. Paste in a terminal, with
+`COCO_REPO` set to the repository you work in:
+
+```bash
+git clone https://github.com/ParriauxMaxime/coco.git ~/cocopilot && cd ~/cocopilot
+npm ci
+mkdir -p ~/.claude/skills && cp -R skills/* ~/.claude/skills/
+(cd paseo-plugin && npm ci) && paseo plugin install "$PWD/paseo-plugin"
+COCO_REPO=~/code/your-repo npm start
+```
+
+Open <http://127.0.0.1:8777>. To go further, see [Configure](#configure).
+
+![cocopilot on a demo stack: plan and a decision, code review, findings board, checklist gates](docs/media/overview.gif)
+
+*A demo stack: plan and a decision, code review, findings board, checklist
+gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
+[webm](docs/media/overview.webm).*
 
 ## What it does
 
@@ -44,72 +60,15 @@ push.
 | ![Stack plan](docs/media/plan.png) | ![Code review](docs/media/review.png) |
 | ![Findings board](docs/media/findings.png) | ![Agent thread](docs/media/thread.png) |
 
-## Requirements
+## Configure
 
-- Node 20 or later, and `git`.
-- [GitHub CLI](https://cli.github.com) (`gh`), authenticated on the
-  repository you work in.
-- [Paseo](https://paseo.sh) with the Claude Code provider: cocopilot starts
-  and reads agents through the `paseo` CLI.
-- Optional: the claude.ai Notion and Slack connectors in Claude Code, for
-  the Inbox (turn a Notion page or Slack thread into a work) and the Notion
-  sync.
-
-## Get started
-
-```bash
-git clone <this repo> cocopilot && cd cocopilot
-npm ci
-cp coco.config.example.json coco.config.json
-```
-
-Edit `coco.config.json`: set `repo.path` to your local checkout, `owner`
-to your name and GitHub login, and delete the keys you do not need (each
-has a default, see [docs/configuration.md](docs/configuration.md)).
-
-Point the MCP config at this folder:
-
-```bash
-cp server/mcp-config.example.json server/mcp-config.json
-# set "args" to the absolute path of server/mcp.mjs
-```
-
-Start it:
-
-```bash
-npm start
-```
-
-Open <http://127.0.0.1:8777>.
-
-Install the Paseo plugin, so Paseo shows each workspace's work and tells
-cocopilot when an agent's turn ends:
-
-```bash
-(cd paseo-plugin && npm ci)
-paseo plugin install "$PWD/paseo-plugin"
-```
-
-Its URL defaults to `http://127.0.0.1:8777`; change it in Paseo under
-Settings → Plugins → cocopilot.
-
-Install the skills, so agents can report to cocopilot:
-
-```bash
-mkdir -p ~/.claude/skills
-cp -R skills/coco-findings skills/coco-work ~/.claude/skills/
-```
-
-- `coco-findings`: post review findings to the Findings board.
-- `coco-work`: work inside a cocopilot work (find the row, read the
-  brief, report decisions and findings, never push).
-
-Both read `COCO_URL` when cocopilot runs elsewhere than
-`http://127.0.0.1:8777`.
-
-Reviewer personas are optional: drop `<login>.md` files in `personasDir`
-(`data/personas` by default), in the format of
+Copy `coco.config.example.json` to `coco.config.json` for your name, gates,
+personas and models; every key is in
+[docs/configuration.md](docs/configuration.md). Drop reviewer personas in
+`data/personas/` in the format of
 [docs/examples/personas/alice.md](docs/examples/personas/alice.md).
+Optional: the claude.ai Notion and Slack connectors in Claude Code enable the
+Inbox (turn a Notion page or Slack thread into a work) and the Notion sync.
 
 ## Security
 
