@@ -3,6 +3,7 @@ import { PersonaChip } from '../components/PersonaChip.jsx';
 import { api } from '../api.js';
 import { ritualFields, useConfig } from '../config.js';
 import Markdown from '../components/Markdown.jsx';
+import TeamPack from '../components/TeamPack.jsx';
 
 const statusChip = (s) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
 
@@ -89,6 +90,9 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      <h2>Team pack</h2>
+      <TeamPack />
 
       <h2>Agents <a href="#/agents" className="sub">all →</a></h2>
       <div className="card">

@@ -51,6 +51,9 @@ gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
   rebases for every child; apply them locally in one click.
 - **Briefs and handoffs.** Render a full task brief for a PR agent from the
   work, start the agent, or hand the PR over to a fresh one.
+- **Team pack.** Export personas, skills, the team config and the
+  feature-flag provider as a zip for teammates; importing previews every
+  file, backs up what it overwrites and keeps your personal keys.
 
 Nothing in cocopilot pushes, posts or sends. Agents commit locally; you
 push.

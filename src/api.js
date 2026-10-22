@@ -64,5 +64,15 @@ export const api = {
   ask: (body) => fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
   startAskAgent: (id) => fetch(`/api/ask/${id}/start-agent`, { method: 'POST' }).then(json),
   applyAsk: (id, body) => fetch(`/api/ask/${id}/apply`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(json),
+  packContents: () => fetch('/api/pack/contents').then(json),
+  exportPack: async (body) => {
+    const res = await fetch('/api/pack/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'coco-pack.zip';
+    return { blob: await res.blob(), name };
+  },
+  importPack: (file) => fetch('/api/pack/import', { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file }).then(json),
+  applyPack: (id) => fetch(`/api/pack/import/${id}/apply`, { method: 'POST' }).then(json),
+  discardPack: (id) => fetch(`/api/pack/import/${id}`, { method: 'DELETE' }).then(json),
   launch: (body) => fetch('/api/rituals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
 };

@@ -42,8 +42,8 @@ export const DEFAULTS = {
   featureFlags: null,
 };
 
-const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
-const merge = (base, over) => {
+export const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
+export const merge = (base, over) => {
   if (!isObject(base) || !isObject(over)) return over === undefined ? base : over;
   const out = { ...base };
   for (const [k, v] of Object.entries(over)) out[k] = merge(base[k], v);

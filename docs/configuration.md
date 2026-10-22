@@ -22,6 +22,11 @@ Environment overrides:
 
 Paths starting with `~` resolve to your home directory.
 
+A [team pack](guide.md#team-pack-share-with-teammates) import merges a
+teammate's config into this file: their values fill in and override team
+keys, while your personal keys (`owner`, `dataDir`, `briefsDir`, `skillsDir`,
+`personasDir`, `baseUrl`, `importRoots`, `repo.path`) always stay yours.
+
 The server port and bind address are command-line arguments, not config:
 `node server/index.mjs [port=8777] [bind=127.0.0.1]`.
 

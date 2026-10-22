@@ -617,6 +617,46 @@ updates the work (stack with planned PRs and their personas, surface table,
 open questions, notes, next steps). Runs are kept in `data/asks/`. The same
 MCP server can be mounted in any Paseo agent or Codex.
 
+## Team pack (share with teammates)
+
+The **Team pack** card on the Dashboard zips what a teammate needs to work
+the same way, and merges such a zip back in. Packs are personal files: never
+commit them.
+
+**Export** lists what can travel and lets you tick it:
+
+- Personas: every file in `personasDir`, grouped by login (persona,
+  `<login>.json`, companions); other files (README, …) as one group.
+- Skills: those named with `skillPrefix`, `methodSkill`, the skills in
+  `gateSkills`, and the `/skill` commands of `rituals` that exist in
+  `skillsDir`. Symlinks, `node_modules`, `.git`, `dist`, `data`, `*.bak`, the
+  cocopilot app folder and `personasDir` are left out of a skill folder.
+- Team config: the raw JSON of your config file minus personal keys
+  (`owner`, `dataDir`, `briefsDir`, `skillsDir`, `personasDir`, `baseUrl`,
+  `importRoots`, `repo.path`).
+- Feature-flag provider: the `featureFlags.provider` module.
+
+The zip holds `coco-pack.json` (manifest: `format: 1`, `createdAt`, `by`, the
+contents), `personas/`, `skills/<name>/`, `providers/<file>` and
+`config.json`, whose `featureFlags.provider` points at `providers/<file>`.
+
+**Import** uploads a zip and shows a preview before touching anything: each
+persona and skill file as new, changed or same, the provider, and the config
+keys added, changed, and the personal keys kept as yours. Entries with an
+absolute path, a `..` segment or a symlink are refused. Packs carry skills and
+code that agents and coco run: import only from people you trust.
+
+**Apply** backs up every file it overwrites into
+`data/pack-backups/<timestamp>/` (same layout), then copies personas into
+`personasDir`, skills into `<skillsDir>/<name>/` (adds and overwrites, never
+deletes), the provider into `data/providers/`, and merges the team config into
+your config file (or creates `<app>/coco.config.json`). **Discard** drops the
+staged pack (`data/pack-staging/<id>/`). Restart coco to load the new config.
+
+Routes: `GET /api/pack/contents`, `POST /api/pack/export` (JSON selection →
+zip), `POST /api/pack/import` (raw zip, 200 MB max → preview),
+`POST /api/pack/import/<id>/apply`, `DELETE /api/pack/import/<id>`.
+
 ## Tests
 
 ```bash
