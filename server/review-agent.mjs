@@ -213,6 +213,15 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return Array.isArray(agents) ? agents : [];
   };
   const sameDir = (a, b) => path.resolve(expandHome(a)) === path.resolve(expandHome(b));
+  // `paseo run --cwd` alone opens a new workspace (and project) beside the one already on that worktree; reuse it, the one in the biggest project (the stack's) when several share the dir
+  async function workspaceFor(cwd) {
+    const r = await exec('paseo', ['workspace', 'ls', '--json'], { env: launcherEnv() });
+    const all = r.ok ? parseJson(r.stdout, []) : [];
+    if (!Array.isArray(all)) return null;
+    const projectSize = (p) => all.filter((w) => w.project === p).length;
+    const [best] = all.filter((w) => w.cwd && sameDir(w.cwd, cwd)).sort((a, b) => projectSize(b.project) - projectSize(a.project));
+    return best?.workspaceId || null;
+  }
 
   async function pickRunner(pr) {
     const cwd = await worktreeFor(pr.head);
@@ -232,7 +241,10 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       r = await exec('paseo', ['send', runner.agentId, prompt, '--behavior', 'steer', '--no-wait'], opts);
     } else {
       const args = ['run', '-d', '--title', title.slice(0, 60), '--provider', provider, '--thinking', 'high', '--mode', 'auto'];
-      if (runner.mode === 'cwd') args.push('--cwd', runner.cwd);
+      if (runner.mode === 'cwd') {
+        const workspaceId = await workspaceFor(runner.cwd);
+        args.push(...(workspaceId ? ['--workspace', workspaceId] : []), '--cwd', runner.cwd);
+      }
       else if (runner.mode === 'branch-off') args.push('--cwd', REPO, '--new-workspace', 'worktree', '--worktree-mode', 'branch-off', '--new-branch', runner.newBranch, '--base', runner.base, '--worktree-slug', runner.slug);
       else if (runner.mode === 'checkout-branch') args.push('--cwd', REPO, '--new-workspace', 'worktree', '--worktree-mode', 'checkout-branch', '--branch', branch);
       else args.push('--cwd', REPO, '--new-workspace', 'worktree', '--worktree-mode', 'checkout-pr', '--pr-number', String(n));
