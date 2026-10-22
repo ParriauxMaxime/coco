@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api.js';
+import { useAction, pendingClass } from '../../components/action.js';
 
 const POLL_MS = 60000;
 const MARK = { done: '✓', running: '●', skipped: '–', todo: '○' };
@@ -10,7 +11,7 @@ const skillSpec = (s) => (typeof s === 'string' ? { name: s, ask: /review-as$/.t
 export default function GateRail({ slug, n, onOpen }) {
   const [data, setData] = useState(null);
   const [picked, setPicked] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const { pending, busy, run: go } = useAction();
   const [error, setError] = useState('');
   const load = () => api.gates(slug, n).then((d) => { setData(d); setError(''); }, (e) => setError(e.message));
   const running = data?.gates.some((g) => g.state === 'running');
@@ -20,17 +21,8 @@ export default function GateRail({ slug, n, onOpen }) {
     return () => clearInterval(t);
   }, [slug, n, running]);
 
-  const act = async (id, body) => {
-    setBusy(true);
-    try {
-      setData(await api.gateAction(slug, n, id, body));
-      setError('');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const act = (id, body) => go(`${id}:${body.action}`, async () => { setData(await api.gateAction(slug, n, id, body)); setError(''); });
+  const spin = (id, action) => pendingClass(pending === `${id}:${action}`);
   const run = (id, s) => {
     const { name, ask } = skillSpec(s);
     const answer = ask ? prompt(ask) : '';
@@ -62,11 +54,11 @@ export default function GateRail({ slug, n, onOpen }) {
           </div>
           {gate.command && <div className="row"><code className="gate-cmd">{gate.command}</code><button type="button" className="sm" onClick={() => navigator.clipboard?.writeText(gate.command)}>copy</button></div>}
           <div className="row">
-            {gate.skills.map((s) => <button key={skillSpec(s).name} type="button" className="sm primary" disabled={busy || gate.state === 'running'} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => run(gate.id, s)}>/{skillSpec(s).name}</button>)}
+            {gate.skills.map((s) => <button key={skillSpec(s).name} type="button" className={`sm primary${spin(gate.id, 'run')}`} disabled={busy || gate.state === 'running'} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => run(gate.id, s)}>/{skillSpec(s).name}</button>)}
             {gate.tab && <button type="button" className="sm" onClick={() => onOpen(gate.tab)}>open {gate.tab} ▸</button>}
-            {gate.state !== 'done' && <button type="button" className="sm" disabled={busy} onClick={() => act(gate.id, { action: 'done' })}>✓ done</button>}
-            {gate.state !== 'skipped' && <button type="button" className="sm" disabled={busy} onClick={() => skip(gate.id)}>skip…</button>}
-            {(gate.state === 'skipped' || (gate.state === 'done' && gate.at)) && <button type="button" className="sm" disabled={busy} onClick={() => act(gate.id, { action: 'todo' })}>↺ reset</button>}
+            {gate.state !== 'done' && <button type="button" className={`sm${spin(gate.id, 'done')}`} disabled={busy} onClick={() => act(gate.id, { action: 'done' })}>✓ done</button>}
+            {gate.state !== 'skipped' && <button type="button" className={`sm${spin(gate.id, 'skipped')}`} disabled={busy} onClick={() => skip(gate.id)}>skip…</button>}
+            {(gate.state === 'skipped' || (gate.state === 'done' && gate.at)) && <button type="button" className={`sm${spin(gate.id, 'todo')}`} disabled={busy} onClick={() => act(gate.id, { action: 'todo' })}>↺ reset</button>}
           </div>
         </div>
       )}

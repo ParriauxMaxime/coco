@@ -13,6 +13,7 @@ import Rules from './components/Rules.jsx';
 import Inbox from './pages/Inbox.jsx';
 import { api } from './api.js';
 import Sidebar from './components/Sidebar.jsx';
+import Toasts from './components/Toast.jsx';
 
 const useHash = () => {
   const [hash, setHash] = useState(location.hash || '#/');
@@ -99,6 +100,7 @@ export default function App() {
         </div>
         {bench ? page : <main>{page}</main>}
       </div>
+      <Toasts />
     </div>
   );
 }

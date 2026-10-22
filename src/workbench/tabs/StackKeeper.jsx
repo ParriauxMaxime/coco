@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api.js';
+import { useAction, pendingClass } from '../../components/action.js';
 
 const Cmd = ({ lines }) => (
   <div className="row keep-cmd">
@@ -12,26 +13,17 @@ const Cmd = ({ lines }) => (
 export default function StackKeeper({ slug, onChange }) {
   const [plan, setPlan] = useState(null);
   const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const { pending, busy, run } = useAction();
   const [error, setError] = useState('');
   const load = () => api.stackKeeper(slug).then(setPlan, (e) => setError(e.message));
   useEffect(() => { load(); }, [slug]);
 
-  const act = async (action, ask) => {
-    if (!confirm(ask)) return;
-    setBusy(true);
-    setError('');
-    try {
-      const r = await api.stackKeeperAction(slug, action);
-      if (action === 'apply') setResult(r);
-      await load();
-      onChange?.();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const act = (action, ask) => confirm(ask) && run(action, async () => {
+    const r = await api.stackKeeperAction(slug, action);
+    if (action === 'apply') setResult(r);
+    await load();
+    onChange?.();
+  });
 
   if (!plan?.parent && !result) return error ? <div className="card danger">{error}</div> : null;
   const blocked = plan?.steps[0]?.skip;
@@ -42,8 +34,8 @@ export default function StackKeeper({ slug, onChange }) {
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <b>Stack keeper · #{plan.parent.number} merged, {plan.steps.length} child{plan.steps.length > 1 ? 'ren' : ''} on the old base</b>
             <span className="row">
-              <button className="sm primary" disabled={busy || Boolean(blocked)} onClick={() => act('apply', `Rebase ${plan.steps.map((s) => s.branch).join(', ')} locally (fetch origin master, rebase, Paseo baseRef, refs)? Nothing is pushed.`)}>{busy ? 'Applying…' : 'Apply locally'}</button>
-              <button className="sm" disabled={busy} title="Hide the badge: the children are already on the right base" onClick={() => act('dismiss', 'Mark these children as restacked by hand?')}>restacked by hand</button>
+              <button className={`sm primary${pendingClass(pending === 'apply')}`} disabled={busy || Boolean(blocked)} onClick={() => act('apply', `Rebase ${plan.steps.map((s) => s.branch).join(', ')} locally (fetch origin master, rebase, Paseo baseRef, refs)? Nothing is pushed.`)}>Apply locally</button>
+              <button className={`sm${pendingClass(pending === 'dismiss')}`} disabled={busy} title="Hide the badge: the children are already on the right base" onClick={() => act('dismiss', 'Mark these children as restacked by hand?')}>restacked by hand</button>
             </span>
           </div>
           <p className="sub">Dry run, bottom-up. Apply runs these git lines in each worktree, points its Paseo <code>baseRef</code> at the new base and refreshes <code>refs/cocopilot/base</code>. A conflict aborts that rebase and stops.</p>

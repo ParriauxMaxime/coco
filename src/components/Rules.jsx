@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Collapsible from './Collapsible.jsx';
 import { api } from '../api.js';
+import { toast } from './Toast.jsx';
 
 const POLL_MS = 3000;
 const STATUS_CHIP = { proposed: 'c-orange', kept: 'c-green', retired: 'c-grey' };
@@ -37,7 +38,7 @@ export default function Rules({ slug = null }) {
   }, [running]);
 
   const where = (t) => (t.startsWith('pr:') ? { scope: 'pr', pr: t.slice(3) } : { scope: t });
-  const run = (p) => p.then(setData, (e) => alert(e.message));
+  const run = (p) => p.then(setData, (e) => toast.error(e.message));
   const set = (scopeKey) => (r, patch) => run(api.updateRule(slug, r.id, { ...where(scopeKey), ...patch }));
   const add = () => text.trim() && run(api.addRule(slug, { ...where(target), text, source: 'added by hand' })).then(() => setText(''));
   const propose = () => excerpt.trim() && run(api.proposeRules(slug, { ...where(target), text: excerpt })).then(() => setExcerpt(''));

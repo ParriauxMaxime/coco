@@ -57,6 +57,10 @@ body.wb-max .shell { grid-template-columns: 1fr; }
 
 .fd, .wb-plan { position: relative; isolation: isolate; overflow-x: clip; }
 .fd-row.dismissed, .fd-row.fixed, .fd-row.declined { color: var(--mute); }
+/* a row on its way to another list, then the one that just changed */
+.fd-row { transition: opacity .3s ease-out; }
+.fd-row.leaving { opacity: 0; pointer-events: none; }
+.fd-row.flash { animation: cc-flash-fade 1.2s ease-out forwards; }
 .fd-pick { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--mute); }
 .fd-src { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--ink-2); }
 .fd-who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

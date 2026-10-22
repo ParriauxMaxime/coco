@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import Markdown from '../../components/Markdown.jsx';
 import Collapsible from '../../components/Collapsible.jsx';
 import Thread, { ThreadToggle, threadKey } from '../../components/Thread.jsx';
+import { toast } from '../../components/Toast.jsx';
 import './code.css';
 
 const RISK = { high: 'c-red', medium: 'c-orange', low: 'c-green' };
@@ -56,7 +57,7 @@ export default function ReviewPlan({ rv }) {
   const failed = run?.status === 'error' && (!plan || run.startedAt > plan.createdAt);
   const start = (guidance) => {
     setBusy(true);
-    rv.startPlan(guidance).catch((e) => alert(e.message)).finally(() => setBusy(false));
+    rv.startPlan(guidance).catch((e) => toast.error(e.message)).finally(() => setBusy(false));
   };
   const key = threadKey.plan(rv.n);
   return (

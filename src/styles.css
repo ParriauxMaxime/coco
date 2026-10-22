@@ -329,3 +329,17 @@ button.suggest .persona-chip { background: transparent; padding: 0; }
 .thread-sugg summary { cursor: pointer; }
 .decision-rationale { margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--line); }
 .decision.taken { opacity: .92; }
+
+/* a button whose action is in flight: label hidden, spinner in its place, width kept */
+button.pending { position: relative; color: transparent !important; pointer-events: none; }
+button.pending::after { content: ''; position: absolute; inset: 0; margin: auto; width: .85em; height: .85em; border: 2px solid var(--ink); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+button.primary.pending::after { border-color: var(--on-brand); border-right-color: transparent; }
+
+/* toasts: errors, and successes with an undo */
+.toasts { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: grid; gap: 8px; max-width: min(420px, calc(100vw - 32px)); }
+.toast { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--r-md); background: var(--navy); color: #fff; font-size: 13px; box-shadow: var(--shadow-hover); cursor: pointer; animation: toast-in .18s ease-out; }
+.toast.error { background: var(--red); }
+.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-undo { all: unset; cursor: pointer; flex: none; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; color: #fff; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }

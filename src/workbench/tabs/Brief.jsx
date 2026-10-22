@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Markdown from '../../components/Markdown.jsx';
 import Collapsible from '../../components/Collapsible.jsx';
 import { api } from '../../api.js';
+import { useAction, pendingClass } from '../../components/action.js';
 import { useWork } from '../use-work.js';
 import { useWorkbench } from '../workbench-store.js';
 import { keyLabel } from '../code/ids.js';
@@ -18,25 +19,17 @@ export default function Brief({ tabId, group }) {
   const open = useWorkbench((s) => s.open);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState('');
+  const { pending, busy, run } = useAction();
   const [handoff, setHandoff] = useState(false);
   const refresh = () => api.brief(slug, n, handoff).then((d) => { setData(d); setError(''); }, (e) => setError(e.message));
   useEffect(() => { refresh(); }, [slug, n, handoff]);
 
-  const act = async (action, ask) => {
-    if (ask && !confirm(ask)) return;
-    setBusy(action);
-    try {
-      const r = await api.briefAction(slug, n, action);
-      await refresh();
-      load();
-      if (r.name) open(`artifact-${r.name}`, { preview: true, group });
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy('');
-    }
-  };
+  const act = (action, ask) => (!ask || confirm(ask)) && run(action, async () => {
+    const r = await api.briefAction(slug, n, action);
+    await refresh();
+    load();
+    if (r.name) open(`artifact-${r.name}`, { preview: true, group });
+  });
 
   if (error) return <div className="card danger">{error}</div>;
   if (!data) return <div className="sub">Rendering the brief…</div>;
@@ -53,9 +46,9 @@ export default function Brief({ tabId, group }) {
           {agent ? <><span className={`chip ${agent.status === 'running' ? 'c-blue' : 'c-grey'}`}>{agent.status}</span><b>{agent.name || agent.shortId}</b><span className="status">{agent.shortId} · {agent.created}</span></> : <span className="status">No agent in this worktree.</span>}
         </div>
         <div className="row" style={{ marginTop: 10 }}>
-          <button className="sm" disabled={Boolean(busy)} onClick={() => act('save')}>{busy === 'save' ? '…' : 'Save brief'}</button>
-          <button className="sm primary" disabled={Boolean(busy)} onClick={() => act('start', agent ? `An agent already sits in this worktree (${agent.shortId}). Start another one with this brief?` : null)}>{busy === 'start' ? 'Starting…' : 'Start agent with this brief'}</button>
-          {agent && <button className="sm" disabled={Boolean(busy) || !data.worktree} title="Brief + branch state (heads, base, what landed, what is open, rebase commands) for a fresh agent in the same worktree" onClick={() => act('handoff', `Start a fresh agent in ${data.worktree} with a handoff from ${agent.shortId}? The old agent keeps running until you archive it.`)}>{busy === 'handoff' ? 'Handing off…' : 'Handoff'}</button>}
+          <button className={`sm${pendingClass(pending === 'save')}`} disabled={busy} onClick={() => act('save')}>Save brief</button>
+          <button className={`sm primary${pendingClass(pending === 'start')}`} disabled={busy} onClick={() => act('start', agent ? `An agent already sits in this worktree (${agent.shortId}). Start another one with this brief?` : null)}>Start agent with this brief</button>
+          {agent && <button className={`sm${pendingClass(pending === 'handoff')}`} disabled={busy || !data.worktree} title="Brief + branch state (heads, base, what landed, what is open, rebase commands) for a fresh agent in the same worktree" onClick={() => act('handoff', `Start a fresh agent in ${data.worktree} with a handoff from ${agent.shortId}? The old agent keeps running until you archive it.`)}>Handoff</button>}
         </div>
       </div>
       {data.stored.length > 0 && (

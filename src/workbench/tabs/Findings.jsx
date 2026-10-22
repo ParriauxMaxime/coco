@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Markdown from '../../components/Markdown.jsx';
 import { FindingBody } from '../../components/Blocks.jsx';
 import Collapsible from '../../components/Collapsible.jsx';
 import Thread, { ThreadComposer, refreshThreads, threadKey } from '../../components/Thread.jsx';
 import { Confidence, Severity } from '../../components/Signals.jsx';
 import { CodeRefScope } from '../../components/CodeRefs.jsx';
+import { toast } from '../../components/Toast.jsx';
+import { pendingClass } from '../../components/action.js';
 import { api } from '../../api.js';
 import { useWork } from '../use-work.js';
 import { useWorkbench } from '../workbench-store.js';
@@ -30,6 +32,17 @@ const order = (a, b) => (RANK[a.severity] ?? 2) - (RANK[b.severity] ?? 2) || (b.
 const untriaged = (r) => r.status === 'new' || (r.status === 'open' && !r.accepted);
 const live = (r) => ['new', 'open', 'sent', 'outdated', 'accepted'].includes(r.status);
 const statusOf = (r) => (r.status === 'open' && r.accepted && r.source !== 'local' ? 'accepted' : r.status);
+// how a row looks while the server answers; the real rows replace it
+const OPTIMISTIC = {
+  accept: (r) => ({ ...r, status: 'open', accepted: true }),
+  dismiss: (r, reason) => ({ ...r, status: 'dismissed', dismissed: { at: new Date().toISOString(), reason } }),
+  reopen: (r) => ({ ...r, status: r.commentId ? 'open' : 'new', accepted: false, dismissed: undefined }),
+};
+const DONE = { accept: 'Accepted', dismiss: 'Dismissed', reopen: 'Reopened' };
+const FADE_MS = 300;
+const FLASH_MS = 1200;
+const NONE = new Set();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // "1-3, 5, 7" → [1, 2, 3, 5, 7]
 const parsePick = (text) => text.split(/[\s,]+/).filter(Boolean).flatMap((part) => {
@@ -104,25 +117,34 @@ function ReviewerStrip({ rows, hidden, setHidden }) {
 }
 
 // bottom of an unfolded finding: its agent thread with the composer open, accept / dismiss / reopen beside Dispatch
-function Footer({ r, slug, verdicts, focus, onAct }) {
+function Footer({ r, slug, verdicts, focus, onAct, pending }) {
+  const [sending, setSending] = useState(false);
   if (r.commentId) return <div className="fd-foot"><Thread slug={slug} threadKey={threadKey.comment(r.n, r.commentId)} verdicts={verdicts} autoFocus={focus} onSettled={() => refreshThreads(slug)} /></div>;
   // no comment yet: Dispatch accepts it as one, then opens its thread with the text
   const dispatch = async (text, model) => {
-    const row = (await onAct('accept', [r.key]))?.rows.find((x) => x.key === r.key);
-    if (!row?.commentId) return false;
-    await api.postThread(slug, threadKey.comment(row.n, row.commentId), { text, ...(model ? { model } : {}) });
-    refreshThreads(slug);
+    setSending(true);
+    try {
+      const row = (await onAct('accept', [r.key]))?.rows.find((x) => x.key === r.key);
+      if (!row?.commentId) return false;
+      await api.postThread(slug, threadKey.comment(row.n, row.commentId), { text, ...(model ? { model } : {}) });
+      refreshThreads(slug);
+    } catch (e) {
+      toast.error(e.message);
+      return false;
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <div className="fd-foot thread">
       {r.path && r.n != null && r.status === 'new'
-        ? <ThreadComposer withModel sendLabel="Accept & dispatch" verdicts={verdicts} autoFocus={focus} placeholder="Ask a scoped agent about it or for a fix; Dismiss uses this text as its reason (markdown, ⌘↵)" onSend={dispatch} />
-        : <div className="row" style={{ gap: 6 }}><span className="cc-spacer" />{verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}`} title={v.title} onClick={() => v.on('')}>{v.label}</button>)}</div>}
+        ? <ThreadComposer withModel busy={Boolean(pending) || sending} pending={sending ? 'send' : pending} sendLabel="Accept & dispatch" verdicts={verdicts} autoFocus={focus} placeholder="Ask a scoped agent about it or for a fix; Dismiss uses this text as its reason (markdown, ⌘↵)" onSend={dispatch} />
+        : <div className="row" style={{ gap: 6 }}><span className="cc-spacer" />{verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}${pendingClass(v.pending)}`} title={v.title} disabled={Boolean(pending)} onClick={() => v.on('')}>{v.label}</button>)}</div>}
     </div>
   );
 }
 
-function Row({ i, r, slug, picked, onPick, onAct, related = [], relatedOpen = false, onRelated, nested = false }) {
+function Row({ i, r, slug, picked, onPick, onAct, pending, leaving = NONE, flash = NONE, related = [], relatedOpen = false, onRelated, nested = false }) {
   const [body, setBody] = useState(null);
   const [focus, setFocus] = useState(false);
   const showBody = body ?? untriaged(r);
@@ -132,14 +154,16 @@ function Row({ i, r, slug, picked, onPick, onAct, related = [], relatedOpen = fa
   const all = related.length ? ` all ${group.length}` : '';
   const jump = () => openCodeAt(slug, r.n, r.path, r.line, { group: useWorkbench.getState().otherGroup() });
   const status = statusOf(r);
+  // the action in flight on this row, if any: its button spins, the others wait
+  const inFlight = pending?.keys.has(r.key) ? pending.action : null;
   const verdicts = [
-    toAccept.length > 0 && { label: `✓ Accept${all}`, className: 'primary', allowEmpty: true, title: r.path ? 'Accept: an open local comment to fix' : 'Accept: marked to fix', on: () => onAct('accept', toAccept) },
-    toDismiss.length > 0 && { label: `✕ Dismiss${all}`, allowEmpty: true, title: 'Dismiss: the text box is the reason, asked when empty', on: (text) => onAct('dismiss', toDismiss, text || undefined) },
-    r.status === 'dismissed' && { label: '↺ Reopen', allowEmpty: true, on: () => onAct('reopen', [r.key]) },
+    toAccept.length > 0 && { label: `✓ Accept${all}`, className: 'primary', allowEmpty: true, pending: inFlight === 'accept', title: r.path ? 'Accept: an open local comment to fix' : 'Accept: marked to fix', on: () => onAct('accept', toAccept) },
+    toDismiss.length > 0 && { label: `✕ Dismiss${all}`, allowEmpty: true, pending: inFlight === 'dismiss', title: 'Dismiss: the text box is the reason, asked when empty', on: (text) => onAct('dismiss', toDismiss, text || undefined) },
+    r.status === 'dismissed' && { label: '↺ Reopen', allowEmpty: true, pending: inFlight === 'reopen', on: () => onAct('reopen', [r.key]) },
   ].filter(Boolean);
   const unfold = () => { setBody(true); setFocus(true); };
   return (
-    <div className={`fd-row ${r.status}${nested ? ' nested' : ''}`}>
+    <div className={`fd-row ${r.status}${nested ? ' nested' : ''}${leaving.has(r.key) ? ' leaving' : ''}${flash.has(r.key) ? ' flash' : ''}`}>
       <label className="fd-pick"><input type="checkbox" checked={picked} onChange={onPick} />{i != null && <b>{i}</b>}</label>
       <Reviewer by={r.by} />
       <span className="fd-sig"><Severity value={r.severity} /><Confidence value={r.confidence} /></span>
@@ -151,15 +175,15 @@ function Row({ i, r, slug, picked, onPick, onAct, related = [], relatedOpen = fa
       </span>
       <span className="fd-st"><span className={`chip ${STATUS_CHIP[status] || 'c-grey'}`}>{status}</span></span>
       <span className="fd-acts">
-        {!showBody && toAccept.length > 0 && <button type="button" className="cc-ib ok" title={`Accept${all}`} onClick={() => onAct('accept', toAccept)}>✓</button>}
-        {!showBody && toDismiss.length > 0 && <button type="button" className="cc-ib no" title={`Dismiss${all} with a one-line reason`} onClick={() => onAct('dismiss', toDismiss)}>✕</button>}
-        {!showBody && r.status === 'dismissed' && <button type="button" className="cc-ib" title="Reopen" onClick={() => onAct('reopen', [r.key])}>↺</button>}
+        {!showBody && toAccept.length > 0 && <button type="button" className={`cc-ib ok${pendingClass(inFlight === 'accept')}`} disabled={Boolean(inFlight)} title={`Accept${all}`} onClick={() => onAct('accept', toAccept)}>✓</button>}
+        {!showBody && toDismiss.length > 0 && <button type="button" className={`cc-ib no${pendingClass(inFlight === 'dismiss')}`} disabled={Boolean(inFlight)} title={`Dismiss${all} with a one-line reason`} onClick={() => onAct('dismiss', toDismiss)}>✕</button>}
+        {!showBody && r.status === 'dismissed' && <button type="button" className={`cc-ib${pendingClass(inFlight === 'reopen')}`} disabled={Boolean(inFlight)} title="Reopen" onClick={() => onAct('reopen', [r.key])}>↺</button>}
         {r.url && <a className="cc-ib" href={r.url} target="_blank" rel="noreferrer" title="Open on GitHub">↗</a>}
         {!showBody && (r.commentId || (r.path && r.status === 'new')) && <button type="button" className="thread-toggle" title="Unfold and write to a scoped agent" onClick={unfold}>💬 dispatch</button>}
       </span>
       {showBody && <div className="fd-body">{r.blocks ? <FindingBody r={r} /> : <Markdown text={r.body} />}{r.resolution?.note && <div className="status">{r.resolution.commit ? `${String(r.resolution.commit).slice(0, 7)} · ` : ''}{r.resolution.note}</div>}</div>}
       {r.dismissed && <div className="fd-body status">dismissed on {day(r.dismissed.at)}{r.dismissed.reason ? `: ${r.dismissed.reason}` : ''}</div>}
-      {showBody && <div className="fd-body"><Footer r={r} slug={slug} verdicts={verdicts} focus={focus} onAct={onAct} /></div>}
+      {showBody && <div className="fd-body"><Footer r={r} slug={slug} verdicts={verdicts} focus={focus} onAct={onAct} pending={inFlight} /></div>}
     </div>
   );
 }
@@ -182,8 +206,15 @@ export default function Findings({ tabId }) {
   const { slug } = useWork();
   const n = findingsKeyOfTab(tabId);
   const [data, setData] = useState(null);
+  // the toast's Undo calls act() from an older render: read the rows through a ref
+  const latest = useRef(data);
+  latest.current = data;
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  // { action, keys: Set, bulk }: the one action in flight; rows fading out; rows just changed
+  const [pending, setPending] = useState(null);
+  const [leaving, setLeaving] = useState(NONE);
+  const [flash, setFlash] = useState(NONE);
+  const busy = pending !== null;
   const [view, setView] = useLocal('cc.fd.view', 'left');
   const [groupBy, setGroupBy] = useLocal('cc.fd.group', 'spot');
   // CI failures are kept but not findings: hidden until asked for
@@ -213,24 +244,39 @@ export default function Findings({ tabId }) {
   const byKey = useMemo(() => new Map((data?.rows || []).map((r) => [r.key, r])), [data]);
 
   // reason: the dismiss text typed in a finding's composer; asked when missing
-  const act = async (action, keys, given) => {
-    if (!keys.length) return null;
+  // the rows change at once (a dismissed or reopened one fades out of its list first); the server's answer replaces them, or the old rows come back on error
+  const act = async (action, keys, given, { bulk = false } = {}) => {
+    if (!keys.length || busy) return null;
     const reason = action !== 'dismiss' ? '' : given ?? prompt(`Dismiss ${keys.length} finding${keys.length > 1 ? 's' : ''}: one-line reason`);
     if (reason === null) return null;
-    setBusy(true);
-    try {
-      const next = await api.findingAction(slug, { action, keys, reason, pr });
-      setData(next);
-      stackFix.reload();
-      setNote((next.pruned || []).map((p) => (p.outcome === 'pruned' ? `agent of group ${p.group} pruned` : p.outcome === 'left' ? `left group ${p.group}, its agent stays for ${p.others} other item(s)` : `agent kept: ${p.reason}`)).join(' · '));
-      setPicked(new Set());
-      setPick('');
-      return next;
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy(false);
+    const set = new Set(keys);
+    const prev = latest.current;
+    setPending({ action, keys: set, bulk });
+    const answer = api.findingAction(slug, { action, keys, reason, pr }).then((next) => ({ next }), (e) => ({ error: e }));
+    if (action !== 'accept') {
+      setLeaving(set);
+      await sleep(FADE_MS);
+      setLeaving(NONE);
     }
+    setData((d) => ({ ...d, rows: d.rows.map((r) => (set.has(r.key) ? OPTIMISTIC[action](r, reason) : r)) }));
+    if (action === 'accept') {
+      setFlash(set);
+      setTimeout(() => setFlash((f) => (f === set ? NONE : f)), FLASH_MS);
+    }
+    const { next, error: failed } = await answer;
+    setPending(null);
+    if (failed) {
+      setData(prev);
+      toast.error(failed.message);
+      return null;
+    }
+    setData(next);
+    stackFix.reload();
+    setNote((next.pruned || []).map((p) => (p.outcome === 'pruned' ? `agent of group ${p.group} pruned` : p.outcome === 'left' ? `left group ${p.group}, its agent stays for ${p.others} other item(s)` : `agent kept: ${p.reason}`)).join(' · '));
+    setPicked(new Set());
+    setPick('');
+    toast.success(`${DONE[action]} ${keys.length} finding${keys.length > 1 ? 's' : ''}`, action === 'reopen' ? {} : { undo: () => act('reopen', keys) });
+    return next;
   };
   const togglePick = (keys) => setPicked((prev) => {
     const next = new Set(prev);
@@ -247,7 +293,8 @@ export default function Findings({ tabId }) {
   if (!data) return <div className="sub">Collecting findings…</div>;
   const counts = shown.reduce((acc, r) => ((acc[r.status] = (acc[r.status] || 0) + 1), acc), {});
   const chosen = [...picked].map((k) => byKey.get(k)).filter(Boolean);
-  const rowProps = { slug, onAct: act };
+  const rowProps = { slug, onAct: act, pending, leaving, flash };
+  const bulkPending = (action) => pendingClass(pending?.bulk && pending.action === action);
   const toFix = stackFix.open.reduce((sum, r) => sum + (r.accepted || 0), 0);
   const lastRun = stackFix.runs[0];
   const openRun = (id) => openStackRun(id, useWorkbench.getState().otherGroup());
@@ -272,8 +319,8 @@ export default function Findings({ tabId }) {
         <div className="fd-bar">
           <span className="cc-spacer" />
           <input className="fd-pickbox" value={pick} placeholder="pick 1-3, 5, 7" onChange={(e) => applyPick(e.target.value)} />
-          <button type="button" className="sm primary" disabled={busy || !chosen.some(untriaged)} onClick={() => act('accept', chosen.filter(untriaged).map((r) => r.key))}>Accept {chosen.filter(untriaged).length || ''}</button>
-          <button type="button" className="sm" disabled={busy || !chosen.some(live)} onClick={() => act('dismiss', chosen.filter(live).map((r) => r.key))}>Dismiss {chosen.filter(live).length || ''}</button>
+          <button type="button" className={`sm primary${bulkPending('accept')}`} disabled={busy || !chosen.some(untriaged)} onClick={() => act('accept', chosen.filter(untriaged).map((r) => r.key), undefined, { bulk: true })}>Accept {chosen.filter(untriaged).length || ''}</button>
+          <button type="button" className={`sm${bulkPending('dismiss')}`} disabled={busy || !chosen.some(live)} onClick={() => act('dismiss', chosen.filter(live).map((r) => r.key), undefined, { bulk: true })}>Dismiss {chosen.filter(live).length || ''}</button>
         </div>
         {data.errors?.length > 0 && <div className="status danger">{data.errors.join(' · ')}</div>}
         {note && <div className="status">{note}</div>}
@@ -288,7 +335,7 @@ export default function Findings({ tabId }) {
           ))}
         {dismissed.length > 0 && (
           <Collapsible level="pm" title={`Dismissed · ${dismissed.length}`}>
-            <div className="fd-list">{dismissed.map((r) => <Row key={r.key} r={r} slug={slug} picked={false} onPick={() => {}} onAct={act} />)}</div>
+            <div className="fd-list">{dismissed.map((r) => <Row key={r.key} {...rowProps} r={r} picked={false} onPick={() => {}} />)}</div>
           </Collapsible>
         )}
       </div>

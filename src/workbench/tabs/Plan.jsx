@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { PersonaChip } from '../../components/PersonaChip.jsx';
 import { api } from '../../api.js';
+import { useAction, pendingClass } from '../../components/action.js';
+import { toast } from '../../components/Toast.jsx';
 import Markdown from '../../components/Markdown.jsx';
 import Collapsible from '../../components/Collapsible.jsx';
 import { useWork } from '../use-work.js';
@@ -79,11 +81,11 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview }) {
 function NotionLine({ w, onChange }) {
   const s = w.notionStatus || {};
   const notionLinks = (w.links || []).filter((l) => /notion\.(so|site|com)/.test(l.url));
-  const [busy, setBusy] = useState(false);
-  const act = async (body) => { setBusy(true); const r = await api.notionAction(w.slug, body); setBusy(false); if (r.error) alert(r.error); onChange(); };
+  const { busy, run } = useAction();
+  const act = (body) => run(body.action || body.mode, async () => { const r = await api.notionAction(w.slug, body); if (r.error) toast.error(r.error); onChange(); });
   const link = () => { const url = prompt('Notion page URL'); if (url) act({ action: 'link', url }); };
   const create = () => {
-    if (!notionLinks.length) return alert('Add a Notion link to the work first: the new page is created under it.');
+    if (!notionLinks.length) return toast.error('Add a Notion link to the work first: the new page is created under it.');
     const pick = notionLinks.length === 1 ? notionLinks[0] : notionLinks[Number(prompt(notionLinks.map((l, i) => `${i}: ${l.label}`).join('\n') + '\nParent page number')) || 0];
     const parentPageId = pick && pick.url.replace(/-/g, '').match(/([0-9a-f]{32})(?:[?#]|$)/i)?.[1];
     if (parentPageId && confirm(`Create a Notion sub-page "${w.title}" under "${pick.label}"?`)) act({ parentPageId });
@@ -101,9 +103,9 @@ function NotionLine({ w, onChange }) {
 
 function NotionPreview({ w, onChange }) {
   const p = w.notionStatus?.preview;
-  const [busy, setBusy] = useState(false);
+  const { pending, busy, run } = useAction();
   if (!p) return null;
-  const act = async (body) => { setBusy(true); const r = await api.notionAction(w.slug, body); setBusy(false); if (r.error) alert(r.error); onChange(); };
+  const act = (body) => run(body.action || body.mode, async () => { const r = await api.notionAction(w.slug, body); if (r.error) toast.error(r.error); onChange(); });
   const crit = { high: 'c-red', medium: 'c-orange', low: 'c-grey' };
   const high = p.changes.filter((c) => c.severity === 'high').length;
   return (
@@ -118,15 +120,16 @@ function NotionPreview({ w, onChange }) {
       </ul>
       {p.lostText?.length > 0 && <div className="card danger" style={{ marginTop: 8 }}><b>Text on the page that would be erased</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{p.lostText.map((t, i) => <li key={i}>{t}</li>)}</ul></div>}
       <div className="row" style={{ marginTop: 10 }}>
-        <button className="primary sm" disabled={busy} onClick={() => (high === 0 || confirm(`${high} high-severity change(s). Overwrite the Notion page?`)) && act({ mode: 'apply', force: true })}>Apply sync</button>
-        <button className="sm" disabled={busy} onClick={() => act({ mode: 'preview' })}>Refresh preview</button>
-        <button className="sm" disabled={busy} onClick={() => act({ action: 'discard-preview' })}>Discard</button>
+        <button className={`primary sm${pendingClass(pending === 'apply')}`} disabled={busy} onClick={() => (high === 0 || confirm(`${high} high-severity change(s). Overwrite the Notion page?`)) && act({ mode: 'apply', force: true })}>Apply sync</button>
+        <button className={`sm${pendingClass(pending === 'preview')}`} disabled={busy} onClick={() => act({ mode: 'preview' })}>Refresh preview</button>
+        <button className={`sm${pendingClass(pending === 'discard-preview')}`} disabled={busy} onClick={() => act({ action: 'discard-preview' })}>Discard</button>
       </div>
     </div>
   );
 }
 
 function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange }) {
+  const { busy: archiving, run } = useAction();
   const merged = prs.filter((p) => stateKey(p) === 'merged').length;
   const total = prs.reduce((a, p) => ({ add: a.add + (p.additions || 0), del: a.del + (p.deletions || 0), files: a.files + (p.changedFiles || 0) }), { add: 0, del: 0, files: 0 });
   const summary = w.summary || (w.notes || '').split('\n').find((l) => /^\d+\. /.test(l))?.replace(/^\d+\. /, '') || '';
@@ -152,7 +155,7 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange }) {
       </dl>
       <div className="foot">
         <span>Paseo {w.projectName}{w.tier ? ` · ${w.tier} tier` : ''} · GitHub state {(w.fetchedAt || '').slice(11, 19)}, auto every 30 s</span>
-        <span className="row">{w.archived && <span className="chip c-grey">archived {w.archived.reason === 'auto' ? 'automatically' : 'by hand'} {w.archived.at.slice(0, 10)}</span>}<button className="sm" onClick={() => api.archiveWork(w.slug, !w.archived).then(onChange)}>{w.archived ? 'Unarchive' : 'Archive'}</button><button className="sm" onClick={onRefresh} disabled={refreshing}>{refreshing ? '…' : '↻'}</button></span>
+        <span className="row">{w.archived && <span className="chip c-grey">archived {w.archived.reason === 'auto' ? 'automatically' : 'by hand'} {w.archived.at.slice(0, 10)}</span>}<button className={`sm${pendingClass(archiving)}`} disabled={archiving} onClick={() => run('archive', () => api.archiveWork(w.slug, !w.archived).then(onChange))}>{w.archived ? 'Unarchive' : 'Archive'}</button><button className={`sm${pendingClass(refreshing)}`} onClick={onRefresh} disabled={refreshing}>↻</button></span>
       </div>
     </div>
   );

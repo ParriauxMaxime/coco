@@ -6,6 +6,7 @@ import { useWorkbench } from '../workbench-store.js';
 import { reviewApi, loadReview } from './use-comments.js';
 import { keyLabel } from './ids.js';
 import { useConfig } from '../../config.js';
+import { pendingClass } from '../../components/action.js';
 import './code.css';
 
 const POLL_MS = 5000;
@@ -77,7 +78,7 @@ export function FixDialog({ slug, open, select, onClose, onSent }) {
         {error && <div className="card danger" style={{ margin: '8px 0 0' }}>{error}</div>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           <button className="sm" disabled={busy} onClick={onClose}>Cancel</button>
-          <button className="sm primary" disabled={busy || !total} onClick={send}>{busy ? 'Starting…' : 'Start'}</button>
+          <button className={`sm primary${pendingClass(busy)}`} disabled={busy || !total} onClick={send}>Start</button>
         </div>
       </div>
     </div>
@@ -86,12 +87,13 @@ export function FixDialog({ slug, open, select, onClose, onSent }) {
 
 function ImportDialog({ slug, onClose, onDone }) {
   const [files, setFiles] = useState(null);
-  const [busy, setBusy] = useState(false);
+  // the path being imported, if any
+  const [busy, setBusy] = useState('');
   const [out, setOut] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => { reviewApi.reviewFiles(slug).then((r) => setFiles(r.files), (e) => setError(e.message)); }, [slug]);
   const run = async (path) => {
-    setBusy(true);
+    setBusy(path);
     setError('');
     try {
       setOut(await reviewApi.importReview(slug, path));
@@ -99,7 +101,7 @@ function ImportDialog({ slug, onClose, onDone }) {
     } catch (e) {
       setError(e.message);
     }
-    setBusy(false);
+    setBusy('');
   };
   return (
     <div className="cc-scrim" onMouseDown={() => !busy && onClose()}>
@@ -107,7 +109,7 @@ function ImportDialog({ slug, onClose, onDone }) {
         <b>Import review findings as comments</b>
         {!out && (
           <ul className="sd-list">
-            {(files || []).map((f) => <li key={f.path}><button className="cc-link" disabled={busy} onClick={() => run(f.path)} title={f.path}>{f.name}</button> <span className="status">{new Date(f.mtime).toLocaleString()}</span></li>)}
+            {(files || []).map((f) => <li key={f.path}><button className="cc-link" disabled={Boolean(busy)} onClick={() => run(f.path)} title={f.path}>{busy === f.path && <span className="spinner" aria-hidden />} {f.name}</button> <span className="status">{new Date(f.mtime).toLocaleString()}</span></li>)}
             {files && !files.length && <li className="status">No review file in .claude/reviews.</li>}
             {!files && !error && <li className="status">Loading…</li>}
           </ul>
@@ -120,7 +122,7 @@ function ImportDialog({ slug, onClose, onDone }) {
         )}
         {error && <div className="card danger" style={{ margin: '8px 0 0' }}>{error}</div>}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-          <button className="sm" disabled={busy} onClick={onClose}>{out ? 'Close' : 'Cancel'}</button>
+          <button className="sm" disabled={Boolean(busy)} onClick={onClose}>{out ? 'Close' : 'Cancel'}</button>
         </div>
       </div>
     </div>

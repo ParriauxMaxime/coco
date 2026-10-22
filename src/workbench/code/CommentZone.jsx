@@ -4,6 +4,8 @@ import { FindingBody } from '../../components/Blocks.jsx';
 import Thread, { ThreadComposer, ThreadToggle, refreshThreads, threadKey } from '../../components/Thread.jsx';
 import { Confidence, Severity } from '../../components/Signals.jsx';
 import { api } from '../../api.js';
+import { toast } from '../../components/Toast.jsx';
+import { useAction, pendingClass } from '../../components/action.js';
 import './code.css';
 
 const CHIP = { open: 'c-blue', sent: 'c-orange', fixed: 'c-green', declined: 'c-red', outdated: 'c-grey' };
@@ -42,14 +44,15 @@ function Composer({ initial = '', submitLabel, onSubmit, onCancel }) {
   );
 }
 
-const IconBtn = ({ icon, title, cls = '', onClick }) => <button type="button" className={`cc-ib ${cls}`} title={title} onClick={onClick}>{icon}</button>;
+const IconBtn = ({ icon, title, cls = '', pending = false, disabled = false, onClick }) => <button type="button" className={`cc-ib ${cls}${pendingClass(pending)}`} title={title} disabled={disabled} onClick={onClick}>{icon}</button>;
 
-// icon row; verdicts: [{ icon, title, cls, on() }]
+// icon row; verdicts: [{ icon, title, cls, on() }]: the clicked one spins until its promise settles, the others wait
 function VerdictRow({ onJump, verdicts, extra }) {
+  const { pending, busy, run } = useAction();
   return (
     <div className="cc-pa">
       {onJump && <IconBtn icon="↗" title="Jump to the lines" onClick={onJump} />}
-      {verdicts.map((v) => <IconBtn key={v.title} icon={v.icon} title={v.title} cls={v.cls} onClick={() => v.on()} />)}
+      {verdicts.map((v) => <IconBtn key={v.title} icon={v.icon} title={v.title} cls={v.cls} pending={pending === v.title} disabled={busy} onClick={() => run(v.title, () => v.on())} />)}
       {extra}
     </div>
   );
@@ -70,7 +73,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }) {
       refreshThreads(rv.slug);
       onDispatched?.(key);
     } catch (e) {
-      alert(e.message);
+      toast.error(e.message);
       return false;
     } finally {
       setBusy(false);
@@ -81,7 +84,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }) {
       <VerdictRow
         onJump={onJump && (() => onJump(wp))}
         verdicts={[
-          { icon: '✓', title: 'Accept: becomes an open comment', cls: 'ok', on: () => accept(wp).catch((e) => alert(e.message)) },
+          { icon: '✓', title: 'Accept: becomes an open comment', cls: 'ok', on: () => accept(wp) },
           { icon: '✕', title: 'Dismiss', cls: 'no', on: () => dismiss(wp) },
         ]}
         extra={rv.slug && <button type="button" className={`thread-toggle ${talking ? 'on' : ''}`} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}>💬 discuss or dispatch</button>}
@@ -93,7 +96,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }) {
             busy={busy}
             withModel
             verdicts={[
-              { label: '✓ Accept', title: 'Accept as a comment, the text saved as reason in the work notes', on: (note) => accept(wp, note).catch((e) => alert(e.message)) },
+              { label: '✓ Accept', title: 'Accept as a comment, the text saved as reason in the work notes', on: (note) => accept(wp, note).catch((e) => toast.error(e.message)) },
               { label: '✕ Dismiss', title: 'Dismiss, the text saved as reason in the work notes', on: (note) => dismiss(wp, note) },
             ]}
             placeholder="Ask a scoped agent whether it holds or to fix it (accepts it as a comment), or accept / dismiss with this text as reason (markdown, ⌘↵)"
@@ -207,7 +210,7 @@ export function proposalActions(rv) {
       await rv.setWatch(c.index, 'accepted', note);
       return comment;
     },
-    dismiss: (c, note) => rv.setWatch(c.index, 'dismissed', note).catch((e) => alert(e.message)),
+    dismiss: (c, note) => rv.setWatch(c.index, 'dismissed', note).catch((e) => toast.error(e.message)),
   };
 }
 
@@ -220,7 +223,7 @@ export function fileCommentProps(rv, path, file) {
     if (!refs) return;
     rv.addDraft({ side, path: side === 'base' && prev ? prev : path, sha: side === 'head' ? refs.headSha : refs.mergeBase, startLine, endLine });
   };
-  const fail = (e) => alert(e.message);
+  const fail = (e) => toast.error(e.message);
   const save = async (c, body) => {
     if (!c.draft) return rv.update(c.id, { body }).catch(fail);
     try {

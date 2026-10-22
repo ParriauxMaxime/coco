@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import Markdown from './Markdown.jsx';
 import Blocks from './Blocks.jsx';
 import { api } from '../api.js';
+import { toast } from './Toast.jsx';
+import { pendingClass } from './action.js';
 
 const POLL_MS = 3000;
 const MODELS = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
@@ -33,7 +35,8 @@ export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle 
   return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 
-function Suggestion({ s, onDecide, busy }) {
+// pending: 'approve' | 'dismiss' while that decision is in flight
+function Suggestion({ s, onDecide, busy, pending }) {
   const open = OPEN.includes(s.state);
   return (
     <div className="thread-sugg">
@@ -51,8 +54,8 @@ function Suggestion({ s, onDecide, busy }) {
       {s.error && <div className="danger status">{s.error}</div>}
       {open && (
         <div className="row" style={{ gap: 6 }}>
-          {s.state !== 'queued' && <button type="button" className="sm primary" disabled={busy} onClick={() => onDecide('approve')}>{s.state === 'conflict' ? 'Retry' : 'Approve'}</button>}
-          <button type="button" className="sm" disabled={busy} onClick={() => onDecide('dismiss')}>Dismiss</button>
+          {s.state !== 'queued' && <button type="button" className={`sm primary${pendingClass(pending === 'approve')}`} disabled={busy} onClick={() => onDecide('approve')}>{s.state === 'conflict' ? 'Retry' : 'Approve'}</button>}
+          <button type="button" className={`sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}>Dismiss</button>
         </div>
       )}
     </div>
@@ -65,7 +68,9 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const { groups } = useThreadsOf(slug);
   const [thread, setThread] = useState(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  // which action is in flight: 'send', 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
+  const [pending, setPending] = useState(null);
+  const busy = pending !== null;
   const [note, setNote] = useState('');
   const waiting = Boolean(thread?.waiting);
   const settled = useRef(onSettled);
@@ -95,23 +100,22 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     return () => clearInterval(timer);
   }, [slug, key, queued]);
 
-  const act = async (fn) => {
-    setBusy(true);
-    setError('');
+  const act = async (what, fn) => {
+    setPending(what);
     try {
       const next = await fn();
       setThread((prev) => ({ ...next, agent: next.agent ?? prev?.agent ?? null }));
       refreshThreads(slug);
       settled.current?.();
     } catch (e) {
-      setError(e.message);
+      toast.error(e.message);
       return false;
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   };
   const group = groups.find((g) => g.id === thread?.groupId);
-  const send = (text, model) => act(async () => {
+  const send = (text, model) => act('send', async () => {
     await api.postThread(slug, key, { text, ...(model ? { model } : {}) });
     return api.thread(slug, key);
   });
@@ -129,14 +133,14 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
           </span>
         )}
         {!waiting && (group || others.length > 0) && (
-          <select value="" onChange={(e) => act(() => api.regroup(slug, key, e.target.value))}>
+          <select value="" disabled={busy} onChange={(e) => act('regroup', () => api.regroup(slug, key, e.target.value))}>
             <option value="" disabled>regroup…</option>
             {others.map((g) => <option key={g.id} value={g.id}>{groupLabel(g)}</option>)}
             <option value="new">a new group</option>
           </select>
         )}
-        {thread.messages.length > 1 && <button type="button" className="sm" title="coco distills the corrections of this thread into proposed work rules" onClick={() => api.proposeRules(slug, { scope: 'work', threadKey: key }).then(() => setNote('coco is proposing rules: keep or drop them in the Rules tab'), (e) => setError(e.message))}>🦜 rules</button>}
-        {!waiting && group?.status === 'active' && <button type="button" className="sm" title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act(async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}>prune agent</button>}
+        {thread.messages.length > 1 && <button type="button" className={`sm${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}>🦜 rules</button>}
+        {!waiting && group?.status === 'active' && <button type="button" className={`sm${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}>prune agent</button>}
       </div>
       {thread.messages.map((m) => (
         <div key={m.id} className={`thread-msg ${m.role}`}>
@@ -144,7 +148,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
             <>
               <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
               {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
-              {m.suggestion && <Suggestion s={m.suggestion} busy={busy} onDecide={(action) => act(() => api.suggestion(slug, key, m.id, action))} />}
+              {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
             </>
           )}
         </div>
@@ -153,6 +157,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       {!waiting && (
         <ThreadComposer
           busy={busy}
+          pending={pending}
           withModel={!group}
           sendLabel={group ? 'Send' : 'Dispatch'}
           verdicts={verdicts}
@@ -168,8 +173,8 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
 }
 
 // the one text box of an item: Dispatch sends it to the scoped agent (model picked on the first dispatch), verdicts close the item with it as reason
-// verdicts: [{ label, title, on(text), allowEmpty?, className? }]
-export function ThreadComposer({ busy, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false }) {
+// verdicts: [{ label, title, on(text), allowEmpty?, className?, pending? }] · pending: 'send' while the dispatch is in flight
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false }) {
   const [text, setText] = useState('');
   const [model, setModel] = useState('sonnet');
   const send = async () => {
@@ -188,14 +193,14 @@ export function ThreadComposer({ busy, withModel, sendLabel = 'Dispatch', verdic
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
       />
       <div className="row" style={{ gap: 6 }}>
-        <button type="button" className="sm primary" disabled={busy || !text.trim()} onClick={send}>{busy ? 'Sending…' : sendLabel}</button>
+        <button type="button" className={`sm primary${pendingClass(busy && (pending ?? 'send') === 'send')}`} disabled={busy || !text.trim()} onClick={send}>{sendLabel}</button>
         {withModel && (
           <span className="rv-seg">
             {MODELS.map(([k, label]) => <button key={k} type="button" className={model === k ? 'on' : ''} onClick={() => setModel(k)}>{label}</button>)}
           </span>
         )}
         {verdicts.length > 0 && <span className="cc-spacer" />}
-        {verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}`} title={v.title} disabled={busy || (!v.allowEmpty && !text.trim())} onClick={() => { v.on(text.trim()); setText(''); }}>{v.label}</button>)}
+        {verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text.trim())} onClick={() => { v.on(text.trim()); setText(''); }}>{v.label}</button>)}
       </div>
     </>
   );
