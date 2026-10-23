@@ -79,7 +79,11 @@ test("start, status, logs and stop over HTTP", async () => {
   const result = startResultSchema.parse(started.body);
   const { server } = result;
   assert.equal(server.state, "ready", server.lastError);
-  assert.deepEqual(result.placement, { mode: "own", servedFrom: worktree, because: ["the worktree runs its own server"] });
+  assert.deepEqual(result.placement, {
+    mode: "own",
+    servedFrom: worktree,
+    because: ["no other worktree builds on this worktree's commit: it is the top of its stack"],
+  });
   assert.equal(result.lease, null);
   assert.equal(result.next, `ready at ${server.url}`);
   assert.equal(server.url, `http://127.0.0.1:${server.port}`);

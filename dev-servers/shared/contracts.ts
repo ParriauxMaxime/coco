@@ -35,7 +35,7 @@ const absolutePath = z.string().refine((value) => value.startsWith("/"), "must b
 
 export const startInputSchema = z.strictObject({
   cwd: absolutePath.optional().describe("Absolute path inside the worktree to serve; defaults to the caller's own worktree"),
-  serveFrom: absolutePath.optional().describe("Worktree to serve from, to answer a needs_choice error"),
+  serveFrom: absolutePath.optional().describe("Worktree to serve from, one of placement.ambiguous.options from an earlier start"),
   dedicated: z.boolean().optional().describe("Run a server in the caller's own worktree even when another one could serve it"),
   services: z.array(z.string().min(1)).optional().describe("Background services to turn on (off by default); needs a reason"),
   dedicatedDb: z.boolean().optional().describe("Start with a database of its own; needs a reason"),
@@ -79,10 +79,14 @@ export const serverViewSchema = z.object({
 });
 export type ServerView = z.output<typeof serverViewSchema>;
 
+export const placementOptionSchema = z.object({ worktree: z.string(), branch: z.string().nullable(), head: z.string(), running: z.boolean() });
+export type PlacementOption = z.output<typeof placementOptionSchema>;
+
 export const placementSchema = z.object({
-  mode: z.enum(["own", "stack-top", "dedicated", "external"]),
+  mode: z.enum(["own", "stack-top", "stack-running", "dedicated", "external"]),
   servedFrom: z.string(),
   because: z.array(z.string()),
+  ambiguous: z.object({ question: z.string(), options: z.array(placementOptionSchema) }).optional(),
 });
 export type Placement = z.output<typeof placementSchema>;
 

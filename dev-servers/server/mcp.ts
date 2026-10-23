@@ -71,8 +71,9 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
   return {
     dev_server_start: {
       description:
-        "Start the dev server of your worktree, or reuse it when it already runs, and hold it until you stop or are archived. " +
-        "Returns the server (url, state, port), how it was placed, and `next`: what to do now. It answers at once while the server builds; " +
+        "Get a dev server for your worktree and hold it until you stop or are archived: the server of your stack's top when it contains your commit, " +
+        "else your worktree's own; a running one is reused. Returns the server (url, state, port), how it was placed and why, and `next`: what to do now. " +
+        "When placement.ambiguous is set, pick one of its options with serveFrom. It answers at once while the server builds; " +
         "call dev_server_status to follow the build. Background services and a dedicated database are off unless you ask with a reason.",
       input: startInputSchema,
       run: (args, { caller }) => service.start((args ?? {}) as Record<string, unknown>, caller),

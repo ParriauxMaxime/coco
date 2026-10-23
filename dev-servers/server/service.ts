@@ -16,8 +16,9 @@ import {
 } from "../shared/contracts.ts";
 import { renderTemplate, type DevServersConfig } from "./config.ts";
 import { ServiceError } from "./errors.ts";
-import { worktreeInfo, type WorktreeInfo } from "./git.ts";
-import { placeOwn, resolveTarget, type Place, type Target } from "./placement.ts";
+import { cocoStackOrder } from "./coco.ts";
+import { createGitCache } from "./git.ts";
+import { createStackPlacement, resolveTarget, type Place, type Target } from "./placement.ts";
 import { PortUnavailableError, listenerProbe, type PortProbe, type PortRegistry } from "./ports.ts";
 import { errnoOf } from "./proc.ts";
 import { plainLine } from "./readiness.ts";
@@ -124,7 +125,7 @@ export function createService({
   store,
   ports,
   supervisor,
-  place = placeOwn,
+  place,
   leases = noLeases,
   capacity = unlimited,
   probe,
@@ -132,7 +133,15 @@ export function createService({
   logReadBytes = 8 * 1024 * 1024,
 }: ServiceOptions): DevServersService {
   const locks = new Map<string, Promise<unknown>>();
-  const gitCache = new Map<string, { at: number; info: Promise<WorktreeInfo> }>();
+  const gitCache = createGitCache(gitCacheMs);
+  const placeFor =
+    place ??
+    createStackPlacement({
+      worktreeRoots: config.worktreeRoots,
+      servers: () => Object.values(store.snapshot().servers),
+      dirtyFiles: gitCache.dirtyFiles,
+      stackOrder: cocoStackOrder(config.coco),
+    });
 
   const exclusive = <R>(id: string, task: () => Promise<R>): Promise<R> => {
     const run = (locks.get(id) ?? Promise.resolve()).then(task, task);
@@ -140,14 +149,6 @@ export function createService({
     locks.set(id, settled);
     void settled.then(() => locks.get(id) === settled && locks.delete(id));
     return run;
-  };
-
-  const gitInfo = (worktree: string) => {
-    const cached = gitCache.get(worktree);
-    if (cached && Date.now() - cached.at < gitCacheMs) return cached.info;
-    const info = worktreeInfo(worktree);
-    gitCache.set(worktree, { at: Date.now(), info });
-    return info;
   };
 
   const projectOf = (id: string) => config.projects.find((project) => project.id === id);
@@ -159,7 +160,7 @@ export function createService({
     return {
       id: record.id,
       project: record.project,
-      worktree: { path: record.worktree, ...(await gitInfo(record.worktree)) },
+      worktree: { path: record.worktree, ...(await gitCache.info(record.worktree)) },
       port: record.port,
       url: renderTemplate(urlTemplate, { port: record.port, worktree: record.worktree, logDir: logDirFor(config.stateDir, record.id) }),
       reserved: record.reserved,
@@ -245,12 +246,13 @@ export function createService({
       if (services.length && !target.project.optIns.services) throw new ServiceError("bad_request", `project ${target.project.id} has no opt-in services`);
       if (dedicatedDb && !target.project.optIns.dedicatedDb)
         throw new ServiceError("bad_request", `project ${target.project.id} has no dedicated database option`);
-      const placement = await place(target, { ...input, services, dedicatedDb, reason: reason ?? undefined });
+      const placement = await placeFor(target, { ...input, services, dedicatedDb, reason: reason ?? undefined });
       const wanted: OptIns = { services, dedicatedDb, reason: services.length || dedicatedDb ? reason : null };
       const because = [...placement.because];
+      const served = placement.servedFrom === target.worktree ? target : { ...target, worktree: placement.servedFrom };
 
-      const { id, evicted, lease } = await exclusive(serverIdFor(target.worktree), async () => {
-        const launched = await launch(target, wanted, caller, because);
+      const { id, evicted, lease } = await exclusive(serverIdFor(served.worktree), async () => {
+        const launched = await launch(served, wanted, caller, because);
         await update(launched.id, (record) => {
           record.lastUsedAt = new Date().toISOString();
           if (input.pin) record.pinned = true;
@@ -258,9 +260,10 @@ export function createService({
         return { ...launched, lease: await leases.take(launched.id, caller.holder) };
       });
       if (input.waitSeconds > 0) await supervisor.waitFor(id, (record) => !record || !BUILDING.includes(record.state), input.waitSeconds * 1000);
-      gitCache.delete(target.worktree);
+      gitCache.forget(served.worktree);
       const server = await view(recordOf(id));
-      return { server, placement: { ...placement, because }, lease, ...(evicted.length && { evicted }), next: nextStep(server) };
+      const next = placement.ambiguous ? `${nextStep(server)}. ${placement.ambiguous.question}` : nextStep(server);
+      return { server, placement: { ...placement, because }, lease, ...(evicted.length && { evicted }), next };
     },
 
     list: async () => {

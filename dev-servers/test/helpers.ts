@@ -30,19 +30,22 @@ export const widgets = (base: number, extra: object = {}) => ({
   ...extra,
 });
 
+export const runGit = (repo: string, ...args: string[]) =>
+  execFileSync("git", ["-C", repo, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@example.com",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@example.com",
+    },
+  }).trim();
+
 export const gitRepo = (repo: string, remote?: string) => {
   fs.mkdirSync(repo, { recursive: true });
-  const git = (...args: string[]) =>
-    execFileSync("git", ["-C", repo, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], {
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: "Test",
-        GIT_AUTHOR_EMAIL: "test@example.com",
-        GIT_COMMITTER_NAME: "Test",
-        GIT_COMMITTER_EMAIL: "test@example.com",
-      },
-    });
+  const git = (...args: string[]) => runGit(repo, ...args);
   git("init", "-q", "-b", "main");
   if (remote) git("remote", "add", "origin", remote);
   fs.writeFileSync(path.join(repo, ".gitignore"), ".build/\nwidgets.control\n");

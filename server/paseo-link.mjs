@@ -1,4 +1,4 @@
-// Endpoints the Paseo plugin calls: map a Paseo workspace to its work and PR, describe the cocopilot run an agent is on, and, when an agent turn ends, settle its runs, read back its thread replies and refresh the refs of its work.
+// Endpoints the Paseo plugins call: map a Paseo workspace to its work and PR, list a branch's stack in merge order, describe the cocopilot run an agent is on, and, when an agent turn ends, settle its runs, read back its thread replies and refresh the refs of its work.
 import { execFile } from 'node:child_process';
 import { parseKey, rowKey } from './stack.mjs';
 
@@ -78,6 +78,17 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     };
   }
 
+  // the rows of the work holding this branch, in merge order, each with its branch: the PR head, else the planned branch
+  async function stack({ branch }) {
+    const number = await prForBranch(branch);
+    const holds = (s) => (number && s.number === number) || s.planned?.branch === branch;
+    const work = activeWorks().find((w) => (w.stack || []).some(holds));
+    if (!work) return { work: null, rows: [] };
+    const headOf = async (s) => (s.number ? (await works.prInfo?.(s.number))?.head : null) || s.planned?.branch || null;
+    const rows = await Promise.all((work.stack || []).filter(rowKey).map(async (s) => ({ key: rowKey(s), branch: holds(s) ? branch : await headOf(s) })));
+    return { work: { slug: work.slug, title: work.title }, rows };
+  }
+
   function run({ kind, slug, runId, pr }) {
     const work = activeWorks().find((w) => w.slug === slug);
     if (!work) return null;
@@ -139,6 +150,11 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
       const [, action] = parts;
       const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : {};
       if (action === 'resolve' && req.method === 'POST') return send(res, 200, await resolve(body));
+      if (action === 'stack' && req.method === 'GET') {
+        const branch = new URL(req.url, 'http://local').searchParams.get('branch');
+        if (!branch) return send(res, 400, { error: 'branch required' });
+        return send(res, 200, await stack({ branch }));
+      }
       if (action === 'run' && req.method === 'POST') return send(res, 200, { run: run(body) });
       if (action === 'turn-ended' && req.method === 'POST') {
         if (typeof body.agentId !== 'string' || !body.agentId) return send(res, 400, { error: 'agentId required' });
@@ -150,5 +166,5 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     }
   }
 
-  return { handle, resolve, run, turnEnded, refreshWork };
+  return { handle, resolve, stack, run, turnEnded, refreshWork };
 }

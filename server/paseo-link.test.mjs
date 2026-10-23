@@ -7,7 +7,7 @@ const WORKS = [
   { slug: 'old', title: 'Old', projectId: 'prj_b', archived: '2026-01-01', stack: [{ number: 200 }] },
 ];
 
-function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], stored = [] } = {}) {
+function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], stored = [], heads = {} } = {}) {
   const calls = [];
   const ingested = [];
   const exec = async (cmd, args) => {
@@ -15,7 +15,7 @@ function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], s
     if (cmd === 'git') return { ok: true, stdout: `${branch}\n`, stderr: '' };
     return { ok: true, stdout: JSON.stringify(prNumber ? [{ number: prNumber }] : []), stderr: '' };
   };
-  const works = { list: () => structuredClone(WORKS) };
+  const works = { list: () => structuredClone(WORKS), prInfo: async (n) => (heads[n] ? { number: n, head: heads[n] } : { number: n, error: 'gh failed' }) };
   const comments = { list: () => ({ comments: stored }) };
   const reviewAgent = {
     list: (slug, n) => runs.filter((r) => r.slug === slug && r.number === n),
@@ -137,5 +137,58 @@ test('turnEnded settles the stack fix run of that agent', async () => {
   assert.deepEqual(
     out.runs.map(({ kind, runId, status, comments }) => ({ kind, runId, status, comments })),
     [{ kind: 'stack-fix', runId: 's1', status: 'done', comments: { total: 2, fixed: 1, declined: 1 } }],
+  );
+});
+
+test('stack lists the rows of the work holding a PR branch in merge order, with each PR head branch', async () => {
+  const { link } = setup({ branch: 'feat/x', prNumber: 101, heads: { 100: 'feat/base' } });
+  assert.deepEqual(await link.stack({ branch: 'feat/x' }), {
+    work: { slug: 'invoices', title: 'Invoices' },
+    rows: [
+      { key: 100, branch: 'feat/base' },
+      { key: 101, branch: 'feat/x' },
+    ],
+  });
+});
+
+test('stack finds a work by a planned branch without PR; a PR head gh cannot read falls back to its planned branch', async () => {
+  WORKS.push({
+    slug: 'gadgets',
+    title: 'Gadgets',
+    stack: [{ number: 300, planned: { branch: 'feat/g1' } }, { planned: { branch: 'feat/g2' } }, { planned: {} }],
+  });
+  try {
+    const { link } = setup({ prNumber: null });
+    assert.deepEqual(await link.stack({ branch: 'feat/g2' }), {
+      work: { slug: 'gadgets', title: 'Gadgets' },
+      rows: [
+        { key: 300, branch: 'feat/g1' },
+        { key: 'b:feat:g2', branch: 'feat/g2' },
+      ],
+    });
+  } finally {
+    WORKS.pop();
+  }
+});
+
+test('stack answers no work for an unknown branch and for a branch of an archived work', async () => {
+  assert.deepEqual(await setup({ prNumber: null }).link.stack({ branch: 'feat/nowhere' }), { work: null, rows: [] });
+  assert.deepEqual(await setup({ prNumber: 200 }).link.stack({ branch: 'feat/old' }), { work: null, rows: [] });
+});
+
+test('GET /api/paseo-link/stack needs a branch', async () => {
+  const { link } = setup({ heads: { 100: 'feat/base' } });
+  const call = async (url) => {
+    const sent = [];
+    const send = (res, code, body) => sent.push([code, body]);
+    await link.handle({ method: 'GET', url }, {}, ['paseo-link', 'stack'], async () => '', send);
+    return sent[0];
+  };
+  assert.deepEqual(await call('/api/paseo-link/stack'), [400, { error: 'branch required' }]);
+  const [code, body] = await call('/api/paseo-link/stack?branch=feat%2Fx');
+  assert.equal(code, 200);
+  assert.deepEqual(
+    body.rows.map((r) => r.branch),
+    ['feat/base', 'feat/x'],
   );
 });

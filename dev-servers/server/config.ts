@@ -132,6 +132,7 @@ const devServersSchema = z
     leaseTtlMinutes: z.number().positive().default(240),
     worktreeRoots: z.array(z.string()).default(["~/.paseo/worktrees"]),
     injectMcp: z.enum(["all", "matching-projects", "off"]).default("matching-projects"),
+    coco: z.strictObject({ url: z.url().nullable().default("http://127.0.0.1:8777"), timeoutMs: z.number().int().positive().default(1500) }).prefault({}),
     projects: z.array(projectSchema).default([]),
   })
   .superRefine(({ projects }, ctx) => {
