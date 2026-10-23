@@ -295,6 +295,7 @@ button.suggest .persona-chip { background: transparent; padding: 0; }
 .thread-msg .md { font-size: 13px; }
 .thread-msg .md > :first-child { margin-top: 0; }
 .thread-msg .md > :last-child { margin-bottom: 0; }
+.ask-conv { max-height: 60vh; overflow: auto; margin-bottom: 8px; }
 .thread-toggle { box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; font-size: 12px; line-height: 1; color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .thread-toggle:hover { color: var(--brand-700); border-color: var(--brand); background: var(--brand-50); }
 .thread-toggle.on { color: var(--brand-700); border-color: var(--brand); background: var(--brand-50); }

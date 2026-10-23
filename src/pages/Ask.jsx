@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import Markdown from '../components/Markdown.jsx';
+import { ThreadComposer } from '../components/Thread.jsx';
+import { toast } from '../components/Toast.jsx';
+import { pendingClass } from '../components/action.js';
 
 const EXAMPLES = [
   'Scaffold a work for adding CSV export to the invoices page, mirroring the PDF export stack. Who reviews each PR?',
@@ -63,92 +66,220 @@ function AgentProposal({ run }) {
   );
 }
 
-// text streams in as deltas until its finished message arrives as one text event
-export function Transcript({ events }) {
-  const ref = useRef(null);
-  useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight); }, [events.length]);
+// conversation states (older one-shot runs read done or error)
+export const ASK_STATE = {
+  running: ['c-blue', 'working'],
+  idle: ['c-green', 'agent live'],
+  parked: ['c-grey', 'agent archived after an idle hour'],
+  closed: ['c-grey', 'closed'],
+  done: ['c-grey', 'done'],
+  error: ['c-red', 'error'],
+};
+const END_NOTE = { closed: 'conversation closed: a new message starts a new agent with the conversation so far', idle: 'agent archived after an idle hour: a new message starts a new one with the conversation so far' };
+
+// the agent's side of one turn; text streams in as deltas until its finished message arrives as one text event
+function AgentTurn({ events }) {
   const last = events.findLastIndex((e) => e.type !== 'delta');
   const live = events.slice(last + 1).map((e) => e.text).join('');
   return (
-    <div ref={ref} style={{ maxHeight: '50vh', overflow: 'auto' }}>
+    <div className="thread-msg agent">
+      <b>coco</b>
       {events.map((e, i) => {
-        if (e.type === 'text') return <div key={i} style={{ margin: '6px 0' }}><Markdown text={e.text} /></div>;
+        if (e.type === 'text') return <div key={i} style={{ margin: '4px 0' }}><Markdown text={e.text} /></div>;
         if (e.type === 'tool') return <div key={i} className="status">⚙ {e.name.replace('mcp__cocopilot__', 'coco.')} <code>{e.input.slice(0, 120)}</code></div>;
         if (e.type === 'tool_result') return <div key={i} className="status" style={{ opacity: .7 }}>↳ {e.text.slice(0, 160)}</div>;
         if (e.type === 'stderr') return <div key={i} className="status danger">{e.text}</div>;
         if (e.type === 'end') return <div key={i} className="status">— {e.status}{e.cost != null ? ` · $${Number(e.cost).toFixed(3)}` : ''}</div>;
         if (e.type === 'meta') return <div key={i} className="status" style={{ opacity: .6 }}>{e.text}</div>;
+        if (e.type === 'closed') return <div key={i} className="status">— {END_NOTE[e.reason] || e.reason}</div>;
         return null;
       })}
-      {live && <div style={{ margin: '6px 0' }}><Markdown text={live} /></div>}
+      {live && <div style={{ margin: '4px 0' }}><Markdown text={live} /></div>}
     </div>
   );
 }
 
-// one coco run streamed over SSE: follow a run just started, or open a past one
-export function useAskRun(kind) {
+function UserMessage({ e, sending }) {
+  const [first, ...rest] = e.text.split('\n');
+  return (
+    <div className="thread-msg user" style={sending ? { opacity: .6 } : undefined}>
+      <b>You{e.steer ? ' · while coco worked' : ''}{sending ? ' · sending…' : ''}</b>
+      {rest.length && e.text.length > 400 ? <details><summary>{first}</summary><Markdown text={rest.join('\n')} /></details> : <Markdown text={e.text} />}
+    </div>
+  );
+}
+
+// a run's events as a chat: each message of the owner, then what coco did and said until the next one
+export function Conversation({ run, events, pending = [], working }) {
+  const ref = useRef(null);
+  useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight); }, [events.length, pending.length]);
+  const all = events[0]?.type === 'user' || !run.prompt ? events : [{ type: 'user', text: run.prompt }, ...events];
+  const turns = [];
+  for (const e of all) {
+    if (e.type === 'user') turns.push({ user: e });
+    else {
+      if (!turns.length || turns.at(-1).user) turns.push({ agent: [] });
+      turns.at(-1).agent.push(e);
+    }
+  }
+  return (
+    <div ref={ref} className="thread ask-conv">
+      {turns.map((t, i) => (t.user ? <UserMessage key={i} e={t.user} /> : <AgentTurn key={i} events={t.agent} />))}
+      {pending.map((p) => <UserMessage key={p.nonce} e={p} sending />)}
+      {working && <div className="thread-msg agent status"><span className="spinner" aria-hidden /> coco is working… keep writing: a message reaches it mid-turn</div>}
+    </div>
+  );
+}
+
+const nonceOf = () => Math.random().toString(36).slice(2, 12);
+
+// one conversation streamed over SSE; the stream stays open for the follow-ups, and a reconnect replays the whole log
+export function useAskConversation(kind, workSlug = null) {
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
+  const [pending, setPending] = useState([]);
   const [history, setHistory] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const loadHistory = () => api.asks().then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind)));
-  useEffect(() => { loadHistory(); }, []);
-  const follow = (id, prompt) => {
-    setBusy(true);
+  const source = useRef(null);
+  const loadHistory = () => api.asks().then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind && (!workSlug || h.workSlug === workSlug))), () => {});
+  useEffect(() => {
+    loadHistory();
+    return () => source.current?.close();
+  }, []);
+  const watch = (conv) => {
+    source.current?.close();
+    setRun(conv);
     setEvents([]);
-    setRun({ id, prompt, proposal: null, agentProposal: null });
-    const es = new EventSource(`/api/ask/${id}/events`);
+    const es = new EventSource(`/api/ask/${conv.id}/events`);
+    source.current = es;
+    es.onopen = () => setEvents([]);
     es.onmessage = (m) => {
       const ev = JSON.parse(m.data);
       setEvents((prev) => [...prev, ev]);
-      if (ev.type === 'end') { es.close(); setBusy(false); setRun((r) => ({ ...r, proposal: ev.proposal, agentProposal: ev.agentProposal, status: ev.status })); loadHistory(); }
+      if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
+      if (ev.type === 'end' || ev.type === 'closed') {
+        setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, agentId: ev.agentId || r.agentId });
+        loadHistory();
+      }
     };
-    es.onerror = () => { es.close(); setBusy(false); };
+  };
+  // the first message starts the conversation through start(nonce), any later one goes to its agent
+  const send = async (text, start) => {
+    const nonce = nonceOf();
+    setPending((p) => [...p, { nonce, text }]);
+    try {
+      if (run) await api.askSay(run.id, { text, nonce });
+      else {
+        const { id } = await start(nonce);
+        watch({ id, prompt: text, kind, status: 'running' });
+        loadHistory();
+      }
+      return true;
+    } catch (e) {
+      setPending((p) => p.filter((x) => x.nonce !== nonce));
+      toast.error(e.message);
+      return false;
+    }
   };
   const open = (h) => {
-    setRun(h);
-    const es = new EventSource(`/api/ask/${h.id}/events`);
-    const acc = [];
-    es.onmessage = (m) => { acc.push(JSON.parse(m.data)); setEvents([...acc]); };
-    es.onerror = () => es.close();
+    setPending([]);
+    watch(h);
   };
-  return { run, events, history, busy, setBusy, follow, open };
+  const reset = () => {
+    source.current?.close();
+    setRun(null);
+    setEvents([]);
+    setPending([]);
+  };
+  const mark = events.findLast((e) => e.type === 'user' || e.type === 'end' || e.type === 'closed');
+  const working = pending.length > 0 || mark?.type === 'user';
+  const state = working ? 'running' : mark?.conversation || run?.status || null;
+  return { run, events, pending, history, working, state, watch, send, open, reset, loadHistory };
+}
+
+// the conversation card: its messages, then the composer that stays open while coco works
+export function AskConversation({ convo, start, placeholder, examples = [] }) {
+  const { run, events, pending, working, state, send, reset } = convo;
+  const [closing, setClosing] = useState(false);
+  const [chip, label] = ASK_STATE[state] || ['c-grey', state];
+  const close = async () => {
+    setClosing(true);
+    try {
+      await api.closeAsk(run.id);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setClosing(false);
+    }
+  };
+  // a new conversation hands the current agent back unless it is mid-turn
+  const fresh = () => {
+    if (run && state === 'idle') api.closeAsk(run.id).catch(() => {});
+    reset();
+  };
+  return (
+    <div className="card">
+      {run && (
+        <div className="row thread-group" style={{ justifyContent: 'space-between' }}>
+          <span className="status">conversation {run.id.slice(0, 8)} <span className={`chip ${chip}`}>{label}</span>{run.agentId ? <> · agent <code>{run.agentId.slice(0, 8)}</code></> : null}</span>
+          <span className="row" style={{ gap: 6 }}>
+            {(state === 'idle' || state === 'running') && <button type="button" className={`sm${pendingClass(closing)}`} disabled={closing} title="Archive coco's agent; a new message starts a new one with the conversation so far" onClick={close}>Close</button>}
+            <button type="button" className="sm" onClick={fresh}>New conversation</button>
+          </span>
+        </div>
+      )}
+      {run && <Conversation run={run} events={events} pending={pending} working={working} />}
+      <ThreadComposer
+        busy={false}
+        rows={run ? 2 : 4}
+        sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'}
+        placeholder={placeholder}
+        onSend={(text) => send(text, (nonce) => start(text, nonce))}
+      />
+      {!run && examples.length > 0 && <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>{examples.map((e, i) => <button key={i} type="button" className="sm" onClick={() => send(e, (nonce) => start(e, nonce))}>{e.slice(0, 48)}…</button>)}</div>}
+    </div>
+  );
+}
+
+export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.slice(0, 110) }) {
+  if (!history.length) return null;
+  return (
+    <>
+      <h2>{title}</h2>
+      <div className="card">
+        {history.map((h) => {
+          const [chip, text] = ASK_STATE[h.status] || ['c-grey', h.status];
+          return (
+            <div key={h.id} className="list-item row" style={{ justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => onOpen(h)}>
+              <span><span className={`chip ${chip}`}>{text}</span> {label(h)}</span>
+              <span className="status">{h.startedAt.slice(0, 16).replace('T', ' ')}{h.turns > 1 ? ` · ${h.turns} turns` : ''}{h.proposal ? ` · ${h.proposal.title || 'proposal'}` : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
 }
 
 export default function Ask({ workSlug }) {
-  const [prompt, setPrompt] = useState('');
-  const { run, events, history, busy, setBusy, follow, open } = useAskRun('ask');
-  const launch = async (text) => {
-    const q = text || prompt;
-    if (!q) return;
-    setBusy(true);
-    const { id } = await api.ask({ prompt: q, workSlug });
-    follow(id, q);
-  };
+  const convo = useAskConversation('ask', workSlug);
+  const { run, open } = convo;
   return (
     <>
       {!workSlug && <h1>Ask coco 🦜</h1>}
-      <p className="sub">Natural language in, proposal out. Runs a Paseo agent in your repo with the cocopilot MCP server (works, personas, Paseo, gh). It reads and proposes; you apply. Nothing is pushed, posted or sent.</p>
-      <div className="card">
-        <textarea className="short" style={{ minHeight: 90 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={workSlug ? `Ask about or extend the ${workSlug} work…` : 'Scaffold a work for … / Who reviews … / What is blocked on …'} />
-        <div className="row" style={{ marginTop: 6 }}>
-          <button className="primary" disabled={busy || !prompt} onClick={() => launch()}>{busy ? <><span className="spinner" aria-hidden /> coco is thinking…</> : 'Ask'}</button>
-          {!workSlug && EXAMPLES.map((e, i) => <button key={i} className="sm" disabled={busy} onClick={() => { setPrompt(e); launch(e); }}>{e.slice(0, 48)}…</button>)}
-        </div>
-      </div>
+      <p className="sub">A conversation with one Paseo agent in your repo with the cocopilot MCP server (works, personas, Paseo, gh): follow up as long as you like, even while it works. It reads and proposes; you apply. Nothing is pushed, posted or sent.</p>
+      <AskConversation
+        convo={convo}
+        start={(prompt, nonce) => api.ask({ prompt, workSlug, nonce })}
+        examples={workSlug ? [] : EXAMPLES}
+        placeholder={run ? 'Follow up, correct or narrow it down (markdown, ⌘↵)' : workSlug ? `Ask about or extend the ${workSlug} work… (⌘↵)` : 'Scaffold a work for … / Who reviews … / What is blocked on … (⌘↵)'}
+      />
       {run && (
         <>
-          <div className="card"><div className="status" style={{ marginBottom: 6 }}>run {run.id.slice(0, 8)} · {run.prompt}</div><Transcript events={events} /></div>
           <Proposal run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
           <AgentProposal run={run} />
         </>
       )}
-      {!workSlug && history.length > 0 && (
-        <>
-          <h2>Previous asks</h2>
-          <div className="card">{history.map((h) => <div key={h.id} className="list-item row" style={{ justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => open(h)}><span><span className={`chip ${h.status === 'done' ? 'c-green' : 'c-red'}`}>{h.status}</span> {h.prompt.slice(0, 110)}</span><span className="status">{h.startedAt.slice(0, 16).replace('T', ' ')}{h.proposal ? ' · proposal' : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span></div>)}</div>
-        </>
-      )}
+      <AskHistory title={workSlug ? 'Earlier conversations on this work' : 'Previous conversations'} history={convo.history} onOpen={open} />
     </>
   );
 }

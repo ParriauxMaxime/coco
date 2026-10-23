@@ -1,4 +1,4 @@
-// Every agent coco starts runs through the Paseo daemon (its SDK): in the workspace already open on its directory, titled `coco · …`, followed live, archived once done.
+// Every agent coco starts runs through the Paseo daemon (its SDK): in the workspace already open on its directory, titled `coco · …`, followed live, archived once done (a conversation's once closed).
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -206,33 +206,24 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
     return { agent, agentId: agent.id, workspaceId: workspace.id, createdWorkspace: created ? workspace.id : null };
   }
 
-  // starts the agent, follows its timeline until the turn ends (waiting through permission requests answered in Paseo), then archives it, failures included
-  async function run({ prompt, timeoutMs = TIMEOUT_MS, onStart, onEntry, onDelta, onPermission, ...opts }) {
-    const { agent, ...started } = await start(opts);
-    onStart?.(started);
-    const follow = createFollower({ onEntry, onDelta, onPermission });
-    const unsubscribe = agent.timeline.subscribe(follow.push);
-    let result = { status: 'error', error: null, lastMessage: null, final: null };
-    try {
-      await unsubscribe.ready;
-      const deadline = Date.now() + timeoutMs;
-      result = await agent.run(prompt, { timeoutMs });
-      while (result.status === 'permission' && Date.now() < deadline) {
-        await follow.nextSettle(deadline - Date.now());
-        result = await agent.waitForFinish(Math.max(1, deadline - Date.now()));
-      }
-    } catch (e) {
-      result = { status: 'error', error: e.message };
-    } finally {
-      follow.end();
-      unsubscribe();
-      await agent.archive().catch(() => {});
-    }
+  // an agent coco started earlier, or null once it is archived or unknown to the daemon (an unreachable daemon throws)
+  async function attach(agentId) {
+    const agent = (await client()).agents.ref(agentId);
+    const found = await agent.refresh();
+    return found?.agent && !found.agent.archivedAt && found.agent.status !== 'closed' ? agent : null;
+  }
+
+  async function archive(agentId) {
+    const agent = await attach(agentId);
+    if (agent) await agent.archive();
+    return Boolean(agent);
+  }
+
+  const outcome = (result, follow, timeoutMs) => {
     const status = result.status === 'idle' ? 'done' : result.status === 'permission' ? 'timeout' : result.status;
     const texts = follow.entries.filter((e) => e.type === 'text').map((e) => e.text);
     const error = status === 'timeout' ? `no answer within ${Math.round(timeoutMs / 60000)} min` : status === 'error' ? result.error || follow.failure() || 'the Paseo agent failed' : null;
     return {
-      ...started,
       status,
       error,
       entries: follow.entries,
@@ -241,7 +232,82 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
       finalText: result.lastMessage || texts.at(-1) || '',
       cost: follow.cost() ?? result.final?.lastUsage?.totalCostUsd ?? null,
     };
+  };
+
+  // one agent for a whole conversation, started from opts or re-attached by agentId (null once that agent is gone):
+  // say() opens a turn, or steers the turn in flight like a thread follow-up; the agent lives until close()
+  async function session({ agentId = null, onEntry, onDelta, onPermission, ...opts }) {
+    let agent;
+    let started;
+    if (agentId) {
+      agent = await attach(agentId);
+      if (!agent) return null;
+      started = { agentId, workspaceId: agent.workspaceId, createdWorkspace: null };
+    } else ({ agent, ...started } = await start(opts));
+    let follow = createFollower({ onEntry, onDelta, onPermission });
+    const unsubscribe = agent.timeline.subscribe((m) => follow.push(m));
+    const { ready } = unsubscribe;
+    ready.catch(() => {});
+    // messages leave in order, once the timeline is followed; one reaching a busy agent joins its turn
+    let sending = Promise.resolve();
+    const deliver = (text) => (sending = sending.catch(() => {}).then(() => ready).then(() => agent.send(text, { activeTurnBehavior: 'steer' })));
+    let inFlight = null;
+    let steered = false;
+
+    // prompt null waits on the turn the agent is already in; waits through permissions answered in Paseo and a steer landing as the turn ends
+    async function turn(prompt, timeoutMs) {
+      follow = createFollower({ onEntry, onDelta, onPermission });
+      steered = false;
+      const deadline = Date.now() + timeoutMs;
+      let result;
+      try {
+        await (prompt === null ? ready : deliver(prompt));
+        result = await agent.waitForFinish(timeoutMs);
+        for (let left; (left = deadline - Date.now()) > 0; ) {
+          if (result.status === 'permission') await follow.nextSettle(left);
+          else if (result.status === 'idle' && steered) {
+            steered = false;
+            await sending.catch(() => {});
+            await agent.refresh().catch(() => null);
+            if (agent.status !== 'running') break;
+          } else break;
+          result = await agent.waitForFinish(Math.max(1, deadline - Date.now()));
+        }
+      } catch (e) {
+        result = { status: 'error', error: e.message };
+      }
+      follow.end();
+      return outcome(result, follow, timeoutMs);
+    }
+    const track = (p) => (inFlight = p.finally(() => (inFlight = null)));
+
+    return {
+      ...started,
+      busy: () => Boolean(inFlight),
+      say(text, { timeoutMs = TIMEOUT_MS } = {}) {
+        if (!inFlight) return track(turn(text, timeoutMs));
+        steered = true;
+        return deliver(text).then(() => ({ steered: true }));
+      },
+      resume: ({ timeoutMs = TIMEOUT_MS } = {}) => inFlight || track(turn(null, timeoutMs)),
+      async close() {
+        unsubscribe();
+        await agent.archive().catch(() => {});
+      },
+    };
   }
 
-  return { start, run, workspaceFor, client };
+  // starts the agent, follows its timeline until the turn ends (waiting through permission requests answered in Paseo), then archives it, failures included
+  async function run({ prompt, timeoutMs = TIMEOUT_MS, onStart, ...opts }) {
+    const s = await session(opts);
+    const started = { agentId: s.agentId, workspaceId: s.workspaceId, createdWorkspace: s.createdWorkspace };
+    onStart?.(started);
+    try {
+      return { ...started, ...(await s.say(prompt, { timeoutMs })) };
+    } finally {
+      await s.close();
+    }
+  }
+
+  return { start, run, session, attach, archive, workspaceFor, client };
 }

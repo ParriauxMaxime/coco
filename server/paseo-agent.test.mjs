@@ -32,13 +32,11 @@ function fakeDaemon({ workspaces = [], events = [], results = [{ status: 'idle',
         return unsubscribe;
       },
     },
-    run: async (text) => {
+    send: async (text) => {
       calls.sent.push(text);
       if (failRun) throw new Error(failRun);
       for (const event of events) handler?.({ agentId: AGENT, event });
-      const r = results.shift();
-      if (r.status === 'permission') setTimeout(() => handler?.({ agentId: AGENT, event: { type: 'permission_resolved', provider: 'claude', requestId: 'p1', resolution: { behavior: 'allow' } } }), 5);
-      return r;
+      if (results[0]?.status === 'permission') setTimeout(() => handler?.({ agentId: AGENT, event: { type: 'permission_resolved', provider: 'claude', requestId: 'p1', resolution: { behavior: 'allow' } } }), 5);
     },
     waitForFinish: async () => results.shift(),
     archive: async () => (calls.archived.push(AGENT), { archivedAt: 'now' }),
@@ -190,10 +188,11 @@ test('Ask coco streams deltas to watchers only, records text, tool calls with th
   });
   const run = await done;
 
-  assert.equal(run.status, 'done');
+  assert.equal(run.status, 'idle');
   assert.deepEqual(run.proposal, scaffold);
   assert.equal(run.text, 'Here is the scaffold.');
-  assert.deepEqual(run.events.filter((e) => e.type !== 'meta').map((e) => e.type), ['tool', 'tool_result', 'text', 'tool', 'tool_result', 'end']);
+  assert.deepEqual(run.events.filter((e) => e.type !== 'meta').map((e) => e.type), ['user', 'tool', 'tool_result', 'text', 'tool', 'tool_result', 'end']);
+  assert.equal(run.events.at(-1).status, 'done');
   assert.equal(run.events.find((e) => e.type === 'tool').name, 'mcp__cocopilot__list_works');
   assert.equal(run.events.find((e) => e.type === 'tool_result').text, '[{"slug":"widgets"}]');
   assert.ok(!watched.includes('delta') || watched.indexOf('delta') < watched.indexOf('text'));

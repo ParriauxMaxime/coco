@@ -110,6 +110,7 @@ export function createRules({ DATA, config, works, ask }) {
     const state = { status: 'running', startedAt: new Date().toISOString(), scope, pr: pr ?? null, added: 0, error: '' };
     proposing.set(slug, state);
     const run = ask.start({ prompt, workSlug: slug }, {
+      once: true,
       onEnd: (r) => {
         const found = r.rulesProposal?.rules || [];
         try {

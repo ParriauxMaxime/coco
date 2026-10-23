@@ -174,7 +174,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
 
 // the one text box of an item: Dispatch sends it to the scoped agent (model picked on the first dispatch), verdicts close the item with it as reason
 // verdicts: [{ label, title, on(text), allowEmpty?, className?, pending? }] · pending: 'send' while the dispatch is in flight
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false }) {
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false, rows = 2 }) {
   const [text, setText] = useState('');
   const [model, setModel] = useState('sonnet');
   const send = async () => {
@@ -185,7 +185,7 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch
     <>
       <textarea
         className="cc-textarea"
-        rows={2}
+        rows={rows}
         autoFocus={autoFocus}
         value={text}
         placeholder={placeholder}

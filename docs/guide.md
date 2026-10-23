@@ -722,8 +722,19 @@ with the cocopilot MCP server in its config (`server/mcp.mjs`, stdio:
 MCP server and Paseo's permissions apply. coco follows its timeline live
 and streams text as it is written, then each tool call with its input and
 result, over SSE to the Ask page; a permission the agent waits on shows as a
-line and is answered in Paseo. The agent is archived once it ends (its
-timeline stays readable in Paseo), or after 20 minutes. The agent never writes: a scaffold ends in one
+line and is answered in Paseo. An ask is a conversation with that one agent:
+`POST /api/ask/<id>/messages` sends a follow-up to it as a new turn, or,
+while it is still working, steers the turn in flight (the same
+`activeTurnBehavior: 'steer'` as thread follow-ups); the page echoes the
+message at once, appends the reply live and keeps the composer open. The
+agent is archived on **Close** (`POST /api/ask/<id>/close`), on **New
+conversation**, or after an hour without a message or any agent output (the
+prompt cache's lifetime: past it a kept agent saves no tokens). The agent id
+is stored with the conversation: after a coco restart the next message goes
+to the same agent if Paseo still has it, a turn that was running is followed
+to its end, and a gone agent is replaced by a new one that reads the
+conversation so far. Inbox links are conversations too; the rules proposal
+stays a one-shot run. The agent never writes: a scaffold ends in one
 `propose_work_scaffold` call, shown as a proposal card; **Apply** creates or
 updates the work (stack with planned PRs and their personas, surface table,
 open questions, notes, next steps). Runs are kept in `data/asks/`. The same

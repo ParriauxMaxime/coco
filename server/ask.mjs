@@ -1,17 +1,25 @@
-// "Ask coco": natural language → a Paseo agent with the cocopilot MCP server, its transcript streamed over SSE.
+// "Ask coco": a conversation with one Paseo agent that has the cocopilot MCP server; follow-ups go to the same agent, steering the turn in flight, and the transcript streams over SSE.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { rowKey } from './stack.mjs';
-import { createPaseoAgents, workCwd } from './paseo-agent.mjs';
+import { UUID, createPaseoAgents, workCwd } from './paseo-agent.mjs';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
+// past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
+const IDLE_MS = 60 * 60 * 1000;
+const REAP_MS = 5 * 60 * 1000;
 const DELTA_MS = 100;
+const HISTORY_MAX = 12000;
+const ID = new RegExp(`^${UUID.source}$`);
+// running: a turn is out · idle: its agent waits · parked: agent archived after idling · closed: by the owner; older runs read done or error
+const OPEN = ['running', 'idle'];
+const META = ['id', 'prompt', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'text', 'agentId', 'cost', 'costBase'];
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }) }) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS }) {
   const DIR = path.join(DATA, 'asks');
   fs.mkdirSync(DIR, { recursive: true });
-  const runs = new Map();
+  const convs = new Map();
   const OWNER = config.owner.name;
   const diagramSkill = config.gateSkills?.['kit-diagram']?.[0];
   const method = Boolean(config.methodSkill);
@@ -28,91 +36,239 @@ For a new work, end with exactly one propose_work_scaffold call carrying the ful
 - Diagrams: ${diagramSkill ? `read_skill ${diagramSkill} for the house style (init line, new/same/rm classDef, shapes, quoted labels, under ~15 nodes)${notes ? `, with the overrides from ${notes}` : ''}: ` :'Mermaid, under ~15 nodes, quoted labels; '}no legend box; lanes (subgraphs) group what colour would have to explain, the heading above each diagram states the point plus the one colour rule that matters, emoji are decoration only. At most a Before/After and, for a stack, a merge-order diagram.
 - Links: product spec and decision log first, then the precedent PR or stack; four at most.
 - Feature flags: find the flags checked around the entry points of every surface the work touches; each flag that gates one goes in betaFlags with the PRs it applies to, so testers and PR bodies name it.
-To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it. For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.`;
+To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it. For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.
+This is a conversation: ${OWNER} follows up in the same session, sometimes while you are still working; answer the latest message and keep what was already settled.`;
 
   const providerFor = (model) => (!model ? config.models.default : model.includes('/') ? model : `${config.models.default.split('/')[0]}/${model}`);
 
-  // onEnd(run) fires once the run is over; run.rulesProposal holds a propose_rules call.
-  // A run about a work goes to the workspace of that work's stack worktree, any other to the repo's.
-  function start({ prompt, workSlug, model, kind = 'ask' }, { onEnd } = {}) {
-    const id = randomUUID();
-    const file = path.join(DIR, `${id}.jsonl`);
-    const run = { id, prompt, workSlug, kind, startedAt: new Date().toISOString(), status: 'running', events: [], proposal: null, agentProposal: null, rulesProposal: null, text: '', listeners: new Set(), agentId: null, cost: null };
-    runs.set(id, run);
-    const push = (ev) => {
-      run.events.push(ev);
-      fs.appendFileSync(file, JSON.stringify(ev) + '\n');
-      for (const l of run.listeners) l(ev);
-    };
-    // text deltas only go to whoever is watching, batched; the finished text is pushed as one event
-    let delta = '';
-    let timer = null;
+  const fileOf = (id, ext) => path.join(DIR, `${id}.${ext}`);
+  const meta = (c) => Object.fromEntries(META.map((k) => [k, c[k] ?? null]));
+  const save = (c) => fs.writeFileSync(fileOf(c.id, 'json'), JSON.stringify(meta(c), null, 1));
+  const now = () => new Date().toISOString();
+  const metas = () => fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8')));
+  const remember = (c, events = []) => {
+    const conv = { ...c, events, listeners: new Set(), session: null, fresh: false, delta: '', timer: null };
+    convs.set(conv.id, conv);
+    return conv;
+  };
+
+  // a conversation from memory or, after a coco restart, from its files
+  function load(id) {
+    if (convs.has(id)) return convs.get(id);
+    if (!ID.test(String(id)) || !fs.existsSync(fileOf(id, 'json'))) return null;
+    const saved = JSON.parse(fs.readFileSync(fileOf(id, 'json'), 'utf8'));
+    const log = fs.existsSync(fileOf(id, 'jsonl')) ? fs.readFileSync(fileOf(id, 'jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    return remember({ ...saved, lastActivity: saved.lastActivity || saved.startedAt, turns: saved.turns ?? 1 }, log);
+  }
+
+  const push = (conv, ev) => {
+    conv.events.push(ev);
+    conv.lastActivity = now();
+    fs.appendFileSync(fileOf(conv.id, 'jsonl'), JSON.stringify(ev) + '\n');
+    for (const l of conv.listeners) l(ev);
+  };
+
+  // text deltas only go to whoever is watching, batched; the finished text is pushed as one event
+  function streamOf(conv) {
     const flush = () => {
-      timer = null;
-      if (delta) for (const l of run.listeners) l({ type: 'delta', text: delta });
-      delta = '';
+      conv.timer = null;
+      if (conv.delta) for (const l of conv.listeners) l({ type: 'delta', text: conv.delta });
+      conv.delta = '';
     };
-    const onDelta = (text) => {
-      delta += text;
-      timer ||= setTimeout(flush, DELTA_MS);
+    return {
+      onDelta: (text) => {
+        conv.delta += text;
+        conv.lastActivity = now();
+        conv.timer ||= setTimeout(flush, DELTA_MS);
+      },
+      onEntry: (e) => {
+        if (e.type === 'text') {
+          clearTimeout(conv.timer);
+          conv.timer = null;
+          conv.delta = '';
+          push(conv, { type: 'text', text: e.text });
+        } else if (e.type === 'tool') {
+          push(conv, { type: 'tool', name: e.name, input: JSON.stringify(e.input ?? null).slice(0, 600) });
+          if (e.output || e.error) push(conv, { type: 'tool_result', text: String(e.error || e.output).slice(0, 400) });
+        } else if (e.type === 'error') push(conv, { type: 'stderr', text: e.text.slice(0, 2000) });
+      },
+      onPermission: (what) => push(conv, { type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
     };
-    const onEntry = (e) => {
-      if (e.type === 'text') {
-        clearTimeout(timer);
-        timer = null;
-        delta = '';
-        push({ type: 'text', text: e.text });
-      } else if (e.type === 'tool') {
-        push({ type: 'tool', name: e.name, input: JSON.stringify(e.input ?? null).slice(0, 600) });
-        if (e.output || e.error) push({ type: 'tool_result', text: String(e.error || e.output).slice(0, 400) });
-      } else if (e.type === 'error') push({ type: 'stderr', text: e.text.slice(0, 2000) });
-    };
-    const work = workSlug ? works.get(workSlug) : null;
-    (work ? workCwd({ repo: REPO, work, prInfo: works.prInfo }) : Promise.resolve(REPO))
-      .then((cwd) =>
-        agents.run({
-          title: `Ask: ${prompt.split('\n')[0]}`,
-          prompt,
-          systemPrompt: SYSTEM + (workSlug ? `\nCurrent work: ${workSlug} (use get_work first).` : ''),
-          provider: providerFor(model),
-          cwd,
-          labels: { source: 'cocopilot', kind, ask: id.slice(0, 8), work: workSlug },
-          mcp: true,
-          timeoutMs: TIMEOUT_MS,
-          onStart: ({ agentId, workspaceId, createdWorkspace }) => {
-            run.agentId = agentId;
-            if (createdWorkspace) push({ type: 'meta', text: `no Paseo workspace was open on ${cwd}: created ${createdWorkspace}` });
-            push({ type: 'meta', text: `Paseo agent ${agentId.slice(0, 8)} in workspace ${workspaceId} (${cwd})` });
-          },
-          onDelta,
-          onEntry,
-          onPermission: (what) => push({ type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
-        }),
-      )
-      .then((r) => {
-        run.proposal = r.submitted.propose_work_scaffold || null;
-        run.agentProposal = r.submitted.propose_paseo_agent || null;
-        run.rulesProposal = r.submitted.propose_rules || null;
-        run.text = r.text;
-        run.cost = r.cost;
-        run.status = r.status === 'done' ? 'done' : 'error';
-        if (r.error) push({ type: 'stderr', text: r.error });
-      })
-      .catch((e) => {
-        run.status = 'error';
-        push({ type: 'stderr', text: e.message.slice(0, 2000) });
-      })
-      .finally(() => {
-        clearTimeout(timer);
-        push({ type: 'end', status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, cost: run.cost });
-        fs.writeFileSync(path.join(DIR, `${id}.json`), JSON.stringify({ id, prompt, workSlug, kind, startedAt: run.startedAt, status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, rulesProposal: run.rulesProposal, text: run.text, agentId: run.agentId, cost: run.cost }, null, 1));
-        onEnd?.(run);
+  }
+
+  // the conversation's agent: the live one, the one it had before a coco restart, else (create) a new one in the workspace of
+  // the work's stack worktree, or the repo's; a new agent that replaces another reads the conversation so far with its first message
+  function sessionOf(conv, { create = true } = {}) {
+    conv.session ||= (async () => {
+      const stream = streamOf(conv);
+      if (conv.agentId) {
+        const s = await agents.session({ agentId: conv.agentId, ...stream });
+        if (s) {
+          push(conv, { type: 'meta', text: `re-attached to Paseo agent ${conv.agentId.slice(0, 8)}` });
+          return s;
+        }
+        if (!create) return null;
+        push(conv, { type: 'meta', text: `Paseo agent ${conv.agentId.slice(0, 8)} is gone: a new one starts with the conversation so far` });
+      }
+      if (!create) return null;
+      const work = conv.workSlug ? works.get(conv.workSlug) : null;
+      const cwd = work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO;
+      const s = await agents.session({
+        title: `Ask: ${conv.prompt.split('\n')[0]}`,
+        systemPrompt: SYSTEM + (conv.workSlug ? `\nCurrent work: ${conv.workSlug} (use get_work first).` : ''),
+        provider: providerFor(conv.model),
+        mode: 'auto',
+        cwd,
+        labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug },
+        mcp: true,
+        ...stream,
       });
-    return run;
+      Object.assign(conv, { agentId: s.agentId, costBase: conv.cost || 0, fresh: true });
+      if (s.createdWorkspace) push(conv, { type: 'meta', text: `no Paseo workspace was open on ${cwd}: created ${s.createdWorkspace}` });
+      push(conv, { type: 'meta', text: `Paseo agent ${s.agentId.slice(0, 8)} in workspace ${s.workspaceId} (${cwd})` });
+      save(conv);
+      return s;
+    })().then(
+      (s) => (s || (conv.session = null), s),
+      (e) => {
+        conv.session = null;
+        throw e;
+      },
+    );
+    return conv.session;
+  }
+
+  // what a new agent reads when it replaces a gone one: the owner's messages and coco's answers, the latest part when long
+  function withHistory(conv, text) {
+    const events = conv.events[0]?.type === 'user' ? conv.events : [{ type: 'user', text: conv.prompt }, ...conv.events];
+    const said = events.slice(0, events.findLastIndex((e) => e.type === 'user')).filter((e) => e.type === 'user' || e.type === 'text');
+    if (!said.length) return text;
+    const all = said.map((e) => `**${e.type === 'user' ? OWNER : 'coco'}:** ${e.text}`).join('\n\n');
+    const proposed = [conv.proposal && `a work scaffold for \`${conv.proposal.slug}\``, conv.agentProposal && `a Paseo agent "${conv.agentProposal.title}"`].filter(Boolean);
+    return [
+      `This continues an Ask conversation whose previous agent is gone. The conversation so far${all.length > HISTORY_MAX ? ' (oldest part cut)' : ''}:`,
+      '',
+      all.slice(-HISTORY_MAX),
+      '',
+      ...(proposed.length ? [`You already proposed ${proposed.join(' and ')}; propose again only what changes.`, ''] : []),
+      `## ${OWNER}'s new message`,
+      '',
+      text,
+    ].join('\n');
+  }
+
+  // a turn's end: its proposals become the conversation's latest, cost is per agent and cumulative
+  function settle(conv, r) {
+    clearTimeout(conv.timer);
+    conv.timer = null;
+    const open = OPEN.includes(conv.status);
+    if (open && r.error) push(conv, { type: 'stderr', text: r.error.slice(0, 2000) });
+    const sub = r.submitted || {};
+    conv.proposal = sub.propose_work_scaffold || conv.proposal || null;
+    conv.agentProposal = sub.propose_paseo_agent || conv.agentProposal || null;
+    conv.rulesProposal = sub.propose_rules || conv.rulesProposal || null;
+    if (r.text) conv.text = r.text;
+    if (r.cost != null) conv.cost = (conv.costBase || 0) + r.cost;
+    conv.turns = (conv.turns || 0) + 1;
+    if (open) conv.status = conv.session ? 'idle' : 'parked';
+    push(conv, { type: 'end', status: open ? r.status : 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, cost: conv.cost, conversation: conv.status, agentId: conv.agentId });
+    save(conv);
+    conv.onEnd?.(conv);
+    if (conv.once) close(conv.id).catch(() => {});
+  }
+
+  function track(conv, turn) {
+    turn.then((r) => {
+      if (!r.entries.some((e) => e.type === 'text') && r.finalText && conv.events.findLast((e) => e.type === 'text')?.text !== r.finalText) push(conv, { type: 'text', text: r.finalText });
+      settle(conv, r);
+    });
+  }
+
+  // a message opens a turn, or steers the turn in flight; a parked or closed conversation gets a new agent
+  async function say(conv, text, { nonce = null } = {}) {
+    const steer = conv.status === 'running';
+    push(conv, { type: 'user', text, ts: now(), ...(steer ? { steer: true } : {}), ...(nonce ? { nonce: String(nonce).slice(0, 40) } : {}) });
+    if (!steer) {
+      conv.status = 'running';
+      save(conv);
+    }
+    let s;
+    try {
+      s = await sessionOf(conv);
+    } catch (e) {
+      if (!steer) settle(conv, { status: 'error', error: e.message });
+      return;
+    }
+    const prompt = conv.fresh ? withHistory(conv, text) : text;
+    conv.fresh = false;
+    if (s.busy()) return s.say(prompt).catch((e) => push(conv, { type: 'stderr', text: `could not reach the agent: ${e.message}`.slice(0, 2000) }));
+    if (conv.status !== 'running') {
+      conv.status = 'running';
+      save(conv);
+    }
+    track(conv, s.say(prompt, { timeoutMs: TIMEOUT_MS }));
+  }
+
+  // onEnd(conv) fires after each turn; conv.rulesProposal holds a propose_rules call. once: the agent is archived after the first turn
+  function start({ prompt, workSlug = null, model = null, kind = 'ask', nonce = null }, { onEnd, once = false } = {}) {
+    const conv = remember({ id: randomUUID(), prompt, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
+    Object.assign(conv, { onEnd, once });
+    save(conv);
+    say(conv, prompt, { nonce });
+    return conv;
+  }
+
+  // the owner closes it, or it idled: its agent is archived; a later message starts a new one with the conversation so far
+  async function close(id, reason = 'closed') {
+    const conv = load(id);
+    if (!conv) return null;
+    const s = conv.session ? await conv.session.catch(() => null) : null;
+    conv.session = null;
+    if (s) await s.close();
+    else if (conv.agentId && OPEN.includes(conv.status)) await agents.archive(conv.agentId).catch(() => false);
+    conv.status = reason === 'idle' ? 'parked' : 'closed';
+    push(conv, { type: 'closed', reason, conversation: conv.status });
+    save(conv);
+    return meta(conv);
+  }
+
+  // conversations quiet for idleMs (no message, no agent output) give their agent back, those a previous coco run left open included
+  async function reap(at = Date.now()) {
+    const parked = [];
+    for (const m of metas().filter((x) => OPEN.includes(x.status) && x.agentId)) {
+      const conv = load(m.id);
+      if (!OPEN.includes(conv.status) || at - Date.parse(conv.lastActivity) < idleMs) continue;
+      await close(conv.id, 'idle');
+      parked.push(conv.id);
+    }
+    return parked;
+  }
+
+  // after a coco restart: a conversation whose turn was out gets its agent back and that turn's end; a gone agent parks it
+  async function resume() {
+    for (const m of metas().filter((x) => x.status === 'running' && x.agentId)) {
+      const conv = load(m.id);
+      try {
+        const s = await sessionOf(conv, { create: false });
+        if (s) track(conv, s.resume({ timeoutMs: TIMEOUT_MS }));
+        else {
+          conv.status = 'parked';
+          push(conv, { type: 'end', status: 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, cost: conv.cost, conversation: conv.status });
+          save(conv);
+        }
+      } catch {
+        // daemon unreachable: the next message or the reaper tries again
+      }
+    }
+  }
+
+  function boot() {
+    resume().catch(() => {});
+    setInterval(() => reap().catch(() => {}), REAP_MS).unref();
   }
 
   function apply(id, options = {}) {
-    const run = runs.get(id) || (fs.existsSync(path.join(DIR, `${id}.json`)) ? JSON.parse(fs.readFileSync(path.join(DIR, `${id}.json`), 'utf8')) : null);
+    const run = load(id);
     if (!run?.proposal) return { error: 'no proposal on this run' };
     const p = run.proposal;
     const existing = works.get(p.slug);
@@ -140,8 +296,7 @@ To start a Paseo agent (a local Claude Code session in a work's PR workspace, fr
   }
 
   async function startAgent(id) {
-    const run = runs.get(id) || (fs.existsSync(path.join(DIR, `${id}.json`)) ? JSON.parse(fs.readFileSync(path.join(DIR, `${id}.json`), 'utf8')) : null);
-    const p = run?.agentProposal;
+    const p = load(id)?.agentProposal;
     if (!p) return { error: 'no agent proposal on this run' };
     let started = {};
     let error = '';
@@ -161,42 +316,44 @@ To start a Paseo agent (a local Claude Code session in a work's PR workspace, fr
   }
 
   function list() {
-    return fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8'))).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30);
+    return metas().map((m) => (convs.has(m.id) ? meta(convs.get(m.id)) : m)).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30);
+  }
+
+  // the conversation's log, then every new event while the page watches; a reconnect replays the whole log
+  function watch(req, res, conv) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    const write = (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    for (const ev of conv.events) write(ev);
+    conv.listeners.add(write);
+    req.on('close', () => conv.listeners.delete(write));
   }
 
   async function handle(req, res, parts, readBody, send) {
     const [, id, action] = parts;
+    const body = async () => JSON.parse((await readBody(req)) || '{}');
     if (!id) {
       if (req.method === 'POST') {
-        const body = JSON.parse(await readBody(req));
-        if (!body.prompt) return send(res, 400, { error: 'prompt required' });
-        const run = start(body);
-        return send(res, 200, { id: run.id });
+        const b = await body();
+        if (!String(b.prompt || '').trim()) return send(res, 400, { error: 'prompt required' });
+        const conv = start({ prompt: b.prompt.trim(), workSlug: b.workSlug || null, model: b.model || null, nonce: b.nonce });
+        return send(res, 200, { id: conv.id });
       }
       return send(res, 200, list());
     }
-    if (action === 'events') {
-      const run = runs.get(id);
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-      const write = (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
-      if (!run) {
-        const file = path.join(DIR, `${id}.jsonl`);
-        if (fs.existsSync(file)) for (const l of fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)) write(JSON.parse(l));
-        return res.end();
-      }
-      for (const ev of run.events) write(ev);
-      if (run.status !== 'running') return res.end();
-      run.listeners.add(write);
-      req.on('close', () => run.listeners.delete(write));
-      return;
+    const conv = load(id);
+    if (!conv) return send(res, 404, { error: 'no such conversation' });
+    if (action === 'events') return watch(req, res, conv);
+    if (action === 'messages' && req.method === 'POST') {
+      const { text, nonce } = await body();
+      if (!String(text || '').trim()) return send(res, 400, { error: 'text required' });
+      say(conv, text.trim(), { nonce });
+      return send(res, 200, { ok: true, status: conv.status });
     }
-    if (action === 'apply' && req.method === 'POST') return send(res, 200, apply(id, JSON.parse((await readBody(req)) || '{}')));
+    if (action === 'close' && req.method === 'POST') return send(res, 200, await close(id));
+    if (action === 'apply' && req.method === 'POST') return send(res, 200, apply(id, await body()));
     if (action === 'start-agent' && req.method === 'POST') return send(res, 200, await startAgent(id));
-    const run = runs.get(id);
-    if (run) return send(res, 200, { id, status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, text: run.text, cost: run.cost });
-    const f = path.join(DIR, `${id}.json`);
-    return send(res, fs.existsSync(f) ? 200 : 404, fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : { error: 'no such run' });
+    return send(res, 200, meta(conv));
   }
 
-  return { handle, start };
+  return { handle, start, say: (id, text, opts) => say(load(id), text, opts), close, reap, resume, boot, load };
 }

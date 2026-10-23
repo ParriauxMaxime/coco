@@ -72,6 +72,7 @@ const paseoLink = createPaseoLink({ REPO, config, works, comments, code, reviewA
 const devServers = createDevServers({ REPO, config, works });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
+ask.boot();
 fs.mkdirSync(BRIEFS, { recursive: true });
 
 const send = (res, code, body, type = 'application/json') => {
