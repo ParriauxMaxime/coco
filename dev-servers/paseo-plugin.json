@@ -1,0 +1,8 @@
+{
+  "id": "coco-dev-servers",
+  "name": "coco dev servers",
+  "description": "Runs one app dev server per worktree on a stable port, shared by every agent that asks for it",
+  "requirements": {
+    "paseo": ">=0.12.0"
+  }
+}
