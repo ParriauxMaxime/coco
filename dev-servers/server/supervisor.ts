@@ -26,7 +26,10 @@ export class StartFailedError extends Error {
 
 type ProcessRecord = NonNullable<ServerRecord["process"]>;
 
-export type StartRequest = { project: ProjectConfig; worktree: string; port: number; reserved: number[]; services?: string[] };
+export type OptIns = ServerRecord["optIns"];
+export type StartRequest = { project: ProjectConfig; worktree: string; port: number; reserved: number[]; optIns?: OptIns };
+
+export const NO_OPT_INS: OptIns = { services: [], dedicatedDb: false, reason: null };
 export type StopResult = { id: string; found: boolean; signalled: "group" | "none" | "refused"; swept: number[]; portsBusy: number[]; note?: string };
 export type AdoptOutcome = { id: string; outcome: "adopted" | "gone" | "rejected" | "stopped"; detail?: string };
 export type Verdict = { kind: "alive" } | { kind: "gone" } | { kind: "reused"; reason: string };
@@ -234,18 +237,19 @@ export function createSupervisor({
     void tick(entry);
   };
 
-  const spawnServer = async ({ project, worktree, port, reserved, services = [] }: StartRequest) => {
+  const spawnServer = async ({ project, worktree, port, reserved, optIns = NO_OPT_INS }: StartRequest) => {
     const id = serverIdFor(worktree);
     const cwd = path.join(worktree, project.appDir);
     if (!fs.existsSync(cwd)) throw new StartFailedError(`${cwd} does not exist`);
     const logDir = logDirFor(stateDir, id);
     fs.mkdirSync(logDir, { recursive: true });
     const runLog = path.join(logDir, "run.log");
-    const vars: TemplateVars = { port, logDir, worktree, services };
-    const argv = (renderValue(project.command, vars) as unknown[]).map(String);
+    const vars: TemplateVars = { port, logDir, worktree, services: optIns.services };
+    const dedicatedDb = optIns.dedicatedDb ? project.optIns.dedicatedDb : undefined;
+    const argv = (renderValue([...project.command, ...(dedicatedDb?.args ?? [])], vars) as unknown[]).map(String);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      ...Object.fromEntries(Object.entries(renderValue(project.env, vars) as object).map(([k, v]) => [k, String(v)])),
+      ...Object.fromEntries(Object.entries(renderValue({ ...project.env, ...dedicatedDb?.env }, vars) as object).map(([k, v]) => [k, String(v)])),
     };
     env.PATH = [path.dirname(process.execPath), env.PATH].filter(Boolean).join(path.delimiter);
     const executable = resolveExecutable(argv[0], cwd, env.PATH);
@@ -290,7 +294,7 @@ export function createSupervisor({
         stateSince: phase.stateSince,
         process: proc,
         pinned: previous?.pinned ?? false,
-        optIns: previous?.optIns ?? { services, dedicatedDb: false, reason: null },
+        optIns,
         lastUsedAt: now,
         deadlines: { ...previous?.deadlines },
         logs: { ...previous?.logs, run: runLog },
