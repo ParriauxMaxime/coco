@@ -64,7 +64,7 @@ const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const gates = createGates({ REPO, config, works, reviewAgent, reviewPlan });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
-const kit = createKit({ REPO, config, works, betaFlags });
+const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length });
 const paseoLink = createPaseoLink({ REPO, config, works, comments, code, reviewAgent, stackFix, threads });
