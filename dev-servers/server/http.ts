@@ -81,6 +81,14 @@ const callerFrom = ({ holder, ...input }: Record<string, unknown>): [Caller, Rec
   return [{ holder: parsed.data }, input];
 };
 
+const PLACEMENT_QUERY = z.strictObject({ cwd: z.string(), serveFrom: z.string().optional(), dedicated: z.stringbool().optional() });
+
+const placementQuery = (params: URLSearchParams) => {
+  const parsed = PLACEMENT_QUERY.safeParse(Object.fromEntries(params));
+  if (!parsed.success) throw new ServiceError("bad_request", z.prettifyError(parsed.error));
+  return parsed.data;
+};
+
 type Request = { url: URL; body: () => Promise<Record<string, unknown>> };
 type Route = { method: "GET" | "POST"; path: RegExp; run: (params: string[], request: Request) => Promise<unknown> };
 
@@ -104,7 +112,16 @@ const routesFor = (service: DevServersService): Route[] => [
       return service.stop(id, input, caller);
     },
   },
+  {
+    method: "POST",
+    path: /^\/api\/servers\/([^/]+)\/pin$/,
+    run: async ([id], { body }) => {
+      const [caller, input] = callerFrom(await body());
+      return service.pin(id, input, caller);
+    },
+  },
   { method: "GET", path: /^\/api\/servers\/([^/]+)\/logs$/, run: async ([id], { url }) => service.logs(id, Object.fromEntries(url.searchParams)) },
+  { method: "GET", path: /^\/api\/placement$/, run: async (_, { url }) => service.placement(placementQuery(url.searchParams), { holder: DEFAULT_HOLDER }) },
 ];
 
 export const send = (res: http.ServerResponse, status: number, value: unknown) => {

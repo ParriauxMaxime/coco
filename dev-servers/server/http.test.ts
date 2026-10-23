@@ -5,7 +5,7 @@ import net, { type AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { logsResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
+import { logsResultSchema, pinResultSchema, placementResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
 import { FIXTURE, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
@@ -155,6 +155,23 @@ test("opt-ins need a reason, restart a running server, and a pinned server stops
   );
   assert.deepEqual([forced.stopped, forced.server.state], [true, "stopped"]);
   assert.equal(isAlive(secondPid!), false);
+});
+
+test("the placement preview starts nothing, and pin and unpin go over HTTP", async () => {
+  const { call, store } = await serve([widgets(await freePort())]);
+  const preview = placementResultSchema.parse((await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}&dedicated=true`)).body);
+  assert.deepEqual([preview.placement.mode, preview.placement.servedFrom, preview.server], ["dedicated", worktree, null]);
+  assert.deepEqual(store.snapshot().servers, {});
+  assert.deepEqual(errorOf(await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}&dedicated=maybe`)), [400, "bad_request"]);
+  assert.deepEqual(errorOf(await call("GET", "/api/placement?cwd=relative")), [400, "bad_request"]);
+
+  const { server } = startResultSchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree } })).body);
+  assert.equal(placementResultSchema.parse((await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}`)).body).server?.id, server.id);
+  const pinned = pinResultSchema.parse((await call("POST", `/api/servers/${server.id}/pin`, { body: { holder: { kind: "coco", id: "work/1" } } })).body);
+  assert.deepEqual([pinned.server.pinned, pinned.server.pinnedBy], [true, { kind: "coco", id: "work/1" }]);
+  const unpinned = pinResultSchema.parse((await call("POST", `/api/servers/${server.id}/pin`, { body: { pinned: false } })).body);
+  assert.equal(unpinned.server.pinned, false);
+  assert.deepEqual(errorOf(await call("POST", "/api/servers/wt_000000000000/pin", { body: {} })), [404, "not_found"]);
 });
 
 test("errors carry stable codes", async () => {

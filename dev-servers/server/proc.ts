@@ -107,6 +107,47 @@ async function ownCwds(): Promise<Map<number, string>> {
   return parseLsofCwds(await output("lsof", ["-a", "-u", String(process.getuid?.() ?? ""), "-d", "cwd", "-Fpn"]));
 }
 
+export async function cwdsOf(pids: number[]): Promise<Map<number, string>> {
+  if (!pids.length) return new Map();
+  if (process.platform === "linux") {
+    const cwds = new Map<number, string>();
+    for (const pid of pids) {
+      const cwd = await cwdOf(pid);
+      if (cwd) cwds.set(pid, cwd);
+    }
+    return cwds;
+  }
+  return parseLsofCwds(await output("lsof", ["-a", "-p", pids.join(","), "-d", "cwd", "-Fn"]));
+}
+
+export type Listener = { pid: number; port: number };
+
+const portOf = (address: string) => {
+  const port = Number(address.slice(address.lastIndexOf(":") + 1));
+  return Number.isInteger(port) && port > 0 ? port : null;
+};
+
+const SS_PID = /pid=(\d+)/g;
+
+// TCP ports the current user's processes listen on.
+export async function listeners(): Promise<Listener[]> {
+  const found = new Map<string, Listener>();
+  const add = (pid: number, port: number | null) => port && found.set(`${pid}:${port}`, { pid, port });
+  const lsof = await output("lsof", ["-a", "-u", String(process.getuid?.() ?? ""), "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]);
+  let pid = 0;
+  for (const line of lsof.split("\n")) {
+    if (line.startsWith("p")) pid = Number(line.slice(1));
+    else if (line.startsWith("n") && pid) add(pid, portOf(line.slice(1)));
+  }
+  if (!found.size && process.platform === "linux") {
+    for (const line of (await output("ss", ["-ltnpH"])).split("\n")) {
+      const local = line.trim().split(/\s+/)[3];
+      for (const [, owner] of line.matchAll(SS_PID)) if (local) add(Number(owner), portOf(local));
+    }
+  }
+  return [...found.values()].sort((a, b) => a.port - b.port);
+}
+
 export const isUnder = (file: string, dir: string) => file === dir || file.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
 
 export async function pidsWithCwdUnder(dirs: string[]): Promise<number[]> {

@@ -5,10 +5,13 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import type { Holder, ServerView, StartResult } from "../shared/contracts.ts";
 import { freePort, gitRepo, killTestProcesses, runGit, widgets } from "../test/helpers.ts";
 import { cocoStackOrder, type StackOrder } from "./coco.ts";
 import { parseConfig, type ProjectConfig } from "./config.ts";
 import { statusFiles } from "./git.ts";
+import { createLeaseManager, openLeaseStore } from "./leases.ts";
+import { createMcpTools } from "./mcp.ts";
 import { createStackPlacement, type PlacementRequest } from "./placement.ts";
 import { openPortRegistry } from "./ports.ts";
 import { createService } from "./service.ts";
@@ -216,6 +219,29 @@ test("a running clean server that contains the caller's commit is reused before 
   assert.deepEqual(await served(a), ["stack-top", c]);
 });
 
+test("a clean server started by hand serves the worktrees below it, after the plugin's own; a dirty one never does", async () => {
+  const a = worktree("a");
+  const b = worktree("b", "feat/a");
+  const c = worktree("c", "feat/b");
+  running(c, { state: "external", process: null });
+  const reuse = await place(a);
+  assert.deepEqual([reuse.mode, reuse.servedFrom], ["external", c]);
+  assert.match(
+    reuse.because[0],
+    new RegExp(`reuses the server of feat/c \\(${c}\\), which contains this worktree's commit; it was started outside the plugin`),
+  );
+
+  running(b, { state: "building" });
+  assert.deepEqual(await served(a), ["stack-running", b]);
+
+  records = [];
+  running(c, { state: "external", process: null });
+  fs.writeFileSync(path.join(c, "src", "wip.js"), "");
+  const dirty = await place(a);
+  assert.deepEqual([dirty.mode, dirty.servedFrom], ["own", a]);
+  assert.match(dirty.because[0], /started outside the plugin and it has uncommitted changes, so this worktree runs its own server/);
+});
+
 test("serveFrom outside the repository is refused", async () => {
   const a = worktree("a");
   const other = gitRepo(path.join(dir, "gadgets"));
@@ -273,4 +299,45 @@ test("start from a lower worktree runs and leases the server of the top", async 
   const again = await service.start({ cwd: b }, { holder: { kind: "user", id: "bob" } });
   assert.deepEqual([again.placement.mode, again.server.id], ["own", serverIdFor(b)]);
   assert.equal(again.placement.because[0], "the worktree's own server is already running");
+});
+
+test("the placement preview starts nothing, and a lease on the top's server turns stale once the caller's own worktree has changes", async () => {
+  const a = worktree("a");
+  const b = worktree("b", "feat/a");
+  const stateDir = path.join(dir, "state");
+  const config = parseConfig({ stateDir, worktreeRoots: [roots], coco: { url: null }, projects: [widgets(await freePort())] });
+  const store = openStateStore(stateDir);
+  const ports = openPortRegistry(stateDir);
+  const leaseStore = openLeaseStore(stateDir);
+  await Promise.all([store.load(), ports.load(), leaseStore.load()]);
+  const supervisor = createSupervisor({ store, stateDir, project: (id) => config.projects.find((entry) => entry.id === id), pollMs: 100 });
+  cleanup.push({ supervisor, store });
+  const leases = createLeaseManager({ store: leaseStore, servers: store, idleStopMinutes: 30, leaseTtlMinutes: 240, stopIdle: async () => {} });
+  try {
+    const service = createService({ config, store, ports, supervisor, leases: leases.book, gitCacheMs: 0 });
+    const user: Holder = { kind: "user", id: "alice" };
+    const preview = await service.placement({ cwd: a }, { holder: user });
+    assert.deepEqual([preview.placement.mode, preview.placement.servedFrom, preview.server], ["stack-top", b, null]);
+    assert.deepEqual(store.snapshot().servers, {});
+
+    const tools = createMcpTools(service, leases);
+    const holder: Holder = { kind: "agent", id: await leases.issueKey(a) };
+    const context = { holder, caller: { holder, cwd: a } };
+    const started = (await tools.dev_server_start.run({}, context)) as StartResult;
+    assert.equal(started.server.worktree.path, b);
+    type Status = { servers: (ServerView & { stale?: { because: string[] }; next: string })[] };
+    const status = async () => ((await tools.dev_server_status.run({}, context)) as Status).servers[0];
+    assert.equal((await status()).stale, undefined);
+    assert.equal((await service.placement({ cwd: a }, { holder: user })).server?.id, started.server.id);
+
+    fs.writeFileSync(path.join(b, "src", "top-wip.js"), "");
+    assert.equal((await status()).stale, undefined);
+
+    fs.writeFileSync(path.join(a, "src", "wip.js"), "");
+    const stale = await status();
+    assert.match(stale.stale?.because[0] ?? "", /the worktree has uncommitted changes, so it runs its own server: src\/wip.js/);
+    assert.match(stale.next, /call dev_server_start again/);
+  } finally {
+    leases.close();
+  }
 });

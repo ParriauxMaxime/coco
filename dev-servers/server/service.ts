@@ -2,12 +2,18 @@ import fs from "node:fs/promises";
 import { z } from "zod";
 import {
   logsInputSchema,
+  pinInputSchema,
+  placementInputSchema,
   startInputSchema,
   stopInputSchema,
   type Holder,
   type LeaseView,
   type LogsInput,
   type LogsResult,
+  type PinInput,
+  type PinResult,
+  type PlacementInput,
+  type PlacementResult,
   type ServerView,
   type StartInput,
   type StartResult,
@@ -31,13 +37,21 @@ export type LeaseBook = {
   take(serverId: string, holder: Holder): Promise<{ id: string } | null>;
   release(serverId: string, holder: Holder): Promise<void>;
   holders(serverId: string): LeaseView[];
+  lose(serverId: string, why: string): Promise<void>;
+  settle(serverId: string): Promise<void>;
 };
 
-export const noLeases: LeaseBook = { take: async () => null, release: async () => {}, holders: () => [] };
+export const noLeases: LeaseBook = { take: async () => null, release: async () => {}, holders: () => [], lose: async () => {}, settle: async () => {} };
 
-export type Capacity = { admit(serverId: string): Promise<{ id: string; worktree: string }[]> };
+export type Evicted = { id: string; worktree: string; why: string };
 
-export const unlimited: Capacity = { admit: async () => [] };
+export type Capacity = {
+  admit<T>(target: { id: string; worktree: string }, launch: () => Promise<T>, options?: { evict?: boolean }): Promise<{ evicted: Evicted[]; result: T }>;
+};
+
+export const unlimited: Capacity = { admit: async (_, launch) => ({ evicted: [], result: await launch() }) };
+
+export type Externals = { scan(options?: { maxAgeMs?: number }): Promise<unknown> };
 
 export type ServiceOptions = {
   config: DevServersConfig;
@@ -47,20 +61,25 @@ export type ServiceOptions = {
   place?: Place;
   leases?: LeaseBook;
   capacity?: Capacity;
+  externals?: Externals;
   probe?: PortProbe;
   gitCacheMs?: number;
   logReadBytes?: number;
+  onWarning?: (message: string) => void;
 };
 
 export type DevServersService = {
   start(input: StartInput, caller: Caller): Promise<StartResult>;
+  placement(input: PlacementInput, caller: Caller): Promise<PlacementResult>;
   list(): Promise<ServerView[]>;
   get(id: string): Promise<ServerView>;
   stop(id: string, input: StopInput, caller: Caller): Promise<StopResult>;
+  pin(id: string, input: PinInput, caller: Caller): Promise<PinResult>;
   logs(id: string, input: LogsInput): Promise<LogsResult>;
 };
 
 const BUILDING: ServerRecord["state"][] = ["building", "prewarming"];
+const EXTERNAL_SCAN_MAX_AGE_MS = 5000;
 
 const parse = <T extends z.ZodType>(schema: T, value: unknown): z.output<T> => {
   const result = schema.safeParse(value ?? {});
@@ -73,7 +92,9 @@ const satisfies = (running: OptIns, wanted: OptIns) =>
   wanted.services.every((name) => running.services.includes(name)) && (!wanted.dedicatedDb || running.dedicatedDb);
 const describeOptIns = ({ services, dedicatedDb }: OptIns) =>
   [services.length && `services ${services.join(", ")}`, dedicatedDb && "a dedicated database"].filter(Boolean).join(" and ");
-const sameHolder = (a: Holder, b: Holder) => a.kind === b.kind && a.id === b.id;
+const sameHolder = (a: Pick<Holder, "kind" | "id">, b: Pick<Holder, "kind" | "id">) => a.kind === b.kind && a.id === b.id;
+const describeHolder = (holder: Pick<Holder, "kind" | "id" | "title">) =>
+  holder.title ?? (holder.kind === "agent" ? "an agent" : `${holder.kind} ${holder.id}`);
 const describeHolders = (leases: LeaseView[]) => leases.map(({ holder }) => holder.title ?? `${holder.kind} ${holder.id}`).join(", ");
 
 const minutesSince = (iso: string) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
@@ -92,7 +113,7 @@ export function nextStep(server: ServerView): string {
     case "crashed":
       return `crashed: ${server.lastError ?? "see the logs"}. Read the logs; the dev tool usually rebuilds on the next file change, or stop and start it again`;
     case "external":
-      return `started outside the plugin, at ${server.url}`;
+      return `started outside the plugin, at ${server.url}; the plugin never stops it and cannot read its output`;
     default:
       return `${server.state}; start it again to use it`;
   }
@@ -128,9 +149,11 @@ export function createService({
   place,
   leases = noLeases,
   capacity = unlimited,
+  externals,
   probe,
   gitCacheMs = 5000,
   logReadBytes = 8 * 1024 * 1024,
+  onWarning = console.warn,
 }: ServiceOptions): DevServersService {
   const locks = new Map<string, Promise<unknown>>();
   const gitCache = createGitCache(gitCacheMs);
@@ -151,6 +174,11 @@ export function createService({
     return run;
   };
 
+  const refreshExternals = () =>
+    externals
+      ?.scan({ maxAgeMs: EXTERNAL_SCAN_MAX_AGE_MS })
+      .catch((error) => onWarning(`external scan failed: ${error instanceof Error ? error.message : String(error)}`));
+
   const projectOf = (id: string) => config.projects.find((project) => project.id === id);
   const idleStopAt = (deadline: string, lastUsedAt: string) =>
     new Date(Math.max(Date.parse(deadline), Date.parse(lastUsedAt) + config.idleStopMinutes * 60_000)).toISOString();
@@ -170,6 +198,7 @@ export function createService({
       ...(record.lastError !== undefined && { lastError: record.lastError }),
       ...(record.buildSeconds !== undefined && { buildSeconds: record.buildSeconds }),
       pinned: record.pinned,
+      ...(record.pinned && record.pinnedBy && { pinnedBy: record.pinnedBy }),
       optIns: record.optIns,
       leases: leases.holders(record.id),
       lastUsedAt: record.lastUsedAt,
@@ -205,6 +234,47 @@ export function createService({
     }
   };
 
+  const plan = async (raw: unknown, caller: Caller) => {
+    const input = parse(startInputSchema, raw);
+    const services = [...new Set(input.services ?? [])].sort();
+    const dedicatedDb = input.dedicatedDb ?? false;
+    const reason = input.reason?.trim() || null;
+    if ((services.length || dedicatedDb) && !reason)
+      throw new ServiceError("reason_required", "say why in reason when asking for services or a dedicated database");
+    const cwd = input.cwd ?? caller.cwd;
+    if (!cwd) throw new ServiceError("bad_request", "cwd is required: the absolute path of the worktree to serve");
+    const target = await resolveTarget(cwd, config.projects);
+    if (services.length && !target.project.optIns.services) throw new ServiceError("bad_request", `project ${target.project.id} has no opt-in services`);
+    if (dedicatedDb && !target.project.optIns.dedicatedDb)
+      throw new ServiceError("bad_request", `project ${target.project.id} has no dedicated database option`);
+    const placement = await placeFor(target, { ...input, services, dedicatedDb, reason: reason ?? undefined });
+    const wanted: OptIns = { services, dedicatedDb, reason: services.length || dedicatedDb ? reason : null };
+    const because = [...placement.because];
+    const served = placement.servedFrom === target.worktree ? target : { ...target, worktree: placement.servedFrom };
+    const outside = store.snapshot().servers[serverIdFor(served.worktree)];
+    let mode = placement.mode;
+    if (outside?.state === "external") {
+      if (hasOptIns(wanted)) {
+        throw new ServiceError(
+          "external_readonly",
+          `${served.worktree} runs a server started outside the plugin, on port ${outside.port}, which the plugin cannot restart with ${describeOptIns(wanted)}; stop it yourself, then start again`,
+          { id: outside.id, port: outside.port },
+        );
+      }
+      if (mode !== "external")
+        because.push(`its server on port ${outside.port} was started outside the plugin: it runs with its own settings and the plugin never stops it`);
+      mode = "external";
+    } else if (services.length) {
+      for (const record of Object.values(store.snapshot().servers)) {
+        if (record.state !== "external" || record.project !== target.project.id) continue;
+        because.push(
+          `a server started outside the plugin runs ${record.worktree} on port ${record.port} with its own settings, which may turn on every service: ${services.join(", ")} may run twice`,
+        );
+      }
+    }
+    return { input, wanted, served, placement: { ...placement, mode, because } };
+  };
+
   const launch = async (target: Target, wanted: OptIns, caller: Caller, because: string[]) => {
     const id = serverIdFor(target.worktree);
     let running = store.snapshot().servers[id]?.process ? store.snapshot().servers[id] : undefined;
@@ -221,49 +291,57 @@ export function createService({
     } else if (running && hasOptIns(running.optIns) && !hasOptIns(wanted)) {
       because.push(`already running with ${describeOptIns(running.optIns)}: ${running.optIns.reason}`);
     }
-    const evicted = running ? [] : await capacity.admit(id);
-    const { base, reserved } = running ? { base: running.port, reserved: running.reserved } : await assignPorts(target, because);
-    try {
-      await supervisor.start({ project: target.project, worktree: target.worktree, port: base, reserved, optIns: running?.optIns ?? wanted });
-    } catch (error) {
-      if (error instanceof StartFailedError) throw new ServiceError("start_failed", error.message);
-      throw error;
+    const spawn = async (port: number, reserved: number[], optIns: OptIns) => {
+      try {
+        await supervisor.start({ project: target.project, worktree: target.worktree, port, reserved, optIns });
+      } catch (error) {
+        if (error instanceof StartFailedError) throw new ServiceError("start_failed", error.message);
+        throw error;
+      }
+    };
+    if (running) {
+      await spawn(running.port, running.reserved, running.optIns);
+      return { id, evicted: [] };
     }
+    const { evicted } = await capacity.admit({ id, worktree: target.worktree }, async () => {
+      const { base, reserved } = await assignPorts(target, because);
+      await spawn(base, reserved, wanted);
+    });
     return { id, evicted };
   };
 
   return {
     start: async (raw, caller) => {
-      const input = parse(startInputSchema, raw);
-      const services = [...new Set(input.services ?? [])].sort();
-      const dedicatedDb = input.dedicatedDb ?? false;
-      const reason = input.reason?.trim() || null;
-      if ((services.length || dedicatedDb) && !reason)
-        throw new ServiceError("reason_required", "say why in reason when asking for services or a dedicated database");
-      const cwd = input.cwd ?? caller.cwd;
-      if (!cwd) throw new ServiceError("bad_request", "cwd is required: the absolute path of the worktree to serve");
-      const target = await resolveTarget(cwd, config.projects);
-      if (services.length && !target.project.optIns.services) throw new ServiceError("bad_request", `project ${target.project.id} has no opt-in services`);
-      if (dedicatedDb && !target.project.optIns.dedicatedDb)
-        throw new ServiceError("bad_request", `project ${target.project.id} has no dedicated database option`);
-      const placement = await placeFor(target, { ...input, services, dedicatedDb, reason: reason ?? undefined });
-      const wanted: OptIns = { services, dedicatedDb, reason: services.length || dedicatedDb ? reason : null };
-      const because = [...placement.because];
-      const served = placement.servedFrom === target.worktree ? target : { ...target, worktree: placement.servedFrom };
-
+      await refreshExternals();
+      const { input, wanted, served, placement } = await plan(raw, caller);
+      const because = placement.because;
       const { id, evicted, lease } = await exclusive(serverIdFor(served.worktree), async () => {
-        const launched = await launch(served, wanted, caller, because);
+        const servedId = serverIdFor(served.worktree);
+        const launched =
+          store.snapshot().servers[servedId]?.state === "external" ? { id: servedId, evicted: [] } : await launch(served, wanted, caller, because);
         await update(launched.id, (record) => {
           record.lastUsedAt = new Date().toISOString();
-          if (input.pin) record.pinned = true;
+          if (input.pin && record.state !== "external" && !record.pinned) {
+            record.pinned = true;
+            record.pinnedBy = { kind: caller.holder.kind, id: caller.holder.id };
+          }
         });
         return { ...launched, lease: await leases.take(launched.id, caller.holder) };
       });
+      for (const { worktree, why } of evicted) because.push(`stopped the server of ${worktree} to make room: ${why}`);
       if (input.waitSeconds > 0) await supervisor.waitFor(id, (record) => !record || !BUILDING.includes(record.state), input.waitSeconds * 1000);
       gitCache.forget(served.worktree);
       const server = await view(recordOf(id));
       const next = placement.ambiguous ? `${nextStep(server)}. ${placement.ambiguous.question}` : nextStep(server);
-      return { server, placement: { ...placement, because }, lease, ...(evicted.length && { evicted }), next };
+      return { server, placement, lease, ...(evicted.length && { evicted }), next };
+    },
+
+    placement: async (raw, caller) => {
+      const input = parse(placementInputSchema, raw);
+      await refreshExternals();
+      const { served, placement } = await plan(input, caller);
+      const record = store.snapshot().servers[serverIdFor(served.worktree)];
+      return { placement, server: record ? await view(record) : null };
     },
 
     list: async () => {
@@ -282,14 +360,18 @@ export function createService({
       return exclusive(id, async () => {
         const record = recordOf(id);
         await leases.release(id, caller.holder);
-        if (record.state === "external") throw new ServiceError("external_readonly", `${id} was started outside the plugin, which never stops it`, { id });
-        const kept = (reason: "leased" | "pinned", next: string): Promise<StopResult> =>
+        const kept = (reason: NonNullable<StopResult["kept"]>, next: string): Promise<StopResult> =>
           view(recordOf(id)).then((server) => ({ server, stopped: false, kept: reason, swept: [], portsBusy: [], next }));
+        if (record.state === "external") {
+          if (force) throw new ServiceError("external_readonly", `${id} was started outside the plugin, which never stops it`, { id });
+          return kept("external", "your lease is released; the server was started outside the plugin, which never stops it");
+        }
         if (!force) {
           const others = leases.holders(id);
           if (others.length) return kept("leased", `kept running for ${describeHolders(others)}; your lease is released`);
           if (record.pinned) return kept("pinned", "kept running because it is pinned; stop it with force to override");
         }
+        if (leases.holders(id).length) await leases.lose(id, `stopped by ${describeHolder(caller.holder)}`);
         const result = await supervisor.stop(id);
         const server = await view(recordOf(id));
         return {
@@ -303,9 +385,39 @@ export function createService({
       });
     },
 
+    pin: async (id, raw, caller) => {
+      const { pinned } = parse(pinInputSchema, raw);
+      return exclusive(id, async () => {
+        const record = recordOf(id);
+        if (record.state === "external")
+          throw new ServiceError("external_readonly", `${id} was started outside the plugin, which never stops it, so a pin changes nothing`, { id });
+        const owner = record.pinnedBy;
+        if (!pinned && record.pinned && caller.holder.kind === "agent" && !(owner && sameHolder(owner, caller.holder))) {
+          const by = owner ? describeHolder(leases.holders(id).find(({ holder }) => sameHolder(holder, owner))?.holder ?? owner) : "someone else";
+          throw new ServiceError("held_by_others", `${id} was pinned by ${by}; an agent can only undo its own pin`, { id, pinnedBy: owner ?? null });
+        }
+        await update(id, (current) => {
+          if (pinned && !current.pinned) current.pinnedBy = { kind: caller.holder.kind, id: caller.holder.id };
+          if (!pinned) delete current.pinnedBy;
+          current.pinned = pinned;
+          current.lastUsedAt = new Date().toISOString();
+        });
+        await leases.settle(id);
+        const server = await view(recordOf(id));
+        return {
+          server,
+          next: pinned
+            ? "pinned: it keeps running when nobody holds it and is never stopped to make room; unpin it when you no longer need it"
+            : `unpinned; ${nextStep(server)}`,
+        };
+      });
+    },
+
     logs: async (id, raw) => {
       const { lines, grep, source } = parse(logsInputSchema, raw);
       const record = recordOf(id);
+      if (record.state === "external")
+        throw new ServiceError("not_found", `${id} was started outside the plugin, which cannot read its output`, { id, source });
       const file = source === "app" ? record.logs.app : record.logs.run;
       if (!file) throw new ServiceError("not_found", `${id} has no ${source} log`, { id, source });
       let pattern: RegExp | null = null;

@@ -112,7 +112,7 @@ const projectSchema = z.strictObject({
     .prefault({}),
   logPatterns: z.strictObject({ progress: regex.optional(), ready: regex.optional(), crash: regex.optional(), rebuild: regex.optional() }).prefault({}),
   stop: z.strictObject({ graceSeconds: z.number().min(0).default(10), sweepCwdUnder: z.array(z.string()).default([]) }).prefault({}),
-  adopt: z.strictObject({ cwdPattern: regex, probe: httpProbe.prefault({}) }).optional(),
+  adopt: z.strictObject({ cwdPattern: regex.optional(), probe: httpProbe.prefault({}) }).optional(),
   optIns: z
     .strictObject({
       dedicatedDb: z.strictObject({ args: templatedArgv.default([]), env: templatedEnv.default({}) }).optional(),

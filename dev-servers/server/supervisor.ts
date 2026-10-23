@@ -316,6 +316,7 @@ export function createSupervisor({
         deadlines: { ...previous?.deadlines },
         logs: { ...previous?.logs, run: runLog },
       };
+      delete record.external;
       applyPhase(record, phase);
       draft.servers[id] = record;
     });
@@ -339,6 +340,9 @@ export function createSupervisor({
   };
 
   const stopNow = async (id: string, graceSeconds?: number): Promise<StopResult> => {
+    if (store.snapshot().servers[id]?.state === "external") {
+      return { id, found: true, signalled: "refused", swept: [], portsBusy: [], note: "started outside the plugin, which never stops it" };
+    }
     unwatch(id);
     const record = await patch(id, (record) => {
       record.state = "stopping";

@@ -28,20 +28,31 @@ const keyRecordSchema = z.object({
 
 const leaseRecordSchema = z.object({ serverId: z.string(), holder: holderSchema, since: timestamp, lastUsedAt: timestamp });
 
+const lostRecordSchema = z.object({
+  serverId: z.string(),
+  worktree: z.string(),
+  holder: holderSchema,
+  why: z.string(),
+  at: timestamp,
+  seenAt: timestamp.optional(),
+});
+
 const leaseStateSchema = z.object({
   version: z.literal(1),
   keys: z.record(z.string(), keyRecordSchema).default({}),
   leases: z.record(z.string(), leaseRecordSchema).default({}),
+  lost: z.record(z.string(), lostRecordSchema).default({}),
 });
 
 export type KeyRecord = z.output<typeof keyRecordSchema>;
+export type LostRecord = z.output<typeof lostRecordSchema>;
 export type LeaseState = z.output<typeof leaseStateSchema>;
 
 export const openLeaseStore = (stateDir: string, onWarning?: (message: string) => void) =>
   createJsonStore<LeaseState>({
     file: path.join(stateDir, "leases.json"),
     schema: leaseStateSchema,
-    empty: () => ({ version: 1, keys: {}, leases: {} }),
+    empty: () => ({ version: 1, keys: {}, leases: {}, lost: {} }),
     onWarning,
   });
 
@@ -69,6 +80,8 @@ export type LeaseManager = {
   releaseAgent(agentId: string): Promise<string[]>;
   touch(holder: Holder): Promise<void>;
   heldBy(holder: Holder): string[];
+  takeLost(holder: Holder): Promise<LostRecord[]>;
+  lostNotices(): LostRecord[];
   settle(serverId: string): Promise<void>;
   settleAll(): Promise<void>;
   flush(): Promise<void>;
@@ -77,7 +90,9 @@ export type LeaseManager = {
 
 const sameHolder = (a: Holder, b: Holder) => a.kind === b.kind && a.id === b.id;
 const newId = (prefix: string, bytes: number) => `${prefix}_${randomBytes(bytes).toString("base64url")}`;
-const hasProcess = (record: ServerRecord | undefined) => Boolean(record?.process && RUNNING.includes(record.state));
+// An external server holds read-only leases: they show who uses it but never keep it up nor idle it out.
+const isLive = (record: ServerRecord | undefined) => Boolean((record?.process && RUNNING.includes(record.state)) || record?.state === "external");
+const stoppable = (record: ServerRecord) => isLive(record) && record.state !== "external";
 
 export function createLeaseManager({
   store,
@@ -121,7 +136,7 @@ export function createLeaseManager({
 
   const settle = async (serverId: string) => {
     const record = servers.snapshot().servers[serverId];
-    if (!hasProcess(record)) {
+    if (!isLive(record)) {
       await store.update((draft) => {
         for (const [id] of leasesOf(draft, serverId)) delete draft.leases[id];
       });
@@ -130,8 +145,8 @@ export function createLeaseManager({
     await servers.update((draft) => {
       const current = draft.servers[serverId];
       if (!current) return;
-      if (!hasProcess(current) || leased || current.pinned) delete current.deadlines.idle;
-      if (!hasProcess(current)) return;
+      if (!stoppable(current) || leased || current.pinned) delete current.deadlines.idle;
+      if (!stoppable(current)) return;
       const label = leased ? "ready" : "idle";
       if ((current.state === "ready" || current.state === "idle") && current.state !== label) {
         current.state = label;
@@ -156,6 +171,7 @@ export function createLeaseManager({
           delete draft.leases[id];
         }
       }
+      for (const [id, notice] of Object.entries(draft.lost)) if (Date.parse(notice.at) + ttlMs <= now) delete draft.lost[id];
       return ids;
     });
     await settleMany(expired);
@@ -211,6 +227,18 @@ export function createLeaseManager({
       });
       await settle(serverId);
     },
+    lose: async (serverId, why) => {
+      const worktree = servers.snapshot().servers[serverId]?.worktree ?? "";
+      const at = iso();
+      await store.update((draft) => {
+        for (const [id, lease] of leasesOf(draft, serverId)) {
+          draft.lost[newId("lo", 6)] = { serverId, worktree, holder: lease.holder, why, at };
+          delete draft.leases[id];
+        }
+      });
+      await settle(serverId);
+    },
+    settle,
     holders: (serverId): LeaseView[] =>
       leasesOf(store.snapshot(), serverId).map(([id, { holder, since, lastUsedAt }]) => {
         const title = titleOf(holder);
@@ -276,6 +304,7 @@ export function createLeaseManager({
           }
         }
         for (const key of keys) delete draft.keys[key];
+        for (const [id, notice] of Object.entries(draft.lost)) if (notice.holder.kind === "agent" && keys.has(notice.holder.id)) delete draft.lost[id];
         return ids;
       });
       await settleMany(affected);
@@ -301,6 +330,18 @@ export function createLeaseManager({
     },
 
     heldBy: (holder) => [...new Set(Object.values(store.snapshot().leases).flatMap((lease) => (sameHolder(lease.holder, holder) ? [lease.serverId] : [])))],
+
+    takeLost: async (holder) => {
+      if (!Object.values(store.snapshot().lost).some((notice) => !notice.seenAt && sameHolder(notice.holder, holder))) return [];
+      const seenAt = iso();
+      return store.update((draft) => {
+        const unseen = Object.values(draft.lost).filter((notice) => !notice.seenAt && sameHolder(notice.holder, holder));
+        for (const notice of unseen) notice.seenAt = seenAt;
+        return structuredClone(unseen).sort((a, b) => a.at.localeCompare(b.at));
+      });
+    },
+
+    lostNotices: () => Object.values(store.snapshot().lost).sort((a, b) => a.at.localeCompare(b.at)),
 
     settle,
 

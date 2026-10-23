@@ -48,6 +48,14 @@ export type StartInput = z.input<typeof startInputSchema>;
 export const stopInputSchema = z.strictObject({ force: z.boolean().default(false) });
 export type StopInput = z.input<typeof stopInputSchema>;
 
+export const pinInputSchema = z.strictObject({
+  pinned: z.boolean().default(true).describe("true keeps the server running when nobody holds it and never stops it to make room; false undoes your pin"),
+});
+export type PinInput = z.input<typeof pinInputSchema>;
+
+export const placementInputSchema = startInputSchema.pick({ cwd: true, serveFrom: true, dedicated: true, services: true, dedicatedDb: true, reason: true });
+export type PlacementInput = z.input<typeof placementInputSchema>;
+
 export const logsInputSchema = z.strictObject({
   lines: z.coerce.number().int().min(1).max(5000).default(100).describe("How many of the last lines to return"),
   grep: z.string().min(1).optional().describe("Case-insensitive regular expression the lines must match"),
@@ -71,6 +79,7 @@ export const serverViewSchema = z.object({
   lastError: z.string().optional(),
   buildSeconds: z.number().optional(),
   pinned: z.boolean(),
+  pinnedBy: holderSchema.optional(),
   optIns: z.object({ services: z.array(z.string()), dedicatedDb: z.boolean(), reason: z.string().nullable() }),
   leases: z.array(leaseViewSchema),
   lastUsedAt: z.string(),
@@ -94,7 +103,7 @@ export const startResultSchema = z.object({
   server: serverViewSchema,
   placement: placementSchema,
   lease: z.object({ id: z.string() }).nullable(),
-  evicted: z.array(z.object({ id: z.string(), worktree: z.string() })).optional(),
+  evicted: z.array(z.object({ id: z.string(), worktree: z.string(), why: z.string() })).optional(),
   next: z.string(),
 });
 export type StartResult = z.output<typeof startResultSchema>;
@@ -102,13 +111,22 @@ export type StartResult = z.output<typeof startResultSchema>;
 export const stopResultSchema = z.object({
   server: serverViewSchema,
   stopped: z.boolean(),
-  kept: z.enum(["leased", "pinned"]).optional(),
+  kept: z.enum(["leased", "pinned", "external"]).optional(),
   swept: z.array(z.number()),
   portsBusy: z.array(z.number()),
   note: z.string().optional(),
   next: z.string(),
 });
 export type StopResult = z.output<typeof stopResultSchema>;
+
+export const pinResultSchema = z.object({ server: serverViewSchema, next: z.string() });
+export type PinResult = z.output<typeof pinResultSchema>;
+
+export const placementResultSchema = z.object({ placement: placementSchema, server: serverViewSchema.nullable() });
+export type PlacementResult = z.output<typeof placementResultSchema>;
+
+export const lostNoticeSchema = z.object({ id: z.string(), worktree: z.string(), why: z.string(), at: z.string(), message: z.string() });
+export type LostNotice = z.output<typeof lostNoticeSchema>;
 
 export const logsResultSchema = z.object({
   id: z.string(),

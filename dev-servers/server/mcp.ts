@@ -1,11 +1,12 @@
 import type http from "node:http";
 import path from "node:path";
 import { z } from "zod";
-import { logsInputSchema, startInputSchema, type Holder, type ServerView } from "../shared/contracts.ts";
+import { logsInputSchema, pinInputSchema, startInputSchema, type Holder, type LostNotice, type ServerView } from "../shared/contracts.ts";
 import { ServiceError } from "./errors.ts";
 import { toplevel } from "./git.ts";
 import { readJsonText, type Mount } from "./http.ts";
-import { KEY_PATTERN, type LeaseManager } from "./leases.ts";
+import { KEY_PATTERN, type LeaseManager, type LostRecord } from "./leases.ts";
+import { realPath } from "./proc.ts";
 import { nextStep, type Caller, type DevServersService } from "./service.ts";
 import { serverIdFor } from "./store.ts";
 
@@ -28,7 +29,18 @@ const statusInputSchema = z.strictObject({
   all: z.boolean().optional().describe("List every server the plugin runs, not only yours"),
 });
 const stopInputSchema = z.strictObject({ id: idInput });
+const pinToolInputSchema = pinInputSchema.extend({ id: idInput });
 const logsToolInputSchema = logsInputSchema.extend({ id: idInput });
+
+const STALE_NEXT = "your worktree no longer matches this server (see stale.because): call dev_server_start again to get the right one";
+
+export const lostNotice = ({ serverId, worktree, why, at }: LostRecord): LostNotice => ({
+  id: serverId,
+  worktree,
+  why,
+  at,
+  message: `The dev server for ${worktree} that you held is gone (${why}). Call dev_server_start again if you still need one.`,
+});
 
 type ToolContext = { caller: Caller; holder: Holder };
 type Tool = { description: string; input: z.ZodType; run: (args: unknown, context: ToolContext) => Promise<unknown> };
@@ -68,28 +80,46 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
       throw error;
     });
 
+  // A lease on another worktree's server goes stale when the caller's worktree would no longer be served by it: uncommitted changes, a restack.
+  const staleBecause = async (server: ServerView, { cwd }: Caller) => {
+    const own = cwd ? await toplevel(cwd) : null;
+    const from = realPath(server.worktree.path);
+    if (!own || realPath(own) === from) return null;
+    const preview = await service.placement({ cwd: own, serveFrom: server.worktree.path }, { holder: { kind: "user", id: "stale-check" } }).catch(() => null);
+    return preview && realPath(preview.placement.servedFrom) !== from ? preview.placement.because : null;
+  };
+
+  const describe = async (server: ServerView, { caller, holder }: ToolContext) => {
+    if (!leases.heldBy(holder).includes(server.id)) return withNext(server);
+    const because = await staleBecause(server, caller);
+    return because ? { ...server, stale: { because }, next: STALE_NEXT } : withNext(server);
+  };
+
   return {
     dev_server_start: {
       description:
         "Get a dev server for your worktree and hold it until you stop or are archived: the server of your stack's top when it contains your commit, " +
         "else your worktree's own; a running one is reused. Returns the server (url, state, port), how it was placed and why, and `next`: what to do now. " +
         "When placement.ambiguous is set, pick one of its options with serveFrom. It answers at once while the server builds; " +
-        "call dev_server_status to follow the build. Background services and a dedicated database are off unless you ask with a reason.",
+        "call dev_server_status to follow the build. Background services and a dedicated database are off unless you ask with a reason. " +
+        "Only a few servers run at once: a new one stops the least recently used unpinned server (listed in evicted), and capacity_full means every slot is pinned or started by hand.",
       input: startInputSchema,
       run: (args, { caller }) => service.start((args ?? {}) as Record<string, unknown>, caller),
     },
     dev_server_status: {
       description:
-        "State of your dev server: building (with progress), ready, idle, crashed (with the last error) or stopped, its url and `next`. " +
-        "Without id it shows the servers you hold, else the server of your worktree; all lists every server.",
+        "State of your dev server: building (with progress), ready, idle, crashed (with the last error), stopped or external (started by hand), its url and `next`. " +
+        "Without id it shows the servers you hold, else the server of your worktree; all lists every server. " +
+        "A server you hold is marked stale when your worktree changed so that it should run elsewhere.",
       input: statusInputSchema,
       run: async (args, context) => {
         const { id, all } = parse(statusInputSchema, args);
         if (all) return { servers: (await service.list()).map(withNext) };
-        if (id) return { servers: [withNext(await service.get(id))] };
+        if (id) return { servers: [await describe(await service.get(id), context)] };
         const held = leases.heldBy(context.holder);
         const ids = held.length ? held : [await ownServerId(context.caller)].filter((value): value is string => Boolean(value));
-        const servers = (await Promise.all(ids.map(getQuietly))).filter((server): server is ServerView => server !== null).map(withNext);
+        const found = (await Promise.all(ids.map(getQuietly))).filter((server): server is ServerView => server !== null);
+        const servers = await Promise.all(found.map((server) => describe(server, context)));
         return servers.length ? { servers } : { servers, next: "no dev server for your worktree yet; call dev_server_start" };
       },
     },
@@ -103,6 +133,16 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
         return service.stop(await pick(id, context), {}, context.caller);
       },
     },
+    dev_server_pin: {
+      description:
+        "Pin your dev server so it keeps running when nobody holds it and is never stopped to make room for another one; pinned: false undoes your own pin. " +
+        "Pin only while you need the server across a long pause: pinned servers take one of the few server slots.",
+      input: pinToolInputSchema,
+      run: async (args, context) => {
+        const { id, ...input } = parse(pinToolInputSchema, args);
+        return service.pin(await pick(id, context), input, context.caller);
+      },
+    },
     dev_server_logs: {
       description: "Last lines of your dev server's output, optionally filtered by a regular expression. Read them when it crashed or misbehaves.",
       input: logsToolInputSchema,
@@ -114,7 +154,7 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
   };
 }
 
-export const MCP_TOOL_NAMES = ["dev_server_start", "dev_server_status", "dev_server_stop", "dev_server_logs"] as const;
+export const MCP_TOOL_NAMES = ["dev_server_start", "dev_server_status", "dev_server_stop", "dev_server_pin", "dev_server_logs"] as const;
 
 type JsonRpcId = string | number | null;
 type Incoming = { jsonrpc?: unknown; id?: JsonRpcId; method?: unknown; params?: unknown; result?: unknown; error?: unknown };
@@ -158,7 +198,9 @@ export function createMcpHandler({ service, leases, version = "0.0.0" }: { servi
       const record = await leases.key(key, cwdHintOf(req));
       const holder: Holder = { kind: "agent", id: key, ...(record.title && { title: record.title }) };
       await leases.touch(holder);
-      return text(await tool.run(args, { holder, caller: { holder, ...(record.cwd && { cwd: record.cwd }) } }));
+      const result = await tool.run(args, { holder, caller: { holder, ...(record.cwd && { cwd: record.cwd }) } });
+      const lost = await leases.takeLost(holder);
+      return text(lost.length ? { ...(result as object), lost: lost.map(lostNotice) } : result);
     } catch (error) {
       if (error instanceof ServiceError) return text(error.toBody(), true);
       return text({ error: { code: "internal", message: error instanceof Error ? error.message : String(error) } }, true);

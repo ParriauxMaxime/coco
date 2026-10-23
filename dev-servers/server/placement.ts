@@ -10,14 +10,18 @@ export type Target = { worktree: string; project: ProjectConfig };
 export type PlacementRequest = Pick<StartInput, "serveFrom" | "dedicated" | "services" | "dedicatedDb" | "reason">;
 export type Place = (target: Target, request: PlacementRequest) => Promise<Placement>;
 
+export async function projectOf(worktree: string, projects: ProjectConfig[]): Promise<ProjectConfig | undefined> {
+  const remotes = await remoteUrls(worktree);
+  const real = realPath(worktree);
+  return projects.find(
+    ({ match }) => (match.remote && remotes.some((url) => remoteMatches(url, match.remote!))) || match.paths?.some((dir) => isUnder(real, realPath(dir))),
+  );
+}
+
 export async function resolveTarget(cwd: string, projects: ProjectConfig[]): Promise<Target> {
   const worktree = await toplevel(cwd);
   if (!worktree) throw new ServiceError("not_a_project_worktree", `${cwd} is not inside a git worktree`, { cwd });
-  const remotes = await remoteUrls(worktree);
-  const real = realPath(worktree);
-  const project = projects.find(
-    ({ match }) => (match.remote && remotes.some((url) => remoteMatches(url, match.remote!))) || match.paths?.some((dir) => isUnder(real, realPath(dir))),
-  );
+  const project = await projectOf(worktree, projects);
   if (!project) {
     throw new ServiceError("not_a_project_worktree", `${worktree} matches no configured project`, { worktree, projects: projects.map(({ id }) => id) });
   }
@@ -46,8 +50,12 @@ const label = ({ branch, path }: WorktreeEntry) => (branch ? `${branch} (${path}
 const branchRef = (branch: string | null) => `refs/heads/${branch}`;
 const option = ({ path, branch, head, record }: Candidate): PlacementOption => ({ worktree: path, branch, head, running: Boolean(record) });
 
-// Running servers first, ready ones before building ones, then the most recently used.
+const isExternal = (entry: Candidate) => entry.record?.state === "external";
+const isLive = (record: ServerRecord) => (record.process && RUNNING.includes(record.state)) || record.state === "external";
+
+// The plugin's own servers before servers started by hand, running ones first, ready before building, then the most recently used.
 const preferred = (a: Candidate, b: Candidate) =>
+  Number(isExternal(a)) - Number(isExternal(b)) ||
   Number(!a.record) - Number(!b.record) ||
   Number(!SERVING.includes(a.record?.state ?? "stopped")) - Number(!SERVING.includes(b.record?.state ?? "stopped")) ||
   (b.record?.lastUsedAt ?? "").localeCompare(a.record?.lastUsedAt ?? "") ||
@@ -107,7 +115,7 @@ export function createStackPlacement({ worktreeRoots, servers, dirtyFiles, stack
     if (dirty.length) return own(`the worktree has uncommitted changes, so it runs its own server: ${fileList(dirty)}`);
 
     const real = realPath(worktree);
-    const records = servers().filter((record) => record.project === target.project.id && record.process && RUNNING.includes(record.state));
+    const records = servers().filter((record) => record.project === target.project.id && isLive(record));
     const recordAt = (dir: string) => records.find((record) => realPath(record.worktree) === dir) ?? null;
     const entries = (await listWorktrees(worktree)).map((entry) => {
       const path = realPath(entry.path);
@@ -142,7 +150,18 @@ export function createStackPlacement({ worktreeRoots, servers, dirtyFiles, stack
     const reusable = (
       await Promise.all(above.filter(({ record }) => record).map(async (entry) => ((await dirtyFiles(entry.path)).length ? null : entry)))
     ).filter((entry): entry is Candidate => entry !== null);
-    const best = reusable.sort((a, b) => Number(!topHeads.has(a.head)) - Number(!topHeads.has(b.head)) || preferred(a, b))[0];
+    const best = reusable.sort(
+      (a, b) => Number(isExternal(a)) - Number(isExternal(b)) || Number(!topHeads.has(a.head)) - Number(!topHeads.has(b.head)) || preferred(a, b),
+    )[0];
+    if (best && isExternal(best)) {
+      return {
+        mode: "external",
+        servedFrom: best.path,
+        because: [
+          `reuses the server of ${label(best)}, which contains this worktree's commit; it was started outside the plugin, runs with its own settings and is never stopped by the plugin`,
+        ],
+      };
+    }
     if (best) {
       return {
         mode: topHeads.has(best.head) ? "stack-top" : "stack-running",
@@ -152,14 +171,18 @@ export function createStackPlacement({ worktreeRoots, servers, dirtyFiles, stack
     }
     if (topHeads.has(self.head)) return own("the worktree is the top of its stack (another worktree is on the same commit)");
 
+    // A clean external top was reused above, so an external top here has uncommitted changes and cannot be rebuilt by the plugin.
+    const viaTop = async (top: Candidate, because: string): Promise<Placement> =>
+      isExternal(top)
+        ? own(
+            `${label(top)} is the top of the stack, but its server was started outside the plugin and it has uncommitted changes, so this worktree runs its own server`,
+          )
+        : { mode: "stack-top", servedFrom: top.path, because: await withDirtyNote(top, [because]) };
+
     const groups = tops.map((head) => above.filter((entry) => entry.head === head).sort(preferred)).filter((group) => group.length);
     if (groups.length === 1) {
       const top = groups[0][0];
-      return {
-        mode: "stack-top",
-        servedFrom: top.path,
-        because: await withDirtyNote(top, [`${label(top)} is the top of the stack and contains this worktree's commit`]),
-      };
+      return viaTop(top, `${label(top)} is the top of the stack and contains this worktree's commit`);
     }
 
     const order = self.branch && stackOrder ? await stackOrder(self.branch) : null;
@@ -167,11 +190,7 @@ export function createStackPlacement({ worktreeRoots, servers, dirtyFiles, stack
     const ranked = groups.map((group) => ({ group, rank: rankOf(group) })).filter(({ rank }) => rank >= 0);
     if (ranked.length) {
       const top = ranked.sort((a, b) => b.rank - a.rank)[0].group[0];
-      return {
-        mode: "stack-top",
-        servedFrom: top.path,
-        because: await withDirtyNote(top, [`${groups.length} stacks build on this worktree's commit; ${label(top)} is the latest row of its coco work`]),
-      };
+      return viaTop(top, `${groups.length} stacks build on this worktree's commit; ${label(top)} is the latest row of its coco work`);
     }
     const why = !self.branch
       ? "the worktree has no branch"

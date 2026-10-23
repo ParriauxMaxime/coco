@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { holderSchema } from "../shared/contracts.ts";
 import { SERVER_STATES } from "../shared/states.ts";
 
 export class StoreVersionError extends Error {}
@@ -123,6 +124,8 @@ const serverRecordSchema = z.object({
   progress: z.string().optional(),
   buildSeconds: z.number().optional(),
   pinned: z.boolean().default(false),
+  pinnedBy: holderSchema.omit({ title: true }).optional(),
+  external: z.object({ pid: z.number().int(), startedAt: z.string(), cwd: z.string() }).optional(),
   optIns: z
     .object({ services: z.array(z.string()).default([]), dedicatedDb: z.boolean().default(false), reason: z.string().nullable().default(null) })
     .prefault({}),

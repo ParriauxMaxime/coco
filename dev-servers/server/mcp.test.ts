@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
+import { pinResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
 import { freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
@@ -81,7 +81,7 @@ const serve = async ({ idleStopMinutes = 30 } = {}) => {
     };
     return { key, client, call };
   };
-  return { agent, store, supervisor, leases, port };
+  return { agent, store, supervisor, leases, port, service: service! };
 };
 
 test("an agent lists the tools, then starts, follows and stops its server with nothing but its key", async () => {
@@ -158,6 +158,34 @@ test("two agents share one server; it outlives the first stop and idles out once
   assert.equal(gone?.state, "stopped");
   assert.equal(isAlive(pid), false);
   assert.deepEqual(gone?.deadlines, {});
+});
+
+test("an agent pins its server and only it can unpin it; a force stop leaves each holder a lost notice on its next call", async () => {
+  const { agent, service } = await serve();
+  const alice = await agent("agent-alice", worktree, "Fix the widget");
+  const bruno = await agent("agent-bruno", worktree, "Review the widget");
+  const { server } = startResultSchema.parse((await alice.call("dev_server_start")).body);
+  await bruno.call("dev_server_start");
+
+  const pinned = pinResultSchema.parse((await alice.call("dev_server_pin")).body);
+  assert.deepEqual([pinned.server.pinned, pinned.server.pinnedBy], [true, { kind: "agent", id: alice.key }]);
+  const refused = await bruno.call("dev_server_pin", { pinned: false });
+  assert.deepEqual([refused.isError, refused.body.error.code], [true, "held_by_others"]);
+  assert.match(refused.body.error.message, /pinned by Fix the widget; an agent can only undo its own pin/);
+  assert.equal((await bruno.call("dev_server_pin", { force: true })).body.error.code, "bad_request");
+  const unpinned = pinResultSchema.parse((await alice.call("dev_server_pin", { pinned: false })).body);
+  assert.deepEqual([unpinned.server.pinned, unpinned.server.pinnedBy], [false, undefined]);
+
+  const stopped = await service.stop(server.id, { force: true }, { holder: { kind: "user", id: "panel", title: "the dev servers screen" } });
+  assert.equal(stopped.stopped, true);
+  const told = await alice.call("dev_server_status");
+  assert.deepEqual(
+    told.body.lost.map(({ id, worktree: at }: { id: string; worktree: string }) => [id, at]),
+    [[server.id, worktree]],
+  );
+  assert.match(told.body.lost[0].message, /that you held is gone \(stopped by the dev servers screen\)\. Call dev_server_start again/);
+  assert.equal((await alice.call("dev_server_status")).body.lost, undefined);
+  assert.equal((await bruno.call("dev_server_logs")).body.lost.length, 1);
 });
 
 type Raw = { status: number; body: any };

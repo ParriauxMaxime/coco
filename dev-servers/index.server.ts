@@ -1,11 +1,13 @@
 import type { RpcOutput } from "@getpaseo/plugin";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { loadConfig, resolveApi, type ConfigLoad } from "./server/config.ts";
+import { createExternalScanner } from "./server/external.ts";
 import { createHttpApi, type HttpApi } from "./server/http.ts";
 import { createLeaseManager, openLeaseStore, type LeaseManager } from "./server/leases.ts";
 import { MCP_PATH, createMcpHandler } from "./server/mcp.ts";
 import { createPaseoHooks, registerPaseoHooks, type HookRuntime } from "./server/paseo-hooks.ts";
 import { openPortRegistry, type PortRegistry } from "./server/ports.ts";
+import { createScheduler } from "./server/scheduler.ts";
 import { createService, type DevServersService } from "./server/service.ts";
 import { openStateStore, type DevServersState, type JsonStore } from "./server/store.ts";
 import { createSupervisor, type Supervisor } from "./server/supervisor.ts";
@@ -68,15 +70,19 @@ export default function contribute(server: PluginServerContext) {
       },
       onWarning: warn,
     });
-    service = createService({ config, store: stores.state, ports: stores.ports, supervisor, leases: leases.book });
+    const externals = createExternalScanner({ store: stores.state, projects, leases: leases.book, onWarning: warn });
+    const capacity = createScheduler({ store: stores.state, cap: config.cap, stop: (id) => supervisor.stop(id), leases: leases.book, onWarning: warn });
+    service = createService({ config, store: stores.state, ports: stores.ports, supervisor, leases: leases.book, capacity, externals, onWarning: warn });
     const unsubscribe = supervisor.subscribe(
       (record) => void leases.settle(record.id).catch((error) => warn(`lease check of ${record.id} failed: ${messageOf(error)}`)),
     );
     const close = () => {
       unsubscribe();
+      externals.close();
       leases.close();
     };
     await leases.settleAll().catch((error) => warn(`lease check failed: ${messageOf(error)}`));
+    externals.start();
     const api = resolveApi(config.api, values.apiPort);
     const http = createHttpApi({ service, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases }) } });
     const up = { load, apiPort: values.apiPort, stores, supervisor, leases, service, close };
