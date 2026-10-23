@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
+  loginInputSchema,
   logsInputSchema,
   pinInputSchema,
   placementInputSchema,
@@ -9,6 +10,8 @@ import {
   stopInputSchema,
   type Holder,
   type LeaseView,
+  type LoginInput,
+  type LoginResult,
   type LogsInput,
   type LogsResult,
   type PinInput,
@@ -25,6 +28,7 @@ import { renderTemplate, type DevServersConfig } from "./config.ts";
 import { ServiceError } from "./errors.ts";
 import { cocoStackOrder } from "./coco.ts";
 import { createGitCache, toplevel } from "./git.ts";
+import { callLogin, loginReply } from "./login.ts";
 import { createStackPlacement, resolveTarget, type Place, type Target } from "./placement.ts";
 import { PortUnavailableError, listenerProbe, type PortProbe, type PortRegistry } from "./ports.ts";
 import { errnoOf, realPath } from "./proc.ts";
@@ -102,12 +106,14 @@ export type DevServersService = {
   stop(id: string, input: StopInput, caller: Caller): Promise<StopResult>;
   pin(id: string, input: PinInput, caller: Caller): Promise<PinResult>;
   logs(id: string, input: LogsInput): Promise<LogsResult>;
+  login(id: string, input: LoginInput): Promise<LoginResult>;
   prewarm(target: Target, options?: { warm?: boolean }): Promise<PrewarmResult>;
   finishPrewarm(id: string): Promise<FinishResult>;
   archive(cwd: string): Promise<ArchiveResult>;
 };
 
 const BUILDING: ServerRecord["state"][] = ["building", "prewarming"];
+const SERVING: ServerRecord["state"][] = ["ready", "idle", "external"];
 const EXTERNAL_SCAN_MAX_AGE_MS = 5000;
 
 const parse = <T extends z.ZodType>(schema: T, value: unknown): z.output<T> => {
@@ -324,36 +330,44 @@ export function createService({
         ),
     });
 
-  const launch = async (target: Target, wanted: OptIns, caller: Caller, because: string[]) => {
+  // A server the scheduler is evicting shows as stopping: it is not reused, it needs a slot again.
+  const liveRecord = (id: string) => {
+    const record = store.snapshot().servers[id];
+    return record?.process && record.state !== "stopping" ? record : undefined;
+  };
+
+  // Whether the server runs is decided under the scheduler lock, so an eviction of the same server cannot slip between the check and the launch.
+  const launch = async <T>(target: Target, wanted: OptIns, caller: Caller, because: string[], hold: (id: string) => Promise<T>) => {
     const id = serverIdFor(target.worktree);
-    let running = store.snapshot().servers[id]?.process ? store.snapshot().servers[id] : undefined;
-    if (running && !satisfies(running.optIns, wanted)) {
-      const others = leases.holders(id).filter(({ holder }) => !sameHolder(holder, caller.holder));
-      if (others.length) {
-        throw new ServiceError("held_by_others", `the server runs without ${describeOptIns(wanted)} and is also used by ${describeHolders(others)}`, {
-          holders: others.map(({ holder }) => holder),
-        });
+    if (!liveRecord(id)) because.push(...describeWarm(await warmFor(target)));
+    const { evicted, result } = await capacity.admit({ id, worktree: target.worktree }, async () => {
+      let running = liveRecord(id);
+      if (running && !satisfies(running.optIns, wanted)) {
+        const others = leases.holders(id).filter(({ holder }) => !sameHolder(holder, caller.holder));
+        if (others.length) {
+          throw new ServiceError("held_by_others", `the server runs without ${describeOptIns(wanted)} and is also used by ${describeHolders(others)}`, {
+            holders: others.map(({ holder }) => holder),
+          });
+        }
+        await supervisor.stop(id);
+        because.push(`restarted to add ${describeOptIns(wanted)}`);
+        running = undefined;
+      } else if (running && hasOptIns(running.optIns) && !hasOptIns(wanted)) {
+        because.push(`already running with ${describeOptIns(running.optIns)}: ${running.optIns.reason}`);
       }
-      await supervisor.stop(id);
-      because.push(`restarted to add ${describeOptIns(wanted)}`);
-      running = undefined;
-    } else if (running && hasOptIns(running.optIns) && !hasOptIns(wanted)) {
-      because.push(`already running with ${describeOptIns(running.optIns)}: ${running.optIns.reason}`);
-    }
-    if (running?.prebuild) {
-      await supervisor.takeOver(id);
-      because.push("took over the prebuild of this worktree: its build goes on and the server stays up");
-    }
-    if (running) {
-      await spawn(target, running.port, running.reserved, running.optIns);
-      return { id, evicted: [] };
-    }
-    because.push(...describeWarm(await warmFor(target)));
-    const { evicted } = await capacity.admit({ id, worktree: target.worktree }, async () => {
-      const { base, reserved } = await assignPorts(target, because);
-      await spawn(target, base, reserved, wanted);
+      if (running?.prebuild) {
+        await supervisor.takeOver(id);
+        because.push("took over the prebuild of this worktree: its build goes on and the server stays up");
+      }
+      if (running) {
+        await spawn(target, running.port, running.reserved, running.optIns);
+      } else {
+        const { base, reserved } = await assignPorts(target, because);
+        await spawn(target, base, reserved, wanted);
+      }
+      return hold(id);
     });
-    return { id, evicted };
+    return { id, evicted, held: result };
   };
 
   const isRunning = (record: ServerRecord | undefined) => Boolean(record && (record.process || record.state === "external"));
@@ -364,19 +378,26 @@ export function createService({
       const { input, wanted, served, placement } = await plan(raw, caller);
       const because = placement.because;
       await prebuilds?.forget(served.worktree);
-      const { id, evicted, lease } = await exclusive(serverIdFor(served.worktree), async () => {
-        const servedId = serverIdFor(served.worktree);
-        const launched =
-          store.snapshot().servers[servedId]?.state === "external" ? { id: servedId, evicted: [] } : await launch(served, wanted, caller, because);
-        await update(launched.id, (record) => {
+      const hold = async (id: string) => {
+        await update(id, (record) => {
           record.lastUsedAt = new Date().toISOString();
           if (input.pin && record.state !== "external" && !record.pinned) {
             record.pinned = true;
             record.pinnedBy = { kind: caller.holder.kind, id: caller.holder.id };
           }
         });
-        return { ...launched, lease: await leases.take(launched.id, caller.holder) };
-      });
+        return leases.take(id, caller.holder);
+      };
+      const servedId = serverIdFor(served.worktree);
+      const {
+        id,
+        evicted,
+        held: lease,
+      } = await exclusive(servedId, async () =>
+        store.snapshot().servers[servedId]?.state === "external"
+          ? { id: servedId, evicted: [], held: await hold(servedId) }
+          : launch(served, wanted, caller, because, hold),
+      );
       for (const { worktree, why } of evicted) because.push(`stopped the server of ${worktree} to make room: ${why}`);
       if (input.waitSeconds > 0) await supervisor.waitFor(id, (record) => !record || !BUILDING.includes(record.state), input.waitSeconds * 1000);
       gitCache.forget(served.worktree);
@@ -481,23 +502,51 @@ export function createService({
       return { id, source, file, lines: matched.slice(-lines), truncated: cut || matched.length > lines };
     },
 
+    login: async (id, raw) => {
+      const { user, path: page = "/" } = parse(loginInputSchema, raw);
+      const record = recordOf(id);
+      const server = await view(record);
+      if (!SERVING.includes(record.state)) throw new ServiceError("not_ready", `${id} is not serving yet: ${nextStep(server)}`, { id, state: record.state });
+      const project = projectOf(record.project);
+      if (!project?.provider)
+        throw new ServiceError("login_unavailable", `project ${record.project} names no provider module with a login(ctx) export`, { id });
+      const ctx = {
+        id,
+        project: project.id,
+        worktree: record.worktree,
+        appDir: project.appDir,
+        port: record.port,
+        url: server.url,
+        logDir: logDirFor(config.stateDir, id),
+        ...(user && { user }),
+        path: page,
+      };
+      const login = await callLogin(project.provider, ctx, project.login.timeoutSeconds * 1000);
+      await touch(id);
+      return loginReply(id, login);
+    },
+
     // A prebuild never stops another server: at the cap it reports full and the queue tries again later.
     prewarm: (target, { warm = true } = {}) => {
       const id = serverIdFor(target.worktree);
-      return exclusive(id, async (): Promise<PrewarmResult> => {
+      const running = () => {
         const current = store.snapshot().servers[id];
-        if (isRunning(current) && current?.state !== "stopping") return { id, outcome: "running", warmed: [] };
-        const warmed = warm ? await warmFor(target) : [];
+        return isRunning(current) && current?.state !== "stopping";
+      };
+      return exclusive(id, async (): Promise<PrewarmResult> => {
+        const warmed = warm && !running() ? await warmFor(target) : [];
         try {
-          await capacity.admit(
+          const { result } = await capacity.admit(
             { id, worktree: target.worktree },
             async () => {
+              if (running()) return "running" as const;
               const { base, reserved } = await assignPorts(target, []);
               await spawn(target, base, reserved, NO_OPT_INS, true);
+              return "started" as const;
             },
             { evict: false },
           );
-          return { id, outcome: "started", warmed };
+          return { id, outcome: result, warmed };
         } catch (error) {
           if (error instanceof ServiceError && error.code === "capacity_full") return { id, outcome: "full", warmed, message: error.message };
           throw error;

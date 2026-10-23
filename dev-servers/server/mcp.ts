@@ -1,7 +1,7 @@
 import type http from "node:http";
 import path from "node:path";
 import { z } from "zod";
-import { logsInputSchema, pinInputSchema, startInputSchema, type Holder, type LostNotice, type ServerView } from "../shared/contracts.ts";
+import { loginInputSchema, logsInputSchema, pinInputSchema, startInputSchema, type Holder, type LostNotice, type ServerView } from "../shared/contracts.ts";
 import { ServiceError } from "./errors.ts";
 import { toplevel } from "./git.ts";
 import { readJsonText, type Mount } from "./http.ts";
@@ -20,7 +20,7 @@ const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05
 const INSTRUCTIONS =
   "Dev servers for the worktree you work in. Call dev_server_start to get a server and its URL instead of starting one yourself: " +
   "the plugin picks a stable port, shares the server with other agents and stops it once nobody uses it. A build takes minutes: " +
-  "follow the `next` hint and call dev_server_status until the state is ready. Call dev_server_stop when you are done.";
+  "follow the `next` hint and call dev_server_status until the state is ready. Call dev_server_login to open it logged in, and dev_server_stop when you are done.";
 
 const idInput = z.string().min(1).optional().describe("Server id from dev_server_start or dev_server_status; defaults to the server you hold");
 
@@ -31,6 +31,7 @@ const statusInputSchema = z.strictObject({
 const stopInputSchema = z.strictObject({ id: idInput });
 const pinToolInputSchema = pinInputSchema.extend({ id: idInput });
 const logsToolInputSchema = logsInputSchema.extend({ id: idInput });
+const loginToolInputSchema = loginInputSchema.extend({ server: idInput });
 
 const STALE_NEXT = "your worktree no longer matches this server (see stale.because): call dev_server_start again to get the right one";
 
@@ -151,10 +152,21 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
         return service.logs(await pick(id, context), input);
       },
     },
+    dev_server_login: {
+      description:
+        "Log a browser into your dev server once it is ready. Returns the page url and, when the app keeps its session in the browser, " +
+        "a seed: apply.function sets it on the server's origin. Open apply.open, run apply.function with your browser's evaluate tool, then navigate to apply.then. " +
+        "user picks who to log in as (the project picks someone when omitted); path picks the page.",
+      input: loginToolInputSchema,
+      run: async (args, context) => {
+        const { server, ...input } = parse(loginToolInputSchema, args);
+        return service.login(await pick(server, context), input);
+      },
+    },
   };
 }
 
-export const MCP_TOOL_NAMES = ["dev_server_start", "dev_server_status", "dev_server_stop", "dev_server_pin", "dev_server_logs"] as const;
+export const MCP_TOOL_NAMES = ["dev_server_start", "dev_server_status", "dev_server_stop", "dev_server_pin", "dev_server_logs", "dev_server_login"] as const;
 
 type JsonRpcId = string | number | null;
 type Incoming = { jsonrpc?: unknown; id?: JsonRpcId; method?: unknown; params?: unknown; result?: unknown; error?: unknown };

@@ -14,6 +14,8 @@ export const ERROR_CODES = [
   "held_by_others",
   "start_failed",
   "not_ready",
+  "login_unavailable",
+  "login_failed",
   "forbidden_host",
   "forbidden_origin",
   "unsupported_media_type",
@@ -136,6 +138,32 @@ export const logsResultSchema = z.object({
   truncated: z.boolean(),
 });
 export type LogsResult = z.output<typeof logsResultSchema>;
+
+export const loginInputSchema = z.strictObject({
+  user: z.string().min(1).optional().describe("Who to log in as, in the project's own terms (for example a user id); the project picks one when omitted"),
+  path: z.string().startsWith("/").optional().describe("Page to open once logged in, as a path on the server; defaults to /"),
+});
+export type LoginInput = z.input<typeof loginInputSchema>;
+
+export const loginSeedSchema = z.strictObject({
+  storage: z.literal("localStorage"),
+  origin: z.url({ protocol: /^https?$/ }),
+  entries: z.record(z.string(), z.string()),
+});
+export type LoginSeed = z.output<typeof loginSeedSchema>;
+
+export const loginUserSchema = z.looseObject({ id: z.string().min(1) });
+
+export const loginResultSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  user: loginUserSchema.optional(),
+  expiresAt: z.string().optional(),
+  seed: loginSeedSchema.optional(),
+  apply: z.object({ open: z.string(), function: z.string(), script: z.string(), then: z.string() }).optional(),
+  next: z.string(),
+});
+export type LoginResult = z.output<typeof loginResultSchema>;
 
 export const DEFAULT_CONFIG_PATH = "~/cocopilot/coco.config.json";
 

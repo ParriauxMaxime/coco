@@ -19,7 +19,19 @@ export type SettingsContext = {
   base: JsonObject;
 };
 
-export type Provider = { settingsOverlay?: (ctx: SettingsContext) => unknown };
+export type LoginContext = {
+  id: string;
+  project: string;
+  worktree: string;
+  appDir: string;
+  port: number;
+  url: string;
+  logDir: string;
+  user?: string;
+  path: string;
+};
+
+export type Provider = { settingsOverlay?: (ctx: SettingsContext) => unknown; login?: (ctx: LoginContext) => unknown };
 
 export class SettingsError extends Error {}
 

@@ -53,12 +53,14 @@ export function createScheduler({ store, cap, stop, leases, onWarning = console.
   return {
     running,
 
-    // Admission and launch run under one lock, so two starts never both take the last slot.
+    // Admission, eviction and launch run under one lock, so two starts never both take the last slot, and a start never reuses a server being evicted.
     admit: (target, launch, { evict = true } = {}) =>
       serialize(async () => {
         const evicted: Evicted[] = [];
         const failed = new Set<string>();
         for (;;) {
+          const self = store.snapshot().servers[target.id];
+          if (self && countsTowardCap(self)) break;
           const others = running().filter((record) => record.id !== target.id);
           if (others.length < cap) break;
           if (!evict) throw full(others, `all ${cap} server slots are taken, and a prebuild never stops another server`);

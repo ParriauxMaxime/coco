@@ -121,6 +121,7 @@ const projectSchema = z.strictObject({
     .prefault({}),
   urlTemplate: templated.default("http://localhost:{port}"),
   provider: z.string().min(1).optional(),
+  login: z.strictObject({ timeoutSeconds: z.number().positive().default(60) }).prefault({}),
 });
 
 const devServersSchema = z

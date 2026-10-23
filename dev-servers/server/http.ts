@@ -17,6 +17,8 @@ const STATUS: Record<ErrorCode, number> = {
   held_by_others: 409,
   start_failed: 500,
   not_ready: 409,
+  login_unavailable: 501,
+  login_failed: 502,
   forbidden_host: 403,
   forbidden_origin: 403,
   unsupported_media_type: 415,
@@ -118,6 +120,14 @@ const routesFor = (service: DevServersService): Route[] => [
     run: async ([id], { body }) => {
       const [caller, input] = callerFrom(await body());
       return service.pin(id, input, caller);
+    },
+  },
+  {
+    method: "POST",
+    path: /^\/api\/servers\/([^/]+)\/login$/,
+    run: async ([id], { body }) => {
+      const [, input] = callerFrom(await body());
+      return service.login(id, input);
     },
   },
   { method: "GET", path: /^\/api\/servers\/([^/]+)\/logs$/, run: async ([id], { url }) => service.logs(id, Object.fromEntries(url.searchParams)) },
