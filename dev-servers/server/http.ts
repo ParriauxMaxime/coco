@@ -2,6 +2,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import { holderSchema, type ErrorCode, type Holder } from "../shared/contracts.ts";
+import { presentResult, type Presenter } from "./board.ts";
 import { ServiceError } from "./errors.ts";
 import type { Caller, DevServersService } from "./service.ts";
 
@@ -94,24 +95,34 @@ const placementQuery = (params: URLSearchParams) => {
 type Request = { url: URL; body: () => Promise<Record<string, unknown>> };
 type Route = { method: "GET" | "POST"; path: RegExp; run: (params: string[], request: Request) => Promise<unknown> };
 
-const routesFor = (service: DevServersService): Route[] => [
+const LOGS_TOUCH = z.stringbool().default(true);
+
+const logsQuery = (params: URLSearchParams) => {
+  const { touch, ...input } = Object.fromEntries(params);
+  const parsed = LOGS_TOUCH.safeParse(touch);
+  if (!parsed.success) throw new ServiceError("bad_request", `touch: ${z.prettifyError(parsed.error)}`);
+  return { input, touch: parsed.data };
+};
+
+const routesFor = (service: DevServersService, present: Presenter): Route[] => [
   { method: "GET", path: /^\/healthz$/, run: async () => ({ ok: true }) },
-  { method: "GET", path: /^\/api\/servers$/, run: async () => ({ servers: await service.list() }) },
+  { method: "GET", path: /^\/api\/board$/, run: async () => present.board(await service.list()) },
+  { method: "GET", path: /^\/api\/servers$/, run: async () => ({ servers: (await service.list()).map((view) => present.server(view, DEFAULT_HOLDER)) }) },
   {
     method: "POST",
     path: /^\/api\/servers\/start$/,
     run: async (_, { body }) => {
       const [caller, input] = callerFrom(await body());
-      return service.start(input, caller);
+      return presentResult(present, await service.start(input, caller), caller.holder);
     },
   },
-  { method: "GET", path: /^\/api\/servers\/([^/]+)$/, run: async ([id]) => ({ server: await service.get(id) }) },
+  { method: "GET", path: /^\/api\/servers\/([^/]+)$/, run: async ([id]) => ({ server: present.server(await service.get(id), DEFAULT_HOLDER) }) },
   {
     method: "POST",
     path: /^\/api\/servers\/([^/]+)\/stop$/,
     run: async ([id], { body }) => {
       const [caller, input] = callerFrom(await body());
-      return service.stop(id, input, caller);
+      return presentResult(present, await service.stop(id, input, caller), caller.holder);
     },
   },
   {
@@ -119,7 +130,7 @@ const routesFor = (service: DevServersService): Route[] => [
     path: /^\/api\/servers\/([^/]+)\/pin$/,
     run: async ([id], { body }) => {
       const [caller, input] = callerFrom(await body());
-      return service.pin(id, input, caller);
+      return presentResult(present, await service.pin(id, input, caller), caller.holder);
     },
   },
   {
@@ -130,8 +141,19 @@ const routesFor = (service: DevServersService): Route[] => [
       return service.login(id, input);
     },
   },
-  { method: "GET", path: /^\/api\/servers\/([^/]+)\/logs$/, run: async ([id], { url }) => service.logs(id, Object.fromEntries(url.searchParams)) },
-  { method: "GET", path: /^\/api\/placement$/, run: async (_, { url }) => service.placement(placementQuery(url.searchParams), { holder: DEFAULT_HOLDER }) },
+  {
+    method: "GET",
+    path: /^\/api\/servers\/([^/]+)\/logs$/,
+    run: async ([id], { url }) => {
+      const { input, touch } = logsQuery(url.searchParams);
+      return service.logs(id, input, { touch });
+    },
+  },
+  {
+    method: "GET",
+    path: /^\/api\/placement$/,
+    run: async (_, { url }) => presentResult(present, await service.placement(placementQuery(url.searchParams), { holder: DEFAULT_HOLDER }), DEFAULT_HOLDER),
+  },
 ];
 
 export const send = (res: http.ServerResponse, status: number, value: unknown) => {
@@ -144,12 +166,12 @@ export type HttpApi = { listen(): Promise<{ bind: string; port: number }>; close
 
 export type Mount = (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
 
-export type HttpApiOptions = { service: DevServersService; bind: string; port: number; mounts?: Record<string, Mount> };
+export type HttpApiOptions = { service: DevServersService; present: Presenter; bind: string; port: number; mounts?: Record<string, Mount> };
 
 const MOUNTED = Symbol("mounted");
 
-export function createHttpApi({ service, bind, port, mounts = {} }: HttpApiOptions): HttpApi {
-  const routes = routesFor(service);
+export function createHttpApi({ service, present, bind, port, mounts = {} }: HttpApiOptions): HttpApi {
+  const routes = routesFor(service, present);
 
   const handle = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     guard(req);

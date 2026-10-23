@@ -12,6 +12,7 @@ import { StackFixCard } from '../code/StackFix.jsx';
 import GateRail from './Gates.jsx';
 import StackKeeper from './StackKeeper.jsx';
 import KitLine from './KitLine.jsx';
+import { DevServerRow, DevServersSummary, useDevServers } from './DevServers.jsx';
 
 const ciChip = (ci) => ({ success: 'c-green', failure: 'c-red', pending: 'c-orange', none: 'c-grey' })[ci] || 'c-grey';
 const stateKey = (pr) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
@@ -54,7 +55,7 @@ function PersonaChips({ work, pr, index, onChange }) {
   );
 }
 
-function PrCard({ work, pr, index, onStack, onDetails, onReview }) {
+function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChange }) {
   const planned = work.stack[index]?.planned;
   const title = pr.title || planned?.title || `PR ${index + 1}`;
   const what = userFacing(pr.body) || planned?.scope || '';
@@ -73,6 +74,7 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview }) {
       </div>
       {what && <div className="what"><Markdown text={what} /></div>}
       {pr.key && <KitLine slug={work.slug} n={pr.key} />}
+      {dev && <DevServerRow slug={work.slug} row={dev} onChange={onDevChange} />}
       {pr.key && <GateRail slug={work.slug} n={pr.key} onOpen={(kind) => onReview(pr.key, kind)} />}
       <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{pr.key && <span className="row open-side"><button className="sm" onClick={() => onReview(pr.key)}>review ▸</button><button className="sm" onClick={() => onReview(pr.key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(pr.key, 'brief')}>agent ▸</button>{pr.number && <button className="sm" onClick={() => onDetails(pr.number)}>details ▸</button>}</span>}</div>
     </section>
@@ -129,7 +131,7 @@ function NotionPreview({ w, onChange }) {
   );
 }
 
-function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange }) {
+function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }) {
   const { busy: archiving, run } = useAction();
   const merged = prs.filter((p) => stateKey(p) === 'merged').length;
   const total = prs.reduce((a, p) => ({ add: a.add + (p.additions || 0), del: a.del + (p.deletions || 0), files: a.files + (p.changedFiles || 0) }), { add: 0, del: 0, files: 0 });
@@ -152,6 +154,7 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange }) {
         <dt>Progress</dt><dd>{merged}/{prs.length} merged · {total.files} files, +{total.add} −{total.del}</dd>
         <dt>Reviewers</dt><dd>{owners.length ? owners.map((p) => <PersonaChip key={p} login={p} />) : 'none yet'}</dd>
         <dt>Notion</dt><dd><NotionLine w={w} onChange={onChange} /></dd>
+        {devServers && <><dt>Dev servers</dt><dd><DevServersSummary data={devServers} /></dd></>}
         <dt>Links</dt><dd>{(w.links || []).map((l, i) => <a key={i} href={l.url} target="_blank" rel="noreferrer"><img className="fav" src={favicon(l.url)} alt="" loading="lazy" />{l.label}</a>)}<button className="sm" onClick={onAddLink} style={{ background: 'transparent', border: 0, padding: '0 4px', color: 'var(--mute)' }}>+</button></dd>
       </dl>
       <div className="foot">
@@ -181,6 +184,7 @@ const SIDE = [['ask', '🦜 Ask coco'], ['decisions', 'Decisions'], ['findings',
 
 export default function Plan({ group }) {
   const { w, prs, refreshing, load, saveStack, addLink } = useWork();
+  const dev = useDevServers(w.slug);
   const open = useWorkbench((s) => s.open);
   const opened = useWorkbench((s) => s.groups).flatMap((g) => g.tabs);
   const other = group === 1 ? 2 : 1;
@@ -193,14 +197,14 @@ export default function Plan({ group }) {
           {SIDE.map(([id, label]) => <button key={id} className={`sm ${opened.includes(id) ? 'on' : ''}`} onClick={() => open(id, { group: other })}>{label}</button>)}
         </div>
       </div>
-      <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} />
+      <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} devServers={dev.data} />
       <WhatsNext next={w.next} />
       <NotionPreview w={w} onChange={() => load()} />
       <StackKeeper slug={w.slug} onChange={() => load()} />
       {prs.some((p) => p.key) && <StackFixCard group={group} />}
       {w.notes && <Collapsible title="Rules and decisions" level="pm" badge="do not revisit"><Markdown text={w.notes} /></Collapsible>}
       {prs.length === 0 && <div className="card"><span className="sub">No PR yet.</span></div>}
-      {prs.map((pr, i) => <PrCard key={pr.number || i} work={w} pr={pr} index={i} onStack={saveStack} onDetails={(n) => open(`pr-${n}`, { preview: true, group: other })} onReview={(n, kind = 'review') => open(`${kind}-${n}`, { group: other })} />)}
+      {prs.map((pr, i) => <PrCard key={pr.number || i} work={w} pr={pr} index={i} onStack={saveStack} onDetails={(n) => open(`pr-${n}`, { preview: true, group: other })} onReview={(n, kind = 'review') => open(`${kind}-${n}`, { group: other })} dev={dev.data?.on && pr.key ? dev.rows[String(pr.key)] : null} onDevChange={dev.reload} />)}
     </div>
   );
 }

@@ -304,6 +304,11 @@ button.suggest .persona-chip { background: transparent; padding: 0; }
 .keep-cmd pre { flex: 1; min-width: 0; margin: 4px 0; padding: 6px 8px; overflow-x: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; background: var(--grey-bg); border-radius: var(--r-sm); }
 .work-title .chip { margin-left: 6px; }
 .kit-line { margin-top: 6px; gap: 4px; flex-wrap: wrap; }
+.dev-line { margin-top: 6px; gap: 4px; flex-wrap: wrap; }
+.dev-details { margin: 2px 0 0; }
+.dev-login { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.dev-login pre, .dev-logs { margin: 0; max-height: 240px; overflow: auto; font-size: 11px; align-self: stretch; }
+.dev-logs { margin-top: 6px; }
 .gates { margin: 8px 0 4px; }
 .gate-rail { display: flex; flex-wrap: wrap; gap: 4px; }
 .gate { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--mute); white-space: nowrap; }

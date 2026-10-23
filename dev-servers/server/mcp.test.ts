@@ -6,8 +6,9 @@ import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { pinResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
+import { boardSchema, boardServerSchema, pinReplySchema, startReplySchema, stopReplySchema } from "../shared/contracts.ts";
 import { PATIENCE_MS, PATIENCE_SECONDS, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
+import { createPresenter } from "./board.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
 import { createLeaseManager, openLeaseStore, type LeaseManager } from "./leases.ts";
@@ -62,7 +63,8 @@ const serve = async ({ idleStopMinutes = 30 } = {}) => {
   });
   service = createService({ config, store, ports, supervisor, leases: leases.book });
   supervisor.subscribe((record) => void leases.settle(record.id));
-  const api = createHttpApi({ service, bind: "127.0.0.1", port: 0, mounts: { [MCP_PATH]: createMcpHandler({ service, leases }) } });
+  const present = createPresenter({ leases, store, config });
+  const api = createHttpApi({ service, present, bind: "127.0.0.1", port: 0, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }) } });
   const { port } = await api.listen();
   const entry = { http: api, supervisor, store, leases, clients: [] as Client[] };
   running.push(entry);
@@ -97,14 +99,15 @@ test("an agent lists the tools, then starts, follows and stops its server with n
 
   const started = await alice.call("dev_server_start", { waitSeconds: PATIENCE_SECONDS });
   assert.equal(started.isError, false, JSON.stringify(started.body));
-  const result = startResultSchema.parse(started.body);
+  const result = startReplySchema.parse(started.body);
   assert.equal(result.server.state, "ready", result.server.lastError);
   assert.equal(result.server.worktree.path, worktree);
   assert.match(result.lease?.id ?? "", /^ls_/);
   assert.deepEqual(
-    result.server.leases.map(({ holder }) => holder),
-    [{ kind: "agent", id: alice.key, title: "Fix the widget" }],
+    result.server.leases.map(({ kind, holderId, title, agentId, mine }) => ({ kind, holderId, title, agentId, mine })),
+    [{ kind: "agent", holderId: null, title: "Fix the widget", agentId: "agent-alice", mine: true }],
   );
+  assert.ok(!JSON.stringify(started.body).includes(alice.key));
   assert.equal(result.next, `ready at ${result.server.url}`);
 
   const status = await alice.call("dev_server_status");
@@ -118,7 +121,7 @@ test("an agent lists the tools, then starts, follows and stops its server with n
   const forced = await alice.call("dev_server_stop", { force: true });
   assert.deepEqual([forced.isError, forced.body.error.code], [true, "bad_request"]);
   const pid = store.snapshot().servers[result.server.id].process!.pid;
-  const stopped = stopResultSchema.parse((await alice.call("dev_server_stop")).body);
+  const stopped = stopReplySchema.parse((await alice.call("dev_server_stop")).body);
   assert.deepEqual([stopped.stopped, stopped.server.state], [true, "stopped"]);
   assert.equal(isAlive(pid), false);
 
@@ -135,22 +138,27 @@ test("two agents share one server; it outlives the first stop and idles out once
   const alice = await agent("agent-alice", worktree, "Fix the widget");
   const bruno = await agent("agent-bruno", worktree, "Review the widget");
 
-  const first = startResultSchema.parse((await alice.call("dev_server_start", { waitSeconds: PATIENCE_SECONDS })).body);
-  const second = startResultSchema.parse((await bruno.call("dev_server_start")).body);
+  const first = startReplySchema.parse((await alice.call("dev_server_start", { waitSeconds: PATIENCE_SECONDS })).body);
+  const second = startReplySchema.parse((await bruno.call("dev_server_start")).body);
   assert.equal(second.server.id, first.server.id);
   assert.equal(second.server.state, "ready");
   assert.deepEqual(
-    second.server.leases.map(({ holder }) => holder.title),
-    ["Fix the widget", "Review the widget"],
+    second.server.leases.map(({ title, mine }) => [title, mine]),
+    [
+      ["Fix the widget", false],
+      ["Review the widget", true],
+    ],
   );
+  const everyone = JSON.stringify((await bruno.call("dev_server_status", { all: true })).body);
+  assert.ok(![alice.key, bruno.key].some((key) => everyone.includes(key)), everyone);
   const pid = store.snapshot().servers[first.server.id].process!.pid;
 
-  const kept = stopResultSchema.parse((await alice.call("dev_server_stop")).body);
+  const kept = stopReplySchema.parse((await alice.call("dev_server_stop")).body);
   assert.deepEqual([kept.stopped, kept.kept, kept.next], [false, "leased", "kept running for Review the widget; your lease is released"]);
   assert.ok(isAlive(pid));
 
   assert.deepEqual(await leases.releaseAgent("agent-bruno"), [first.server.id]);
-  const idle = serverViewSchema.parse((await alice.call("dev_server_status")).body.servers[0]);
+  const idle = boardServerSchema.parse((await alice.call("dev_server_status")).body.servers[0]);
   assert.equal(idle.state, "idle");
   assert.ok(idle.idleStopAt);
   assert.match((await alice.call("dev_server_status")).body.servers[0].next, /nobody holds it, so it stops at/);
@@ -165,17 +173,19 @@ test("an agent pins its server and only it can unpin it; a force stop leaves eac
   const { agent, service } = await serve();
   const alice = await agent("agent-alice", worktree, "Fix the widget");
   const bruno = await agent("agent-bruno", worktree, "Review the widget");
-  const { server } = startResultSchema.parse((await alice.call("dev_server_start")).body);
+  const { server } = startReplySchema.parse((await alice.call("dev_server_start")).body);
   await bruno.call("dev_server_start");
 
-  const pinned = pinResultSchema.parse((await alice.call("dev_server_pin")).body);
-  assert.deepEqual([pinned.server.pinned, pinned.server.pinnedBy], [true, { kind: "agent", id: alice.key }]);
+  const pinned = pinReplySchema.parse((await alice.call("dev_server_pin")).body);
+  assert.deepEqual([pinned.server.pinned, pinned.server.pinnedBy], [true, "you"]);
+  const seen = await bruno.call("dev_server_status");
+  assert.equal(seen.body.servers[0].pinnedBy, "Fix the widget");
   const refused = await bruno.call("dev_server_pin", { pinned: false });
-  assert.deepEqual([refused.isError, refused.body.error.code], [true, "held_by_others"]);
+  assert.deepEqual([refused.isError, refused.body.error.code, refused.body.error.details.pinnedBy], [true, "held_by_others", "Fix the widget"]);
   assert.match(refused.body.error.message, /pinned by Fix the widget; an agent can only undo its own pin/);
   assert.equal((await bruno.call("dev_server_pin", { force: true })).body.error.code, "bad_request");
-  const unpinned = pinResultSchema.parse((await alice.call("dev_server_pin", { pinned: false })).body);
-  assert.deepEqual([unpinned.server.pinned, unpinned.server.pinnedBy], [false, undefined]);
+  const unpinned = pinReplySchema.parse((await alice.call("dev_server_pin", { pinned: false })).body);
+  assert.deepEqual([unpinned.server.pinned, unpinned.server.pinnedBy], [false, null]);
 
   const stopped = await service.stop(server.id, { force: true }, { holder: { kind: "user", id: "panel", title: "the dev servers screen" } });
   assert.equal(stopped.stopped, true);
@@ -187,6 +197,63 @@ test("an agent pins its server and only it can unpin it; a force stop leaves eac
   assert.match(told.body.lost[0].message, /that you held is gone \(stopped by the dev servers screen\)\. Call dev_server_start again/);
   assert.equal((await alice.call("dev_server_status")).body.lost, undefined);
   assert.equal((await bruno.call("dev_server_logs")).body.lost.length, 1);
+});
+
+test("no HTTP route or tool hands out an agent's lease key, and logs read with touch=false do not count as use", async () => {
+  const { agent, port, store } = await serve();
+  const alice = await agent("agent-alice", worktree);
+  const bruno = await agent("agent-bruno", worktree, "Review the widget");
+  const { server } = startReplySchema.parse((await alice.call("dev_server_start", { waitSeconds: PATIENCE_SECONDS })).body);
+  await alice.call("dev_server_pin");
+  await bruno.call("dev_server_start");
+
+  const coco = { kind: "coco", id: "acme-widgets/12", title: "coco widgets #12" };
+  const api = async (method: string, route: string, body?: unknown) => {
+    const res = await fetch(`http://127.0.0.1:${port}${route}`, {
+      method,
+      ...(body !== undefined && { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+    });
+    return { status: res.status, text: await res.text() };
+  };
+  const replies = [
+    await api("GET", "/api/board"),
+    await api("GET", "/api/servers"),
+    await api("GET", `/api/servers/${server.id}`),
+    await api("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}`),
+    await api("POST", "/api/servers/start", { cwd: worktree, holder: coco }),
+    await api("POST", "/api/servers/start", { cwd: worktree, services: ["mailer"], reason: "check the mail", holder: coco }),
+    await api("POST", `/api/servers/${server.id}/pin`, { holder: coco }),
+    await api("POST", `/api/servers/${server.id}/stop`, { holder: coco }),
+    { status: 200, text: JSON.stringify((await bruno.call("dev_server_status", { all: true })).body) },
+    { status: 200, text: JSON.stringify((await bruno.call("dev_server_stop")).body) },
+  ];
+  assert.deepEqual(
+    replies.map(({ status }) => status),
+    [200, 200, 200, 200, 200, 409, 200, 200, 200, 200],
+  );
+  for (const { text } of replies) for (const key of [alice.key, bruno.key]) assert.ok(!text.includes(key), text);
+
+  const board = boardSchema.parse(JSON.parse(replies[0].text));
+  assert.deepEqual(
+    board.servers[0].leases.map(({ kind, holderId, agentId }) => [kind, holderId, agentId]),
+    [
+      ["agent", null, "agent-alice"],
+      ["agent", null, "agent-bruno"],
+    ],
+  );
+  const started = startReplySchema.parse(JSON.parse(replies[4].text));
+  assert.deepEqual(
+    started.server.leases.filter(({ mine }) => mine).map(({ kind, holderId, title }) => [kind, holderId, title]),
+    [["coco", coco.id, coco.title]],
+  );
+
+  const old = "2026-01-01T00:00:00.000Z";
+  await store.update((draft) => void (draft.servers[server.id].lastUsedAt = old));
+  assert.equal((await api("GET", `/api/servers/${server.id}/logs?lines=5&touch=false`)).status, 200);
+  assert.equal(store.snapshot().servers[server.id].lastUsedAt, old);
+  assert.equal((await api("GET", `/api/servers/${server.id}/logs?lines=5&touch=maybe`)).status, 400);
+  assert.equal((await api("GET", `/api/servers/${server.id}/logs?lines=5`)).status, 200);
+  assert.notEqual(store.snapshot().servers[server.id].lastUsedAt, old);
 });
 
 type Raw = { status: number; body: any };

@@ -2,9 +2,7 @@ import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import {
   UI_HOLDER,
   type Board,
-  type BoardServer,
   type RpcError,
-  type ServerView,
   type loginRpc,
   type logsRpc,
   type pinRpc,
@@ -12,26 +10,17 @@ import {
   type startRpc,
   type stopRpc,
 } from "../shared/contracts.ts";
-import type { DevServersConfig } from "./config.ts";
+import { createPresenter, type BoardDeps } from "./board.ts";
 import { ServiceError } from "./errors.ts";
-import type { LeaseManager } from "./leases.ts";
-import { countsTowardCap } from "./scheduler.ts";
 import type { DevServersService } from "./service.ts";
-import type { DevServersState, JsonStore } from "./store.ts";
 
-export type RpcDeps = {
-  service: DevServersService;
-  leases: Pick<LeaseManager, "agentOf" | "titleOf" | "lostNotices">;
-  store: JsonStore<DevServersState>;
-  config: DevServersConfig;
-};
+export type RpcDeps = BoardDeps & { service: DevServersService };
 
 export type RpcRuntime = { deps: RpcDeps | null; error: string | null };
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; error: RpcError };
 
 const UI_LOG_BYTES = 512 * 1024;
-const sameHolder = (a: { kind: string; id: string }, b: { kind: string; id: string }) => a.kind === b.kind && a.id === b.id;
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 const failure = (error: unknown): { ok: false; error: RpcError } =>
@@ -51,46 +40,11 @@ export function createRpcHandlers(runtime: () => Promise<RpcRuntime>) {
     }
   };
 
-  const boardServer = ({ leases, store, config }: RpcDeps, view: ServerView): BoardServer => {
-    const record = store.snapshot().servers[view.id];
-    const { leases: held, pinnedBy, ...rest } = view;
-    return {
-      ...rest,
-      leases: held.map(({ id, holder, since, lastUsedAt }) => ({
-        id,
-        kind: holder.kind,
-        title: holder.title ?? leases.titleOf(holder),
-        agentId: leases.agentOf(holder),
-        mine: sameHolder(holder, UI_HOLDER),
-        since,
-        lastUsedAt,
-      })),
-      pinnedBy: pinnedBy ? (sameHolder(pinnedBy, UI_HOLDER) ? (UI_HOLDER.title ?? "you") : leases.titleOf(pinnedBy)) : null,
-      running: Boolean(record && countsTowardCap(record)),
-      canLogin: Boolean(config.projects.find(({ id }) => id === view.project)?.provider),
-    };
-  };
-
   return {
     board: async (): Promise<Board> => {
       const { deps, error } = await runtime();
       if (!deps) return { error: error ?? "the dev servers plugin is not running", cap: null, servers: [], lost: [] };
-      const views = await deps.service.list();
-      return {
-        error: null,
-        cap: deps.config.cap,
-        servers: views.map((view) => boardServer(deps, view)),
-        lost: deps.leases.lostNotices().map(({ id, serverId, worktree, why, at, holder, seenAt }) => ({
-          id,
-          serverId,
-          worktree,
-          why,
-          at,
-          holder: deps.leases.titleOf(holder),
-          agentId: deps.leases.agentOf(holder),
-          seen: Boolean(seenAt),
-        })),
-      };
+      return createPresenter(deps).board(await deps.service.list());
     },
 
     placement: ({ cwd }: RpcInput<typeof placementRpc>): Promise<RpcOutput<typeof placementRpc>> =>

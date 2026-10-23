@@ -1,6 +1,7 @@
 import type { PluginRpcContract, RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import type { ZodType } from "zod";
+import { createPresenter } from "./server/board.ts";
 import { loadConfig, resolveApi, type ConfigLoad } from "./server/config.ts";
 import { createExternalScanner } from "./server/external.ts";
 import { createHttpApi, type HttpApi } from "./server/http.ts";
@@ -136,7 +137,8 @@ export default function contribute(server: PluginServerContext) {
     externals.start();
     prebuilds.start();
     const api = resolveApi(config.api, values.apiPort);
-    const http = createHttpApi({ service, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases }) } });
+    const present = createPresenter({ leases, store: stores.state, config });
+    const http = createHttpApi({ service, present, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }) } });
     const up = { load, apiPort: values.apiPort, stores, supervisor, leases, service, workspaces, close };
     try {
       const { bind, port } = await http.listen();

@@ -2,6 +2,7 @@ import type http from "node:http";
 import path from "node:path";
 import { z } from "zod";
 import { loginInputSchema, logsInputSchema, pinInputSchema, startInputSchema, type Holder, type LostNotice, type ServerView } from "../shared/contracts.ts";
+import { presentResult, type Presenter } from "./board.ts";
 import { ServiceError } from "./errors.ts";
 import { toplevel } from "./git.ts";
 import { readJsonText, type Mount } from "./http.ts";
@@ -57,9 +58,10 @@ const parse = <T extends z.ZodType>(schema: T, value: unknown): z.output<T> => {
   return result.data;
 };
 
-const withNext = (server: ServerView) => ({ ...server, next: nextStep(server) });
+export function createMcpTools(service: DevServersService, leases: LeaseManager, present: Presenter): Record<string, Tool> {
+  const me = ({ holder }: ToolContext): Holder => ({ kind: holder.kind, id: holder.id });
+  const withNext = (server: ServerView, context: ToolContext) => ({ ...present.server(server, me(context)), next: nextStep(server) });
 
-export function createMcpTools(service: DevServersService, leases: LeaseManager): Record<string, Tool> {
   const ownServerId = async ({ cwd }: Caller) => {
     const worktree = cwd ? await toplevel(cwd) : null;
     return worktree ? serverIdFor(worktree) : null;
@@ -90,10 +92,10 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
     return preview && realPath(preview.placement.servedFrom) !== from ? preview.placement.because : null;
   };
 
-  const describe = async (server: ServerView, { caller, holder }: ToolContext) => {
-    if (!leases.heldBy(holder).includes(server.id)) return withNext(server);
-    const because = await staleBecause(server, caller);
-    return because ? { ...server, stale: { because }, next: STALE_NEXT } : withNext(server);
+  const describe = async (server: ServerView, context: ToolContext) => {
+    if (!leases.heldBy(context.holder).includes(server.id)) return withNext(server, context);
+    const because = await staleBecause(server, context.caller);
+    return because ? { ...present.server(server, me(context)), stale: { because }, next: STALE_NEXT } : withNext(server, context);
   };
 
   return {
@@ -105,7 +107,7 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
         "call dev_server_status to follow the build. Background services and a dedicated database are off unless you ask with a reason. " +
         "Only a few servers run at once: a new one stops the least recently used unpinned server (listed in evicted), and capacity_full means every slot is pinned or started by hand.",
       input: startInputSchema,
-      run: (args, { caller }) => service.start((args ?? {}) as Record<string, unknown>, caller),
+      run: async (args, context) => presentResult(present, await service.start((args ?? {}) as Record<string, unknown>, context.caller), me(context)),
     },
     dev_server_status: {
       description:
@@ -115,7 +117,7 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
       input: statusInputSchema,
       run: async (args, context) => {
         const { id, all } = parse(statusInputSchema, args);
-        if (all) return { servers: (await service.list()).map(withNext) };
+        if (all) return { servers: (await service.list()).map((server) => withNext(server, context)) };
         if (id) return { servers: [await describe(await service.get(id), context)] };
         const held = leases.heldBy(context.holder);
         const ids = held.length ? held : [await ownServerId(context.caller)].filter((value): value is string => Boolean(value));
@@ -131,7 +133,7 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
       input: stopInputSchema,
       run: async (args, context) => {
         const { id } = parse(stopInputSchema, args);
-        return service.stop(await pick(id, context), {}, context.caller);
+        return presentResult(present, await service.stop(await pick(id, context), {}, context.caller), me(context));
       },
     },
     dev_server_pin: {
@@ -141,7 +143,7 @@ export function createMcpTools(service: DevServersService, leases: LeaseManager)
       input: pinToolInputSchema,
       run: async (args, context) => {
         const { id, ...input } = parse(pinToolInputSchema, args);
-        return service.pin(await pick(id, context), input, context.caller);
+        return presentResult(present, await service.pin(await pick(id, context), input, context.caller), me(context));
       },
     },
     dev_server_logs: {
@@ -191,8 +193,10 @@ const cwdHintOf = (req: http.IncomingMessage) => {
   }
 };
 
-export function createMcpHandler({ service, leases, version = "0.0.0" }: { service: DevServersService; leases: LeaseManager; version?: string }): Mount {
-  const tools = createMcpTools(service, leases);
+export type McpHandlerOptions = { service: DevServersService; leases: LeaseManager; present: Presenter; version?: string };
+
+export function createMcpHandler({ service, leases, present, version = "0.0.0" }: McpHandlerOptions): Mount {
+  const tools = createMcpTools(service, leases, present);
   const listing = Object.entries(tools).map(([name, tool]) => ({ name, description: tool.description, inputSchema: inputSchemaOf(tool.input) }));
 
   const callTool = async (req: http.IncomingMessage, params: unknown) => {

@@ -26,6 +26,7 @@ import { createKit } from './kit.mjs';
 import { createFeatureFlags } from './feature-flags.mjs';
 import { createPack } from './pack.mjs';
 import { createSetup } from './setup.mjs';
+import { createDevServers } from './dev-servers.mjs';
 import { loadConfig, personaLogins } from './config.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,7 @@ const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length });
 const paseoLink = createPaseoLink({ REPO, config, works, comments, code, reviewAgent, stackFix, threads });
+const devServers = createDevServers({ REPO, config, works });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 fs.mkdirSync(BRIEFS, { recursive: true });
@@ -253,6 +255,7 @@ async function api(req, res, url) {
   try {
     if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider) });
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
+    if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
     if (root === 'inbox') return inbox.handle(req, res, parts, readBody, send);

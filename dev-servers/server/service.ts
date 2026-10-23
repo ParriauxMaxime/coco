@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
+  holderName,
   loginInputSchema,
   logsInputSchema,
   pinInputSchema,
@@ -128,9 +129,8 @@ const satisfies = (running: OptIns, wanted: OptIns) =>
 const describeOptIns = ({ services, dedicatedDb }: OptIns) =>
   [services.length && `services ${services.join(", ")}`, dedicatedDb && "a dedicated database"].filter(Boolean).join(" and ");
 const sameHolder = (a: Pick<Holder, "kind" | "id">, b: Pick<Holder, "kind" | "id">) => a.kind === b.kind && a.id === b.id;
-const describeHolder = (holder: Pick<Holder, "kind" | "id" | "title">) =>
-  holder.title ?? (holder.kind === "agent" ? "an agent" : `${holder.kind} ${holder.id}`);
-const describeHolders = (leases: LeaseView[]) => leases.map(({ holder }) => holder.title ?? `${holder.kind} ${holder.id}`).join(", ");
+const describeHolder = holderName;
+const describeHolders = (leases: LeaseView[]) => leases.map(({ holder }) => describeHolder(holder)).join(", ");
 
 export const serverUrl = (config: DevServersConfig, record: Pick<ServerRecord, "id" | "project" | "port" | "worktree">) =>
   renderTemplate(config.projects.find((project) => project.id === record.project)?.urlTemplate ?? "http://localhost:{port}", {
@@ -352,7 +352,7 @@ export function createService({
         const others = leases.holders(id).filter(({ holder }) => !sameHolder(holder, caller.holder));
         if (others.length) {
           throw new ServiceError("held_by_others", `the server runs without ${describeOptIns(wanted)} and is also used by ${describeHolders(others)}`, {
-            holders: others.map(({ holder }) => holder),
+            holders: others.map(({ holder }) => describeHolder(holder)),
           });
         }
         await supervisor.stop(id);
@@ -470,7 +470,7 @@ export function createService({
         const owner = record.pinnedBy;
         if (!pinned && record.pinned && caller.holder.kind === "agent" && !(owner && sameHolder(owner, caller.holder))) {
           const by = owner ? describeHolder(leases.holders(id).find(({ holder }) => sameHolder(holder, owner))?.holder ?? owner) : "someone else";
-          throw new ServiceError("held_by_others", `${id} was pinned by ${by}; an agent can only undo its own pin`, { id, pinnedBy: owner ?? null });
+          throw new ServiceError("held_by_others", `${id} was pinned by ${by}; an agent can only undo its own pin`, { id, pinnedBy: by });
         }
         await update(id, (current) => {
           if (pinned && !current.pinned) current.pinnedBy = { kind: caller.holder.kind, id: caller.holder.id };

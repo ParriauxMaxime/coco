@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, test } from "node:test";
 import { loginResultSchema } from "../shared/contracts.ts";
 import { gitRepo, widgets } from "../test/helpers.ts";
+import { createPresenter } from "./board.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
 import { createLeaseManager, openLeaseStore, type LeaseManager } from "./leases.ts";
@@ -69,7 +70,8 @@ const serve = async ({ provider = PROVIDER as string | null, state = "ready" as 
   const supervisor = {} as Supervisor;
   const service = createService({ config, store, ports, supervisor, onWarning: () => {} });
   const leases = createLeaseManager({ store: leaseStore, servers: store, idleStopMinutes: 30, leaseTtlMinutes: 240, stopIdle: async () => {} });
-  const http = createHttpApi({ service, bind: "127.0.0.1", port: 0, mounts: { [MCP_PATH]: createMcpHandler({ service, leases }) } });
+  const present = createPresenter({ leases, store, config });
+  const http = createHttpApi({ service, present, bind: "127.0.0.1", port: 0, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }) } });
   const { port } = await http.listen();
   running.push({ http, leases });
   const post = async (route: string, body: unknown, headers: Record<string, string> = {}): Promise<Reply> => {

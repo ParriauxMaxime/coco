@@ -24,6 +24,7 @@ import {
 const lease = (title: string, extra: Partial<BoardLease> = {}): BoardLease => ({
   id: `ls_${title}`,
   kind: "agent",
+  holderId: null,
   title,
   agentId: null,
   mine: false,

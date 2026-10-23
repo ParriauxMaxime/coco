@@ -1,3 +1,4 @@
+import { holderName } from "../shared/contracts.ts";
 import { ServiceError } from "./errors.ts";
 import type { Capacity, Evicted, LeaseBook } from "./service.ts";
 import type { DevServersState, JsonStore, ServerRecord } from "./store.ts";
@@ -46,7 +47,7 @@ export function createScheduler({ store, cap, stop, leases, onWarning = console.
         pinned: record.pinned,
         external: record.state === "external",
         lastUsedAt: record.lastUsedAt,
-        holders: leases?.holders(record.id).map(({ holder }) => holder.title ?? `${holder.kind} ${holder.id}`) ?? [],
+        holders: leases?.holders(record.id).map(({ holder }) => holderName(holder)) ?? [],
       })),
     });
 

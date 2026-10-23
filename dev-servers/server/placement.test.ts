@@ -5,8 +5,9 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import type { Holder, ServerView, StartResult } from "../shared/contracts.ts";
+import { startReplySchema, type BoardServer, type Holder } from "../shared/contracts.ts";
 import { freePort, gitRepo, killTestProcesses, runGit, widgets } from "../test/helpers.ts";
+import { createPresenter } from "./board.ts";
 import { cocoStackOrder, type StackOrder } from "./coco.ts";
 import { parseConfig, type ProjectConfig } from "./config.ts";
 import { statusFiles } from "./git.ts";
@@ -320,12 +321,12 @@ test("the placement preview starts nothing, and a lease on the top's server turn
     assert.deepEqual([preview.placement.mode, preview.placement.servedFrom, preview.server], ["stack-top", b, null]);
     assert.deepEqual(store.snapshot().servers, {});
 
-    const tools = createMcpTools(service, leases);
+    const tools = createMcpTools(service, leases, createPresenter({ leases, store, config }));
     const holder: Holder = { kind: "agent", id: await leases.issueKey(a) };
     const context = { holder, caller: { holder, cwd: a } };
-    const started = (await tools.dev_server_start.run({}, context)) as StartResult;
+    const started = startReplySchema.parse(await tools.dev_server_start.run({}, context));
     assert.equal(started.server.worktree.path, b);
-    type Status = { servers: (ServerView & { stale?: { because: string[] }; next: string })[] };
+    type Status = { servers: (BoardServer & { stale?: { because: string[] }; next: string })[] };
     const status = async () => ((await tools.dev_server_status.run({}, context)) as Status).servers[0];
     assert.equal((await status()).stale, undefined);
     assert.equal((await service.placement({ cwd: a }, { holder: user })).server?.id, started.server.id);

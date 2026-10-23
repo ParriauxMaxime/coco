@@ -33,6 +33,9 @@ export const holderSchema = z.strictObject({
 });
 export type Holder = z.output<typeof holderSchema>;
 
+export const holderName = (holder: Pick<Holder, "kind" | "id" | "title">) =>
+  holder.title ?? (holder.kind === "agent" ? "an agent" : `${holder.kind} ${holder.id}`);
+
 const absolutePath = z.string().refine((value) => value.startsWith("/"), "must be an absolute path");
 
 export const startInputSchema = z.strictObject({
@@ -201,9 +204,10 @@ const outcome = <T extends z.ZodType>(value: T) =>
 export const boardLeaseSchema = z.object({
   id: z.string(),
   kind: holderSchema.shape.kind,
+  holderId: z.string().nullable().describe("the holder's id for coco and user holders; null for agents, whose id is their secret lease key"),
   title: z.string(),
   agentId: z.string().nullable(),
-  mine: z.boolean().describe("held by the Paseo UI itself"),
+  mine: z.boolean().describe("held by the caller: the Paseo UI on RPC, the agent on MCP, the request's holder on HTTP"),
   since: z.string(),
   lastUsedAt: z.string(),
 });
@@ -216,6 +220,11 @@ export const boardServerSchema = serverViewSchema.omit({ leases: true, pinnedBy:
   canLogin: z.boolean(),
 });
 export type BoardServer = z.output<typeof boardServerSchema>;
+
+export const startReplySchema = startResultSchema.extend({ server: boardServerSchema });
+export const stopReplySchema = stopResultSchema.extend({ server: boardServerSchema });
+export const pinReplySchema = pinResultSchema.extend({ server: boardServerSchema });
+export const placementReplySchema = placementResultSchema.extend({ server: boardServerSchema.nullable() });
 
 export const boardLostSchema = z.object({
   id: z.string(),

@@ -5,8 +5,17 @@ import net, { type AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { logsResultSchema, pinResultSchema, placementResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
+import {
+  boardServerSchema,
+  holderName,
+  logsResultSchema,
+  pinReplySchema,
+  placementReplySchema,
+  startReplySchema,
+  stopReplySchema,
+} from "../shared/contracts.ts";
 import { FIXTURE, PATIENCE_SECONDS, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
+import { createPresenter } from "./board.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
 import { openPortRegistry } from "./ports.ts";
@@ -50,7 +59,8 @@ const serve = async (projects: object[]) => {
   await ports.load();
   const supervisor = createSupervisor({ store, stateDir, project: (id) => config.projects.find((project) => project.id === id), pollMs: 100 });
   const service = createService({ config, store, ports, supervisor });
-  const api = createHttpApi({ service, bind: "127.0.0.1", port: 0 });
+  const present = createPresenter({ leases: { agentOf: () => null, titleOf: holderName, lostNotices: () => [] }, store, config });
+  const api = createHttpApi({ service, present, bind: "127.0.0.1", port: 0 });
   const { port } = await api.listen();
   running.push({ http: api, supervisor, store });
 
@@ -76,7 +86,7 @@ test("start, status, logs and stop over HTTP", async () => {
 
   const started = await call("POST", "/api/servers/start", { body: { cwd: path.join(worktree, "src"), waitSeconds: PATIENCE_SECONDS } });
   assert.equal(started.status, 200, JSON.stringify(started.body));
-  const result = startResultSchema.parse(started.body);
+  const result = startReplySchema.parse(started.body);
   const { server } = result;
   assert.equal(server.state, "ready", server.lastError);
   assert.deepEqual(result.placement, {
@@ -92,17 +102,17 @@ test("start, status, logs and stop over HTTP", async () => {
   assert.match(server.worktree.head, /^[0-9a-f]{40}$/);
   assert.equal(await (await fetch(`${server.url}/health`)).text(), "ok");
 
-  const again = startResultSchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree } })).body);
+  const again = startReplySchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree } })).body);
   assert.equal(again.server.id, server.id);
   assert.equal(again.server.port, server.port);
 
   const list = await call("GET", "/api/servers");
   assert.deepEqual(
-    list.body.servers.map((entry: unknown) => serverViewSchema.parse(entry)).map(({ id, state }: { id: string; state: string }) => [id, state]),
+    list.body.servers.map((entry: unknown) => boardServerSchema.parse(entry)).map(({ id, state }: { id: string; state: string }) => [id, state]),
     [[server.id, "ready"]],
   );
   const one = await call("GET", `/api/servers/${server.id}`);
-  assert.equal(serverViewSchema.parse(one.body.server).port, server.port);
+  assert.equal(boardServerSchema.parse(one.body.server).port, server.port);
 
   const tail = logsResultSchema.parse((await call("GET", `/api/servers/${server.id}/logs?lines=2`)).body);
   assert.equal(tail.lines.length, 2);
@@ -118,7 +128,7 @@ test("start, status, logs and stop over HTTP", async () => {
   assert.deepEqual(errorOf(await call("GET", `/api/servers/${server.id}/logs?lines=0`)), [400, "bad_request"]);
 
   const leftover = Number(/leftover helper pid (\d+)/.exec(fs.readFileSync(server.logs.run, "utf8"))?.[1]);
-  const stopped = stopResultSchema.parse((await call("POST", `/api/servers/${server.id}/stop`, { body: {} })).body);
+  const stopped = stopReplySchema.parse((await call("POST", `/api/servers/${server.id}/stop`, { body: {} })).body);
   assert.equal(stopped.stopped, true);
   assert.equal(stopped.server.state, "stopped");
   assert.deepEqual(stopped.swept, [leftover]);
@@ -132,12 +142,12 @@ test("opt-ins need a reason, restart a running server, and a pinned server stops
   const { call, store } = await serve([widgets(await freePort())]);
   assert.deepEqual(errorOf(await call("POST", "/api/servers/start", { body: { cwd: worktree, services: ["mailer"] } })), [422, "reason_required"]);
 
-  const plain = startResultSchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree, pin: true } })).body);
+  const plain = startReplySchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree, pin: true } })).body);
   assert.equal(plain.server.pinned, true);
   const firstPid = store.snapshot().servers[plain.server.id].process?.pid;
 
   const body = { cwd: worktree, services: ["mailer"], dedicatedDb: true, reason: "check the welcome mail", waitSeconds: PATIENCE_SECONDS };
-  const opted = startResultSchema.parse((await call("POST", "/api/servers/start", { body })).body);
+  const opted = startReplySchema.parse((await call("POST", "/api/servers/start", { body })).body);
   assert.equal(opted.placement.mode, "dedicated");
   assert.match(opted.placement.because.join("\n"), /restarted to add services mailer and a dedicated database/);
   assert.deepEqual(opted.server.optIns, { services: ["mailer"], dedicatedDb: true, reason: "check the welcome mail" });
@@ -147,10 +157,10 @@ test("opt-ins need a reason, restart a running server, and a pinned server stops
   assert.equal(isAlive(firstPid!), false);
   assert.match(fs.readFileSync(opted.server.logs.run, "utf8").split("--- dev-servers").at(-1)!, /--fresh-db/);
 
-  const kept = stopResultSchema.parse((await call("POST", `/api/servers/${opted.server.id}/stop`, { body: {} })).body);
+  const kept = stopReplySchema.parse((await call("POST", `/api/servers/${opted.server.id}/stop`, { body: {} })).body);
   assert.deepEqual([kept.stopped, kept.kept, kept.server.state], [false, "pinned", "ready"]);
   assert.ok(isAlive(secondPid!));
-  const forced = stopResultSchema.parse(
+  const forced = stopReplySchema.parse(
     (await call("POST", `/api/servers/${opted.server.id}/stop`, { body: { force: true, holder: { kind: "coco", id: "work/1" } } })).body,
   );
   assert.deepEqual([forced.stopped, forced.server.state], [true, "stopped"]);
@@ -159,17 +169,18 @@ test("opt-ins need a reason, restart a running server, and a pinned server stops
 
 test("the placement preview starts nothing, and pin and unpin go over HTTP", async () => {
   const { call, store } = await serve([widgets(await freePort())]);
-  const preview = placementResultSchema.parse((await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}&dedicated=true`)).body);
+  const preview = placementReplySchema.parse((await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}&dedicated=true`)).body);
   assert.deepEqual([preview.placement.mode, preview.placement.servedFrom, preview.server], ["dedicated", worktree, null]);
   assert.deepEqual(store.snapshot().servers, {});
   assert.deepEqual(errorOf(await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}&dedicated=maybe`)), [400, "bad_request"]);
   assert.deepEqual(errorOf(await call("GET", "/api/placement?cwd=relative")), [400, "bad_request"]);
 
-  const { server } = startResultSchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree } })).body);
-  assert.equal(placementResultSchema.parse((await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}`)).body).server?.id, server.id);
-  const pinned = pinResultSchema.parse((await call("POST", `/api/servers/${server.id}/pin`, { body: { holder: { kind: "coco", id: "work/1" } } })).body);
-  assert.deepEqual([pinned.server.pinned, pinned.server.pinnedBy], [true, { kind: "coco", id: "work/1" }]);
-  const unpinned = pinResultSchema.parse((await call("POST", `/api/servers/${server.id}/pin`, { body: { pinned: false } })).body);
+  const { server } = startReplySchema.parse((await call("POST", "/api/servers/start", { body: { cwd: worktree } })).body);
+  assert.equal(placementReplySchema.parse((await call("GET", `/api/placement?cwd=${encodeURIComponent(worktree)}`)).body).server?.id, server.id);
+  const pinned = pinReplySchema.parse((await call("POST", `/api/servers/${server.id}/pin`, { body: { holder: { kind: "coco", id: "work/1" } } })).body);
+  assert.deepEqual([pinned.server.pinned, pinned.server.pinnedBy], [true, "you"]);
+  assert.equal(boardServerSchema.parse((await call("GET", `/api/servers/${server.id}`)).body.server).pinnedBy, "coco work/1");
+  const unpinned = pinReplySchema.parse((await call("POST", `/api/servers/${server.id}/pin`, { body: { pinned: false } })).body);
   assert.equal(unpinned.server.pinned, false);
   assert.deepEqual(errorOf(await call("POST", "/api/servers/wt_000000000000/pin", { body: {} })), [404, "not_found"]);
 });
@@ -249,5 +260,5 @@ test("the Host and Origin guard turns away other sites, rebinding and form posts
     const reply = await call("GET", "/api/servers", { headers });
     assert.equal(reply.status, 200, JSON.stringify(headers));
   }
-  await assert.rejects(createHttpApi({ service: {} as never, bind: "0.0.0.0", port: 0 }).listen(), /not a loopback address/);
+  await assert.rejects(createHttpApi({ service: {} as never, present: {} as never, bind: "0.0.0.0", port: 0 }).listen(), /not a loopback address/);
 });

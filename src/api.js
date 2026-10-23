@@ -3,6 +3,14 @@ const json = async (res) => {
   return res.json();
 };
 
+// coco routes answer errors as { error: message }: throw the message, not the raw body
+const jsonOrError = async (res) => {
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `${res.status} ${res.statusText}`);
+  return body;
+};
+const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+
 // a server started before threads existed answers thread routes with the work itself
 const asThread = (t) => {
   if (!Array.isArray(t.messages)) throw new Error('the cocopilot server predates threads: restart it');
@@ -77,4 +85,8 @@ export const api = {
   applyPack: (id) => fetch(`/api/pack/import/${id}/apply`, { method: 'POST' }).then(json),
   discardPack: (id) => fetch(`/api/pack/import/${id}`, { method: 'DELETE' }).then(json),
   launch: (body) => fetch('/api/rituals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
+  devServers: (slug) => fetch(`/api/dev-servers/works/${slug}`).then(jsonOrError),
+  devServerRow: (slug, key, action, body) => postJson(`/api/dev-servers/works/${slug}/rows/${encodeURIComponent(key)}/${action}`, body).then(jsonOrError),
+  devServerLogin: (id) => postJson(`/api/dev-servers/servers/${id}/login`).then(jsonOrError),
+  devServerLogs: (id, lines) => fetch(`/api/dev-servers/servers/${id}/logs?lines=${lines}`).then(jsonOrError),
 };
