@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["react"]
+  },
+  "include": ["index.client.tsx", "client", "shared"]
+}

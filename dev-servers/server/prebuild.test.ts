@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import { PATIENCE_MS } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { ServiceError } from "./errors.ts";
 import type { Clock } from "./leases.ts";
@@ -169,7 +170,7 @@ test("at the cap a prebuild waits and retries with a growing delay, warming only
   await queue.enqueue(worktree("alpha"));
   await queue.enqueue(worktree("bravo"));
   for (const expected of [1, 2]) {
-    assert.ok(await waitUntil(() => timers.filter(({ done, ms }) => !done && ms < 10 * 60_000).length === 1, 2000));
+    assert.ok(await waitUntil(() => timers.filter(({ done, ms }) => !done && ms < 10 * 60_000).length === 1, PATIENCE_MS));
     assert.equal(events.filter((event) => event.startsWith("prewarm alpha")).length, expected);
     assert.ok(!events.some((event) => event.includes("bravo")));
     fireRetries();
@@ -214,7 +215,7 @@ test("a queued prebuild that a start or an archive takes out is never run, even 
   await queue.enqueue(worktree("alpha"));
   await queue.enqueue(worktree("bravo"));
   await queue.enqueue(worktree("charlie"));
-  assert.ok(await waitUntil(() => timers.some(({ done, ms }) => !done && ms < 10 * 60_000), 2000));
+  assert.ok(await waitUntil(() => timers.some(({ done, ms }) => !done && ms < 10 * 60_000), PATIENCE_MS));
   assert.equal(await queue.forget(worktree("charlie")), true);
   assert.equal(await queue.forget(worktree("alpha")), true);
   assert.equal(await queue.forget(worktree("alpha")), false);
@@ -227,7 +228,7 @@ test("a start that took over the prebuild ends the job without stopping the serv
   const orphan = worktree("alpha");
   await setState(serverIdFor(orphan), orphan, "prewarming", true);
   queue.start();
-  assert.ok(await waitUntil(() => queue.jobs().length === 1, 2000));
+  assert.ok(await waitUntil(() => queue.jobs().length === 1, PATIENCE_MS));
   assert.equal(queue.jobs()[0].worktree, orphan);
   assert.deepEqual(events, []);
   await setState(serverIdFor(orphan), orphan, "ready", true);

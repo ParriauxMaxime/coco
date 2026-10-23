@@ -17,7 +17,7 @@
     "node": ">=22.6"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
     "test": "node --test --experimental-strip-types --disable-warning=ExperimentalWarning 'server/**/*.test.ts'"
   },
   "dependencies": {

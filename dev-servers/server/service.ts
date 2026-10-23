@@ -105,7 +105,7 @@ export type DevServersService = {
   get(id: string): Promise<ServerView>;
   stop(id: string, input: StopInput, caller: Caller): Promise<StopResult>;
   pin(id: string, input: PinInput, caller: Caller): Promise<PinResult>;
-  logs(id: string, input: LogsInput): Promise<LogsResult>;
+  logs(id: string, input: LogsInput, options?: { touch?: boolean; maxBytes?: number }): Promise<LogsResult>;
   login(id: string, input: LoginInput): Promise<LoginResult>;
   prewarm(target: Target, options?: { warm?: boolean }): Promise<PrewarmResult>;
   finishPrewarm(id: string): Promise<FinishResult>;
@@ -131,6 +131,13 @@ const sameHolder = (a: Pick<Holder, "kind" | "id">, b: Pick<Holder, "kind" | "id
 const describeHolder = (holder: Pick<Holder, "kind" | "id" | "title">) =>
   holder.title ?? (holder.kind === "agent" ? "an agent" : `${holder.kind} ${holder.id}`);
 const describeHolders = (leases: LeaseView[]) => leases.map(({ holder }) => holder.title ?? `${holder.kind} ${holder.id}`).join(", ");
+
+export const serverUrl = (config: DevServersConfig, record: Pick<ServerRecord, "id" | "project" | "port" | "worktree">) =>
+  renderTemplate(config.projects.find((project) => project.id === record.project)?.urlTemplate ?? "http://localhost:{port}", {
+    port: record.port,
+    worktree: record.worktree,
+    logDir: logDirFor(config.stateDir, record.id),
+  });
 
 const minutesSince = (iso: string) => Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
 
@@ -220,13 +227,12 @@ export function createService({
     new Date(Math.max(Date.parse(deadline), Date.parse(lastUsedAt) + config.idleStopMinutes * 60_000)).toISOString();
 
   const view = async (record: ServerRecord): Promise<ServerView> => {
-    const urlTemplate = projectOf(record.project)?.urlTemplate ?? "http://localhost:{port}";
     return {
       id: record.id,
       project: record.project,
       worktree: { path: record.worktree, ...(await gitCache.info(record.worktree)) },
       port: record.port,
-      url: renderTemplate(urlTemplate, { port: record.port, worktree: record.worktree, logDir: logDirFor(config.stateDir, record.id) }),
+      url: serverUrl(config, record),
       reserved: record.reserved,
       state: record.state,
       stateSince: record.stateSince,
@@ -483,7 +489,7 @@ export function createService({
       });
     },
 
-    logs: async (id, raw) => {
+    logs: async (id, raw, { touch: touching = true, maxBytes = logReadBytes } = {}) => {
       const { lines, grep, source } = parse(logsInputSchema, raw);
       const record = recordOf(id);
       if (record.state === "external")
@@ -496,9 +502,9 @@ export function createService({
       } catch (error) {
         throw new ServiceError("bad_request", `grep is not a valid regular expression: ${(error as Error).message}`);
       }
-      const { lines: all, cut } = await readTail(file, logReadBytes);
+      const { lines: all, cut } = await readTail(file, maxBytes);
       const matched = pattern ? all.filter((line) => pattern.test(line)) : all;
-      await touch(id);
+      if (touching) await touch(id);
       return { id, source, file, lines: matched.slice(-lines), truncated: cut || matched.length > lines };
     },
 

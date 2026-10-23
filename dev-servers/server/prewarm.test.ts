@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Holder } from "../shared/contracts.ts";
-import { FIXTURE, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
+import { FIXTURE, PATIENCE_MS, PATIENCE_SECONDS, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { createLeaseManager, openLeaseStore, type Clock, type LeaseManager } from "./leases.ts";
 import { openPortRegistry } from "./ports.ts";
@@ -77,11 +77,19 @@ const serve = async ({ cap = 3, buildMs = 150, startQueue = true, settings = fal
   });
   const capacity = createScheduler({ store, cap, stop: (id) => supervisor.stop(id), leases: leases.book, onWarning: () => {} });
   const logs: string[] = [];
+  const prewarms: string[] = [];
   let service: DevServersService | null = null;
   const queue = createPrebuildQueue({
     store,
     projects: config.projects,
-    service: { prewarm: (target, options) => service!.prewarm(target, options), finishPrewarm: (id) => service!.finishPrewarm(id) },
+    service: {
+      prewarm: async (target, options) => {
+        const result = await service!.prewarm(target, options);
+        prewarms.push(result.outcome);
+        return result;
+      },
+      finishPrewarm: (id) => service!.finishPrewarm(id),
+    },
     subscribe: supervisor.subscribe,
     clock: refClock,
     retryMs: [100],
@@ -92,7 +100,7 @@ const serve = async ({ cap = 3, buildMs = 150, startQueue = true, settings = fal
   supervisor.subscribe((record) => void leases.settle(record.id));
   running.push({ supervisor, store, leases, queue });
   if (startQueue) queue.start();
-  return { service, store, ports, supervisor, leases, queue, logs };
+  return { service, store, ports, supervisor, leases, queue, logs, prewarms };
 };
 
 const user = (id: string): Holder => ({ kind: "user", id });
@@ -108,12 +116,14 @@ const refClock: Clock = {
 
 const track = (supervisor: Supervisor, id: string) => {
   const states: string[] = [];
-  supervisor.subscribe((record) => record.id === id && states.at(-1) !== record.state && states.push(record.state));
+  supervisor.subscribe(
+    (record) => record.id === id && states.at(-1) !== record.state && states.push(record.state === "crashed" ? `crashed: ${record.lastError}` : record.state),
+  );
   return states;
 };
 
 const until = async (supervisor: Supervisor, id: string, check: (record: ServerRecord | undefined) => boolean, what: string) => {
-  const record = await supervisor.waitFor(id, check, 10_000);
+  const record = await supervisor.waitFor(id, check, PATIENCE_MS);
   assert.ok(check(record), `expected ${what}, got ${record?.state}`);
   return record!;
 };
@@ -156,7 +166,6 @@ test("a start during a prebuild takes it over: same process, state building, a n
 
   await queue.idle();
   await until(supervisor, id, (record) => record?.state === "ready", "ready");
-  await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(store.snapshot().servers[id].state, "ready");
   assert.ok(isAlive(prebuilding.process!.pid));
   assert.deepEqual(
@@ -169,14 +178,14 @@ test("a start during a prebuild takes it over: same process, state building, a n
 test("a prebuild never stops a running server: it waits at the cap and builds once a slot frees", async () => {
   const busy = gitRepo(path.join(dir, "widgets-busy"), REMOTE);
   const worktree = gitRepo(path.join(dir, "widgets-alice"), REMOTE);
-  const { queue, service, store, supervisor } = await serve({ cap: 1 });
+  const { queue, service, store, supervisor, prewarms } = await serve({ cap: 1 });
   const holder = user("bruno");
-  const { server } = await service.start({ cwd: busy, waitSeconds: 10 }, { holder });
+  const { server } = await service.start({ cwd: busy, waitSeconds: PATIENCE_SECONDS }, { holder });
   assert.equal(server.state, "ready");
   const pid = store.snapshot().servers[server.id].process?.pid;
 
   await queue.enqueue(worktree);
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.ok(await waitUntil(() => prewarms.filter((outcome) => outcome === "full").length >= 2, PATIENCE_MS), `prewarm outcomes: ${prewarms.join(", ")}`);
   assert.equal(store.snapshot().servers[server.id].process?.pid, pid);
   assert.equal(store.snapshot().servers[serverIdFor(worktree)]?.process ?? null, null);
   assert.equal(queue.jobs()[0]?.worktree, worktree);
@@ -199,7 +208,7 @@ test("a start at the cap cancels a prebuild, which goes back in the queue and bu
   const holder = user("bruno");
   const started = await service.start({ cwd: busy }, { holder });
   assert.deepEqual(started.evicted, [{ id, worktree, why: "it was only a prebuild" }]);
-  assert.ok(await waitUntil(() => queue.jobs()[0]?.cancels === 1, 5000));
+  assert.ok(await waitUntil(() => queue.jobs()[0]?.cancels === 1, PATIENCE_MS));
   assert.ok(logs.includes("prebuild of /widgets-alice was cancelled to make room; queued again"));
   assert.equal(store.snapshot().servers[id].process, null);
 
@@ -226,7 +235,7 @@ test("archiving a workspace drops its queued prebuild and its agents' leases, ke
 
   const agentHere: Holder = { kind: "agent", id: await leases.issueKey(path.join(worktree, "src"), "Alice") };
   const agentThere: Holder = { kind: "agent", id: await leases.issueKey(other, "Bruno") };
-  const { server } = await service.start({ cwd: worktree }, { holder: agentHere });
+  const { server } = await service.start({ cwd: worktree, waitSeconds: PATIENCE_SECONDS }, { holder: agentHere });
   await service.start({ cwd: worktree }, { holder: agentThere });
   const baseFiles = () => fs.readdirSync(path.join(stateDir, "base")).filter((name) => name.startsWith(server.id));
   assert.equal(baseFiles().length, 2);
@@ -248,7 +257,7 @@ test("archiving a workspace drops its queued prebuild and its agents' leases, ke
   assert.deepEqual(baseFiles(), []);
   assert.equal(fs.readFileSync(path.join(worktree, "widgets.settings.json"), "utf8"), '{ "theme": "dark" }\n');
 
-  const pinned = await service.start({ cwd: pinnedTree, pin: true }, { holder: user("carol") });
+  const pinned = await service.start({ cwd: pinnedTree, pin: true, waitSeconds: PATIENCE_SECONDS }, { holder: user("carol") });
   await leases.book.release(pinned.server.id, user("carol"));
   const stays = await service.archive(pinnedTree);
   assert.equal(stays.kept, "pinned");

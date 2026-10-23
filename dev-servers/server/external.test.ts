@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Holder } from "../shared/contracts.ts";
-import { FIXTURE, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
+import { FIXTURE, PATIENCE_MS, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { ServiceError } from "./errors.ts";
 import { createExternalScanner } from "./external.ts";
@@ -51,7 +51,7 @@ const startByHand = async (cwd: string) => {
   const port = await freePort();
   const child = spawn(process.execPath, [FIXTURE, "--port", String(port), "--ttl", "60"], { cwd, stdio: "ignore" });
   byHand.push(child);
-  assert.ok(await waitUntil(() => probeHttp(`http://127.0.0.1:${port}`, HEALTH, 300), 10_000), "the hand-started fixture never answered");
+  assert.ok(await waitUntil(() => probeHttp(`http://127.0.0.1:${port}`, HEALTH, 300), PATIENCE_MS), "the hand-started fixture never answered");
   return { child, port };
 };
 
@@ -154,7 +154,7 @@ test("a server started by hand is adopted as external, used read-only, and never
 
   await service.start({ cwd: handTree }, { holder: alice });
   child.kill("SIGTERM");
-  assert.ok(await waitUntil(() => !isAlive(child.pid!), 5000));
+  assert.ok(await waitUntil(() => !isAlive(child.pid!), PATIENCE_MS));
   assert.deepEqual(await externals.scan(), [{ id, worktree: handTree, port, change: "gone" }]);
   assert.deepEqual(store.snapshot().servers, {});
   const [notice] = await leases.takeLost(alice);

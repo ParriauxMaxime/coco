@@ -1,5 +1,6 @@
-import type { RpcOutput } from "@getpaseo/plugin";
-import type { PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginRpcContract, RpcInput, RpcOutput } from "@getpaseo/plugin";
+import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
+import type { ZodType } from "zod";
 import { loadConfig, resolveApi, type ConfigLoad } from "./server/config.ts";
 import { createExternalScanner } from "./server/external.ts";
 import { createHttpApi, type HttpApi } from "./server/http.ts";
@@ -8,11 +9,13 @@ import { MCP_PATH, createMcpHandler } from "./server/mcp.ts";
 import { createPaseoHooks, registerPaseoHooks, type HookRuntime, type WorkspaceHandlers } from "./server/paseo-hooks.ts";
 import { openPortRegistry, type PortRegistry } from "./server/ports.ts";
 import { createPrebuildQueue } from "./server/prebuild.ts";
+import { createRpcHandlers, type RpcRuntime } from "./server/rpc.ts";
 import { createScheduler } from "./server/scheduler.ts";
-import { createService, type DevServersService } from "./server/service.ts";
+import { createService, serverUrl, type DevServersService } from "./server/service.ts";
 import { openStateStore, type DevServersState, type JsonStore } from "./server/store.ts";
 import { createSupervisor, type Supervisor } from "./server/supervisor.ts";
-import { configStatusRpc, pluginSettings, type Holder } from "./shared/contracts.ts";
+import { createTimelineNotifier, type AppendRow } from "./server/timeline.ts";
+import { boardRpc, configStatusRpc, loginRpc, logsRpc, pinRpc, placementRpc, pluginSettings, startRpc, stopRpc, type Holder } from "./shared/contracts.ts";
 
 type Runtime = {
   load: ConfigLoad;
@@ -36,6 +39,13 @@ const urlHost = (bind: string) => (bind.includes(":") ? `[${bind}]` : bind);
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(pluginSettings);
+  // Daemon-side code gets Paseo only through a handler or hook context; the session lives as long as this worker.
+  let paseo: PluginHandlerContext["paseo"] | null = null;
+  const remember = (context: PluginHandlerContext) => void (paseo = context.paseo);
+  const appendRow = (): AppendRow | null => {
+    const api = paseo;
+    return api && ((agentId, item) => api.agents.ref(agentId).timeline.append(item));
+  };
 
   const start = async (): Promise<Runtime> => {
     const current = await settings.read();
@@ -72,6 +82,13 @@ export default function contribute(server: PluginServerContext) {
       return { ...down, error: messageOf(error) };
     }
     let service: DevServersService | null = null;
+    const timeline = createTimelineNotifier({
+      holders: (id) => leases.book.holders(id),
+      agentOf: (holder) => leases.agentOf(holder),
+      urlOf: (record) => serverUrl(config, record),
+      append: appendRow,
+      onWarning: warn,
+    });
     const leases = createLeaseManager({
       store: leaseStore,
       servers: stores.state,
@@ -81,6 +98,7 @@ export default function contribute(server: PluginServerContext) {
         const result = await service?.stop(id, {}, { holder: IDLE_TIMER });
         if (result?.stopped) console.log(`coco-dev-servers: ${id} stopped after ${config.idleStopMinutes} min with nobody holding it`);
       },
+      onLost: timeline.lost,
       onWarning: warn,
     });
     const externals = createExternalScanner({ store: stores.state, projects, leases: leases.book, onWarning: warn });
@@ -104,9 +122,10 @@ export default function contribute(server: PluginServerContext) {
       onWarning: warn,
     });
     const workspaces: WorkspaceHandlers = { created: (cwd) => prebuilds.enqueue(cwd), archived: (cwd) => service!.archive(cwd) };
-    const unsubscribe = supervisor.subscribe(
-      (record) => void leases.settle(record.id).catch((error) => warn(`lease check of ${record.id} failed: ${messageOf(error)}`)),
-    );
+    const unsubscribe = supervisor.subscribe((record) => {
+      timeline.serverChanged(record);
+      void leases.settle(record.id).catch((error) => warn(`lease check of ${record.id} failed: ${messageOf(error)}`));
+    });
     const close = () => {
       unsubscribe();
       prebuilds.close();
@@ -154,6 +173,29 @@ export default function contribute(server: PluginServerContext) {
     onWarning: warn,
   });
   const unregister = registerPaseoHooks(server, hooks);
+  const unwatch = [server.on("agent.created", (_, context) => remember(context)), server.on("agent.turn_started", (_, context) => remember(context))];
+
+  const rpc = createRpcHandlers(async (): Promise<RpcRuntime> => {
+    const { service, leases, stores, load, error } = await runtime;
+    return service && leases && stores && load.config
+      ? { deps: { service, leases, store: stores.state, config: load.config }, error: null }
+      : { deps: null, error };
+  });
+  const handle = <I extends ZodType, O extends ZodType>(
+    contract: PluginRpcContract<I, O>,
+    run: (input: RpcInput<PluginRpcContract<I, O>>) => Promise<RpcOutput<PluginRpcContract<I, O>>>,
+  ) =>
+    server.handle(contract, (input, context) => {
+      remember(context);
+      return run(input);
+    });
+  handle(boardRpc, rpc.board);
+  handle(placementRpc, rpc.placement);
+  handle(startRpc, rpc.start);
+  handle(stopRpc, rpc.stop);
+  handle(pinRpc, rpc.pin);
+  handle(logsRpc, rpc.logs);
+  handle(loginRpc, rpc.login);
 
   server.handle(configStatusRpc, async (): Promise<RpcOutput<typeof configStatusRpc>> => {
     const { load, apiPort, error } = await runtime;
@@ -170,6 +212,7 @@ export default function contribute(server: PluginServerContext) {
   // Servers outlive the worker on purpose: cleanup never stops them.
   return async () => {
     unregister();
+    for (const off of unwatch) off();
     unsubscribe();
     await closeRuntime(runtime);
   };

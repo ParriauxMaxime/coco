@@ -189,3 +189,104 @@ export const configStatusRpc = defineRpc({
     api: z.object({ bind: z.string(), port: z.number() }).nullable(),
   }),
 });
+
+export const UI_HOLDER: Holder = { kind: "user", id: "paseo", title: "you, in Paseo" };
+
+export const rpcErrorSchema = z.object({ code: z.enum(ERROR_CODES), message: z.string(), details: z.record(z.string(), z.unknown()).optional() });
+export type RpcError = z.output<typeof rpcErrorSchema>;
+
+const outcome = <T extends z.ZodType>(value: T) =>
+  z.union([z.object({ ok: z.literal(true), value }), z.object({ ok: z.literal(false), error: rpcErrorSchema })]);
+
+export const boardLeaseSchema = z.object({
+  id: z.string(),
+  kind: holderSchema.shape.kind,
+  title: z.string(),
+  agentId: z.string().nullable(),
+  mine: z.boolean().describe("held by the Paseo UI itself"),
+  since: z.string(),
+  lastUsedAt: z.string(),
+});
+export type BoardLease = z.output<typeof boardLeaseSchema>;
+
+export const boardServerSchema = serverViewSchema.omit({ leases: true, pinnedBy: true }).extend({
+  leases: z.array(boardLeaseSchema),
+  pinnedBy: z.string().nullable(),
+  running: z.boolean(),
+  canLogin: z.boolean(),
+});
+export type BoardServer = z.output<typeof boardServerSchema>;
+
+export const boardLostSchema = z.object({
+  id: z.string(),
+  serverId: z.string(),
+  worktree: z.string(),
+  why: z.string(),
+  at: z.string(),
+  holder: z.string(),
+  agentId: z.string().nullable(),
+  seen: z.boolean(),
+});
+export type BoardLost = z.output<typeof boardLostSchema>;
+
+export const boardSchema = z.object({
+  error: z.string().nullable(),
+  cap: z.number().nullable(),
+  servers: z.array(boardServerSchema),
+  lost: z.array(boardLostSchema),
+});
+export type Board = z.output<typeof boardSchema>;
+
+export const boardRpc = defineRpc({ name: "servers.board", input: z.object({}), output: boardSchema });
+
+export const placementRpc = defineRpc({
+  name: "servers.placement",
+  input: z.object({ cwd: absolutePath }),
+  output: outcome(z.object({ placement: placementSchema, serverId: z.string().nullable() })),
+});
+
+export const startRpc = defineRpc({
+  name: "servers.start",
+  input: z.object({ cwd: absolutePath, serveFrom: absolutePath.optional(), dedicated: z.boolean().optional() }),
+  output: outcome(z.object({ serverId: z.string(), placement: placementSchema, evicted: startResultSchema.shape.evicted, next: z.string() })),
+});
+
+export const stopRpc = defineRpc({
+  name: "servers.stop",
+  input: z.object({ id: z.string().min(1), force: z.boolean().default(false) }),
+  output: outcome(stopResultSchema.pick({ stopped: true, kept: true, note: true, next: true })),
+});
+
+export const pinRpc = defineRpc({
+  name: "servers.pin",
+  input: z.object({ id: z.string().min(1), pinned: z.boolean() }),
+  output: outcome(z.object({ next: z.string() })),
+});
+
+export const logsRpc = defineRpc({
+  name: "servers.logs",
+  input: z.object({ id: z.string().min(1), lines: z.number().int().min(1).max(500).default(60), source: z.enum(["run", "app"]).default("run") }),
+  output: outcome(logsResultSchema),
+});
+
+export const loginRpc = defineRpc({
+  name: "servers.login",
+  input: z.object({ id: z.string().min(1), path: loginInputSchema.shape.path }),
+  output: outcome(loginResultSchema),
+});
+
+export const TIMELINE_KIND = "coco-dev-server";
+
+export const timelineRowSchema = z.discriminatedUnion("event", [
+  z.object({
+    event: z.literal("ready"),
+    serverId: z.string(),
+    worktree: z.string(),
+    url: z.string(),
+    port: z.number(),
+    buildSeconds: z.number().optional(),
+    at: z.string(),
+  }),
+  z.object({ event: z.literal("lost"), serverId: z.string(), worktree: z.string(), why: z.string(), at: z.string(), message: z.string() }),
+]);
+export type TimelineRow = z.output<typeof timelineRowSchema>;

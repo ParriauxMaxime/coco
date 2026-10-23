@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { freePort, killTestProcesses, widgets } from "../test/helpers.ts";
+import { PATIENCE_MS, freePort, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { isAlive } from "./proc.ts";
 import { createSettingsFiles, foldEdit } from "./settings-overlay.ts";
@@ -146,7 +146,7 @@ test("the supervisor writes the settings before the server starts and restores t
     freshDb: false,
   });
   assert.match(fs.readFileSync(record.logs.run, "utf8"), /settings in .*local\.json/);
-  await supervisor.waitFor(record.id, (current) => current?.state === "ready", 10_000);
+  assert.equal((await supervisor.waitFor(record.id, (current) => current?.state === "ready", PATIENCE_MS))?.state, "ready");
   await supervisor.stop(record.id);
   assert.equal(isAlive(record.process!.pid), false);
   assert.equal(fs.readFileSync(settingsFile, "utf8"), '{"theme":"dark"}\n');

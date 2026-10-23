@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import net, { type AddressInfo } from "node:net";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cwdOf, infoOf, isUnder, signal } from "../server/proc.ts";
@@ -8,14 +8,24 @@ import type { DevServersState, JsonStore } from "../server/store.ts";
 
 export const FIXTURE = fileURLToPath(new URL("./fixtures/widgets-app/server.mjs", import.meta.url));
 
-export const freePort = () =>
-  new Promise<number>((resolve) => {
+// Ceiling for waits on a condition: they return as soon as it holds, so a loaded machine only makes them slower, never red.
+export const PATIENCE_MS = 60_000;
+export const PATIENCE_SECONDS = 50;
+
+const bindable = (port: number) =>
+  new Promise<boolean>((resolve) => {
     const server = net.createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address() as AddressInfo;
-      server.close(() => resolve(port));
-    });
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
   });
+
+// Below the OS ephemeral range (49152 and up), so outgoing connections never take a port a fixture is about to listen on; tests use base + 40 at most.
+export async function freePort(): Promise<number> {
+  for (;;) {
+    const port = 20_000 + Math.floor(Math.random() * 29_000);
+    if (await bindable(port)) return port;
+  }
+}
 
 export const widgets = (base: number, extra: object = {}) => ({
   id: "widgets",

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
-import net, { type AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { PATIENCE_MS, freePort } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { groupAlive, infoOf, isAlive, waitUntil, type ProcessInfo } from "./proc.ts";
 import { openStateStore, serverIdFor, type ServerRecord } from "./store.ts";
@@ -25,15 +25,6 @@ const rawProject = (flags: string[] = ["--leftover"], extra: object = {}) => ({
   ...extra,
 });
 const projectOf = (raw: object) => parseConfig({ projects: [raw] }).projects[0];
-
-const freePort = () =>
-  new Promise<number>((resolve) => {
-    const server = net.createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address() as AddressInfo;
-      server.close(() => resolve(port));
-    });
-  });
 
 let dir = "";
 let stateDir = "";
@@ -82,7 +73,7 @@ const startWidgets = async (supervisor: Supervisor, project: ReturnType<typeof p
   return { port, record };
 };
 
-const until = async (supervisor: Supervisor, id: string, state: ServerRecord["state"], timeoutMs = 10_000) => {
+const until = async (supervisor: Supervisor, id: string, state: ServerRecord["state"], timeoutMs = PATIENCE_MS) => {
   const record = await supervisor.waitFor(id, (current) => current?.state === state, timeoutMs);
   assert.equal(record?.state, state, `expected ${state}, got ${record?.state} (${record?.lastError ?? "no error"})`);
   return record!;
@@ -91,7 +82,7 @@ const until = async (supervisor: Supervisor, id: string, state: ServerRecord["st
 const logOf = (record: ServerRecord) => fs.readFileSync(record.logs.run, "utf8");
 
 const leftoverPid = async (record: ServerRecord) => {
-  await waitUntil(() => /leftover helper pid \d+/.test(logOf(record)), 5000);
+  assert.ok(await waitUntil(() => /leftover helper pid \d+/.test(logOf(record)), PATIENCE_MS));
   const pid = Number(/leftover helper pid (\d+)/.exec(logOf(record))?.[1]);
   await remember(pid);
   return pid;
@@ -105,7 +96,7 @@ const control = (command: string) => {
 };
 
 test("start, ready, crash, rebuild, ready, then stop leaves no process and frees the port", async () => {
-  const { supervisor, project } = await supervise();
+  const { supervisor, project } = await supervise(projectOf(rawProject(["--leftover", "--build-ms", "500"])));
   const states: string[] = [];
   const progress = new Set<string>();
   supervisor.subscribe((record) => {
@@ -120,7 +111,11 @@ test("start, ready, crash, rebuild, ready, then stop leaves no process and frees
   const ready = await until(supervisor, record.id, "ready");
   assert.equal(await (await fetch(`http://127.0.0.1:${port}/health`)).text(), "ok");
   assert.ok(ready.buildSeconds !== undefined && ready.buildSeconds >= 0);
-  assert.ok(progress.has("widgets 1/3"));
+  // The log is polled, so a loaded machine may skip a step; some step must show.
+  assert.ok(
+    [...progress].some((step) => /^widgets [1-3]\/3$/.test(step)),
+    `no build step seen: ${[...progress].join(", ")}`,
+  );
   assert.equal((await supervisor.start({ project, worktree, port, reserved: [port] })).process?.pid, record.process?.pid);
 
   control("crash");
@@ -185,7 +180,7 @@ test("a new worker re-adopts a server started by a worker that died, replaying t
   await remember(started.process?.pid);
   assert.equal(started.state, "building");
   const leftover = await leftoverPid(started);
-  await waitUntil(() => logOf(started).includes("widgets ready on"), 10_000);
+  assert.ok(await waitUntil(() => logOf(started).includes("widgets ready on"), PATIENCE_MS));
 
   const { supervisor } = await supervise(projectOf(raw));
   assert.deepEqual(await supervisor.adopt(), [{ id: started.id, outcome: "adopted", detail: `pid ${started.process!.pid}, building` }]);

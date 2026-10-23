@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { logsResultSchema, pinResultSchema, placementResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
-import { FIXTURE, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
+import { FIXTURE, PATIENCE_SECONDS, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
 import { openPortRegistry } from "./ports.ts";
@@ -74,7 +74,7 @@ const errorOf = (reply: Reply) => [reply.status, reply.body.error?.code];
 test("start, status, logs and stop over HTTP", async () => {
   const { call } = await serve([widgets(await freePort())]);
 
-  const started = await call("POST", "/api/servers/start", { body: { cwd: path.join(worktree, "src"), waitSeconds: 10 } });
+  const started = await call("POST", "/api/servers/start", { body: { cwd: path.join(worktree, "src"), waitSeconds: PATIENCE_SECONDS } });
   assert.equal(started.status, 200, JSON.stringify(started.body));
   const result = startResultSchema.parse(started.body);
   const { server } = result;
@@ -136,7 +136,7 @@ test("opt-ins need a reason, restart a running server, and a pinned server stops
   assert.equal(plain.server.pinned, true);
   const firstPid = store.snapshot().servers[plain.server.id].process?.pid;
 
-  const body = { cwd: worktree, services: ["mailer"], dedicatedDb: true, reason: "check the welcome mail", waitSeconds: 10 };
+  const body = { cwd: worktree, services: ["mailer"], dedicatedDb: true, reason: "check the welcome mail", waitSeconds: PATIENCE_SECONDS };
   const opted = startResultSchema.parse((await call("POST", "/api/servers/start", { body })).body);
   assert.equal(opted.placement.mode, "dedicated");
   assert.match(opted.placement.because.join("\n"), /restarted to add services mailer and a dedicated database/);

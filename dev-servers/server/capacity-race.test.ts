@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Holder } from "../shared/contracts.ts";
-import { gitRepo, widgets } from "../test/helpers.ts";
+import { PATIENCE_MS, gitRepo, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { openPortRegistry } from "./ports.ts";
 import { waitUntil } from "./proc.ts";
@@ -144,7 +144,7 @@ const setup = async (cap: number) => {
   // Waits until a start asks the scheduler or the supervisor for the server, the point where it decides whether the server runs.
   const reached = (id: string) => {
     const from = calls.length;
-    return waitUntil(() => calls.slice(from).some((call) => call === `admit ${id}` || call === `start ${id}`), 5000, 5);
+    return waitUntil(() => calls.slice(from).some((call) => call === `admit ${id}` || call === `start ${id}`), PATIENCE_MS, 5);
   };
   const live = () =>
     Object.values(store.snapshot().servers)

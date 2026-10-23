@@ -47,6 +47,7 @@ const leaseStateSchema = z.object({
 
 export type KeyRecord = z.output<typeof keyRecordSchema>;
 export type LostRecord = z.output<typeof lostRecordSchema>;
+export type LostEntry = LostRecord & { id: string };
 export type LeaseState = z.output<typeof leaseStateSchema>;
 
 export const openLeaseStore = (stateDir: string, onWarning?: (message: string) => void) =>
@@ -69,6 +70,7 @@ export type LeaseManagerOptions = {
   idleStopMinutes: number;
   leaseTtlMinutes: number;
   stopIdle: (serverId: string) => Promise<unknown>;
+  onLost?: (entries: LostEntry[]) => void;
   clock?: Clock;
   onWarning?: (message: string) => void;
 };
@@ -82,7 +84,9 @@ export type LeaseManager = {
   touch(holder: Holder): Promise<void>;
   heldBy(holder: Holder): string[];
   takeLost(holder: Holder): Promise<LostRecord[]>;
-  lostNotices(): LostRecord[];
+  lostNotices(): LostEntry[];
+  agentOf(holder: Holder): string | null;
+  titleOf(holder: Holder): string;
   settle(serverId: string): Promise<void>;
   settleAll(): Promise<void>;
   flush(): Promise<void>;
@@ -101,6 +105,7 @@ export function createLeaseManager({
   idleStopMinutes,
   leaseTtlMinutes,
   stopIdle,
+  onLost,
   clock = systemClock,
   onWarning = console.warn,
 }: LeaseManagerOptions): LeaseManager {
@@ -231,13 +236,18 @@ export function createLeaseManager({
     lose: async (serverId, why) => {
       const worktree = servers.snapshot().servers[serverId]?.worktree ?? "";
       const at = iso();
-      await store.update((draft) => {
+      const entries = await store.update((draft) => {
+        const created: LostEntry[] = [];
         for (const [id, lease] of leasesOf(draft, serverId)) {
-          draft.lost[newId("lo", 6)] = { serverId, worktree, holder: lease.holder, why, at };
+          const entry = { id: newId("lo", 6), serverId, worktree, holder: lease.holder, why, at };
+          draft.lost[entry.id] = { serverId, worktree, holder: lease.holder, why, at };
+          created.push(entry);
           delete draft.leases[id];
         }
+        return created;
       });
       await settle(serverId);
+      if (entries.length) onLost?.(entries);
     },
     dropWorktree: async (worktree) => {
       const roots = [...new Set([path.resolve(worktree), realPath(worktree)])];
@@ -357,7 +367,14 @@ export function createLeaseManager({
       });
     },
 
-    lostNotices: () => Object.values(store.snapshot().lost).sort((a, b) => a.at.localeCompare(b.at)),
+    lostNotices: () =>
+      Object.entries(store.snapshot().lost)
+        .map(([id, notice]) => ({ id, ...notice }))
+        .sort((a, b) => a.at.localeCompare(b.at)),
+
+    agentOf: (holder) => (holder.kind === "agent" ? (store.snapshot().keys[holder.id]?.agentId ?? null) : null),
+
+    titleOf: (holder) => titleOf(holder) ?? (holder.kind === "agent" ? "an agent" : `${holder.kind} ${holder.id}`),
 
     settle,
 

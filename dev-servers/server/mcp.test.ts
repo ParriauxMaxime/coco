@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { pinResultSchema, serverViewSchema, startResultSchema, stopResultSchema } from "../shared/contracts.ts";
-import { freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
+import { PATIENCE_MS, PATIENCE_SECONDS, freePort, gitRepo, killTestProcesses, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { createHttpApi, type HttpApi } from "./http.ts";
 import { createLeaseManager, openLeaseStore, type LeaseManager } from "./leases.ts";
@@ -95,7 +95,7 @@ test("an agent lists the tools, then starts, follows and stops its server with n
   assert.deepEqual(Object.keys(schemaOf("dev_server_stop").properties ?? {}), ["id"]);
   assert.ok(tools.every(({ description }) => description && description.length > 40));
 
-  const started = await alice.call("dev_server_start", { waitSeconds: 10 });
+  const started = await alice.call("dev_server_start", { waitSeconds: PATIENCE_SECONDS });
   assert.equal(started.isError, false, JSON.stringify(started.body));
   const result = startResultSchema.parse(started.body);
   assert.equal(result.server.state, "ready", result.server.lastError);
@@ -130,11 +130,12 @@ test("an agent lists the tools, then starts, follows and stops its server with n
 });
 
 test("two agents share one server; it outlives the first stop and idles out once the last holder is archived", async () => {
-  const { agent, store, supervisor, leases } = await serve({ idleStopMinutes: 0.02 });
+  // Long enough for the two status calls below to see it idle on a loaded machine, short enough to wait for.
+  const { agent, store, supervisor, leases } = await serve({ idleStopMinutes: 0.05 });
   const alice = await agent("agent-alice", worktree, "Fix the widget");
   const bruno = await agent("agent-bruno", worktree, "Review the widget");
 
-  const first = startResultSchema.parse((await alice.call("dev_server_start", { waitSeconds: 10 })).body);
+  const first = startResultSchema.parse((await alice.call("dev_server_start", { waitSeconds: PATIENCE_SECONDS })).body);
   const second = startResultSchema.parse((await bruno.call("dev_server_start")).body);
   assert.equal(second.server.id, first.server.id);
   assert.equal(second.server.state, "ready");
@@ -154,7 +155,7 @@ test("two agents share one server; it outlives the first stop and idles out once
   assert.ok(idle.idleStopAt);
   assert.match((await alice.call("dev_server_status")).body.servers[0].next, /nobody holds it, so it stops at/);
 
-  const gone = await supervisor.waitFor(first.server.id, (record) => record?.state === "stopped", 10_000);
+  const gone = await supervisor.waitFor(first.server.id, (record) => record?.state === "stopped", PATIENCE_MS);
   assert.equal(gone?.state, "stopped");
   assert.equal(isAlive(pid), false);
   assert.deepEqual(gone?.deadlines, {});
