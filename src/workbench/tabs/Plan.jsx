@@ -4,6 +4,7 @@ import { api } from '../../api.js';
 import { useAction, pendingClass } from '../../components/action.js';
 import { toast } from '../../components/Toast.jsx';
 import Markdown from '../../components/Markdown.jsx';
+import Blocks from '../../components/Blocks.jsx';
 import Collapsible from '../../components/Collapsible.jsx';
 import { useWork } from '../use-work.js';
 import { useWorkbench } from '../workbench-store.js';
@@ -161,6 +162,21 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange }) {
   );
 }
 
+// the owner's to-do, written by the orchestrating agent (PUT { next }); the stack's own "Next" line stays in the hero
+function WhatsNext({ next }) {
+  if (!next) return null;
+  return (
+    <section className="card whats-next">
+      <div className="headline">
+        <b>What's next for you</b>
+        <span className="status">{next.by ? `${next.by} · ` : ''}{(next.at || '').slice(0, 16).replace('T', ' ')}</span>
+      </div>
+      {next.summary && <p className="lead">{next.summary}</p>}
+      {next.blocks && <Blocks blocks={next.blocks} />}
+    </section>
+  );
+}
+
 const SIDE = [['ask', '🦜 Ask coco'], ['decisions', 'Decisions'], ['findings', 'Findings'], ['rules', 'Rules'], ['artifacts', 'Artifacts'], ['timeline', 'Timeline'], ['notes', 'Notes']];
 
 export default function Plan({ group }) {
@@ -178,6 +194,7 @@ export default function Plan({ group }) {
         </div>
       </div>
       <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} />
+      <WhatsNext next={w.next} />
       <NotionPreview w={w} onChange={() => load()} />
       <StackKeeper slug={w.slug} onChange={() => load()} />
       {prs.some((p) => p.key) && <StackFixCard group={group} />}

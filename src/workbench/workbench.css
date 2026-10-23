@@ -88,3 +88,7 @@ body.wb-max .shell { grid-template-columns: 1fr; }
   .fd-loc { grid-area: loc; }
   .fd-acts { grid-area: acts; }
 }
+
+.wb-plan .whats-next { margin-top: 12px; border-left: 3px solid var(--brand); }
+.wb-plan .whats-next .headline { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wb-plan .whats-next .lead { margin: 6px 0 8px; }

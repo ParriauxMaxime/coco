@@ -8,6 +8,7 @@ import { createNotionSync } from './notion.mjs';
 import { keyLabel, rowKey } from './stack.mjs';
 import { decisionBullet, decisionSummary, validChoice } from './decisions.mjs';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.mjs';
+import { validateNext } from './next.mjs';
 
 const HOME = os.homedir();
 const run = (cmd, args, opts = {}) =>
@@ -314,8 +315,12 @@ export function createWorks({ DATA, PERSONAS, REPO, config }) {
     if (b === 'notion' && req.method === 'GET') return send(res, 200, notion.status({ ...work, artifacts: listArtifacts(a) }, await Promise.all((work.stack || []).map((s) => prInfo(s.number)))));
     if (req.method === 'PUT') {
       const body = JSON.parse(await readBody(req));
-      const next = { ...work, ...body, slug: work.slug };
-      return send(res, 200, save(next));
+      try {
+        if ('next' in body) body.next = validateNext(body.next);
+      } catch (e) {
+        return send(res, 400, { error: e.message });
+      }
+      return send(res, 200, save({ ...work, ...body, slug: work.slug }));
     }
     if (req.method === 'DELETE') {
       fs.rmSync(file(a));

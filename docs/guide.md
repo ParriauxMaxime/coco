@@ -78,6 +78,19 @@ worktree (`.claude/reviews/*`, PR review pages, briefs, demo clips) so they
 outlive the scratch folders. Stored under `data/works/<slug>.json` and
 `data/works/<slug>/artifacts/`, served at `/works/<slug>/artifacts/…`.
 
+### What's next
+
+A work can carry `next`: the owner's to-do as of now, written by the
+orchestrating agent at the end of each cycle and shown as the first card
+under the Plan hero. `PUT /api/works/<slug>` with
+`{ next: { summary, blocks, by } }`: `summary` is one plain sentence,
+`blocks` the typed blocks of findings and decision cards (a `steps` block
+for the actions in order, a `callout` for a blocker, a `table` for PRs to
+review), `by` who wrote it. The server stamps `at`. `{ next: null }` clears
+it. It names what the owner does (review, merge, answer, push), not what
+agents are doing: the stack's own "Next" line in the hero already says
+which PR is first in line.
+
 ### Decisions
 
 A work can carry `decisions[]`: `{ id, title, question, details,
