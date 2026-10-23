@@ -18,6 +18,7 @@ import {
   waitUntil,
 } from "./proc.ts";
 import { LogTail, compilePatterns, initialPhase, nextPhase, probeHttp, wantsProbe, type LogPatterns, type Phase, type PhaseContext } from "./readiness.ts";
+import { createSettingsFiles } from "./settings-overlay.ts";
 import { serverIdFor, type DevServersState, type JsonStore, type ServerRecord } from "./store.ts";
 
 export class StartFailedError extends Error {
@@ -117,6 +118,7 @@ export function createSupervisor({
   onWarning = console.warn,
 }: SupervisorOptions): Supervisor {
   const watches = new Map<string, Watch>();
+  const settingsFiles = createSettingsFiles({ stateDir, onWarning });
   const listeners = new Set<(record: ServerRecord) => void>();
   const locks = new Map<string, Promise<unknown>>();
   let timer: NodeJS.Timeout | null = null;
@@ -254,8 +256,23 @@ export function createSupervisor({
     env.PATH = [path.dirname(process.execPath), env.PATH].filter(Boolean).join(path.delimiter);
     const executable = resolveExecutable(argv[0], cwd, env.PATH);
     if (!executable) throw new StartFailedError(`${argv[0]} was not found on PATH`);
+    let settings: Awaited<ReturnType<typeof settingsFiles.apply>>;
+    try {
+      settings = await settingsFiles.apply({
+        id,
+        project,
+        worktree: path.resolve(worktree),
+        port,
+        logDir,
+        services: optIns.services,
+        dedicatedDb: optIns.dedicatedDb,
+      });
+    } catch (error) {
+      throw new StartFailedError(`settings file not written: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
-    fs.appendFileSync(runLog, `\n--- dev-servers ${new Date().toISOString()}: ${argv.join(" ")} (in ${cwd}, port ${port})\n`);
+    const wrote = settings ? `, settings in ${settings.file}` : "";
+    fs.appendFileSync(runLog, `\n--- dev-servers ${new Date().toISOString()}: ${argv.join(" ")} (in ${cwd}, port ${port}${wrote})\n`);
     const logOffset = fs.statSync(runLog).size;
     const fd = fs.openSync(runLog, "a");
     let child: ChildProcess;
@@ -347,6 +364,13 @@ export function createSupervisor({
     await waitUntil(async () => !(await Promise.all(record.reserved.map((port) => portListening(port)))).some(Boolean), 3000, 200);
     const busy = await Promise.all(record.reserved.map(async (port) => ((await portListening(port)) ? port : 0)));
     const portsBusy = busy.filter(Boolean);
+    try {
+      await settingsFiles.restore(id);
+    } catch (error) {
+      const message = `settings file not restored: ${error instanceof Error ? error.message : String(error)}`;
+      onWarning(`${id}: ${message}`);
+      note = note ? `${note}; ${message}` : message;
+    }
     await patch(id, (current) => {
       current.state = "stopped";
       current.stateSince = new Date().toISOString();

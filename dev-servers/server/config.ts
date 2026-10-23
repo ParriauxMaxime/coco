@@ -96,11 +96,7 @@ const projectSchema = z.strictObject({
   settings: z
     .strictObject({
       file: z.string().min(1),
-      base: z.string().optional(),
       overlay: withKnownPlaceholders(z.record(z.string(), z.unknown())).default({}),
-      nullAll: z
-        .strictObject({ path: z.string().min(1), keysFrom: z.string().optional(), except: z.union([templated, z.array(z.string())]).default([]) })
-        .optional(),
     })
     .optional(),
   warm: z
