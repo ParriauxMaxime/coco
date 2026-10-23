@@ -97,7 +97,12 @@ const leftoverPid = async (record: ServerRecord) => {
   return pid;
 };
 
-const control = (command: string) => fs.writeFileSync(path.join(worktree, "widgets.control"), command);
+// Renamed into place so the fixture never reads a half-written, empty command.
+const control = (command: string) => {
+  const file = path.join(worktree, "widgets.control");
+  fs.writeFileSync(`${file}.tmp`, command);
+  fs.renameSync(`${file}.tmp`, file);
+};
 
 test("start, ready, crash, rebuild, ready, then stop leaves no process and frees the port", async () => {
   const { supervisor, project } = await supervise();

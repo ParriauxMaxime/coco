@@ -48,7 +48,7 @@ function guard(req: http.IncomingMessage) {
     throw new ServiceError("forbidden_origin", `Origin ${origin} is not a loopback origin`);
 }
 
-async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+export async function readJsonText(req: http.IncomingMessage): Promise<string> {
   const type = (req.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
   if (type !== "application/json") throw new ServiceError("unsupported_media_type", "send the body as Content-Type: application/json");
   const chunks: Buffer[] = [];
@@ -58,7 +58,11 @@ async function readJson(req: http.IncomingMessage): Promise<Record<string, unkno
     if (size > MAX_BODY_BYTES) throw new ServiceError("payload_too_large", `the body is over ${MAX_BODY_BYTES} bytes`);
     chunks.push(chunk);
   }
-  const text = Buffer.concat(chunks).toString("utf8").trim();
+  return Buffer.concat(chunks).toString("utf8").trim();
+}
+
+async function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const text = await readJsonText(req);
   if (!text) return {};
   let body: unknown;
   try {
@@ -103,7 +107,7 @@ const routesFor = (service: DevServersService): Route[] => [
   { method: "GET", path: /^\/api\/servers\/([^/]+)\/logs$/, run: async ([id], { url }) => service.logs(id, Object.fromEntries(url.searchParams)) },
 ];
 
-const send = (res: http.ServerResponse, status: number, value: unknown) => {
+export const send = (res: http.ServerResponse, status: number, value: unknown) => {
   const body = JSON.stringify(value);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body), "cache-control": "no-store" });
   res.end(body);
@@ -111,12 +115,23 @@ const send = (res: http.ServerResponse, status: number, value: unknown) => {
 
 export type HttpApi = { listen(): Promise<{ bind: string; port: number }>; close(): Promise<void> };
 
-export function createHttpApi({ service, bind, port }: { service: DevServersService; bind: string; port: number }): HttpApi {
+export type Mount = (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
+
+export type HttpApiOptions = { service: DevServersService; bind: string; port: number; mounts?: Record<string, Mount> };
+
+const MOUNTED = Symbol("mounted");
+
+export function createHttpApi({ service, bind, port, mounts = {} }: HttpApiOptions): HttpApi {
   const routes = routesFor(service);
 
-  const handle = async (req: http.IncomingMessage) => {
+  const handle = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     guard(req);
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    const mount = Object.hasOwn(mounts, url.pathname) ? mounts[url.pathname] : undefined;
+    if (mount) {
+      await mount(req, res);
+      return MOUNTED;
+    }
     const matching = routes.flatMap((route) => {
       const match = route.path.exec(url.pathname);
       return match ? [{ route, params: match.slice(1) }] : [];
@@ -129,9 +144,10 @@ export function createHttpApi({ service, bind, port }: { service: DevServersServ
   };
 
   const server = http.createServer((req, res) => {
-    handle(req).then(
-      (value) => send(res, 200, value),
+    handle(req, res).then(
+      (value) => void (value !== MOUNTED && send(res, 200, value)),
       (error: unknown) => {
+        if (res.headersSent) return void res.end();
         if (error instanceof ServiceError) return send(res, STATUS[error.code], error.toBody());
         send(res, 500, { error: { code: "internal", message: error instanceof Error ? error.message : String(error) } });
       },

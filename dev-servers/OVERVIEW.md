@@ -8,4 +8,8 @@ Each server runs in its own process group, detached from Paseo, with its output 
 
 A JSON API on `127.0.0.1` (port 8779 by default) starts, lists, stops and tails the servers: `POST /api/servers/start` with `{ "cwd": "<worktree path>" }`, `GET /api/servers`, `GET /api/servers/<id>`, `POST /api/servers/<id>/stop`, `GET /api/servers/<id>/logs?lines=100&grep=error`. POST bodies must be `application/json`, and requests from a non-loopback Host or Origin are refused, so web pages cannot drive it. Errors come back as `{ "error": { "code", "message" } }`.
 
-Work in progress: each worktree is served by its own server; MCP tools, stack sharing, capacity limits and screens come next.
+Every agent Paseo creates in a configured project (any provider; `injectMcp: "all"` for every directory, `"off"` for none) gets a `dev-servers` MCP server on the same port at `/mcp`, with its tools loaded up front and preapproved: `dev_server_start`, `dev_server_status`, `dev_server_stop` and `dev_server_logs`. Each agent gets its own key, so the plugin knows its directory and which servers it holds. Agents created before the plugin was installed have no tools and can use the JSON API.
+
+A server stays up while someone holds it. Starting it takes a hold; stopping it, archiving the agent, or not using it for `leaseTtlMinutes` (240 by default) lets go. A server nobody holds shows as idle and stops after `idleStopMinutes` (30 by default) unless it is pinned or someone starts it again. These deadlines survive plugin reloads. Agent tools never force a stop: a server another agent holds keeps running.
+
+Work in progress: each worktree is served by its own server; stack sharing, capacity limits and screens come next.

@@ -80,8 +80,9 @@ const minutesSince = (iso: string) => Math.max(0, Math.round((Date.now() - Date.
 export function nextStep(server: ServerView): string {
   switch (server.state) {
     case "ready":
-    case "idle":
       return `ready at ${server.url}`;
+    case "idle":
+      return `ready at ${server.url}; nobody holds it${server.idleStopAt ? `, so it stops at ${server.idleStopAt} unless someone starts it again` : ""}`;
     case "building":
     case "prewarming": {
       const minutes = minutesSince(server.stateSince);
@@ -150,6 +151,8 @@ export function createService({
   };
 
   const projectOf = (id: string) => config.projects.find((project) => project.id === id);
+  const idleStopAt = (deadline: string, lastUsedAt: string) =>
+    new Date(Math.max(Date.parse(deadline), Date.parse(lastUsedAt) + config.idleStopMinutes * 60_000)).toISOString();
 
   const view = async (record: ServerRecord): Promise<ServerView> => {
     const urlTemplate = projectOf(record.project)?.urlTemplate ?? "http://localhost:{port}";
@@ -169,6 +172,7 @@ export function createService({
       optIns: record.optIns,
       leases: leases.holders(record.id),
       lastUsedAt: record.lastUsedAt,
+      ...(record.deadlines.idle && { idleStopAt: idleStopAt(record.deadlines.idle, record.lastUsedAt) }),
       logs: record.logs,
     };
   };
@@ -277,7 +281,7 @@ export function createService({
         await leases.release(id, caller.holder);
         if (record.state === "external") throw new ServiceError("external_readonly", `${id} was started outside the plugin, which never stops it`, { id });
         const kept = (reason: "leased" | "pinned", next: string): Promise<StopResult> =>
-          view(record).then((server) => ({ server, stopped: false, kept: reason, swept: [], portsBusy: [], next }));
+          view(recordOf(id)).then((server) => ({ server, stopped: false, kept: reason, swept: [], portsBusy: [], next }));
         if (!force) {
           const others = leases.holders(id);
           if (others.length) return kept("leased", `kept running for ${describeHolders(others)}; your lease is released`);

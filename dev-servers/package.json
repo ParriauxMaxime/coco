@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.12.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@tanstack/react-query": "^5.90.11",
     "@types/node": "^22.10.0",
     "@types/react": "~19.2.0",

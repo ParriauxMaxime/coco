@@ -34,14 +34,14 @@ export type Holder = z.output<typeof holderSchema>;
 const absolutePath = z.string().refine((value) => value.startsWith("/"), "must be an absolute path");
 
 export const startInputSchema = z.strictObject({
-  cwd: absolutePath.optional(),
-  serveFrom: absolutePath.optional(),
-  dedicated: z.boolean().optional(),
-  services: z.array(z.string().min(1)).optional(),
-  dedicatedDb: z.boolean().optional(),
-  reason: z.string().optional(),
-  pin: z.boolean().optional(),
-  waitSeconds: z.number().min(0).max(50).default(0),
+  cwd: absolutePath.optional().describe("Absolute path inside the worktree to serve; defaults to the caller's own worktree"),
+  serveFrom: absolutePath.optional().describe("Worktree to serve from, to answer a needs_choice error"),
+  dedicated: z.boolean().optional().describe("Run a server in the caller's own worktree even when another one could serve it"),
+  services: z.array(z.string().min(1)).optional().describe("Background services to turn on (off by default); needs a reason"),
+  dedicatedDb: z.boolean().optional().describe("Start with a database of its own; needs a reason"),
+  reason: z.string().optional().describe("Why services or a dedicated database are needed; shown to everyone"),
+  pin: z.boolean().optional().describe("Keep the server running when nobody uses it"),
+  waitSeconds: z.number().min(0).max(50).default(0).describe("Wait up to this many seconds for the build to finish before answering"),
 });
 export type StartInput = z.input<typeof startInputSchema>;
 
@@ -49,9 +49,9 @@ export const stopInputSchema = z.strictObject({ force: z.boolean().default(false
 export type StopInput = z.input<typeof stopInputSchema>;
 
 export const logsInputSchema = z.strictObject({
-  lines: z.coerce.number().int().min(1).max(5000).default(100),
-  grep: z.string().min(1).optional(),
-  source: z.enum(["run", "app"]).default("run"),
+  lines: z.coerce.number().int().min(1).max(5000).default(100).describe("How many of the last lines to return"),
+  grep: z.string().min(1).optional().describe("Case-insensitive regular expression the lines must match"),
+  source: z.enum(["run", "app"]).default("run").describe("run: the server's own output; app: the app log when the project has one"),
 });
 export type LogsInput = z.input<typeof logsInputSchema>;
 
@@ -74,6 +74,7 @@ export const serverViewSchema = z.object({
   optIns: z.object({ services: z.array(z.string()), dedicatedDb: z.boolean(), reason: z.string().nullable() }),
   leases: z.array(leaseViewSchema),
   lastUsedAt: z.string(),
+  idleStopAt: z.string().optional(),
   logs: z.object({ run: z.string(), app: z.string().optional() }),
 });
 export type ServerView = z.output<typeof serverViewSchema>;
