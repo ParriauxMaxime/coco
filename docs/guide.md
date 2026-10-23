@@ -489,6 +489,57 @@ rows get `stack[i].keeper = { parent, at }`, which drops the badge;
 **restacked by hand** (`POST …/stack-keeper/dismiss`) sets it without
 touching git.
 
+## Dev servers
+
+With the dev-servers Paseo plugin installed
+([dev-servers/OVERVIEW.md](../dev-servers/OVERVIEW.md), config in
+[configuration.md](configuration.md#dev-servers)), the Plan shows the
+servers of the work's stack (`server/dev-servers.mjs`,
+`src/workbench/tabs/DevServers.jsx`). Without it, or with it down, the hero
+says `dev servers off` (hover for why) and nothing else changes.
+
+- Hero: a `Dev servers` line, `Dev servers 2/3 · 1 building` (slots taken
+  out of `cap`, building, crashed).
+- PR card: a `dev server:` line. The row maps to a worktree of `repo.path`
+  by branch (the PR head, else the planned branch). It shows the state and
+  port of the server serving the row, `served from <worktree>` when that is
+  a stack top, a `pinned` chip, then holders, opt-ins and the idle stop
+  time. `none` means no server yet; `not checked
+  out` means no worktree has the branch.
+- Buttons: **Start** (no server runs) or **Use this server** (one runs,
+  this row does not hold it), **Open**, **Open logged in** (projects with a
+  login provider: open the server, then copy one snippet into that tab's
+  developer console), **Logs** (last 80 lines, every 3 s), **Pin** /
+  **Unpin**, **Stop**, or **Force stop** when others hold it or it is
+  pinned, after a confirmation naming who loses it.
+
+Each row holds its own lease, as holder `{ kind: "coco", id:
+"<slug>/<row>" }`, so stopping one row's server releases only that row.
+The page polls every 5 s while visible (30 s while off); log polling does
+not count as using the server, so it never keeps one from its idle stop.
+
+Proxy routes, loopback Host and Origin only, POST bodies in JSON. coco
+forwards them to the plugin at `devServers.api` with none of the browser's
+headers; an unreachable plugin reads as `{ on: false, reason }`, or a 503
+with `code: "dev_servers_off"` on an action. Plugin errors keep their status
+as `{ error, code, details? }`.
+
+| Route | Does |
+| --- | --- |
+| `GET /api/dev-servers/board` | `{ on, board }`: the plugin's `GET /api/board` |
+| `GET /api/dev-servers/works/<slug>` | `{ on, board, rows }`, a row being `{ key, label, branch, worktree, holderId, server, servedFrom }` |
+| `POST /api/dev-servers/works/<slug>/rows/<key>/start` | `{ dedicated? }`; starts or joins the row's server |
+| `POST /api/dev-servers/works/<slug>/rows/<key>/stop` | `{ serverId, force? }` |
+| `POST /api/dev-servers/works/<slug>/rows/<key>/pin` | `{ serverId, pinned }` |
+| `POST /api/dev-servers/servers/<id>/login` | `{ path? }`: the plugin's login reply |
+| `GET /api/dev-servers/servers/<id>/logs?lines=` | At most 200 lines, read with `touch=false` |
+
+The plugin asks coco the other way when two stacks build on a branch:
+`GET /api/paseo-link/stack?branch=<branch>` answers `{ work: { slug, title
+}, rows: [{ key, branch }] }`, the rows of the live work holding that
+branch in merge order, each with its PR head or planned branch;
+`{ work: null, rows: [] }` when no work holds it.
+
 ## Rules ledger
 
 One-line rules in three scopes (`server/rules.mjs`): global
@@ -716,6 +767,7 @@ zip), `POST /api/pack/import` (raw zip, 200 MB max → preview),
 
 ```bash
 node --test server/*.test.mjs
+(cd dev-servers && npm test)   # the dev-servers plugin, Node 22+
 ```
 
 ## Design notes

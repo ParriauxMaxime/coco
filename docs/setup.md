@@ -68,21 +68,37 @@ plugin they edited. Not found: this is a **fresh install**.
      own edits they want to keep: add `"<name>": "<name>"` to
      `skillOverrides` in the config instead. Never overwrite without a yes.
 
-3. **Paseo plugin.** `paseo plugin ls --json`, entry with id `cocopilot`:
+3. **Paseo plugins.** Two plugins, each handled the same way from
+   `paseo plugin ls --json`:
+
+   | Id | Folder |
+   | --- | --- |
+   | `cocopilot` | `$APP/paseo-plugin` |
+   | `coco-dev-servers` | `$APP/dev-servers` (needs Node 22.6+) |
+
    - absent:
 
      ```bash
-     (cd "$APP/paseo-plugin" && npm ci) && paseo plugin install "$APP/paseo-plugin"
+     (cd "$APP/<folder>" && npm ci) && paseo plugin install "$APP/<folder>"
      ```
 
-   - installed from `$APP/paseo-plugin`: run `npm ci` there, then
-     `paseo plugin reload cocopilot`; `paseo plugin enable cocopilot` when it
-     is disabled;
-   - installed from another path: ask before `paseo plugin remove cocopilot`
-     and installing from `$APP`.
+   - installed from `$APP/<folder>`: run `npm ci` there, then
+     `paseo plugin reload <id>`; `paseo plugin enable <id>` when it is
+     disabled;
+   - installed from another path: ask before `paseo plugin remove <id>` and
+     installing from `$APP`.
 
    If Paseo answers that plugins are disabled, ask the user before enabling
    them.
+
+   `coco-dev-servers` reads the `devServers` key of
+   `~/cocopilot/coco.config.json`. When `$APP` is elsewhere, tell the user
+   to set Settings → Plugins → coco dev servers → config file to
+   `$APP/coco.config.json`, and to leave its API port empty. It runs no
+   server until `devServers.projects` lists one
+   ([configuration.md](configuration.md#dev-servers)). Agents created
+   before the install have no `dev_server_*` tools; they can call the HTTP
+   API on `127.0.0.1:8779`, and new agents get the tools.
 
 4. **Config.** When `$APP/coco.config.json` exists, never rewrite it; only
    add the `skillOverrides` entries the user agreed to in step 2. On an

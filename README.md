@@ -16,7 +16,7 @@ Set up cocopilot for me: follow https://raw.githubusercontent.com/ParriauxMaxime
 ```
 
 The agent checks the prerequisites, installs the skills and the Paseo
-plugin, writes your config, asking only which repository you work in, and
+plugins, writes your config, asking only which repository you work in, and
 starts the server. Paste the same line to update: it finds your install,
 pulls, refreshes the skills and the plugin, and keeps your config, data and
 edited skills. The [setup guide](docs/setup.md) lists every step.
@@ -28,6 +28,7 @@ git clone https://github.com/ParriauxMaxime/coco.git ~/cocopilot && cd ~/cocopil
 npm ci
 mkdir -p ~/.claude/skills && cp -R skills/* ~/.claude/skills/
 (cd paseo-plugin && npm ci) && paseo plugin install "$PWD/paseo-plugin"
+(cd dev-servers && npm ci) && paseo plugin install "$PWD/dev-servers"
 COCO_REPO=~/code/your-repo npm start
 ```
 
@@ -65,6 +66,10 @@ gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
   rebases for every child; apply them locally in one click.
 - **Briefs and handoffs.** Render a full task brief for a PR agent from the
   work, start the agent, or hand the PR over to a fresh one.
+- **Dev servers.** A second Paseo plugin runs one app dev server per
+  worktree on a stable port, shared down a stack and handed to agents
+  through MCP tools; the Plan shows each row's server with start, open,
+  login, logs, pin and stop.
 - **Team pack.** Export personas, skills, the team config and the
   feature-flag provider as a zip for teammates; importing previews every
   file, backs up what it overwrites and keeps your personal keys.
@@ -101,6 +106,7 @@ you do not fully trust. To use it from another device, tunnel the port
 npm run serve   # API server on 127.0.0.1:8777
 npm run dev     # Vite on 127.0.0.1:8778, proxies /api
 node --test server/*.test.mjs
+(cd dev-servers && npm test)
 ```
 
 ## Documentation
@@ -109,6 +115,8 @@ node --test server/*.test.mjs
   and the HTTP routes agents call.
 - [docs/configuration.md](docs/configuration.md): every config key.
 - [paseo-plugin/OVERVIEW.md](paseo-plugin/OVERVIEW.md): the Paseo plugin.
+- [dev-servers/OVERVIEW.md](dev-servers/OVERVIEW.md): the dev-servers
+  Paseo plugin.
 
 ## License
 

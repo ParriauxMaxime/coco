@@ -118,6 +118,123 @@ export function createFeatureFlags({ REPO }) {
 }
 ```
 
+## Dev servers
+
+The `devServers` key configures the dev-servers Paseo plugin
+([dev-servers/OVERVIEW.md](../dev-servers/OVERVIEW.md)): one app dev server
+per worktree, on a stable port, shared by agents and stack rows. The plugin
+reads this key straight from the file set in its settings
+(`~/cocopilot/coco.config.json` by default): neither `$COCO_CONFIG` nor
+coco's defaults apply to it, so point it at the file coco reads. coco reads
+`devServers.api.bind` and `devServers.api.port` to reach the plugin: leave
+the plugin's API port setting empty, or set it to the same port. Changes
+apply when the plugin reloads (saving its settings reloads it).
+
+```json
+{
+  "devServers": {
+    "cap": 3,
+    "idleStopMinutes": 30,
+    "leaseTtlMinutes": 240,
+    "api": { "bind": "127.0.0.1", "port": 8779 },
+    "coco": { "url": "http://127.0.0.1:8777", "timeoutMs": 1500 },
+    "projects": [{
+      "id": "widgets",
+      "match": { "remote": "acme/widgets" },
+      "mainCheckout": "~/code/widgets",
+      "appDir": "app",
+      "command": ["npm", "run", "dev", "--", "--port", "{port}", "--inspect={port+1229}"],
+      "env": { "LOG_DIR": "{logDir}", "JOBS": "{services}" },
+      "ports": { "range": [8100, 8990], "step": 10, "reserve": ["{port}", "{port+1}", "{port+1229}"], "exclude": [8000, 8001] },
+      "settings": { "file": "app/settings.local.json", "overlay": { "logDir": "{logDir}" } },
+      "provider": "~/.cocopilot/widgets-dev-server.mjs",
+      "login": { "timeoutSeconds": 60 },
+      "warm": {
+        "symlink": ["app/node_modules"],
+        "clone": ["app/.cache"],
+        "copyIfMissing": ["app/.env.local"],
+        "prebuild": true
+      },
+      "readiness": { "http": { "path": "/health", "bodyIncludes": "ok" }, "timeoutMinutes": 15 },
+      "logPatterns": { "progress": "^building (.*)", "ready": "listening on", "crash": "server crashed", "rebuild": "change detected" },
+      "stop": { "graceSeconds": 10, "sweepCwdUnder": ["app/.cache/server"] },
+      "adopt": { "cwdPattern": "/app$", "probe": { "path": "/health", "bodyIncludes": "ok" } },
+      "optIns": { "services": { "path": "jobs" }, "dedicatedDb": { "args": ["--db", "memory"] } }
+    }]
+  }
+}
+```
+
+Templates, allowed in `command`, `env`, `settings.overlay`, `urlTemplate`
+and `optIns.dedicatedDb`: `{port}`, `{port+N}`, `{logDir}` (the server's
+log folder in `stateDir`), `{worktree}` and `{services}` (the opt-in
+services, comma-joined; an array when it is the whole value). Any other
+placeholder fails the config.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `api.bind`, `api.port` | `"127.0.0.1"`, `8779` | HTTP API and MCP endpoint. Loopback only. Saved into every agent's MCP config, so keep it stable. |
+| `stateDir` | `"~/.cocopilot/dev-servers"` | State, port registry, leases, kept settings, logs. |
+| `cap` | `3` | Servers running at once, prebuilds and servers started by hand included. |
+| `idleStopMinutes` | `30` | A server nobody holds stops after this, unless pinned. |
+| `leaseTtlMinutes` | `240` | A hold unused for this long is dropped. |
+| `worktreeRoots` | `["~/.paseo/worktrees"]` | Where stack tops are looked for, besides `mainCheckout`. |
+| `injectMcp` | `"matching-projects"` | Which new agents get the MCP tools: `matching-projects`, `all`, `off`. |
+| `coco.url`, `coco.timeoutMs` | `"http://127.0.0.1:8777"`, `1500` | coco, asked which stack a branch belongs to when two stacks build on it. `null` turns it off. |
+| `projects` | `[]` | One entry per repository, below. |
+
+Project keys:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `id` | required | Letters, digits, `.`, `_`, `-`. |
+| `match` | required | `{ remote: "owner/name" }` (any git remote) and/or `{ paths: [...] }`. |
+| `mainCheckout` | `""` | Source of `warm` paths; also a stack-top candidate. |
+| `appDir` | `"."` | Folder the command runs in, relative to the worktree. |
+| `command`, `env` | required, `{}` | argv (no shell) and extra environment. |
+| `ports.range`, `ports.step` | `[8100, 8990]`, `10` | Base ports handed out per worktree. |
+| `ports.reserve` | `["{port}"]` | Every port a server uses, as offsets of the base (`{port+1229}` for a debugger); all are checked free and kept apart from other worktrees. Must include `{port}`. |
+| `ports.exclude` | `[]` | Ports never handed out (your own servers). |
+| `settings.file`, `settings.overlay` | none, `{}` | JSON file written before each start: your own content, then the overlay, then the provider's `settingsOverlay(ctx)`. |
+| `provider` | none | ES module exporting `settingsOverlay(ctx)` and/or `login(ctx)`. |
+| `login.timeoutSeconds` | `60` | Time `login(ctx)` gets. |
+| `warm.symlink`, `warm.clone`, `warm.copyIfMissing` | `[]` | Paths filled from `mainCheckout` before a first start: linked, cloned copy-on-write, copied. |
+| `warm.prebuild` | `false` | Prebuild every new Paseo workspace of the project, one at a time. |
+| `readiness.http` | `{ "path": "/" }` | Probe; `bodyIncludes` must appear in the body. |
+| `readiness.timeoutMinutes` | `15` | A build not ready by then counts as crashed. |
+| `readiness.command` | none | Accepted, not used yet. |
+| `logPatterns` | none | Regexes on the run log: `progress` (first group shown), `ready` (probe only after it), `crash`, `rebuild` (back to building). |
+| `stop.graceSeconds` | `10` | SIGTERM to the process group, then SIGKILL. |
+| `stop.sweepCwdUnder` | `[]` | Leftover processes running under these folders are killed at stop. |
+| `adopt` | off | `{ cwdPattern?, probe }`: take in servers started by hand, read-only. |
+| `optIns.services` | off | `{ path }`. Present: agents may ask for background services by name, with a reason; the names reach the server through `{services}` and `ctx.services`. `path` is required but not read yet. |
+| `optIns.dedicatedDb` | off | `{ args, env }` added to the start when an agent asks for a database of its own, with a reason. |
+| `urlTemplate` | `"http://localhost:{port}"` | URL handed to agents and opened by the UI. |
+
+A provider module, minimal shape:
+
+```js
+// ~/.cocopilot/widgets-dev-server.mjs
+export function settingsOverlay({ services }) {
+  return { jobs: { enabled: services } };
+}
+
+export async function login({ url, path, user }) {
+  const token = await mintDevToken(user ?? 'demo');
+  return {
+    url: new URL(path, url).href,
+    seed: { storage: 'localStorage', origin: new URL(url).origin, entries: { 'widgets.token': token } },
+  };
+}
+```
+
+`mintDevToken` stands for however your app issues a dev session.
+`settingsOverlay(ctx)` gets `{ project, worktree, appDir, file, port,
+logDir, services, dedicatedDb, base }` and returns an object merged over
+your content and `settings.overlay`. `login(ctx)` gets `{ id, project,
+worktree, appDir, port, url, logDir, user?, path }` and returns `{ url,
+seed?, expiresAt?, user? }`; the seed's origin must be the origin of `url`.
+
 ## MCP config
 
 Ask runs and review plans start Claude Code with the cocopilot MCP server.
