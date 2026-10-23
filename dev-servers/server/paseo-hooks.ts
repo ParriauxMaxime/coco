@@ -3,11 +3,15 @@ import type { DevServersConfig } from "./config.ts";
 import type { LeaseManager } from "./leases.ts";
 import { CWD_HEADER, KEY_HEADER, MCP_SERVER_NAME, MCP_TOOL_NAMES } from "./mcp.ts";
 import { resolveTarget } from "./placement.ts";
+import type { EnqueueResult } from "./prebuild.ts";
+import type { ArchiveResult } from "./service.ts";
 
 type CreateRequest = PluginBeforeRequests["agent.create"];
 type SessionConfig = CreateRequest["config"];
 
-export type HookRuntime = { leases: LeaseManager; config: DevServersConfig; mcpUrl: string };
+export type WorkspaceHandlers = { created(cwd: string): Promise<EnqueueResult>; archived(cwd: string): Promise<ArchiveResult> };
+
+export type HookRuntime = { leases: LeaseManager; config: DevServersConfig; mcpUrl: string | null; workspaces?: WorkspaceHandlers };
 
 export type HookOptions = {
   runtime: () => Promise<HookRuntime | null>;
@@ -79,7 +83,7 @@ export function createPaseoHooks({ runtime, onWarning = console.warn, timeoutMs 
       const { config } = request;
       if (config.internal) return undefined;
       const live = await current();
-      if (!live || !(await matches(config.cwd, live.config))) return undefined;
+      if (!live?.mcpUrl || !(await matches(config.cwd, live.config))) return undefined;
       const key = await live.leases.issueKey(config.cwd, config.title);
       return { ...request, config: withDevServersMcp(config, { url: live.mcpUrl, key }) };
     }),
@@ -98,6 +102,24 @@ export function createPaseoHooks({ runtime, onWarning = console.warn, timeoutMs 
       const released = (await (await current())?.leases.releaseAgent(agent.id)) ?? [];
       if (released.length) console.log(`coco-dev-servers: agent ${agent.id} archived, released its lease on ${released.join(", ")}`);
     }),
+
+    workspaceCreated: guarded("workspace.created", async ({ workspace }: PluginLifecycleEvents["workspace.created"]) => {
+      const result = await (await current())?.workspaces?.created(workspace.cwd);
+      if (result?.queued) console.log(`coco-dev-servers: workspace ${workspace.id} created, prebuild of ${result.worktree} ${result.why}`);
+    }),
+
+    workspaceArchived: guarded("workspace.archived", async ({ workspace }: PluginLifecycleEvents["workspace.archived"]) => {
+      const result = await (await current())?.workspaces?.archived(workspace.cwd);
+      if (!result) return;
+      const done = [
+        result.stopped && "stopped its server",
+        result.portReleased && "released its ports",
+        result.droppedLeases.length && "dropped its agents' leases",
+      ];
+      const kept = result.kept && `kept its server running (${result.kept}${result.holders.length ? `: ${result.holders.join(", ")}` : ""})`;
+      const summary = [...done, kept].filter(Boolean).join(", ");
+      if (summary) console.log(`coco-dev-servers: workspace ${workspace.id} archived, ${summary}`);
+    }),
   };
 }
 
@@ -107,6 +129,8 @@ export function registerPaseoHooks(server: PluginLifecycleRegistration, hooks: R
     server.before("agent.session_open", hooks.beforeSessionOpen),
     server.on("agent.created", hooks.agentCreated),
     server.on("agent.archived", hooks.agentArchived),
+    server.on("workspace.created", hooks.workspaceCreated),
+    server.on("workspace.archived", hooks.workspaceArchived),
   ];
   return () => off.forEach((unsubscribe) => unsubscribe());
 }

@@ -9,9 +9,11 @@ export const countsTowardCap = (record: ServerRecord) => record.state === "exter
 
 const evictable = (record: ServerRecord) => record.state !== "external" && !record.pinned && Boolean(record.process);
 
+export const isPrebuild = (record: ServerRecord) => record.state === "prewarming" || Boolean(record.prebuild);
+
 // Prebuilds go first: cancelling one loses no one's work. Then the least recently used.
 const victimOrder = (a: ServerRecord, b: ServerRecord) =>
-  Number(b.state === "prewarming") - Number(a.state === "prewarming") || a.lastUsedAt.localeCompare(b.lastUsedAt) || a.id.localeCompare(b.id);
+  Number(isPrebuild(b)) - Number(isPrebuild(a)) || a.lastUsedAt.localeCompare(b.lastUsedAt) || a.id.localeCompare(b.id);
 
 export type SchedulerOptions = {
   store: JsonStore<DevServersState>;
@@ -67,7 +69,7 @@ export function createScheduler({ store, cap, stop, leases, onWarning = console.
               `all ${cap} server slots are taken by servers that are pinned or were started outside the plugin; unpin or stop one, or raise cap`,
             );
           }
-          const why = victim.state === "prewarming" ? "it was only a prebuild" : `it was the least recently used of the ${cap} running servers`;
+          const why = isPrebuild(victim) ? "it was only a prebuild" : `it was the least recently used of the ${cap} running servers`;
           try {
             await leases?.lose(victim.id, `stopped to make room for ${target.worktree}: ${why}`);
             await stop(victim.id);

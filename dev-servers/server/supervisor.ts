@@ -28,7 +28,7 @@ export class StartFailedError extends Error {
 type ProcessRecord = NonNullable<ServerRecord["process"]>;
 
 export type OptIns = ServerRecord["optIns"];
-export type StartRequest = { project: ProjectConfig; worktree: string; port: number; reserved: number[]; optIns?: OptIns };
+export type StartRequest = { project: ProjectConfig; worktree: string; port: number; reserved: number[]; optIns?: OptIns; prebuild?: boolean };
 
 export const NO_OPT_INS: OptIns = { services: [], dedicatedDb: false, reason: null };
 export type StopResult = { id: string; found: boolean; signalled: "group" | "none" | "refused"; swept: number[]; portsBusy: number[]; note?: string };
@@ -39,6 +39,8 @@ export type Supervisor = {
   start(request: StartRequest): Promise<ServerRecord>;
   stop(id: string, options?: { graceSeconds?: number }): Promise<StopResult>;
   adopt(): Promise<AdoptOutcome[]>;
+  takeOver(id: string): Promise<ServerRecord | undefined>;
+  forget(id: string): Promise<boolean>;
   get(id: string): ServerRecord | undefined;
   watching(id: string): boolean;
   waitFor(id: string, until: (record: ServerRecord | undefined) => boolean, timeoutMs: number): Promise<ServerRecord | undefined>;
@@ -239,7 +241,7 @@ export function createSupervisor({
     void tick(entry);
   };
 
-  const spawnServer = async ({ project, worktree, port, reserved, optIns = NO_OPT_INS }: StartRequest) => {
+  const spawnServer = async ({ project, worktree, port, reserved, optIns = NO_OPT_INS, prebuild = false }: StartRequest) => {
     const id = serverIdFor(worktree);
     const cwd = path.join(worktree, project.appDir);
     if (!fs.existsSync(cwd)) throw new StartFailedError(`${cwd} does not exist`);
@@ -296,7 +298,8 @@ export function createSupervisor({
     const info = await infoOf(pid);
     const proc: ProcessRecord = { pid, pgid: info?.pgid ?? pid, startedAt: info?.startedAt ?? "", cwd: realPath(cwd), logOffset };
     const patterns = compilePatterns(project.logPatterns);
-    const phase = initialPhase({ patterns, now: new Date(), buildTimeoutMs: buildTimeoutMs(project) });
+    const built = initialPhase({ patterns, now: new Date(), buildTimeoutMs: buildTimeoutMs(project) });
+    const phase: Phase = prebuild ? { ...built, state: "prewarming" } : built;
     const now = new Date().toISOString();
     await store.update((draft) => {
       const previous = draft.servers[id];
@@ -317,6 +320,8 @@ export function createSupervisor({
         logs: { ...previous?.logs, run: runLog },
       };
       delete record.external;
+      if (prebuild) record.prebuild = true;
+      else delete record.prebuild;
       applyPhase(record, phase);
       draft.servers[id] = record;
     });
@@ -347,6 +352,7 @@ export function createSupervisor({
     const record = await patch(id, (record) => {
       record.state = "stopping";
       record.stateSince = new Date().toISOString();
+      delete record.prebuild;
     });
     if (!record) return { id, found: false, signalled: "none", swept: [], portsBusy: [] };
     const project = projectOf(record.project) ?? UNCONFIGURED;
@@ -382,6 +388,7 @@ export function createSupervisor({
       current.progress = undefined;
       current.lastError = portsBusy.length ? `still listening after stop: ${portsBusy.join(", ")}` : undefined;
       delete current.deadlines.ready;
+      delete current.prebuild;
     });
     return { id, found: true, signalled, swept, portsBusy, ...(note && { note }) };
   };
@@ -390,6 +397,7 @@ export function createSupervisor({
     const tail = new LogTail(record.logs.run, proc.logOffset ?? 0);
     const ctx = (): PhaseContext => ({ patterns, now: new Date(), buildTimeoutMs: buildTimeoutMs(project) });
     let phase = initialPhase(ctx());
+    if (record.prebuild) phase = { ...phase, state: "prewarming" };
     for (const line of await tail.readAll()) phase = nextPhase(phase, { kind: "line", line }, ctx());
     const stored = { ...storedPhase(record), readySeen: phase.readySeen };
     const serving = record.state === "ready" || record.state === "idle";
@@ -455,6 +463,26 @@ export function createSupervisor({
         return spawnServer(request);
       }),
     stop: (id, { graceSeconds } = {}) => exclusive(id, () => stopNow(id, graceSeconds)),
+    // A real start of a prebuilding server keeps the build going and only turns it into a normal one.
+    takeOver: (id) =>
+      exclusive(id, async () => {
+        const current = watches.get(id);
+        if (current?.phase.state === "prewarming") current.phase = { ...current.phase, state: "building" };
+        return patch(id, (record) => {
+          delete record.prebuild;
+          if (record.state === "prewarming") record.state = "building";
+        });
+      }),
+    forget: (id) =>
+      exclusive(id, async () => {
+        const removed = await store.update((draft) => {
+          if (draft.servers[id]?.process) return false;
+          delete draft.servers[id];
+          return true;
+        });
+        if (removed) await settingsFiles.forget(id);
+        return removed;
+      }),
     adopt: async () => {
       const state = await store.load();
       const outcomes = await Promise.all(Object.values(state.servers).map((record) => exclusive(record.id, () => adoptOne(record))));

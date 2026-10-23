@@ -132,5 +132,5 @@ test("state.json survives a worker restart and its deadlines re-arm from absolut
   const state = await second.load();
   assert.deepEqual(state.servers[id], first.snapshot().servers[id]);
   assert.deepEqual(nextDeadline(state), { serverId: id, name: "buildTimeoutAt", at: Date.parse("2026-01-05T10:20:00.000Z") });
-  assert.equal(nextDeadline({ version: 1, servers: {} }), null);
+  assert.equal(nextDeadline({ version: 1, servers: {}, prebuilds: [] }), null);
 });

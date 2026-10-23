@@ -5,8 +5,9 @@ import { createExternalScanner } from "./server/external.ts";
 import { createHttpApi, type HttpApi } from "./server/http.ts";
 import { createLeaseManager, openLeaseStore, type LeaseManager } from "./server/leases.ts";
 import { MCP_PATH, createMcpHandler } from "./server/mcp.ts";
-import { createPaseoHooks, registerPaseoHooks, type HookRuntime } from "./server/paseo-hooks.ts";
+import { createPaseoHooks, registerPaseoHooks, type HookRuntime, type WorkspaceHandlers } from "./server/paseo-hooks.ts";
 import { openPortRegistry, type PortRegistry } from "./server/ports.ts";
+import { createPrebuildQueue } from "./server/prebuild.ts";
 import { createScheduler } from "./server/scheduler.ts";
 import { createService, type DevServersService } from "./server/service.ts";
 import { openStateStore, type DevServersState, type JsonStore } from "./server/store.ts";
@@ -22,6 +23,7 @@ type Runtime = {
   service: DevServersService | null;
   http: HttpApi | null;
   mcpUrl: string | null;
+  workspaces: WorkspaceHandlers | null;
   error: string | null;
   close: () => void;
 };
@@ -40,7 +42,18 @@ export default function contribute(server: PluginServerContext) {
     const values = current.status === "ready" ? current.values : pluginSettings.schema.parse({});
     if (current.status === "invalid") warn(`invalid plugin settings, using defaults: ${current.error}`);
     const load = await loadConfig(values.configPath);
-    const down = { load, apiPort: values.apiPort, stores: null, supervisor: null, leases: null, service: null, http: null, mcpUrl: null, close: () => {} };
+    const down = {
+      load,
+      apiPort: values.apiPort,
+      stores: null,
+      supervisor: null,
+      leases: null,
+      service: null,
+      http: null,
+      mcpUrl: null,
+      workspaces: null,
+      close: () => {},
+    };
     if (!load.config) return { ...down, error: load.error };
     const config = load.config;
     const { stateDir, projects } = config;
@@ -72,20 +85,40 @@ export default function contribute(server: PluginServerContext) {
     });
     const externals = createExternalScanner({ store: stores.state, projects, leases: leases.book, onWarning: warn });
     const capacity = createScheduler({ store: stores.state, cap: config.cap, stop: (id) => supervisor.stop(id), leases: leases.book, onWarning: warn });
-    service = createService({ config, store: stores.state, ports: stores.ports, supervisor, leases: leases.book, capacity, externals, onWarning: warn });
+    const prebuilds = createPrebuildQueue({
+      store: stores.state,
+      projects,
+      service: { prewarm: (target, options) => service!.prewarm(target, options), finishPrewarm: (id) => service!.finishPrewarm(id) },
+      subscribe: supervisor.subscribe,
+      onWarning: warn,
+    });
+    service = createService({
+      config,
+      store: stores.state,
+      ports: stores.ports,
+      supervisor,
+      leases: leases.book,
+      capacity,
+      externals,
+      prebuilds,
+      onWarning: warn,
+    });
+    const workspaces: WorkspaceHandlers = { created: (cwd) => prebuilds.enqueue(cwd), archived: (cwd) => service!.archive(cwd) };
     const unsubscribe = supervisor.subscribe(
       (record) => void leases.settle(record.id).catch((error) => warn(`lease check of ${record.id} failed: ${messageOf(error)}`)),
     );
     const close = () => {
       unsubscribe();
+      prebuilds.close();
       externals.close();
       leases.close();
     };
     await leases.settleAll().catch((error) => warn(`lease check failed: ${messageOf(error)}`));
     externals.start();
+    prebuilds.start();
     const api = resolveApi(config.api, values.apiPort);
     const http = createHttpApi({ service, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases }) } });
-    const up = { load, apiPort: values.apiPort, stores, supervisor, leases, service, close };
+    const up = { load, apiPort: values.apiPort, stores, supervisor, leases, service, workspaces, close };
     try {
       const { bind, port } = await http.listen();
       return { ...up, http, mcpUrl: `http://${urlHost(bind)}:${port}${MCP_PATH}`, error: null };
@@ -115,8 +148,8 @@ export default function contribute(server: PluginServerContext) {
 
   const hooks = createPaseoHooks({
     runtime: async (): Promise<HookRuntime | null> => {
-      const { leases, load, mcpUrl } = await runtime;
-      return leases && load.config && mcpUrl ? { leases, config: load.config, mcpUrl } : null;
+      const { leases, load, mcpUrl, workspaces } = await runtime;
+      return leases && load.config ? { leases, config: load.config, mcpUrl, ...(workspaces && { workspaces }) } : null;
     },
     onWarning: warn,
   });

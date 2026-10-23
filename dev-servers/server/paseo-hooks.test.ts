@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import type { PluginBeforeRequests, PluginHookAgent, PluginLifecycleRegistration } from "@getpaseo/plugin/server";
+import type { PluginBeforeRequests, PluginHookAgent, PluginHookWorkspace, PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 import { gitRepo, widgets } from "../test/helpers.ts";
 import { parseConfig } from "./config.ts";
 import { KEY_PATTERN, createLeaseManager, openLeaseStore, type LeaseManager } from "./leases.ts";
 import { MCP_TOOL_NAMES } from "./mcp.ts";
-import { createPaseoHooks, registerPaseoHooks, type HookRuntime } from "./paseo-hooks.ts";
+import { createPaseoHooks, registerPaseoHooks, type HookRuntime, type WorkspaceHandlers } from "./paseo-hooks.ts";
 import { openStateStore } from "./store.ts";
 
 const MCP_URL = "http://127.0.0.1:8779/mcp";
@@ -185,7 +185,42 @@ test("a failing hook logs and lets the operation go on", async () => {
   assert.deepEqual(warnings, ["agent.create: disk full", "agent.archived: config unreadable", "agent.session_open: config unreadable"]);
 });
 
-test("the hooks register on the four Paseo names and unregister together", () => {
+const hookWorkspace = (cwd: string, archivedAt: string | null = null): PluginHookWorkspace => ({
+  id: "wks_widgets",
+  projectId: "prj_widgets",
+  cwd,
+  name: "widgets-alice",
+  archivedAt,
+});
+
+test("workspace.created queues a prebuild of its directory and workspace.archived cleans it up, and a failure only logs", async () => {
+  const { leases, warnings } = await setup();
+  const config = parseConfig({ projects: [widgets(8100)] });
+  const calls: string[] = [];
+  const workspaces: WorkspaceHandlers = {
+    created: async (cwd) => {
+      calls.push(`created ${cwd}`);
+      return { queued: true, worktree: cwd, why: "queued behind 0 other prebuild(s)" };
+    },
+    archived: async (cwd) => {
+      calls.push(`archived ${cwd}`);
+      if (cwd === plain) throw new Error("state file locked");
+      return { worktree: cwd, id: "wt_a", stopped: true, holders: [], droppedLeases: [], portReleased: true, forgotten: true };
+    },
+  };
+  const hooks = createPaseoHooks({ runtime: async () => ({ leases, config, mcpUrl: null, workspaces }), onWarning: (message) => warnings.push(message) });
+  await hooks.workspaceCreated({ workspace: hookWorkspace(worktree) });
+  await hooks.workspaceArchived({ workspace: hookWorkspace(worktree, new Date().toISOString()) });
+  await hooks.workspaceArchived({ workspace: hookWorkspace(plain, new Date().toISOString()) });
+  assert.deepEqual(calls, [`created ${worktree}`, `archived ${worktree}`, `archived ${plain}`]);
+  assert.deepEqual(warnings, ["workspace.archived: state file locked"]);
+  assert.equal(await hooks.beforeAgentCreate({ request: createRequest(worktree) }), undefined);
+
+  const down = createPaseoHooks({ runtime: async () => null });
+  assert.equal(await down.workspaceCreated({ workspace: hookWorkspace(worktree) }), undefined);
+});
+
+test("the hooks register on the six Paseo names and unregister together", () => {
   const registered: string[] = [];
   const removed: string[] = [];
   const track = (kind: string) => (name: string) => {
@@ -194,7 +229,14 @@ test("the hooks register on the four Paseo names and unregister together", () =>
   };
   const fake = { on: track("on"), before: track("before") } as unknown as PluginLifecycleRegistration;
   const unregister = registerPaseoHooks(fake, createPaseoHooks({ runtime: async () => null }));
-  assert.deepEqual(registered, ["before agent.create", "before agent.session_open", "on agent.created", "on agent.archived"]);
+  assert.deepEqual(registered, [
+    "before agent.create",
+    "before agent.session_open",
+    "on agent.created",
+    "on agent.archived",
+    "on workspace.created",
+    "on workspace.archived",
+  ]);
   unregister();
   assert.deepEqual(removed, registered);
 });

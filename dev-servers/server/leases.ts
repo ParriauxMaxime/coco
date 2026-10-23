@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import { holderSchema, type Holder, type LeaseView } from "../shared/contracts.ts";
+import { isUnder, realPath } from "./proc.ts";
 import type { LeaseBook } from "./service.ts";
 import { createJsonStore, type DevServersState, type JsonStore, type ServerRecord } from "./store.ts";
 
@@ -237,6 +238,21 @@ export function createLeaseManager({
         }
       });
       await settle(serverId);
+    },
+    dropWorktree: async (worktree) => {
+      const roots = [...new Set([path.resolve(worktree), realPath(worktree)])];
+      const inside = (cwd: string | null | undefined) => Boolean(cwd) && roots.some((root) => isUnder(cwd!, root) || isUnder(realPath(cwd!), root));
+      const affected = await store.update((draft) => {
+        const ids: string[] = [];
+        for (const [id, lease] of Object.entries(draft.leases)) {
+          if (lease.holder.kind !== "agent" || !inside(draft.keys[lease.holder.id]?.cwd)) continue;
+          ids.push(lease.serverId);
+          delete draft.leases[id];
+        }
+        return ids;
+      });
+      await settleMany(affected);
+      return [...new Set(affected)];
     },
     settle,
     holders: (serverId): LeaseView[] =>

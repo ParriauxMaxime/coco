@@ -168,6 +168,21 @@ export function createSettingsFiles({ stateDir, onWarning = console.warn }: { st
       await writeJsonAtomic(ledgerFile(id), { ...ledger, existed: base.existed, generated: null } satisfies Ledger);
       return { file: ledger.file, ...(base.backup && { folded: { backup: base.backup } }) };
     },
+
+    // The kept base is only dropped once the user's content is back in the file, or the worktree is gone.
+    async forget(id: string): Promise<boolean> {
+      const ledger = await readLedger(id);
+      const worktreeExists = ledger
+        ? await fs.stat(ledger.worktree).then(
+            () => true,
+            () => false,
+          )
+        : false;
+      if (ledger?.generated && worktreeExists) return false;
+      await fs.rm(baseFile(id), { force: true });
+      await fs.rm(ledgerFile(id), { force: true });
+      return true;
+    },
   };
 }
 

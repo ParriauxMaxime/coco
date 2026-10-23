@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import {
   logsInputSchema,
@@ -23,13 +24,14 @@ import {
 import { renderTemplate, type DevServersConfig } from "./config.ts";
 import { ServiceError } from "./errors.ts";
 import { cocoStackOrder } from "./coco.ts";
-import { createGitCache } from "./git.ts";
+import { createGitCache, toplevel } from "./git.ts";
 import { createStackPlacement, resolveTarget, type Place, type Target } from "./placement.ts";
 import { PortUnavailableError, listenerProbe, type PortProbe, type PortRegistry } from "./ports.ts";
-import { errnoOf } from "./proc.ts";
+import { errnoOf, realPath } from "./proc.ts";
 import { plainLine } from "./readiness.ts";
 import { serverIdFor, type DevServersState, type JsonStore, type ServerRecord } from "./store.ts";
-import { StartFailedError, logDirFor, type OptIns, type Supervisor } from "./supervisor.ts";
+import { NO_OPT_INS, StartFailedError, logDirFor, type OptIns, type Supervisor } from "./supervisor.ts";
+import { describeWarm, warmWorktree, type WarmStep } from "./warm.ts";
 
 export type Caller = { holder: Holder; cwd?: string };
 
@@ -39,9 +41,17 @@ export type LeaseBook = {
   holders(serverId: string): LeaseView[];
   lose(serverId: string, why: string): Promise<void>;
   settle(serverId: string): Promise<void>;
+  dropWorktree(worktree: string): Promise<string[]>;
 };
 
-export const noLeases: LeaseBook = { take: async () => null, release: async () => {}, holders: () => [], lose: async () => {}, settle: async () => {} };
+export const noLeases: LeaseBook = {
+  take: async () => null,
+  release: async () => {},
+  holders: () => [],
+  lose: async () => {},
+  settle: async () => {},
+  dropWorktree: async () => [],
+};
 
 export type Evicted = { id: string; worktree: string; why: string };
 
@@ -53,6 +63,21 @@ export const unlimited: Capacity = { admit: async (_, launch) => ({ evicted: [],
 
 export type Externals = { scan(options?: { maxAgeMs?: number }): Promise<unknown> };
 
+export type PrebuildQueueHandle = { forget(worktree: string): Promise<unknown> };
+
+export type PrewarmResult = { id: string; outcome: "started" | "running" | "full"; warmed: WarmStep[]; message?: string };
+export type FinishResult = { id: string; outcome: "done" | "taken-over" | "cancelled" | "failed"; detail?: string };
+export type ArchiveResult = {
+  worktree: string;
+  id: string;
+  stopped: boolean;
+  kept?: "external" | "pinned" | "leased";
+  holders: string[];
+  droppedLeases: string[];
+  portReleased: boolean;
+  forgotten: boolean;
+};
+
 export type ServiceOptions = {
   config: DevServersConfig;
   store: JsonStore<DevServersState>;
@@ -62,6 +87,7 @@ export type ServiceOptions = {
   leases?: LeaseBook;
   capacity?: Capacity;
   externals?: Externals;
+  prebuilds?: PrebuildQueueHandle;
   probe?: PortProbe;
   gitCacheMs?: number;
   logReadBytes?: number;
@@ -76,6 +102,9 @@ export type DevServersService = {
   stop(id: string, input: StopInput, caller: Caller): Promise<StopResult>;
   pin(id: string, input: PinInput, caller: Caller): Promise<PinResult>;
   logs(id: string, input: LogsInput): Promise<LogsResult>;
+  prewarm(target: Target, options?: { warm?: boolean }): Promise<PrewarmResult>;
+  finishPrewarm(id: string): Promise<FinishResult>;
+  archive(cwd: string): Promise<ArchiveResult>;
 };
 
 const BUILDING: ServerRecord["state"][] = ["building", "prewarming"];
@@ -150,6 +179,7 @@ export function createService({
   leases = noLeases,
   capacity = unlimited,
   externals,
+  prebuilds,
   probe,
   gitCacheMs = 5000,
   logReadBytes = 8 * 1024 * 1024,
@@ -275,6 +305,25 @@ export function createService({
     return { input, wanted, served, placement: { ...placement, mode, because } };
   };
 
+  const spawn = async (target: Target, port: number, reserved: number[], optIns: OptIns, prebuild = false) => {
+    try {
+      await supervisor.start({ project: target.project, worktree: target.worktree, port, reserved, optIns, prebuild });
+    } catch (error) {
+      if (error instanceof StartFailedError) throw new ServiceError("start_failed", error.message);
+      throw error;
+    }
+  };
+
+  const warmFor = (target: Target) =>
+    warmWorktree({
+      project: target.project,
+      worktree: target.worktree,
+      sourceBusy: (source) =>
+        Object.values(store.snapshot().servers).some(
+          (record) => record.process && BUILDING.includes(record.state) && realPath(record.worktree) === realPath(source),
+        ),
+    });
+
   const launch = async (target: Target, wanted: OptIns, caller: Caller, because: string[]) => {
     const id = serverIdFor(target.worktree);
     let running = store.snapshot().servers[id]?.process ? store.snapshot().servers[id] : undefined;
@@ -291,30 +340,30 @@ export function createService({
     } else if (running && hasOptIns(running.optIns) && !hasOptIns(wanted)) {
       because.push(`already running with ${describeOptIns(running.optIns)}: ${running.optIns.reason}`);
     }
-    const spawn = async (port: number, reserved: number[], optIns: OptIns) => {
-      try {
-        await supervisor.start({ project: target.project, worktree: target.worktree, port, reserved, optIns });
-      } catch (error) {
-        if (error instanceof StartFailedError) throw new ServiceError("start_failed", error.message);
-        throw error;
-      }
-    };
+    if (running?.prebuild) {
+      await supervisor.takeOver(id);
+      because.push("took over the prebuild of this worktree: its build goes on and the server stays up");
+    }
     if (running) {
-      await spawn(running.port, running.reserved, running.optIns);
+      await spawn(target, running.port, running.reserved, running.optIns);
       return { id, evicted: [] };
     }
+    because.push(...describeWarm(await warmFor(target)));
     const { evicted } = await capacity.admit({ id, worktree: target.worktree }, async () => {
       const { base, reserved } = await assignPorts(target, because);
-      await spawn(base, reserved, wanted);
+      await spawn(target, base, reserved, wanted);
     });
     return { id, evicted };
   };
+
+  const isRunning = (record: ServerRecord | undefined) => Boolean(record && (record.process || record.state === "external"));
 
   return {
     start: async (raw, caller) => {
       await refreshExternals();
       const { input, wanted, served, placement } = await plan(raw, caller);
       const because = placement.because;
+      await prebuilds?.forget(served.worktree);
       const { id, evicted, lease } = await exclusive(serverIdFor(served.worktree), async () => {
         const servedId = serverIdFor(served.worktree);
         const launched =
@@ -430,6 +479,68 @@ export function createService({
       const matched = pattern ? all.filter((line) => pattern.test(line)) : all;
       await touch(id);
       return { id, source, file, lines: matched.slice(-lines), truncated: cut || matched.length > lines };
+    },
+
+    // A prebuild never stops another server: at the cap it reports full and the queue tries again later.
+    prewarm: (target, { warm = true } = {}) => {
+      const id = serverIdFor(target.worktree);
+      return exclusive(id, async (): Promise<PrewarmResult> => {
+        const current = store.snapshot().servers[id];
+        if (isRunning(current) && current?.state !== "stopping") return { id, outcome: "running", warmed: [] };
+        const warmed = warm ? await warmFor(target) : [];
+        try {
+          await capacity.admit(
+            { id, worktree: target.worktree },
+            async () => {
+              const { base, reserved } = await assignPorts(target, []);
+              await spawn(target, base, reserved, NO_OPT_INS, true);
+            },
+            { evict: false },
+          );
+          return { id, outcome: "started", warmed };
+        } catch (error) {
+          if (error instanceof ServiceError && error.code === "capacity_full") return { id, outcome: "full", warmed, message: error.message };
+          throw error;
+        }
+      });
+    },
+
+    finishPrewarm: (id) =>
+      exclusive(id, async (): Promise<FinishResult> => {
+        const record = store.snapshot().servers[id];
+        if (!record || record.state === "stopping" || record.state === "stopped" || record.state === "external") return { id, outcome: "cancelled" };
+        if (!record.prebuild) return { id, outcome: "taken-over" };
+        if (record.pinned) {
+          await supervisor.takeOver(id);
+          return { id, outcome: "taken-over", detail: "pinned while it built" };
+        }
+        const failure = record.state === "ready" || record.state === "idle" ? null : (record.lastError ?? `still ${record.state} after the readiness timeout`);
+        await supervisor.stop(id);
+        if (failure) return { id, outcome: "failed", detail: failure };
+        return { id, outcome: "done", ...(record.buildSeconds !== undefined && { detail: `built in ${record.buildSeconds} s` }) };
+      }),
+
+    archive: async (cwd) => {
+      const top = (await toplevel(cwd).catch(() => null)) ?? path.resolve(cwd);
+      const real = realPath(top);
+      const found = Object.values(store.snapshot().servers).find((record) => record.worktree === top || realPath(record.worktree) === real);
+      const worktree = found?.worktree ?? top;
+      const id = found?.id ?? serverIdFor(worktree);
+      await prebuilds?.forget(worktree);
+      const droppedLeases = await leases.dropWorktree(worktree);
+      return exclusive(id, async (): Promise<ArchiveResult> => {
+        const record = store.snapshot().servers[id];
+        const holders = leases.holders(id).map(({ holder }) => describeHolder(holder));
+        const result: ArchiveResult = { worktree, id, stopped: false, holders, droppedLeases, portReleased: false, forgotten: false };
+        const kept = record?.state === "external" ? "external" : record?.pinned ? "pinned" : holders.length ? "leased" : undefined;
+        if (kept) return { ...result, kept };
+        if (record?.process) {
+          await supervisor.stop(id);
+          result.stopped = true;
+        }
+        await ports.release(worktree);
+        return { ...result, portReleased: true, forgotten: await supervisor.forget(id) };
+      });
     },
   };
 }

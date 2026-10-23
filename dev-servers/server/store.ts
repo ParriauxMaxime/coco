@@ -124,6 +124,7 @@ const serverRecordSchema = z.object({
   progress: z.string().optional(),
   buildSeconds: z.number().optional(),
   pinned: z.boolean().default(false),
+  prebuild: z.literal(true).optional(),
   pinnedBy: holderSchema.omit({ title: true }).optional(),
   external: z.object({ pid: z.number().int(), startedAt: z.string(), cwd: z.string() }).optional(),
   optIns: z
@@ -135,13 +136,17 @@ const serverRecordSchema = z.object({
   lastError: z.string().optional(),
 });
 
+const prebuildJobSchema = z.object({ worktree: z.string(), project: z.string(), queuedAt: timestamp, cancels: z.number().int().min(0).default(0) });
+
 const stateSchema = z.object({
   version: z.literal(STATE_VERSION),
   servers: z.record(z.string(), serverRecordSchema).default({}),
+  prebuilds: z.array(prebuildJobSchema).default([]),
 });
 
 export type ServerRecord = z.output<typeof serverRecordSchema>;
 export type DevServersState = z.output<typeof stateSchema>;
+export type PrebuildJob = z.output<typeof prebuildJobSchema>;
 
 export const serverIdFor = (worktree: string) => `wt_${createHash("sha256").update(path.resolve(worktree)).digest("hex").slice(0, 12)}`;
 
@@ -149,7 +154,7 @@ export const openStateStore = (stateDir: string, onWarning?: (message: string) =
   createJsonStore<DevServersState>({
     file: path.join(stateDir, "state.json"),
     schema: stateSchema,
-    empty: () => ({ version: STATE_VERSION, servers: {} }),
+    empty: () => ({ version: STATE_VERSION, servers: {}, prebuilds: [] }),
     onWarning,
   });
 
