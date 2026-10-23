@@ -26,12 +26,12 @@ const parseJson = (r, fallback) => {
 };
 const MIME = { '.html': 'text/html', '.md': 'text/plain', '.txt': 'text/plain', '.log': 'text/plain', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.diff': 'text/plain', '.ts': 'text/plain' };
 
-export function createWorks({ DATA, PERSONAS, REPO, config }) {
+export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
   const hooks = {};
   const GITHUB = config.repo.github;
   const noRepo = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
-  const notion = createNotionSync({ DATA, REPO, config, works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => Promise.all((get(s)?.stack || []).map((x) => prInfo(x.number))) } });
+  const notion = createNotionSync({ DATA, REPO, config, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => Promise.all((get(s)?.stack || []).map((x) => prInfo(x.number))), prInfo: (n) => prInfo(n) } });
   const ROOT = path.join(DATA, 'works');
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug) => path.join(ROOT, `${slug}.json`);

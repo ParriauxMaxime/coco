@@ -2,11 +2,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { launcherEnv } from './review-agent.mjs';
+import { createPaseoAgents, launcherEnv } from './paseo-agent.mjs';
 import { skillFor } from './config.mjs';
 
 const STARTED = Date.now();
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 const defaultExec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
     execFile(cmd, args, { timeout: 15000, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') }));
@@ -54,7 +53,7 @@ export function setupSteps(f, { APP, skillsDir }) {
   ];
 }
 
-export function createSetup({ APP, config, works, personaCount, exec = defaultExec }) {
+export function createSetup({ APP, config, works, personaCount, exec = defaultExec, agents = createPaseoAgents() }) {
   const configFile = config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json');
   const shipped = () => (fs.existsSync(path.join(APP, 'skills')) ? fs.readdirSync(path.join(APP, 'skills')).filter((d) => fs.existsSync(path.join(APP, 'skills', d, 'SKILL.md'))) : []);
   const installed = (s) => fs.existsSync(path.join(config.skillsDir, s, 'SKILL.md'));
@@ -100,10 +99,8 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
     const { steps, guide } = await status();
     const todo = steps.filter((s) => !s.done && s.id !== 'work').map((s) => `- ${s.label}${s.hint ? `: ${s.hint}` : ''}`);
     const prompt = [`Finish setting up cocopilot by following ${guide}. cocopilot is already cloned in ${APP} and its server runs: treat it as an existing install.`, todo.length ? `Still open:\n${todo.join('\n')}` : 'Every step is ticked: only check the result.'].join('\n\n');
-    const args = ['run', '-d', '--title', 'Set up cocopilot', '--provider', config.models.default, '--thinking', 'high', '--mode', 'auto', '--cwd', APP, '--label', 'source=cocopilot', '--label', 'kind=setup', prompt];
-    const r = await exec('paseo', args, { env: launcherEnv() });
-    if (!r.ok) throw new Error(`paseo run failed: ${(r.stderr || r.stdout).slice(0, 300)}`);
-    return { agentId: (r.stdout.match(UUID) || [])[0] || null };
+    const { agentId, createdWorkspace } = await agents.start({ title: 'Set up cocopilot', provider: config.models.default, thinking: 'high', cwd: APP, labels: { source: 'cocopilot', kind: 'setup' }, prompt });
+    return { agentId, createdWorkspace };
   }
 
   async function handle(req, res, parts, readBody, send) {

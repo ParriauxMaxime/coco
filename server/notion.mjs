@@ -1,11 +1,31 @@
 // Notion sync: one way, cocopilot → Notion. The linked page is owned by cocopilot (body replaced on every sync).
-// Sync runs headless Claude Code with the claude.ai Notion connector; only the user's click starts it.
+// Sync runs a Paseo agent with the claude.ai Notion connector; only the user's click starts it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { createPaseoAgents, workCwd } from './paseo-agent.mjs';
 
 const PAGE_ID_RE = /([0-9a-f]{32})(?:[?#]|$)/i;
+const TIMEOUT_MS = 10 * 60 * 1000;
+
+// the agent ends on one line of JSON; the last such line wins, then any object in the text
+export const lastJson = (text) => {
+  const attempt = (s) => {
+    try {
+      const v = JSON.parse(s);
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  for (const line of String(text).split('\n').reverse()) {
+    const m = line.match(/\{.*\}/);
+    const v = m && attempt(m[0]);
+    if (v) return v;
+  }
+  const m = String(text).match(/\{[\s\S]*\}/);
+  return m ? attempt(m[0]) : null;
+};
 
 export const pageIdFromUrl = (url) => {
   const m = (url || '').replace(/-/g, '').match(PAGE_ID_RE);
@@ -56,7 +76,7 @@ export function renderWorkMarkdown(work, prs) {
 
 export const hashOf = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16);
 
-export function createNotionSync({ DATA, REPO, works }) {
+export function createNotionSync({ DATA, REPO, config, works, agents = createPaseoAgents() }) {
   const running = new Map();
   const runsFile = (slug) => path.join(DATA, 'works', slug, 'notion-runs.jsonl');
   const mdFile = (slug) => path.join(DATA, 'works', slug, 'notion-sync.md');
@@ -134,33 +154,18 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
       fs.writeFileSync(mdFile(slug), markdown);
       const hash = hashOf(markdown);
       const preview = mode === 'preview';
-      const tools = preview ? ['Read', 'mcp__claude_ai_Notion__notion-fetch'] : ['Read', 'mcp__claude_ai_Notion__notion-fetch', 'mcp__claude_ai_Notion__notion-update-page', 'mcp__claude_ai_Notion__notion-create-pages'];
-      // --allowedTools is variadic: the prompt must come before it or it is read as a tool name.
-      const args = ['-p', preview ? previewPrompt({ work }) : prompt({ work, markdown, force, parentPageId }), '--output-format', 'json', '--permission-mode', 'default', '--max-turns', '8', '--allowedTools', ...tools];
-      const child = spawn('claude', args, { cwd: REPO || DATA, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CLAUDECODE: '' } });
-      const run = { mode, startedAt: new Date().toISOString(), out: '', err: '' };
+      const brief = preview ? previewPrompt({ work }) : prompt({ work, markdown, force, parentPageId });
+      const run = { mode, startedAt: new Date().toISOString() };
       running.set(slug, run);
-      child.stdout.on('data', (d) => (run.out += d));
-      child.stderr.on('data', (d) => (run.err += String(d).slice(0, 2000)));
-      child.on('close', (code) => {
+      const finish = ({ status = 'error', result = null, cost = null, agentId = null, workspaceId = null, createdWorkspace = null, err = '' }) => {
         running.delete(slug);
         const w = works.get(slug);
-        let result = null;
-        let cost = null;
-        try {
-          const j = JSON.parse(run.out);
-          cost = j.total_cost_usd ?? null;
-          const m = String(j.result || '').match(/\{[\s\S]*\}/);
-          result = m ? JSON.parse(m[0]) : null;
-        } catch {
-          result = null;
-        }
         const n = w.notion || {};
         if (preview) {
           if (result?.changes) {
             w.notion = { ...n, preview: { at: new Date().toISOString(), hash, ...result }, lastError: null };
           } else {
-            w.notion = { ...n, lastError: result?.message || run.err.slice(0, 300) || `preview failed (claude exited ${code})` };
+            w.notion = { ...n, lastError: result?.message || err.slice(0, 300) || `preview failed (agent ${status})` };
           }
         } else if (result?.status === 'synced') {
           w.notion = { ...n, pageId: result.pageId || n.pageId, url: result.url || n.url, syncedAt: new Date().toISOString(), syncedHash: hash, editedInNotion: null, lastError: null, preview: null };
@@ -169,12 +174,19 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
           w.notion = { ...n, editedInNotion: result.lastEditedTime || 'unknown', lastError: null };
           w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `sync stopped: page edited in Notion at ${result.lastEditedTime}; confirm to overwrite` });
         } else {
-          w.notion = { ...n, lastError: result?.message || run.err.slice(0, 300) || `claude exited ${code}` };
+          w.notion = { ...n, lastError: result?.message || err.slice(0, 300) || `agent ${status}` };
           w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `sync failed: ${w.notion.lastError}` });
         }
+        if (createdWorkspace) w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `no Paseo workspace was open for this work: created ${createdWorkspace}` });
         works.save(w);
-        fs.appendFileSync(runsFile(slug), JSON.stringify({ ts: run.startedAt, mode, force, parentPageId, code, cost, result, err: run.err.slice(0, 500) }) + '\n');
-      });
+        fs.appendFileSync(runsFile(slug), JSON.stringify({ ts: run.startedAt, mode, force, parentPageId, agentId, workspaceId, createdWorkspace, status, cost, result, err: err.slice(0, 500) }) + '\n');
+      };
+      (REPO ? workCwd({ repo: REPO, work, prInfo: works.prInfo }) : Promise.resolve(DATA))
+        .then((cwd) => agents.run({ title: `Notion ${preview ? 'preview' : 'sync'}: ${work.title}`, prompt: brief, provider: config.models.fast || config.models.default, cwd, labels: { source: 'cocopilot', kind: `notion-${mode}`, work: slug }, timeoutMs: TIMEOUT_MS }))
+        .then(
+          (r) => finish({ status: r.status, result: lastJson(r.finalText) || lastJson(r.text), cost: r.cost, agentId: r.agentId, workspaceId: r.workspaceId, createdWorkspace: r.createdWorkspace, err: r.error || '' }),
+          (e) => finish({ err: e.message }),
+        );
       return { ok: true, startedAt: run.startedAt };
     });
   }

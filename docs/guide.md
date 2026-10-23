@@ -231,7 +231,9 @@ chip and in the tree. The chips above the tree hide or show a category in
 the tree and the cards; hidden cards do not mount Monaco. Jumping to a file
 in a hidden category shows that category again.
 
-"Plan this review" starts a headless `claude -p` run in the repo.
+"Plan this review" starts a Paseo agent (`coco · Plan review …`) in the
+workspace of the PR's worktree (else the stack's top worktree, else the
+repo), archived once the plan is in.
 The run reads the PR through git at the head sha only (`git show`, `git grep`,
 `git diff`, `git log`), plus `github_pr`, `get_work` and the owner personas.
 It gets the file table with the categories and the diff inlined (core files
@@ -550,8 +552,8 @@ The kept rules, global first, then work, then PR, go into every brief
 
 The `Rules` tab of a work and the sidebar's Rules page list them with a
 scope chip and keep / retire (drop for a proposed one). "🦜 Propose rules"
-on a pasted excerpt, or "🦜 rules" in an agent thread, starts a headless
-coco run through the Ask path; it ends with one `propose_rules` call and the
+on a pasted excerpt, or "🦜 rules" in an agent thread, starts a coco
+Paseo agent through the Ask path; it ends with one `propose_rules` call and the
 candidates land as `proposed` in the chosen scope.
 
 Routes: `GET|POST /api/rules`, `PUT /api/rules/<id>`, `POST
@@ -711,13 +713,17 @@ about $1 to $2.5.
 
 ## Ask coco (natural language → proposals)
 
-`POST /api/ask` runs Claude Code headless (`claude -p --output-format
-stream-json`) in the repo with the cocopilot MCP server mounted
-(`server/mcp.mjs` through `server/mcp-config.json`, stdio: `list_works`, `get_work`, `list_personas`,
-`read_persona`, `suggest_personas`, `read_skill`, `list_paseo`, `github_pr`,
-`github_search`, `propose_work_scaffold`). Allowed tools are read-only plus
-`gh pr view`, `gh search`, `git log`, `paseo … ls`. Events stream over SSE to
-the Ask page. The agent never writes: a scaffold ends in one
+`POST /api/ask` starts a Paseo agent (`coco · Ask: …`) in the repo's
+workspace, or the work's stack worktree workspace when asked from a work,
+with the cocopilot MCP server in its config (`server/mcp.mjs`, stdio:
+`list_works`, `get_work`, `list_personas`, `read_persona`,
+`suggest_personas`, `read_skill`, `list_paseo`, `github_pr`,
+`github_search`, `propose_work_scaffold`). It is a normal Paseo agent: every
+MCP server and Paseo's permissions apply. coco follows its timeline live
+and streams text as it is written, then each tool call with its input and
+result, over SSE to the Ask page; a permission the agent waits on shows as a
+line and is answered in Paseo. The agent is archived once it ends (its
+timeline stays readable in Paseo), or after 20 minutes. The agent never writes: a scaffold ends in one
 `propose_work_scaffold` call, shown as a proposal card; **Apply** creates or
 updates the work (stack with planned PRs and their personas, surface table,
 open questions, notes, next steps). Runs are kept in `data/asks/`. The same
@@ -861,7 +867,8 @@ or disappears, or human text on the page would be erased; medium: PR,
 reviewer set, open question or link; low: progress, state, wording), plus the
 paragraphs that would be erased. The preview card offers Apply (confirms when
 any change is high), Refresh, Discard. Apply still checks `last_edited_time`.
-Transport: headless `claude -p` with the claude.ai Notion connector
+Transport: a Paseo agent (`coco · Notion sync: …`, archived once it
+answers) with the claude.ai Notion connector
 (needed for this feature only) (`notion-fetch`, `notion-update-page`, `notion-create-pages`), one run per
 click, about $0.5 to $1; runs logged in `data/works/<slug>/notion-runs.jsonl`,
 the rendered markdown in `notion-sync.md`. Nothing syncs on its own.

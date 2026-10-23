@@ -34,8 +34,10 @@ function setup({ comments: list = [], execImpl, stack } = {}) {
     return execImpl ? execImpl(cmd, args) : { ok: true, stdout: '', stderr: '' };
   };
   const comments = createComments({ DATA, REPO: tmp, config });
-  const agent = createReviewAgent({ DATA, REPO: '/repo', config, works, comments, PERSONAS, exec });
-  return { tmp, DATA, PERSONAS, work: () => work, calls, envs, comments, agent };
+  const started = [];
+  const agents = { start: async (opts) => (started.push(opts), { agentId: '12345678-1234-1234-1234-123456789abc', workspaceId: 'wks_thing', createdWorkspace: opts.worktree ? 'wks_new' : null }) };
+  const agent = createReviewAgent({ DATA, REPO: '/repo', config, works, comments, PERSONAS, exec, agents });
+  return { tmp, DATA, PERSONAS, work: () => work, calls, envs, comments, agent, started };
 }
 
 const pr = { number: N, title: 'Add thing', url: 'https://github.com/x/y/pull/102', base: 'feat/base', head: 'feat/thing', sha: SHA, body: 'Body text\n# Heading inside' };
@@ -188,23 +190,24 @@ test('start picks the runner by the plan rule and records the run', async () => 
 
   const b = setup({ comments: open(), execImpl: startExec({ worktree: wt, agents: [] }) });
   const requester = 'aaaaaaaa-1234-1234-1234-123456789abc';
-  process.env.PASEO_AGENT_ID = 'bbbbbbbb-1234-1234-1234-123456789abc';
-  const runB = await b.agent.start(SLUG, N, { commentIds: ['c1'], commits: 'one', requestedBy: requester }).finally(() => delete process.env.PASEO_AGENT_ID);
+  const runB = await b.agent.start(SLUG, N, { commentIds: ['c1'], commits: 'one', requestedBy: requester });
   assert.equal(runB.mode, 'cwd');
   assert.equal(runB.cwd, wt);
   assert.equal(runB.agentId, '12345678-1234-1234-1234-123456789abc');
-  const runIndex = b.calls.findIndex((c) => c[0] === 'paseo' && c[1] === 'run');
-  const runCall = b.calls[runIndex];
-  assert.ok(runCall.includes('-d') && runCall.includes('--cwd') && runCall.includes(wt) && runCall.includes('Fix review #102 (1)'));
-  for (const label of ['source=cocopilot', 'kind=review', `run=${runB.runId}`, `work=${SLUG}`, `pr=${N}`, 'comments=1', `paseo.parent-agent-id=${requester}`]) assert.ok(runCall.includes(label), label);
-  assert.equal(b.envs[runIndex].PASEO_AGENT_ID, undefined);
+  const [startB] = b.started;
+  assert.equal(startB.cwd, wt);
+  assert.equal(startB.worktree, null);
+  assert.equal(startB.title, 'Fix review #102 (1)');
+  assert.deepEqual(startB.labels, { source: 'cocopilot', kind: 'review', run: runB.runId, work: SLUG, pr: String(N), comments: 1, 'paseo.parent-agent-id': requester });
 
   const c = setup({ comments: open(), execImpl: startExec({ worktree: null }) });
   const runC = await c.agent.start(SLUG, N, { commentIds: ['c1'], commits: 'one' });
   assert.equal(runC.mode, 'checkout-pr');
-  const callC = c.calls.find((x) => x[0] === 'paseo' && x[1] === 'run');
-  assert.ok(callC.includes('checkout-pr') && callC.includes('--pr-number') && callC.includes(String(N)));
-  assert.ok(!callC.some((arg) => arg.startsWith('paseo.parent-agent-id=')));
+  const [startC] = c.started;
+  assert.equal(startC.cwd, '/repo');
+  assert.deepEqual(startC.worktree, { mode: 'checkout-pr', prNumber: N });
+  assert.ok(!('paseo.parent-agent-id' in startC.labels));
+  assert.ok(c.work().timeline.some((t) => t.text === 'new checkout-pr worktree: created workspace wks_new'));
 
   const d = setup({ comments: open(), execImpl: startExec({ worktree: null }) });
   await assert.rejects(d.agent.start(SLUG, N, { commentIds: ['old'] }), (e) => e.status === 400);

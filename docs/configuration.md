@@ -237,6 +237,21 @@ seed?, expiresAt?, user? }`; the seed's origin must be the origin of `url`.
 
 ## MCP config
 
-Ask runs and review plans start Claude Code with the cocopilot MCP server.
-Copy `server/mcp-config.example.json` to `server/mcp-config.json`
-(gitignored) and set the absolute path of `server/mcp.mjs`.
+coco starts every agent through the Paseo daemon with the `@getpaseo/client`
+SDK. It reaches the daemon at `PASEO_URL` when set, otherwise at the
+endpoint `paseo status` reports (`ws://127.0.0.1:6767/ws` by default), with
+`PASEO_PASSWORD` when the daemon asks for one. Ask runs and review plans get
+the cocopilot MCP server (`server/mcp.mjs`, its tools preapproved) in their
+session config; nothing to configure. To mount the server in another
+client, copy `server/mcp-config.example.json` and set the absolute path of
+`server/mcp.mjs`.
+
+Every agent coco starts gets the `coco · ` title prefix, the providers of
+`models` (`fast` for Notion syncs, `default` for the rest) and runs in a
+workspace that already exists: the one on the work's stack worktree (the
+row's, else the top-most open row's) for anything about a work, the repo's
+otherwise. A workspace is created only when none is open on that directory,
+and the run says so. Ask, Notion and review-plan agents are archived once
+they end, failures included. A Paseo plugin that checks the provider
+against the directory (an account guard, for example) applies to them like
+to any agent: when it refuses, the run fails with its message.

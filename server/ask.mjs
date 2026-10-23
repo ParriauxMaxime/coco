@@ -1,17 +1,16 @@
-// "Ask coco": natural language → Claude Code headless run with the cocopilot MCP server, streamed over SSE.
+// "Ask coco": natural language → a Paseo agent with the cocopilot MCP server, its transcript streamed over SSE.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { rowKey } from './stack.mjs';
+import { createPaseoAgents, workCwd } from './paseo-agent.mjs';
 
-const READ_CONNECTORS = ['mcp__claude_ai_Notion__notion-fetch', 'mcp__claude_ai_Notion__notion-search', 'mcp__claude_ai_Slack__slack_read_thread', 'mcp__claude_ai_Slack__slack_read_channel', 'mcp__claude_ai_Slack__slack_search_public', 'mcp__claude_ai_Slack__slack_read_user_profile'];
+const TIMEOUT_MS = 20 * 60 * 1000;
+const DELTA_MS = 100;
 
-export function createAsk({ DATA, APP, REPO, config, works }) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }) }) {
   const DIR = path.join(DATA, 'asks');
   fs.mkdirSync(DIR, { recursive: true });
-  const mcpConfig = path.join(APP, 'server/mcp-config.json');
-  fs.writeFileSync(mcpConfig, JSON.stringify({ mcpServers: { cocopilot: { command: 'node', args: [path.join(APP, 'server/mcp.mjs')] } } }, null, 1));
   const runs = new Map();
   const OWNER = config.owner.name;
   const diagramSkill = config.gateSkills?.['kit-diagram']?.[0];
@@ -31,74 +30,84 @@ For a new work, end with exactly one propose_work_scaffold call carrying the ful
 - Feature flags: find the flags checked around the entry points of every surface the work touches; each flag that gates one goes in betaFlags with the PRs it applies to, so testers and PR bodies name it.
 To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it. For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.`;
 
+  const providerFor = (model) => (!model ? config.models.default : model.includes('/') ? model : `${config.models.default.split('/')[0]}/${model}`);
+
   // onEnd(run) fires once the run is over; run.rulesProposal holds a propose_rules call.
-  // connectors: the user's claude.ai Notion and Slack connectors load too, their read tools only.
-  function start({ prompt, workSlug, model, kind = 'ask' }, { onEnd, connectors = false } = {}) {
+  // A run about a work goes to the workspace of that work's stack worktree, any other to the repo's.
+  function start({ prompt, workSlug, model, kind = 'ask' }, { onEnd } = {}) {
     const id = randomUUID();
     const file = path.join(DIR, `${id}.jsonl`);
-    const run = { id, prompt, workSlug, kind, startedAt: new Date().toISOString(), status: 'running', events: [], proposal: null, agentProposal: null, rulesProposal: null, text: '', listeners: new Set(), sessionId: null, cost: null };
+    const run = { id, prompt, workSlug, kind, startedAt: new Date().toISOString(), status: 'running', events: [], proposal: null, agentProposal: null, rulesProposal: null, text: '', listeners: new Set(), agentId: null, cost: null };
     runs.set(id, run);
     const push = (ev) => {
       run.events.push(ev);
       fs.appendFileSync(file, JSON.stringify(ev) + '\n');
       for (const l of run.listeners) l(ev);
     };
-    const context = workSlug ? `\nCurrent work: ${workSlug} (use get_work first).` : '';
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--mcp-config', mcpConfig, ...(connectors ? [] : ['--strict-mcp-config']), '--permission-mode', 'default', '--allowedTools', 'mcp__cocopilot__*', 'Read', 'Grep', 'Glob', 'Bash(gh pr view *)', 'Bash(gh issue view *)', 'Bash(gh search *)', 'Bash(git log *)', 'Bash(paseo * ls *)', 'WebFetch', ...(connectors ? READ_CONNECTORS : []), '--append-system-prompt', SYSTEM + context, '--max-turns', '40'];
-    if (model) args.push('--model', model);
-    args.push(prompt);
-    push({ type: 'meta', text: `claude ${args.slice(0, 4).join(' ')} … (cwd ${REPO})` });
-    const child = spawn('claude', args, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CLAUDECODE: '' } });
-    let buf = '';
-    child.stdout.on('data', (d) => {
-      buf += d;
-      let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim();
-        buf = buf.slice(i + 1);
-        if (!line) continue;
-        let ev;
-        try {
-          ev = JSON.parse(line);
-        } catch {
-          push({ type: 'raw', text: line });
-          continue;
-        }
-        handle(ev);
-      }
-    });
-    child.stderr.on('data', (d) => push({ type: 'stderr', text: String(d).slice(0, 2000) }));
-    child.on('close', (code) => {
-      run.status = run.status === 'running' ? (code === 0 ? 'done' : 'error') : run.status;
-      push({ type: 'end', code, status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, cost: run.cost });
-      fs.writeFileSync(path.join(DIR, `${id}.json`), JSON.stringify({ id, prompt, workSlug, kind, startedAt: run.startedAt, status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, rulesProposal: run.rulesProposal, text: run.text, sessionId: run.sessionId, cost: run.cost }, null, 1));
-      onEnd?.(run);
-    });
-    function handle(ev) {
-      if (ev.type === 'system' && ev.session_id) run.sessionId = ev.session_id;
-      if (ev.type === 'assistant') {
-        for (const block of ev.message?.content || []) {
-          if (block.type === 'text') {
-            run.text += block.text + '\n';
-            push({ type: 'text', text: block.text });
-          }
-          if (block.type === 'tool_use') {
-            if (block.name === 'mcp__cocopilot__propose_work_scaffold') run.proposal = block.input;
-            if (block.name === 'mcp__cocopilot__propose_paseo_agent') run.agentProposal = block.input;
-            if (block.name === 'mcp__cocopilot__propose_rules') run.rulesProposal = block.input;
-            push({ type: 'tool', name: block.name, input: JSON.stringify(block.input).slice(0, 600) });
-          }
-        }
-      }
-      if (ev.type === 'user') {
-        for (const block of ev.message?.content || []) if (block.type === 'tool_result') push({ type: 'tool_result', text: (typeof block.content === 'string' ? block.content : JSON.stringify(block.content)).slice(0, 400) });
-      }
-      if (ev.type === 'result') {
-        run.cost = ev.total_cost_usd ?? null;
-        run.status = ev.is_error ? 'error' : 'done';
-        if (ev.result && !run.text) run.text = ev.result;
-      }
-    }
+    // text deltas only go to whoever is watching, batched; the finished text is pushed as one event
+    let delta = '';
+    let timer = null;
+    const flush = () => {
+      timer = null;
+      if (delta) for (const l of run.listeners) l({ type: 'delta', text: delta });
+      delta = '';
+    };
+    const onDelta = (text) => {
+      delta += text;
+      timer ||= setTimeout(flush, DELTA_MS);
+    };
+    const onEntry = (e) => {
+      if (e.type === 'text') {
+        clearTimeout(timer);
+        timer = null;
+        delta = '';
+        push({ type: 'text', text: e.text });
+      } else if (e.type === 'tool') {
+        push({ type: 'tool', name: e.name, input: JSON.stringify(e.input ?? null).slice(0, 600) });
+        if (e.output || e.error) push({ type: 'tool_result', text: String(e.error || e.output).slice(0, 400) });
+      } else if (e.type === 'error') push({ type: 'stderr', text: e.text.slice(0, 2000) });
+    };
+    const work = workSlug ? works.get(workSlug) : null;
+    (work ? workCwd({ repo: REPO, work, prInfo: works.prInfo }) : Promise.resolve(REPO))
+      .then((cwd) =>
+        agents.run({
+          title: `Ask: ${prompt.split('\n')[0]}`,
+          prompt,
+          systemPrompt: SYSTEM + (workSlug ? `\nCurrent work: ${workSlug} (use get_work first).` : ''),
+          provider: providerFor(model),
+          cwd,
+          labels: { source: 'cocopilot', kind, ask: id.slice(0, 8), work: workSlug },
+          mcp: true,
+          timeoutMs: TIMEOUT_MS,
+          onStart: ({ agentId, workspaceId, createdWorkspace }) => {
+            run.agentId = agentId;
+            if (createdWorkspace) push({ type: 'meta', text: `no Paseo workspace was open on ${cwd}: created ${createdWorkspace}` });
+            push({ type: 'meta', text: `Paseo agent ${agentId.slice(0, 8)} in workspace ${workspaceId} (${cwd})` });
+          },
+          onDelta,
+          onEntry,
+          onPermission: (what) => push({ type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
+        }),
+      )
+      .then((r) => {
+        run.proposal = r.submitted.propose_work_scaffold || null;
+        run.agentProposal = r.submitted.propose_paseo_agent || null;
+        run.rulesProposal = r.submitted.propose_rules || null;
+        run.text = r.text;
+        run.cost = r.cost;
+        run.status = r.status === 'done' ? 'done' : 'error';
+        if (r.error) push({ type: 'stderr', text: r.error });
+      })
+      .catch((e) => {
+        run.status = 'error';
+        push({ type: 'stderr', text: e.message.slice(0, 2000) });
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        push({ type: 'end', status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, cost: run.cost });
+        fs.writeFileSync(path.join(DIR, `${id}.json`), JSON.stringify({ id, prompt, workSlug, kind, startedAt: run.startedAt, status: run.status, proposal: run.proposal, agentProposal: run.agentProposal, rulesProposal: run.rulesProposal, text: run.text, agentId: run.agentId, cost: run.cost }, null, 1));
+        onEnd?.(run);
+      });
     return run;
   }
 
@@ -134,20 +143,21 @@ To start a Paseo agent (a local Claude Code session in a work's PR workspace, fr
     const run = runs.get(id) || (fs.existsSync(path.join(DIR, `${id}.json`)) ? JSON.parse(fs.readFileSync(path.join(DIR, `${id}.json`), 'utf8')) : null);
     const p = run?.agentProposal;
     if (!p) return { error: 'no agent proposal on this run' };
-    const args = ['run', '-d', '--title', p.title.slice(0, 60), '--provider', p.provider || config.models.default, '--thinking', p.thinking || 'high', '--mode', p.mode || 'auto', '--label', 'source=cocopilot', '--label', `ask=${id.slice(0, 8)}`];
-    if (p.workspaceId) args.push('--workspace', p.workspaceId);
-    else args.push('--cwd', p.cwd || REPO);
-    args.push(p.prompt);
-    const r = await new Promise((resolve) => execFile('paseo', args, { maxBuffer: 4e6 }, (err, out, errout) => resolve({ ok: !err, out: String(out || ''), err: String(errout || err?.message || '') })));
-    const agentId = (r.out.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/) || [])[0] || null;
-    if (p.workSlug) {
-      const work = works.get(p.workSlug);
-      if (work) {
-        work.timeline.unshift({ ts: new Date().toISOString(), kind: 'agent', text: `${r.ok ? 'started' : 'failed to start'} Paseo agent "${p.title}"${agentId ? ` (${agentId.slice(0, 8)})` : ''} from ask ${id.slice(0, 8)}` });
-        works.save(work);
-      }
+    let started = {};
+    let error = '';
+    const work = p.workSlug ? works.get(p.workSlug) : null;
+    try {
+      const cwd = p.workspaceId ? null : p.cwd || (work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO);
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, mode: p.mode === 'bypass' ? 'bypassPermissions' : p.mode, workspaceId: p.workspaceId || null, cwd, labels: { source: 'cocopilot', ask: id.slice(0, 8) } });
+    } catch (e) {
+      error = e.message;
     }
-    return r.ok ? { ok: true, agentId, out: r.out.slice(0, 500) } : { error: (r.err || r.out).slice(0, 500) };
+    const { agentId = null, createdWorkspace = null } = started;
+    if (work) {
+      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'agent', text: `${error ? 'failed to start' : 'started'} Paseo agent "${p.title}"${agentId ? ` (${agentId.slice(0, 8)})` : ''} from ask ${id.slice(0, 8)}${createdWorkspace ? `, in workspace ${createdWorkspace} created for it` : ''}` });
+      works.save(work);
+    }
+    return error ? { error: error.slice(0, 500) } : { ok: true, agentId, out: `started ${agentId}${createdWorkspace ? ` in new workspace ${createdWorkspace}` : ''}` };
   }
 
   function list() {

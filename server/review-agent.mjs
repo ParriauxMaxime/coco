@@ -1,14 +1,12 @@
 // Review handoff: turn open review comments into a brief, hand it to a Paseo agent, ingest the result.
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.mjs';
+import { UUID, createPaseoAgents, expandHome, launcherEnv, sameDir, worktreeFor as worktreeOf } from './paseo-agent.mjs';
 
-const HOME = os.homedir();
 const MAX_COMMENTS = 30;
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 const SETTLE_MS = 15000;
 const AGENT_ID = new RegExp(`^${UUID.source}$`);
 
@@ -31,10 +29,6 @@ export const fenced = (text, lang = '') => {
   const f = fenceFor(text);
   return `${f}${lang}\n${text}\n${f}`;
 };
-// The server may run inside a Paseo agent's shell: its PASEO_AGENT_ID would make every launch that agent's subagent and pin it to that agent's workspace.
-const AMBIENT_PASEO = ['PASEO_AGENT_ID', 'PASEO_AGENT_CWD', 'PASEO_WORKSPACE_ID'];
-export const launcherEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !AMBIENT_PASEO.includes(k)));
-const expandHome = (p) => String(p || '').replace(/^~(?=\/|$)/, HOME);
 const parseJson = (text, fallback) => {
   try {
     return JSON.parse(text);
@@ -62,7 +56,7 @@ export const commentSection = (c, level = '###') => {
   return [`${level} ${c.id} · ${c.path}:${c.startLine}-${c.endLine} (${c.side || 'head'})`, '', fenced(code), '', c.body, ''];
 };
 
-export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec }) {
+export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents() }) {
   const GH = config.repo.github;
   const SHARED_RULES = sharedRules(config);
   const reviewsDir = (slug) => path.join(DATA, 'works', slug, 'reviews');
@@ -195,33 +189,13 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return out.join('\n');
   }
 
-  async function worktreeFor(head) {
-    const r = await exec('git', ['-C', REPO, 'worktree', 'list', '--porcelain']);
-    if (!r.ok) return null;
-    for (const block of r.stdout.split(/\n\s*\n/)) {
-      const lines = block.split('\n');
-      const wt = lines.find((l) => l.startsWith('worktree '));
-      const br = lines.find((l) => l.startsWith('branch '));
-      if (wt && br && br.slice('branch '.length).trim() === `refs/heads/${head}`) return wt.slice('worktree '.length).trim();
-    }
-    return null;
-  }
+  const worktreeFor = (head) => worktreeOf(REPO, head, exec);
 
   const agentsList = async () => {
     const r = await exec('paseo', ['ls', '--json']);
-    const agents = r.ok ? parseJson(r.stdout, []) : [];
-    return Array.isArray(agents) ? agents : [];
+    const list = r.ok ? parseJson(r.stdout, []) : [];
+    return Array.isArray(list) ? list : [];
   };
-  const sameDir = (a, b) => path.resolve(expandHome(a)) === path.resolve(expandHome(b));
-  // `paseo run --cwd` alone opens a new workspace (and project) beside the one already on that worktree; reuse it, the one in the biggest project (the stack's) when several share the dir
-  async function workspaceFor(cwd) {
-    const r = await exec('paseo', ['workspace', 'ls', '--json'], { env: launcherEnv() });
-    const all = r.ok ? parseJson(r.stdout, []) : [];
-    if (!Array.isArray(all)) return null;
-    const projectSize = (p) => all.filter((w) => w.project === p).length;
-    const [best] = all.filter((w) => w.cwd && sameDir(w.cwd, cwd)).sort((a, b) => projectSize(b.project) - projectSize(a.project));
-    return best?.workspaceId || null;
-  }
 
   async function pickRunner(pr) {
     const cwd = await worktreeFor(pr.head);
@@ -233,27 +207,24 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
 
   // starts the brief on the runner, returns the agent id; labels tell the Paseo plugin which cocopilot run the agent is on
   async function launch(runner, { title, provider, prompt, labels, requestedBy, n, branch }) {
-    const labelArgs = Object.entries({ source: 'cocopilot', ...labels }).flatMap(([k, v]) => ['--label', `${k}=${v}`]);
-    const opts = { env: launcherEnv() };
-    let r;
+    const all = { source: 'cocopilot', ...labels };
     if (runner.mode === 'send') {
-      await exec('paseo', ['agent', 'update', runner.agentId, ...labelArgs], opts);
-      r = await exec('paseo', ['send', runner.agentId, prompt, '--behavior', 'steer', '--no-wait'], opts);
-    } else {
-      const args = ['run', '-d', '--title', title.slice(0, 60), '--provider', provider, '--thinking', 'high', '--mode', 'auto'];
-      if (runner.mode === 'cwd') {
-        const workspaceId = await workspaceFor(runner.cwd);
-        args.push(...(workspaceId ? ['--workspace', workspaceId] : []), '--cwd', runner.cwd);
-      }
-      else if (runner.mode === 'branch-off') args.push('--cwd', REPO, '--new-workspace', 'worktree', '--worktree-mode', 'branch-off', '--new-branch', runner.newBranch, '--base', runner.base, '--worktree-slug', runner.slug);
-      else if (runner.mode === 'checkout-branch') args.push('--cwd', REPO, '--new-workspace', 'worktree', '--worktree-mode', 'checkout-branch', '--branch', branch);
-      else args.push('--cwd', REPO, '--new-workspace', 'worktree', '--worktree-mode', 'checkout-pr', '--pr-number', String(n));
-      if (AGENT_ID.test(String(requestedBy || ''))) args.push('--label', `paseo.parent-agent-id=${requestedBy}`);
-      args.push(...labelArgs, prompt);
-      r = await exec('paseo', args, opts);
+      const opts = { env: launcherEnv() };
+      await exec('paseo', ['agent', 'update', runner.agentId, ...Object.entries(all).flatMap(([k, v]) => ['--label', `${k}=${v}`])], opts);
+      const r = await exec('paseo', ['send', runner.agentId, prompt, '--behavior', 'steer', '--no-wait'], opts);
+      if (!r.ok) throw new HttpError(500, `paseo send failed: ${(r.stderr || r.stdout).slice(0, 300)}`);
+      return runner.agentId;
     }
-    if (!r.ok) throw new HttpError(500, `paseo ${runner.mode === 'send' ? 'send' : 'run'} failed: ${(r.stderr || r.stdout).slice(0, 300)}`);
-    return runner.mode === 'send' ? runner.agentId : (r.stdout.match(UUID) || [])[0] || null;
+    const worktree = { 'branch-off': { mode: 'branch-off', newBranch: runner.newBranch, base: runner.base, slug: runner.slug }, 'checkout-branch': { mode: 'checkout-branch', branch }, 'checkout-pr': { mode: 'checkout-pr', prNumber: n } }[runner.mode] || null;
+    if (AGENT_ID.test(String(requestedBy || ''))) all['paseo.parent-agent-id'] = requestedBy;
+    let started;
+    try {
+      started = await agents.start({ title, provider, thinking: 'high', prompt, labels: all, cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree });
+    } catch (e) {
+      throw new HttpError(500, `paseo agent start failed: ${e.message.slice(0, 300)}`);
+    }
+    if (started.createdWorkspace && labels?.work) timeline(labels.work, 'agent', `${worktree ? `new ${runner.mode} worktree` : `no Paseo workspace was open on ${runner.cwd}`}: created workspace ${started.createdWorkspace}`);
+    return started.agentId;
   }
 
   const remoteHead = async (n) => {

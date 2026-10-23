@@ -34,7 +34,7 @@ export function createInbox({ ask, config }) {
     const { url, note = '' } = JSON.parse((await readBody(req)) || '{}');
     const p = inboxPrompt(url, note, opts);
     if (!p) return send(res, 400, { error: `paste a Notion page, ${opts.github ? `a ${opts.github} PR or issue, ` : ''}or a Slack permalink` });
-    const run = ask.start({ prompt: p.prompt, kind: 'inbox' }, { connectors: true });
+    const run = ask.start({ prompt: p.prompt, kind: 'inbox' });
     return send(res, 200, { id: run.id, kind: p.kind });
   }
   return { handle };

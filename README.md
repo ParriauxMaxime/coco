@@ -8,7 +8,7 @@ what is left before each PR can merge.
 
 ## Get started
 
-Needs Node 20+, `git`, the [GitHub CLI](https://cli.github.com) logged in,
+Needs Node 22+ (its built-in WebSocket talks to the Paseo daemon), `git`, the [GitHub CLI](https://cli.github.com) logged in,
 and [Paseo](https://paseo.sh) with Claude Code. Paste this in Claude Code:
 
 ```text

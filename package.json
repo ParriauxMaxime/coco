@@ -13,7 +13,7 @@
     "workbench"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "type": "module",
   "scripts": {
@@ -23,6 +23,7 @@
     "start": "vite build && node server/index.mjs"
   },
   "dependencies": {
+    "@getpaseo/client": "0.13.0-beta.2",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "marked": "^15.0.0",
     "mermaid": "^12.2.0",

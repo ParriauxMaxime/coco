@@ -1,10 +1,11 @@
-// Review plan: deterministic file categories, then a headless coco run that proposes a reading path for one PR head.
+// Review plan: deterministic file categories, then a coco Paseo agent that proposes a reading path for one PR head.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, parseKey, rowKey } from './stack.mjs';
 import { capitalize } from './review-agent.mjs';
+import { createPaseoAgents, workCwd } from './paseo-agent.mjs';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
 const MAX_PROMPT_DIFF = 160 * 1024;
@@ -15,6 +16,7 @@ const MAX_PROGRESS = 40;
 const MAX_LOG = 80;
 const MAX_LOG_TEXT = 2000;
 const KEEP_TICK_SHAS = 3;
+const TIMEOUT_MS = 30 * 60 * 1000;
 
 const OTHER = [
   [/\.mdx?$|(^|\/)docs?\//, 'docs'],
@@ -201,8 +203,7 @@ export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, gu
   ].join('\n');
 }
 
-export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null }) {
-  const MCP_CONFIG = path.join(APP, 'server/mcp-config.json');
+export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }) }) {
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   const OWNER = config.owner.name;
   const SYSTEM = systemPrompt(OWNER, REPO);
@@ -272,10 +273,6 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     const prompt = buildPrompt({ n, slug, refs, files, cats, diffText, personas, guidance: String(guidance).slice(0, 4000), rules: kept, owner: OWNER, order: classifier.suggestedOrder });
     const run = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, headSha: refs.headSha, error: '', cost: null, progress: [], log: [], proposal: null };
     live.set(k, run);
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--mcp-config', MCP_CONFIG, '--strict-mcp-config', '--permission-mode', 'default',
-      '--allowedTools', 'mcp__cocopilot__get_work', 'mcp__cocopilot__github_pr', 'mcp__cocopilot__read_persona', 'mcp__cocopilot__propose_review_plan', 'Bash(git show *)', 'Bash(git grep *)', 'Bash(git diff *)', 'Bash(git log *)',
-      '--append-system-prompt', SYSTEM, '--max-turns', '60', '--thinking-display', 'summarized', prompt];
-    const child = spawn('claude', args, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CLAUDECODE: '' } });
     const note = (text) => {
       run.progress.push(text.replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1').slice(0, 160));
       if (run.progress.length > MAX_PROGRESS) run.progress.shift();
@@ -285,46 +282,26 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       run.log.push({ kind, text: text.slice(0, MAX_LOG_TEXT) });
       if (run.log.length > MAX_LOG) run.log.shift();
     };
-    let buf = '';
-    let err = '';
-    child.stdout.on('data', (d) => {
-      buf += d;
-      let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim();
-        buf = buf.slice(i + 1);
-        let ev;
-        try {
-          ev = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        if (ev.type === 'assistant') {
-          for (const b of ev.message?.content || []) {
-            if (b.type === 'tool_use' && b.name === 'mcp__cocopilot__propose_review_plan') run.proposal = b.input;
-            if (b.type === 'tool_use') {
-              const step = b.name === 'Bash' ? b.input?.command || 'Bash' : b.name.replace('mcp__cocopilot__', '');
-              note(step);
-              log('tool', step);
-            }
-            if (b.type === 'text' && b.text.trim()) {
-              note(b.text.trim().split('\n')[0]);
-              log('say', b.text.trim());
-            }
-            if (b.type === 'thinking' && b.thinking?.trim()) log('think', b.thinking.trim());
-          }
-        }
-        if (ev.type === 'result') {
-          run.cost = ev.total_cost_usd ?? null;
-          if (ev.is_error) run.error = String(ev.result || 'claude run failed').slice(0, 500);
-        }
+    const onEntry = (e) => {
+      if (e.type === 'tool') {
+        const step = e.kind === 'shell' ? e.text || e.name : e.name.replace('mcp__cocopilot__', '');
+        note(step);
+        log('tool', step);
       }
-    });
-    child.stderr.on('data', (d) => (err += d));
-    child.on('close', async (codeExit) => {
+      if (e.type === 'text') {
+        note(e.text.split('\n')[0]);
+        log('say', e.text);
+      }
+      if (e.type === 'think') log('think', e.text);
+    };
+    const finish = async (result, failure) => {
       run.finishedAt = new Date().toISOString();
       try {
-        if (!run.proposal) throw new Error(run.error || err.trim().slice(0, 500) || `claude exited ${codeExit} without a plan`);
+        if (failure) throw failure;
+        run.cost = result.cost;
+        run.agentId = result.agentId;
+        run.proposal = result.submitted.propose_review_plan || null;
+        if (!run.proposal) throw new Error(result.error || `the agent ended (${result.status}) without a plan`);
         const lineCounts = {};
         for (const w of run.proposal.watchPoints || []) {
           if (lineCounts[w?.path] !== undefined || !files.some((f) => f.filename === w?.path)) continue;
@@ -345,10 +322,16 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
         data.run = kept;
       });
       live.delete(k);
-    });
-    child.on('error', (e) => {
-      run.error = e.message;
-    });
+    };
+    const onStart = ({ agentId, createdWorkspace }) => {
+      run.agentId = agentId;
+      if (!createdWorkspace) return;
+      note(`created Paseo workspace ${createdWorkspace}`);
+      log('say', `No Paseo workspace was open for this PR: created ${createdWorkspace}.`);
+    };
+    (work ? workCwd({ repo: REPO, work, key: n, prInfo: works.prInfo }) : Promise.resolve(REPO))
+      .then((cwd) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: SYSTEM, provider: config.models.default, cwd, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, mcp: true, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
+      .then((r) => finish(r), (e) => finish(null, e));
     return { ok: true };
   }
 

@@ -63,9 +63,12 @@ function AgentProposal({ run }) {
   );
 }
 
+// text streams in as deltas until its finished message arrives as one text event
 export function Transcript({ events }) {
   const ref = useRef(null);
   useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight); }, [events.length]);
+  const last = events.findLastIndex((e) => e.type !== 'delta');
+  const live = events.slice(last + 1).map((e) => e.text).join('');
   return (
     <div ref={ref} style={{ maxHeight: '50vh', overflow: 'auto' }}>
       {events.map((e, i) => {
@@ -77,6 +80,7 @@ export function Transcript({ events }) {
         if (e.type === 'meta') return <div key={i} className="status" style={{ opacity: .6 }}>{e.text}</div>;
         return null;
       })}
+      {live && <div style={{ margin: '6px 0' }}><Markdown text={live} /></div>}
     </div>
   );
 }
@@ -124,7 +128,7 @@ export default function Ask({ workSlug }) {
   return (
     <>
       {!workSlug && <h1>Ask coco 🦜</h1>}
-      <p className="sub">Natural language in, proposal out. Runs Claude Code headless in your repo with the cocopilot MCP server (works, personas, Paseo, gh). It reads and proposes; you apply. Nothing is pushed, posted or sent.</p>
+      <p className="sub">Natural language in, proposal out. Runs a Paseo agent in your repo with the cocopilot MCP server (works, personas, Paseo, gh). It reads and proposes; you apply. Nothing is pushed, posted or sent.</p>
       <div className="card">
         <textarea className="short" style={{ minHeight: 90 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={workSlug ? `Ask about or extend the ${workSlug} work…` : 'Scaffold a work for … / Who reviews … / What is blocked on …'} />
         <div className="row" style={{ marginTop: 6 }}>

@@ -28,6 +28,7 @@ import { createPack } from './pack.mjs';
 import { createSetup } from './setup.mjs';
 import { createDevServers } from './dev-servers.mjs';
 import { loadConfig, personaLogins } from './config.mjs';
+import { createPaseoAgents } from './paseo-agent.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -43,18 +44,17 @@ const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
 
 fs.mkdirSync(DATA, { recursive: true });
-const MCP_CONFIG = path.join(APP, 'server/mcp-config.json');
-if (!fs.existsSync(MCP_CONFIG)) fs.writeFileSync(MCP_CONFIG, JSON.stringify({ mcpServers: { cocopilot: { command: 'node', args: [path.join(APP, 'server/mcp.mjs')] } } }, null, 1));
-const works = createWorks({ DATA, PERSONAS, REPO, config });
-const ask = createAsk({ DATA, APP, REPO, config, works });
+const paseoAgents = createPaseoAgents({ APP });
+const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents });
 const rules = createRules({ DATA, REPO, config, works, ask });
 const inbox = createInbox({ REPO, config, ask });
 const code = createCode({ REPO, config, works });
 works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
 const comments = createComments({ DATA, REPO, config, works });
-const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments });
+const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents });
 const lang = createLang({ REPO, config });
-const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules });
+const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents });
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan });
@@ -67,7 +67,7 @@ const gates = createGates({ REPO, config, works, reviewAgent, reviewPlan });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
-const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length });
+const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents });
 const paseoLink = createPaseoLink({ REPO, config, works, comments, code, reviewAgent, stackFix, threads });
 const devServers = createDevServers({ REPO, config, works });
 works.sweepArchive().catch(() => {});
@@ -235,10 +235,15 @@ async function launchRitual(body) {
   if (!spec) return { ok: false, error: `unknown ritual ${body.kind}` };
   const title = fillRitual(spec.title || spec.label || spec.kind, body);
   const prompt = fillRitual(spec.prompt, body);
-  const args = ['run', '-d', '--title', title.slice(0, 60), '--provider', body.provider || config.models.default, '--thinking', 'high', '--mode', 'auto', '--cwd', REPO || os.homedir(), '--label', 'source=cockpit', '--label', `ritual=${body.kind}`, prompt];
-  const r = await run('paseo', args);
-  const idMatch = r.stdout.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
-  const entry = { ts: new Date().toISOString(), kind: body.kind, title, prompt, agentId: idMatch ? idMatch[0] : null, ok: r.ok, out: (r.stdout || r.stderr).slice(0, 2000) };
+  let started = {};
+  let error = '';
+  try {
+    started = await paseoAgents.start({ title, provider: body.provider || config.models.default, thinking: 'high', cwd: REPO || os.homedir(), labels: { source: 'cockpit', ritual: body.kind }, prompt });
+  } catch (e) {
+    error = e.message;
+  }
+  const { agentId = null, createdWorkspace = null } = started;
+  const entry = { ts: new Date().toISOString(), kind: body.kind, title, prompt, agentId, ok: !error, out: (error || `started ${agentId}${createdWorkspace ? ` in new workspace ${createdWorkspace}` : ''}`).slice(0, 2000) };
   fs.appendFileSync(path.join(DATA, 'rituals.jsonl'), JSON.stringify(entry) + '\n');
   return entry;
 }
