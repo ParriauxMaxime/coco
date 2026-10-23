@@ -7,21 +7,19 @@ export const PANEL_ID = "dev-server";
 export const QUERY_ROOT = "dev-servers";
 export const BOARD_KEY = [QUERY_ROOT, "board"];
 
-export class RpcFailure extends Error {
-  readonly code: ErrorCode;
-  readonly details?: Record<string, unknown>;
-  constructor({ code, message, details }: RpcError) {
-    super(message);
-    this.code = code;
-    this.details = details;
-  }
-}
+// No `class`: the mobile app's JS engine rejects class syntax in plugin bundles.
+export type RpcFailure = Error & { code: ErrorCode; details?: Record<string, unknown> };
+
+const rpcFailure = ({ code, message, details }: RpcError): RpcFailure => Object.assign(new Error(message), { code, details });
+
+export const isRpcFailure = (failure: unknown, code?: ErrorCode): failure is RpcFailure =>
+  failure instanceof Error && "code" in failure && (code === undefined || failure.code === code);
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; error: RpcError };
 
 export const unwrap = <T>(outcome: Outcome<T>): T => {
   if (outcome.ok) return outcome.value;
-  throw new RpcFailure(outcome.error);
+  throw rpcFailure(outcome.error);
 };
 
 export function useBoard(refetchInterval: number) {

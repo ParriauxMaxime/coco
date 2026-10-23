@@ -16,7 +16,7 @@ import {
   type LoginSteps,
   type StopAction,
 } from "../shared/view-model.ts";
-import { RpcFailure, useServerAction } from "./board.ts";
+import { isRpcFailure, useServerAction } from "./board.ts";
 import { ActionButton, Confirm, LoginCard, LogTail, StateBadge } from "./parts.tsx";
 import type { CardStyles } from "./style.ts";
 
@@ -46,7 +46,7 @@ export function ServerCard({ server, lost, theme, styles, open, openExternal, lo
     : signIn.isPending
       ? { ...actions.login, enabled: false, label: "Logging in…" }
       : actions.login;
-  const error = [stop.error, pin.error, signIn.error].find((failure) => failure && !(failure instanceof RpcFailure && failure.code === "login_unavailable"));
+  const error = [stop.error, pin.error, signIn.error].find((failure) => failure && !isRpcFailure(failure, "login_unavailable"));
 
   const runStop = (action: StopAction) => {
     setConfirming(null);
@@ -57,7 +57,7 @@ export function ServerCard({ server, lost, theme, styles, open, openExternal, lo
       { id: server.id },
       {
         onSuccess: (result) => setLogin(loginSteps(result)),
-        onError: (failure) => failure instanceof RpcFailure && failure.code === "login_unavailable" && setLoginGone(true),
+        onError: (failure) => isRpcFailure(failure, "login_unavailable") && setLoginGone(true),
       },
     );
   const status = statusText(server);
