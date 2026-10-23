@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from './Markdown.jsx';
 import Blocks from './Blocks.jsx';
+import AgentActivity from './AgentActivity.jsx';
 import { api } from '../api.js';
 import { toast } from './Toast.jsx';
 import { pendingClass } from './action.js';
 
-const POLL_MS = 3000;
+const POLL_MS = 10000;
 const MODELS = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
 const OPEN = ['pending', 'queued', 'conflict'];
 const STATE_CHIP = { pending: 'c-blue', queued: 'c-orange', conflict: 'c-red', applied: 'c-green', dismissed: 'c-grey' };
@@ -62,15 +63,54 @@ function Suggestion({ s, onDecide, busy, pending }) {
   );
 }
 
-// a scoped agent on one item: dispatch, read its answer, approve or dismiss what it suggests
+const nonceOf = () => Math.random().toString(36).slice(2, 12);
+
+// each message's share of the agent's activity; a call that settles after a steer stays with the message it started under
+function activityByMessage(events) {
+  const owner = new Map();
+  const out = {};
+  for (const ev of events) {
+    const msgId = (ev.type === 'tool' && ev.id && owner.get(ev.id)) || ev.msgId;
+    if (ev.type === 'tool' && ev.id && !owner.has(ev.id)) owner.set(ev.id, msgId);
+    (out[msgId] ||= []).push(ev);
+  }
+  return out;
+}
+
+// the thread's agent activity over SSE (stored, then live), and a fresh thread on every change the server reports
+function useThreadStream(slug, key, onChange) {
+  const [events, setEvents] = useState([]);
+  const changed = useRef(onChange);
+  changed.current = onChange;
+  useEffect(() => {
+    let timer = null;
+    const es = new EventSource(`/api/works/${slug}/threads/${key}/events`);
+    es.onopen = () => setEvents([]);
+    es.onmessage = (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type !== 'thread') return setEvents((prev) => [...prev, ev]);
+      clearTimeout(timer);
+      timer = setTimeout(() => changed.current?.(), 100);
+    };
+    return () => {
+      clearTimeout(timer);
+      es.close();
+    };
+  }, [slug, key]);
+  return events;
+}
+
+// a scoped agent on one item: dispatch, follow its work live, read its answer, approve or dismiss what it suggests; writing to it never waits for it
 // verdicts: [{ label, title, on(note) }] buttons that use the box text as remark instead of dispatching it
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }) {
   const { groups } = useThreadsOf(slug);
   const [thread, setThread] = useState(null);
   const [error, setError] = useState('');
-  // which action is in flight: 'send', 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
+  // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
   const [pending, setPending] = useState(null);
   const busy = pending !== null;
+  // messages sent and not confirmed yet
+  const [sending, setSending] = useState([]);
   const [note, setNote] = useState('');
   const waiting = Boolean(thread?.waiting);
   const settled = useRef(onSettled);
@@ -79,17 +119,23 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const plan = key.startsWith('p.');
   const prPart = key.split('.')[1];
 
+  const wasWaiting = useRef(false);
+  wasWaiting.current = waiting;
+  const reload = () => api.thread(slug, key).then((t) => {
+    const answered = wasWaiting.current && !t.waiting;
+    wasWaiting.current = Boolean(t.waiting);
+    setThread(t);
+    refreshThreads(slug);
+    if (answered) settled.current?.();
+  }, () => {});
+  const activity = useThreadStream(slug, key, reload);
   useEffect(() => {
     api.thread(slug, key).then(setThread, (e) => setError(e.message));
   }, [slug, key]);
+  // the stream reports replies at once; this catches an agent coco does not follow
   useEffect(() => {
     if (!waiting) return;
-    const timer = setInterval(() => api.thread(slug, key).then((t) => {
-      setThread(t);
-      if (t.waiting) return;
-      refreshThreads(slug);
-      settled.current?.();
-    }, () => {}), POLL_MS);
+    const timer = setInterval(reload, POLL_MS);
     return () => clearInterval(timer);
   }, [slug, key, waiting]);
   // a queued approval lands when the PR worktree frees up: follow it through the summaries poll
@@ -115,12 +161,23 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     }
   };
   const group = groups.find((g) => g.id === thread?.groupId);
-  const send = (text, model) => act('send', async () => {
-    await api.postThread(slug, key, { text, ...(model ? { model } : {}) });
-    return api.thread(slug, key);
-  });
+  // shown at once, confirmed by the server; while the agent works the message steers its turn
+  const send = (text, model) => {
+    const nonce = nonceOf();
+    setSending((s) => [...s, { nonce, text }]);
+    api.postThread(slug, key, { text, ...(model ? { model } : {}) })
+      .then((next) => {
+        wasWaiting.current = Boolean(next.waiting);
+        setThread((prev) => ({ ...next, agent: next.agent ?? prev?.agent ?? null }));
+        refreshThreads(slug);
+        settled.current?.();
+      }, (e) => toast.error(e.message))
+      .finally(() => setSending((s) => s.filter((x) => x.nonce !== nonce)));
+    return true;
+  };
 
   if (!thread) return <div className="thread status">{error || 'Loading thread…'}</div>;
+  const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
   const others = groups.filter((g) => g.status === 'active' && g.id !== thread.groupId && g.kind === kind && (decision || String(g.n).replaceAll(':', '~') === prPart));
   return (
@@ -143,29 +200,30 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         {!waiting && group?.status === 'active' && <button type="button" className={`sm${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}>prune agent</button>}
       </div>
       {thread.messages.map((m) => (
-        <div key={m.id} className={`thread-msg ${m.role}`}>
-          {m.role === 'system' && !m.agentId ? <span className="status">{m.text}</span> : (
-            <>
-              <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
-              {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
-              {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
-            </>
-          )}
-        </div>
+        <React.Fragment key={m.id}>
+          <div className={`thread-msg ${m.role}`}>
+            {m.role === 'system' && !m.agentId ? <span className="status">{m.text}</span> : (
+              <>
+                <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.steer ? ' · while it worked' : m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
+                {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+                {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
+              </>
+            )}
+          </div>
+          {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="thread-activity"><AgentActivity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} /></div>}
+        </React.Fragment>
       ))}
-      {waiting && <div className="thread-msg agent status"><span className="spinner" aria-hidden /> Agent {thread.waiting.agentId?.slice(0, 8)} is working…</div>}
-      {!waiting && (
-        <ThreadComposer
-          busy={busy}
-          pending={pending}
-          withModel={!group}
-          sendLabel={group ? 'Send' : 'Dispatch'}
-          verdicts={verdicts}
-          autoFocus={autoFocus}
-          placeholder={thread.messages.length ? 'Reply or ask for a change (markdown, ⌘↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ⌘↵)' : decision ? 'Ask about the card or for a card change (markdown, ⌘↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ⌘↵)'}
-          onSend={send}
-        />
-      )}
+      {sending.map((p) => <div key={p.nonce} className="thread-msg user" style={{ opacity: 0.6 }}><b>You · sending…</b><Markdown text={p.text} /></div>)}
+      <ThreadComposer
+        busy={false}
+        pending={pending}
+        withModel={!group}
+        sendLabel={!group ? 'Dispatch' : waiting ? 'Send while it works' : 'Send'}
+        verdicts={verdicts}
+        autoFocus={autoFocus}
+        placeholder={waiting ? 'Write while it works: the message reaches the agent mid-turn (markdown, ⌘↵)' : thread.messages.length ? 'Reply or ask for a change (markdown, ⌘↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ⌘↵)' : decision ? 'Ask about the card or for a card change (markdown, ⌘↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ⌘↵)'}
+        onSend={send}
+      />
       {error && <div className="danger status">{error}</div>}
       {note && <div className="status">{note}</div>}
     </div>

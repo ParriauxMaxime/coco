@@ -1,7 +1,8 @@
 // Threads and dispatch: the owner sends a decision card or a review comment to a small scoped agent and approves or dismisses what it suggests.
 // Items on the same subject share a group: one agent and, for code, one worktree branched off the PR head (comments join the group touching their file).
 // The agent writes its reply to a file; a code change is one commit per item (Cc-Comment trailer) that Approve cherry-picks onto the PR branch;
-// a card change is a JSON file of fields that Approve writes to the card.
+// a card change is a JSON file of fields that Approve writes to the card. Coco follows each group agent through the Paseo SDK: a message sent while
+// it works steers its turn, and its activity streams to the threads waiting on it.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -11,15 +12,16 @@ import { fileURLToPath } from 'node:url';
 import { keyLabel, parseKey, rowKey } from './stack.mjs';
 import { capitalize, commentSection, fenced, sharedRules } from './review-agent.mjs';
 import { blocksToMarkdown, validateBlocks } from './blocks.mjs';
+import { activityEvents, createPaseoAgents } from './paseo-agent.mjs';
 
 const SETTLE_MS = 15000;
+const TURN_MS = 45 * 60 * 1000;
 const MAX_DIFF = 20000;
 const STATE_FIELDS = ['id', 'status', 'choice', 'rationale', 'decidedAt'];
 const OPEN_SUGGESTION = ['pending', 'queued', 'conflict'];
 // d.<decision id> · c.<row file key>.<comment id> · p.<row file key> (the review plan)
 const KEY = /^(d\.[\w-]+|c\.[\w.~-]+\.[0-9a-f]+|p\.[\w.~-]+)$/;
 const GROUP = /^[0-9a-f]{6}$/;
-const alive = (a) => a.status !== 'closed' && a.status !== 'error';
 const expandHome = (p) => p.replace(/^~(?=\/|$)/, os.homedir());
 const hex = (n) => crypto.randomBytes(n).toString('hex');
 const APP_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -52,7 +54,7 @@ const defaultExec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec }) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents() }) {
   const MODELS = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -67,12 +69,17 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return data;
   };
   const read = (slug, key) => readJson(path.join(dir(slug), `${key}.json`), { key, groupId: null, waiting: null, messages: [] });
-  const write = (slug, thread) => writeJson(path.join(dir(slug), `${thread.key}.json`), thread);
+  const write = (slug, thread) => {
+    writeJson(path.join(dir(slug), `${thread.key}.json`), thread);
+    notify(slug, thread.key, { type: 'thread' });
+    return thread;
+  };
   const readGroup = (slug, id) => (GROUP.test(String(id)) ? readJson(path.join(groupDir(slug), `${id}.json`), null) : null);
   const writeGroup = (slug, group) => writeJson(path.join(groupDir(slug), `${group.id}.json`), { ...group, updatedAt: new Date().toISOString() });
-  const listJson = (d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))) : []);
+  const listJson = (d, name = () => true) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.json') && name(f.slice(0, -5))).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))) : []);
   const listGroups = (slug) => listJson(groupDir(slug));
-  const listThreads = (slug) => listJson(dir(slug));
+  // reply and card files share the directory
+  const listThreads = (slug) => listJson(dir(slug), (name) => KEY.test(name) && !/-[0-9a-f]{8}-(reply|card)$/.test(name));
   const message = (role, text, extra = {}) => ({ id: hex(4), role, text, ts: new Date().toISOString(), ...extra });
 
   const locks = new Map();
@@ -191,7 +198,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // the agent still holds this thread in its context: only the new turn goes out, with what changed since its last answer
-  function followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId }) {
+  function followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId, steer }) {
     const lastSeen = thread.messages.findLastIndex((m) => m.agentId === agentId && m.role !== 'system');
     const lastSuggestion = thread.messages.slice(0, lastSeen + 1).findLast((m) => m.suggestion)?.suggestion;
     const since = [
@@ -203,32 +210,107 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       `# cocopilot · follow-up on ${where}`,
       '',
       ...(since.length ? ['## Since your last answer', '', ...since, ''] : []),
-      `## ${Owner}'s message`,
+      `## ${Owner}'s message${steer ? ', sent while you were still on the previous one' : ''}`,
       '',
       text,
       '',
+      ...(steer ? ['Take it into account in the work in flight. A reply you already wrote for the previous message stays; this message gets its own reply file below.', ''] : []),
       `Same rules as before${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}. ${replyRule(replyPath, ref.kind)}`,
       '',
     ].join('\n');
   }
 
-  const AGENTS_TTL_MS = 5000;
-  let agentsCache = null;
-  const agentsNow = () => {
-    if (!agentsCache || Date.now() - agentsCache.at > AGENTS_TTL_MS) agentsCache = { at: Date.now(), list: reviewAgent.agentsList() };
-    return agentsCache.list;
-  };
-  const liveAgent = async (group) => (group?.agentId && (await agentsNow()).find((a) => a.id === group.agentId && alive(a))) || null;
+  // live following: SSE listeners per thread; per group, the threads waiting on its agent with the message their activity belongs to
+  const listeners = new Map();
+  const routes = new Map();
+  const sessions = new Map();
+  const following = new Set();
+  const at = (slug, id) => `${slug}\0${id}`;
+  function notify(slug, key, ev) {
+    for (const l of listeners.get(at(slug, key)) || []) l(ev);
+  }
+  const activityFile = (slug, key) => path.join(dir(slug), `${key}.activity.jsonl`);
+  const readActivity = (slug, key) => (fs.existsSync(activityFile(slug, key)) ? fs.readFileSync(activityFile(slug, key), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  function routeOf(slug, groupId) {
+    const k = at(slug, groupId);
+    if (!routes.has(k)) routes.set(k, new Map(listThreads(slug).filter((t) => t.waiting?.groupId === groupId).map((t) => [t.key, t.waiting.msgId])));
+    return routes.get(k);
+  }
+  const route = (slug, groupId, key, msgId) => (msgId ? routeOf(slug, groupId).set(key, msgId) : routeOf(slug, groupId).delete(key));
 
-  // sends the message to the group's agent, starting it (and its worktree) on the first dispatch
-  async function sendToGroup(slug, work, group, prompt, pr, known) {
-    const runner = known
-      ? { mode: 'send', agentId: known.id }
-      : group.kind === 'code'
-        ? { mode: 'branch-off', newBranch: group.branch, base: pr.sha || pr.head, slug: `cc-${group.id}` }
-        : { mode: 'cwd', cwd: REPO };
+  // a group agent's event goes to the threads waiting on it, only to the one whose reply or card file a tool call names when it names one;
+  // a settled tool call may have written a reply, read at once
+  function onActivity(slug, groupId, ev, keep) {
+    const waiting = [...routeOf(slug, groupId)];
+    const named = ev.type === 'tool' ? waiting.filter(([key]) => `${ev.summary}\n${ev.input}`.includes(`${path.sep}${key}-`)) : [];
+    const targets = named.length ? named : waiting;
+    for (const [key, msgId] of targets) {
+      const line = { msgId, ...ev };
+      if (keep) fs.appendFileSync(activityFile(slug, key), JSON.stringify(line) + '\n');
+      notify(slug, key, line);
+    }
+    if (keep && ev.type === 'tool' && ev.status !== 'running') for (const [key] of targets) ingest(slug, key).catch(() => {});
+  }
+  const streamFor = (slug, groupId) => activityEvents({ keep: (ev) => onActivity(slug, groupId, ev, true), live: (ev) => onActivity(slug, groupId, ev, false) });
+
+  // the group agent followed through the SDK, re-attached after a coco restart; null once it is gone
+  function groupSession(slug, group) {
+    const k = at(slug, group.id);
+    let p = sessions.get(k);
+    if (p && p.agentId === group.agentId) return p;
+    p?.then((s) => s?.detach());
+    p = group.agentId && group.status === 'active' ? agents.session({ agentId: group.agentId, ...streamFor(slug, group.id) }).catch(() => null) : Promise.resolve(null);
+    p.agentId = group.agentId;
+    sessions.set(k, p);
+    p.then((s) => !s && sessions.get(k) === p && sessions.delete(k));
+    return p;
+  }
+
+  // the first dispatch of a group starts its agent, in a worktree branched off the PR head for code
+  async function startSession(slug, group, pr) {
     const title = { code: () => `cc ${keyLabel(group.n)} · ${group.files[0].split('/').pop()}`, plan: () => `cc plan ${keyLabel(group.n)}`, decision: () => `cc decision ${group.decisionId}` }[group.kind]();
-    return reviewAgent.launch(runner, { title, provider: MODELS[group.model], prompt, labels: { kind: 'cc-group', work: slug, group: group.id } });
+    const worktree = group.kind === 'code' ? { mode: 'branch-off', newBranch: group.branch, base: pr.sha || pr.head, slug: `cc-${group.id}` } : null;
+    let s;
+    try {
+      s = await agents.session({ title, provider: MODELS[group.model], thinking: 'high', cwd: REPO, worktree, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
+    } catch (e) {
+      throw new HttpError(500, `paseo agent start failed: ${e.message.slice(0, 300)}`);
+    }
+    if (s.createdWorkspace) reviewAgent.timeline?.(slug, 'agent', `${worktree ? 'new branch-off worktree' : `no Paseo workspace was open on ${REPO}`}: created workspace ${s.createdWorkspace}`);
+    const p = Promise.resolve(s);
+    p.agentId = s.agentId;
+    sessions.get(at(slug, group.id))?.then((old) => old?.detach());
+    sessions.set(at(slug, group.id), p);
+    return s;
+  }
+
+  // a turn coco follows to its end: then every thread still waiting on that agent reads its reply, or learns there is none
+  function track(slug, groupId, s, turn) {
+    following.add(s.agentId);
+    turn.then(
+      async (r) => {
+        following.delete(s.agentId);
+        for (const [key, msgId] of [...routeOf(slug, groupId)]) {
+          const end = { msgId, type: 'end', status: r.status, ...(r.cost != null ? { cost: r.cost } : {}), ...(r.error ? { error: String(r.error).slice(0, 500) } : {}) };
+          fs.appendFileSync(activityFile(slug, key), JSON.stringify(end) + '\n');
+          notify(slug, key, end);
+          if (r.status !== 'timeout') await ingest(slug, key, null, { ended: true }).catch(() => {});
+        }
+        await drainQueue(slug).catch(() => {});
+      },
+      () => following.delete(s.agentId),
+    );
+  }
+
+  // a thread waiting on an agent this coco run does not follow yet (a restart, a reload): re-attach and follow its turn
+  async function follow(slug, key) {
+    const { waiting } = read(slug, key);
+    if (!waiting || following.has(waiting.agentId)) return;
+    const group = readGroup(slug, waiting.groupId);
+    if (group?.status !== 'active' || group.agentId !== waiting.agentId) return;
+    route(slug, group.id, key, waiting.msgId);
+    const s = await groupSession(slug, group);
+    if (s && !following.has(s.agentId)) track(slug, group.id, s, s.resume({ timeoutMs: TURN_MS }));
   }
 
   function post(slug, key, { text, model, groupId } = {}) {
@@ -238,31 +320,41 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: text.trim(), model, groupId, role: 'user' }));
   }
 
-  // a message (the owner's, or cocopilot's own after a failed apply) goes to the item's group agent
+  // a message (the owner's, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight
   async function dispatch(slug, work, ref, key, { text, model, groupId, role }) {
     const thread = read(slug, key);
-    if (thread.waiting) throw new HttpError(409, 'the agent is still answering');
     const item = itemOf(slug, work, ref);
     if (!item) throw new HttpError(404, `no such ${ref.kind}`);
-    const group = pickGroup(slug, ref, item, thread, { groupId, model });
+    const prior = thread.waiting;
+    const held = prior && readGroup(slug, prior.groupId);
+    const group = held?.status === 'active' ? held : pickGroup(slug, ref, item, thread, { groupId, model });
     const pr = ref.kind === 'comment' ? await prOf(work, ref.n) : null;
-    const msg = message(role, text, model ? { model } : {});
+    const msg = message(role, text, model && !held ? { model } : {});
     const replyPath = path.join(dir(slug), `${key}-${msg.id}-reply.json`);
     const cardPath = path.join(dir(slug), `${key}-${msg.id}-card.json`);
-    agentsCache = null;
-    const known = await liveAgent(group);
-    const seen = known && thread.messages.some((m) => m.agentId === known.id && m.role !== 'system');
-    const prompt = seen ? followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId: known.id }) : buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr });
-    const sha = group.kind === 'code' ? (await branchHead(group.branch)) || pr.sha : null;
-    group.agentId = await sendToGroup(slug, work, group, prompt, pr, known);
+    const live = await groupSession(slug, group);
+    const busy = live && prior?.agentId === live.agentId ? prior : null;
+    const seen = live && thread.messages.some((m) => m.agentId === live.agentId && m.role !== 'system');
+    const prompt = seen ? followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId: live.agentId, steer: Boolean(busy) }) : buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr });
+    const sha = busy ? busy.sha : group.kind === 'code' ? (await branchHead(group.branch)) || pr.sha : null;
+    const s = live || (await startSession(slug, group, pr));
+    group.agentId = s.agentId;
     if (!group.items.includes(key)) group.items.push(key);
     writeGroup(slug, group);
     if (thread.groupId && thread.groupId !== group.id) leaveGroup(slug, thread.groupId, key);
-    thread.messages.push({ ...msg, agentId: group.agentId, groupId: group.id, ...(seen ? { turn: 'follow-up' } : {}) });
+    thread.messages.push({ ...msg, agentId: s.agentId, groupId: group.id, ...(seen ? { turn: 'follow-up' } : {}), ...(busy ? { steer: true } : {}) });
     thread.groupId = group.id;
     delete thread.newGroup;
-    thread.waiting = { msgId: msg.id, groupId: group.id, agentId: group.agentId, sentAt: msg.ts, replyPath, cardPath, sha };
-    return write(slug, thread);
+    const earlier = busy ? [...(busy.earlier || []), { msgId: busy.msgId, replyPath: busy.replyPath, cardPath: busy.cardPath }] : [];
+    thread.waiting = { msgId: msg.id, groupId: group.id, agentId: s.agentId, sentAt: msg.ts, replyPath, cardPath, sha, earlier };
+    write(slug, thread);
+    if (prior && prior.groupId !== group.id) route(slug, prior.groupId, key, null);
+    route(slug, group.id, key, msg.id);
+    const steering = s.busy();
+    const sent = s.say(prompt, { timeoutMs: TURN_MS });
+    if (steering) sent.catch((e) => addNote(slug, key, `Could not reach the agent: ${e.message}`.slice(0, 500)));
+    else track(slug, group.id, s, sent);
+    return thread;
   }
 
   function leaveGroup(slug, id, key) {
@@ -342,24 +434,47 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return notes;
   }
 
-  function ingest(slug, key, agents) {
+  // replies land as the agent writes them, one per message (a steered thread waits on several); the thread stops waiting once its latest
+  // message has its reply or the agent's turn ended (ended: coco followed it; otherwise idle in `paseo ls` past the settle time)
+  function ingest(slug, key, agentList, { ended = false } = {}) {
     const { ref } = check(slug, key);
     return withLock(`${slug}:${key}`, async () => {
       const thread = read(slug, key);
       const { waiting } = thread;
       if (!waiting) return thread;
-      const replied = fs.existsSync(waiting.replyPath);
-      const agent = (agents || (await reviewAgent.agentsList())).find((a) => a.id === waiting.agentId);
-      const idle = Date.now() - Date.parse(waiting.sentAt) > SETTLE_MS && agent?.status !== 'running';
-      if (!replied && !idle) return thread;
-      const group = readGroup(slug, waiting.groupId);
-      if (group?.kind === 'code' && !group.worktree && agent?.cwd) writeGroup(slug, { ...group, worktree: expandHome(agent.cwd) });
-      const suggestion = await suggestionOf(slug, ref, waiting);
-      const reply = replied ? await readReply(waiting.replyPath, waiting.sha) : { text: suggestion ? '' : 'The agent ended its turn without writing a reply.' };
-      thread.messages.push(message(replied || suggestion ? 'agent' : 'system', reply.text, { agentId: waiting.agentId, groupId: waiting.groupId, ...(reply.blocks ? { blocks: reply.blocks } : {}), ...(suggestion ? { suggestion } : {}) }));
-      if (reply.error) thread.messages.push(message('system', `Reply not in blocks (${reply.error}): shown as text.`));
-      if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) thread.messages.push(message('system', note));
-      thread.waiting = null;
+      const asked = [...(waiting.earlier || []), { msgId: waiting.msgId, replyPath: waiting.replyPath, cardPath: waiting.cardPath }];
+      const replied = asked.filter((a) => fs.existsSync(a.replyPath));
+      let agent = null;
+      let final = ended || replied.includes(asked.at(-1));
+      if (!final && !replied.length && !following.has(waiting.agentId) && Date.now() - Date.parse(waiting.sentAt) > SETTLE_MS) {
+        agent = (agentList || (await reviewAgent.agentsList())).find((a) => a.id === waiting.agentId);
+        final = agent?.status !== 'running';
+      }
+      if (!final && !replied.length) return thread;
+      const by = { agentId: waiting.agentId, groupId: waiting.groupId };
+      const added = [];
+      const notes = [];
+      for (const a of replied) {
+        const reply = await readReply(a.replyPath, waiting.sha);
+        added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
+        if (reply.error) notes.push(message('system', `Reply not in blocks (${reply.error}): shown as text.`));
+        if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) notes.push(message('system', note));
+      }
+      if (final) {
+        const group = readGroup(slug, waiting.groupId);
+        if (group?.kind === 'code' && !group.worktree) {
+          const s = await sessions.get(at(slug, group.id))?.catch(() => null);
+          const cwd = s?.agentId === waiting.agentId ? s.cwd() : (agent || (await reviewAgent.agentsList()).find((x) => x.id === waiting.agentId))?.cwd;
+          if (cwd) writeGroup(slug, { ...group, worktree: expandHome(cwd) });
+        }
+        const suggestion = await suggestionOf(slug, ref, { ...waiting, cardPath: asked.map((a) => a.cardPath).findLast((f) => fs.existsSync(f)) || waiting.cardPath });
+        if (suggestion && added.length) added.at(-1).suggestion = suggestion;
+        else if (suggestion) added.push(message('agent', '', { ...by, suggestion }));
+        else if (!added.length) added.push(message('system', 'The agent ended its turn without writing a reply.', by));
+      }
+      thread.messages.push(...added, ...notes);
+      thread.waiting = final ? null : { ...waiting, earlier: asked.slice(0, -1).filter((a) => !replied.includes(a)) };
+      if (final) route(slug, waiting.groupId, key, null);
       return write(slug, thread);
     });
   }
@@ -485,6 +600,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   async function closeGroup(slug, id) {
     const g = readGroup(slug, id);
     if (!g) throw new HttpError(404, 'no such group');
+    sessions.get(at(slug, id))?.then((s) => s?.detach());
+    sessions.delete(at(slug, id));
+    routes.delete(at(slug, id));
     const r = g.worktree ? await exec('paseo', ['workspace', 'ls', '--json']) : { ok: false };
     const ws = r.ok ? JSON.parse(r.stdout).find((w) => w.cwd && reviewAgent.sameDir(w.cwd, g.worktree)) : null;
     if (ws) await exec('paseo', ['workspace', 'archive', ws.workspaceId]);
@@ -522,6 +640,21 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     }
   }
 
+  // the thread's stored activity, then live events and a `thread` ping on every change while the page watches; a reconnect replays it all
+  function watch(req, res, slug, key) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    const out = (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    for (const ev of readActivity(slug, key)) out(ev);
+    const k = at(slug, key);
+    if (!listeners.has(k)) listeners.set(k, new Set());
+    listeners.get(k).add(out);
+    req.on('close', () => {
+      listeners.get(k)?.delete(out);
+      if (!listeners.get(k)?.size) listeners.delete(k);
+    });
+    follow(slug, key).catch(() => {});
+  }
+
   async function handle(req, res, parts, readBody, send) {
     try {
       const [, slug, b, key, sub, msgId] = parts;
@@ -536,12 +669,17 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         return send(res, 200, summaries(slug));
       }
       if (sub === 'suggestions' && req.method === 'POST') return send(res, 200, await decideSuggestion(slug, key, msgId, (await body()).action));
+      if (sub === 'events' && req.method === 'GET') {
+        check(slug, key);
+        return watch(req, res, slug, key);
+      }
       if (req.method === 'POST') return send(res, 200, await post(slug, key, await body()));
       if (req.method === 'PUT') return send(res, 200, await regroup(slug, key, (await body()).groupId));
       const thread = await ingest(slug, key);
+      follow(slug, key).catch(() => {});
       const group = thread.groupId && readGroup(slug, thread.groupId);
-      const agent = group?.status === 'active' ? await liveAgent(group) : null;
-      return send(res, 200, { ...thread, agent: group?.agentId ? { id: group.agentId, live: Boolean(agent), status: agent?.status || null } : null });
+      const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
+      return send(res, 200, { ...thread, agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
     } catch (e) {
       return send(res, e instanceof HttpError ? e.status : 500, { error: e.message });
     }

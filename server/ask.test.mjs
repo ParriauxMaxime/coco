@@ -110,7 +110,7 @@ test('a follow-up goes to the same agent as a new turn, with only the new messag
 
   assert.equal(daemon.calls.created.length, 1);
   assert.deepEqual(daemon.calls.sent.map((s) => [s.agentId, s.text, s.busy]), [[agent.id, 'Who reviews the widgets export?', false], [agent.id, 'And the API part?', false]]);
-  assert.deepEqual(types(conv), ['user', 'text', 'end', 'user', 'text', 'tool', 'tool_result', 'end']);
+  assert.deepEqual(types(conv), ['user', 'text', 'end', 'user', 'text', 'tool', 'end']);
   assert.deepEqual(conv.proposal, { slug: 'widgets-export' });
   assert.equal(conv.turns, 2);
   assert.deepEqual(daemon.calls.archived, []);

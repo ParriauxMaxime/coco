@@ -53,11 +53,12 @@ function fakeDaemon({ workspaces = [], events = [], results = [{ status: 'idle',
   return { connect: async () => client, calls };
 }
 
-test('the follower streams text deltas, closes a message when a tool call lands, and keeps full tool inputs, results and proposals', () => {
+test('the follower streams text and thinking deltas, shows a running call once per change, closes a message when a tool call lands, and keeps full tool inputs, results and proposals', () => {
   const deltas = [];
   const entries = [];
   const asked = [];
-  const f = createFollower({ onDelta: (t) => deltas.push(t), onEntry: (e) => entries.push(e), onPermission: (p) => asked.push(p) });
+  const starts = [];
+  const f = createFollower({ onDelta: (t, kind) => deltas.push([kind, t]), onEntry: (e) => entries.push(e), onToolStart: (e) => starts.push([e.id, e.kind, e.text]), onPermission: (p) => asked.push(p) });
   const scaffold = { slug: 'widgets-export', notes: 'x'.repeat(2000) };
   for (const event of [
     tl({ type: 'user_message', text: 'the brief' }),
@@ -66,7 +67,9 @@ test('the follower streams text deltas, closes a message when a tool call lands,
     say('The widgets '),
     say('work has two PRs.'),
     mcp('c1', 'list_works', {}, null),
-    tool('c2', 'Bash', { type: 'shell', command: 'git log -1', output: 'abc widgets' }, 'running'),
+    tool('c2', 'Bash', { type: 'unknown', input: {}, output: null }, 'running'),
+    tool('c2', 'Bash', { type: 'shell', command: 'git log -1' }, 'running'),
+    tool('c2', 'Bash', { type: 'shell', command: 'git log -1' }, 'running'),
     tool('c2', 'Bash', { type: 'shell', command: 'git log -1', output: 'abc widgets' }),
     tool('c2', 'Bash', { type: 'shell', command: 'git log -1', output: 'abc widgets' }),
     { type: 'permission_requested', provider: 'claude', request: { id: 'p1', name: 'Bash', kind: 'tool', title: 'Run gh pr view 7' } },
@@ -76,7 +79,9 @@ test('the follower streams text deltas, closes a message when a tool call lands,
   ])
     f.push({ agentId: AGENT, event });
 
-  assert.deepEqual(deltas, ['The widgets ', 'work has two PRs.', 'Done.']);
+  assert.deepEqual(deltas, [['think', 'weighing '], ['think', 'the widgets'], ['text', 'The widgets '], ['text', 'work has two PRs.'], ['text', 'Done.']]);
+  assert.deepEqual(starts, [['c2', 'unknown', '{}'], ['c2', 'shell', 'git log -1']]);
+  assert.equal(entries[3].id, 'c2');
   assert.deepEqual(
     entries.map((e) => [e.type, e.name || '', e.text]),
     [['think', '', 'weighing the widgets'], ['text', '', 'The widgets work has two PRs.'], ['tool', 'mcp__cocopilot__list_works', '{}'], ['tool', 'Bash', 'git log -1'], ['tool', 'mcp__cocopilot__propose_work_scaffold', JSON.stringify(scaffold)], ['text', '', 'Done.']],
@@ -191,10 +196,10 @@ test('Ask coco streams deltas to watchers only, records text, tool calls with th
   assert.equal(run.status, 'idle');
   assert.deepEqual(run.proposal, scaffold);
   assert.equal(run.text, 'Here is the scaffold.');
-  assert.deepEqual(run.events.filter((e) => e.type !== 'meta').map((e) => e.type), ['user', 'tool', 'tool_result', 'text', 'tool', 'tool_result', 'end']);
+  assert.deepEqual(run.events.filter((e) => e.type !== 'meta').map((e) => e.type), ['user', 'tool', 'text', 'tool', 'end']);
   assert.equal(run.events.at(-1).status, 'done');
   assert.equal(run.events.find((e) => e.type === 'tool').name, 'mcp__cocopilot__list_works');
-  assert.equal(run.events.find((e) => e.type === 'tool_result').text, '[{"slug":"widgets"}]');
+  assert.deepEqual(run.events.find((e) => e.type === 'tool'), { type: 'tool', id: 'c1', name: 'mcp__cocopilot__list_works', kind: 'unknown', summary: '{}', input: '{}', output: '[{"slug":"widgets"}]', status: 'completed' });
   assert.ok(!watched.includes('delta') || watched.indexOf('delta') < watched.indexOf('text'));
   const [created] = daemon.calls.agents;
   assert.match(created.config.systemPrompt, /^You are coco/);

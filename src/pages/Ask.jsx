@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import Markdown from '../components/Markdown.jsx';
+import AgentActivity from '../components/AgentActivity.jsx';
 import { ThreadComposer } from '../components/Thread.jsx';
 import { toast } from '../components/Toast.jsx';
 import { pendingClass } from '../components/action.js';
@@ -75,29 +76,17 @@ export const ASK_STATE = {
   done: ['c-grey', 'done'],
   error: ['c-red', 'error'],
 };
-const END_NOTE = { closed: 'conversation closed: a new message starts a new agent with the conversation so far', idle: 'agent archived after an idle hour: a new message starts a new one with the conversation so far' };
-
-// the agent's side of one turn; text streams in as deltas until its finished message arrives as one text event
-function AgentTurn({ events }) {
-  const last = events.findLastIndex((e) => e.type !== 'delta');
-  const live = events.slice(last + 1).map((e) => e.text).join('');
+// the agent's side of one turn: tool and thinking rows, its text streaming until the finished message replaces it
+function AgentTurn({ events, active }) {
   return (
     <div className="thread-msg agent">
       <b>coco</b>
-      {events.map((e, i) => {
-        if (e.type === 'text') return <div key={i} style={{ margin: '4px 0' }}><Markdown text={e.text} /></div>;
-        if (e.type === 'tool') return <div key={i} className="status">⚙ {e.name.replace('mcp__cocopilot__', 'coco.')} <code>{e.input.slice(0, 120)}</code></div>;
-        if (e.type === 'tool_result') return <div key={i} className="status" style={{ opacity: .7 }}>↳ {e.text.slice(0, 160)}</div>;
-        if (e.type === 'stderr') return <div key={i} className="status danger">{e.text}</div>;
-        if (e.type === 'end') return <div key={i} className="status">— {e.status}{e.cost != null ? ` · $${Number(e.cost).toFixed(3)}` : ''}</div>;
-        if (e.type === 'meta') return <div key={i} className="status" style={{ opacity: .6 }}>{e.text}</div>;
-        if (e.type === 'closed') return <div key={i} className="status">— {END_NOTE[e.reason] || e.reason}</div>;
-        return null;
-      })}
-      {live && <div style={{ margin: '4px 0' }}><Markdown text={live} /></div>}
+      <AgentActivity events={events} active={active} />
     </div>
   );
 }
+
+const LIVE = ['delta', 'think_delta'];
 
 function UserMessage({ e, sending }) {
   const [first, ...rest] = e.text.split('\n');
@@ -115,18 +104,24 @@ export function Conversation({ run, events, pending = [], working }) {
   useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight); }, [events.length, pending.length]);
   const all = events[0]?.type === 'user' || !run.prompt ? events : [{ type: 'user', text: run.prompt }, ...events];
   const turns = [];
+  // a message sent mid-stream: the text still streaming carries over to the agent's side after it
+  let carry = [];
   for (const e of all) {
-    if (e.type === 'user') turns.push({ user: e });
-    else {
-      if (!turns.length || turns.at(-1).user) turns.push({ agent: [] });
+    if (e.type === 'user') {
+      const agent = turns.at(-1)?.agent;
+      while (agent && LIVE.includes(agent.at(-1)?.type)) carry.unshift(agent.pop());
+      turns.push({ user: e });
+    } else {
+      if (!turns.length || turns.at(-1).user) turns.push({ agent: carry });
+      carry = [];
       turns.at(-1).agent.push(e);
     }
   }
+  if (working && (!turns.length || turns.at(-1).user)) turns.push({ agent: carry });
   return (
     <div ref={ref} className="thread ask-conv">
-      {turns.map((t, i) => (t.user ? <UserMessage key={i} e={t.user} /> : <AgentTurn key={i} events={t.agent} />))}
+      {turns.map((t, i) => (t.user ? <UserMessage key={i} e={t.user} /> : <AgentTurn key={i} events={t.agent} active={working && i === turns.length - 1} />))}
       {pending.map((p) => <UserMessage key={p.nonce} e={p} sending />)}
-      {working && <div className="thread-msg agent status"><span className="spinner" aria-hidden /> coco is working… keep writing: a message reaches it mid-turn</div>}
     </div>
   );
 }

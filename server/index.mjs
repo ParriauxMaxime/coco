@@ -57,7 +57,7 @@ const lang = createLang({ REPO, config });
 const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents });
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
-const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan });
+const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads });
 threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, REPO, config, works });

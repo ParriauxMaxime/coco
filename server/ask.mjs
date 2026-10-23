@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { rowKey } from './stack.mjs';
-import { UUID, createPaseoAgents, workCwd } from './paseo-agent.mjs';
+import { UUID, activityEvents, createPaseoAgents, workCwd } from './paseo-agent.mjs';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
 // past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
@@ -47,7 +47,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   const now = () => new Date().toISOString();
   const metas = () => fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8')));
   const remember = (c, events = []) => {
-    const conv = { ...c, events, listeners: new Set(), session: null, fresh: false, delta: '', timer: null };
+    const conv = { ...c, events, listeners: new Set(), session: null, fresh: false, stream: null };
     convs.set(conv.id, conv);
     return conv;
   };
@@ -68,32 +68,17 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     for (const l of conv.listeners) l(ev);
   };
 
-  // text deltas only go to whoever is watching, batched; the finished text is pushed as one event
+  // deltas only go to whoever is watching; text, thinking and tool calls are kept
   function streamOf(conv) {
-    const flush = () => {
-      conv.timer = null;
-      if (conv.delta) for (const l of conv.listeners) l({ type: 'delta', text: conv.delta });
-      conv.delta = '';
-    };
-    return {
-      onDelta: (text) => {
-        conv.delta += text;
+    conv.stream ||= activityEvents({
+      keep: (ev) => push(conv, ev),
+      live: (ev) => {
         conv.lastActivity = now();
-        conv.timer ||= setTimeout(flush, DELTA_MS);
+        for (const l of conv.listeners) l(ev);
       },
-      onEntry: (e) => {
-        if (e.type === 'text') {
-          clearTimeout(conv.timer);
-          conv.timer = null;
-          conv.delta = '';
-          push(conv, { type: 'text', text: e.text });
-        } else if (e.type === 'tool') {
-          push(conv, { type: 'tool', name: e.name, input: JSON.stringify(e.input ?? null).slice(0, 600) });
-          if (e.output || e.error) push(conv, { type: 'tool_result', text: String(e.error || e.output).slice(0, 400) });
-        } else if (e.type === 'error') push(conv, { type: 'stderr', text: e.text.slice(0, 2000) });
-      },
-      onPermission: (what) => push(conv, { type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
-    };
+      deltaMs: DELTA_MS,
+    });
+    return conv.stream;
   }
 
   // the conversation's agent: the live one, the one it had before a coco restart, else (create) a new one in the workspace of
@@ -159,8 +144,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   // a turn's end: its proposals become the conversation's latest, cost is per agent and cumulative
   function settle(conv, r) {
-    clearTimeout(conv.timer);
-    conv.timer = null;
+    conv.stream?.flush();
     const open = OPEN.includes(conv.status);
     if (open && r.error) push(conv, { type: 'stderr', text: r.error.slice(0, 2000) });
     const sub = r.submitted || {};

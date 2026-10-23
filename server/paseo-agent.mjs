@@ -84,13 +84,17 @@ export async function workCwd({ repo, work, key = null, prInfo, exec = defaultEx
 }
 
 const toolText = (d) => (!d ? '' : d.type === 'shell' ? d.command : d.type === 'read' || d.type === 'edit' || d.type === 'write' ? d.filePath : d.type === 'search' ? d.query : d.type === 'fetch' ? d.url : d.type === 'plain_text' ? d.text || d.label || '' : d.type === 'sub_agent' ? d.description || '' : d.type === 'unknown' ? JSON.stringify(d.input ?? null) : '');
-const toolOutput = (d) => (!d ? '' : d.type === 'shell' ? d.output || '' : d.type === 'read' || d.type === 'search' ? d.content || '' : d.type === 'fetch' ? d.result || '' : d.type === 'unknown' ? (typeof d.output === 'string' ? d.output : JSON.stringify(d.output ?? null)) : '');
+const marked = (text, mark) => (text == null || text === '' ? [] : String(text).split('\n').map((l) => `${mark} ${l}`));
+const editDiff = (d) => d.unifiedDiff || [...marked(d.oldString, '-'), ...marked(d.newString, '+')].join('\n');
+const toolOutput = (d) => (!d ? '' : d.type === 'shell' ? d.output || '' : d.type === 'read' || d.type === 'search' ? d.content || '' : d.type === 'fetch' ? d.result || '' : d.type === 'edit' ? editDiff(d) : d.type === 'write' ? d.content || '' : d.type === 'sub_agent' ? d.log || '' : d.type === 'unknown' ? (d.output == null ? '' : typeof d.output === 'string' ? d.output : JSON.stringify(d.output)) : '');
 
-// Turns timeline events into entries: text and thinking once their message is complete (text deltas go to onDelta as they stream), a tool call once it has its result.
-export function createFollower({ onEntry, onDelta, onPermission } = {}) {
+// Turns timeline events into entries: text and thinking once their message is complete (their deltas go to onDelta(text, 'text' | 'think') as they stream),
+// a tool call once it has its result; onToolStart sees a running call each time what it shows changes.
+export function createFollower({ onEntry, onDelta, onToolStart, onPermission } = {}) {
   const entries = [];
   const submitted = {};
   const done = new Set();
+  const shown = new Map();
   const waiters = new Set();
   let chain = null;
   let cost = null;
@@ -121,16 +125,26 @@ export function createFollower({ onEntry, onDelta, onPermission } = {}) {
           chain = { type, id: it.messageId, text: '' };
         }
         chain.text += it.text;
-        if (type === 'text') onDelta?.(it.text);
+        onDelta?.(it.text, type);
         return;
       }
       close();
+      if (it.type === 'tool_call' && it.status === 'running' && !done.has(it.callId)) {
+        const kind = it.detail?.type || 'unknown';
+        const text = toolText(it.detail);
+        const seen = `${kind}\n${text}`;
+        if (shown.get(it.callId) !== seen) {
+          shown.set(it.callId, seen);
+          onToolStart?.({ type: 'tool', id: it.callId, name: it.name, kind, input: it.detail?.type === 'unknown' ? it.detail.input : it.detail, text, output: '', status: 'running', error: null });
+        }
+      }
       if (it.type === 'tool_call' && it.status !== 'running' && !done.has(it.callId)) {
         done.add(it.callId);
+        shown.delete(it.callId);
         const input = it.detail?.type === 'unknown' ? it.detail.input : it.detail;
         const m = it.name.match(COCO_TOOL);
         if (m && it.status === 'completed') submitted[m[1]] = input;
-        emit({ type: 'tool', name: it.name, kind: it.detail?.type || 'unknown', input, text: toolText(it.detail), output: toolOutput(it.detail), status: it.status, error: it.error ? String(it.error) : null });
+        emit({ type: 'tool', id: it.callId, name: it.name, kind: it.detail?.type || 'unknown', input, text: toolText(it.detail), output: toolOutput(it.detail), status: it.status, error: it.error ? String(it.error) : null });
       }
       if (it.type === 'error') emit({ type: 'error', text: it.message });
       return;
@@ -151,6 +165,47 @@ export function createFollower({ onEntry, onDelta, onPermission } = {}) {
       waiters.add(() => (clearTimeout(timer), resolve()));
     });
   return { push, end: close, nextSettle, entries, submitted, cost: () => cost, failure: () => failure };
+}
+
+const EXCERPT = 2000;
+const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
+export const toolEvent = (e) => ({ type: 'tool', id: e.id || null, name: e.name, kind: e.kind || 'unknown', summary: clip(String(e.text || ''), 300), input: e.kind === 'unknown' && e.input != null ? clip(JSON.stringify(e.input), EXCERPT) : '', output: clip(String(e.error || e.output || ''), EXCERPT), status: e.status });
+
+// the follower callbacks every conversation surface uses: keep() gets what is stored and replayed (text, think, tool running then settled under one id, stderr, meta),
+// live() what only a watcher sees (delta and think_delta, batched)
+export function activityEvents({ keep, live, deltaMs = 100 }) {
+  const buffer = { delta: '', think_delta: '' };
+  let timer = null;
+  const flush = () => {
+    clearTimeout(timer);
+    timer = null;
+    for (const type of ['think_delta', 'delta']) {
+      if (buffer[type]) live({ type, text: buffer[type] });
+      buffer[type] = '';
+    }
+  };
+  return {
+    onDelta: (text, kind = 'text') => {
+      buffer[kind === 'think' ? 'think_delta' : 'delta'] += text;
+      timer ||= setTimeout(flush, deltaMs);
+    },
+    onToolStart: (e) => {
+      flush();
+      keep(toolEvent(e));
+    },
+    onEntry: (e) => {
+      if (e.type === 'text' || e.type === 'think') {
+        buffer[e.type === 'text' ? 'delta' : 'think_delta'] = '';
+        flush();
+        keep({ type: e.type, text: e.text });
+      } else if (e.type === 'tool') {
+        flush();
+        keep(toolEvent(e));
+      } else if (e.type === 'error') keep({ type: 'stderr', text: e.text.slice(0, EXCERPT) });
+    },
+    onPermission: (what) => keep({ type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
+    flush,
+  };
 }
 
 export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) {
@@ -236,7 +291,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
 
   // one agent for a whole conversation, started from opts or re-attached by agentId (null once that agent is gone):
   // say() opens a turn, or steers the turn in flight like a thread follow-up; the agent lives until close()
-  async function session({ agentId = null, onEntry, onDelta, onPermission, ...opts }) {
+  async function session({ agentId = null, onEntry, onDelta, onToolStart, onPermission, flush, ...opts }) {
     let agent;
     let started;
     if (agentId) {
@@ -244,7 +299,8 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
       if (!agent) return null;
       started = { agentId, workspaceId: agent.workspaceId, createdWorkspace: null };
     } else ({ agent, ...started } = await start(opts));
-    let follow = createFollower({ onEntry, onDelta, onPermission });
+    const callbacks = { onEntry, onDelta, onToolStart, onPermission };
+    let follow = createFollower(callbacks);
     const unsubscribe = agent.timeline.subscribe((m) => follow.push(m));
     const { ready } = unsubscribe;
     ready.catch(() => {});
@@ -256,7 +312,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
 
     // prompt null waits on the turn the agent is already in; waits through permissions answered in Paseo and a steer landing as the turn ends
     async function turn(prompt, timeoutMs) {
-      follow = createFollower({ onEntry, onDelta, onPermission });
+      follow = createFollower(callbacks);
       steered = false;
       const deadline = Date.now() + timeoutMs;
       let result;
@@ -277,6 +333,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
         result = { status: 'error', error: e.message };
       }
       follow.end();
+      flush?.();
       return outcome(result, follow, timeoutMs);
     }
     const track = (p) => (inFlight = p.finally(() => (inFlight = null)));
@@ -284,12 +341,15 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
     return {
       ...started,
       busy: () => Boolean(inFlight),
+      cwd: () => agent.cwd || null,
       say(text, { timeoutMs = TIMEOUT_MS } = {}) {
         if (!inFlight) return track(turn(text, timeoutMs));
         steered = true;
         return deliver(text).then(() => ({ steered: true }));
       },
       resume: ({ timeoutMs = TIMEOUT_MS } = {}) => inFlight || track(turn(null, timeoutMs)),
+      // stops following; the agent lives on
+      detach: () => unsubscribe(),
       async close() {
         unsubscribe();
         await agent.archive().catch(() => {});

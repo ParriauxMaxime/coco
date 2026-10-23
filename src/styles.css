@@ -296,6 +296,29 @@ button.suggest .persona-chip { background: transparent; padding: 0; }
 .thread-msg .md > :first-child { margin-top: 0; }
 .thread-msg .md > :last-child { margin-bottom: 0; }
 .ask-conv { max-height: 60vh; overflow: auto; margin-bottom: 8px; }
+
+/* an agent's activity, Paseo style: one muted row per run of tool calls or thinking, expandable; its text renders as usual */
+.act-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.act { font-size: 12.5px; color: var(--mute); min-width: 0; }
+.act-row { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin-left: -6px; padding: 2px 6px; border: 0; border-radius: var(--r-sm); background: none; color: inherit; font: inherit; font-weight: 400; line-height: 1.5; text-align: left; }
+button.act-row:hover { background: var(--line-2); color: var(--ink-2); }
+.act-row .ico { flex: none; }
+.act-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-caret { opacity: .6; transition: transform .15s; }
+.act.open .act-caret { transform: rotate(90deg); }
+.act.running .act-label { animation: act-pulse 1.6s ease-in-out infinite; }
+.act-spin { width: .75em; height: .75em; border-width: 1.5px; opacity: .7; }
+@keyframes act-pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .act.running .act-label { animation: none; } }
+.act-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 2px 0 6px 6px; padding-left: 12px; border-left: 1px solid var(--line); }
+.act-call-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.act-call-head b { flex: none; font-weight: 600; color: var(--ink-2); }
+.act-call-head code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-body pre { margin: 3px 0 0; padding: 6px 8px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--ink-2); background: var(--grey-bg); border-radius: var(--r-sm); }
+.act-body pre.act-out { color: var(--mute); }
+.act-think { white-space: pre-wrap; font-style: italic; }
+.act-text { margin: 4px 0; }
+.thread-activity { padding: 0 8px; }
 .thread-toggle { box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; font-size: 12px; line-height: 1; color: var(--ink-2); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .thread-toggle:hover { color: var(--brand-700); border-color: var(--brand); background: var(--brand-50); }
 .thread-toggle.on { color: var(--brand-700); border-color: var(--brand); background: var(--brand-50); }
