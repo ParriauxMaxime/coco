@@ -105,7 +105,7 @@ you do not fully trust. To use it from another device, tunnel the port
 ```bash
 npm run serve   # API server on 127.0.0.1:8777
 npm run dev     # Vite on 127.0.0.1:8778, proxies /api
-node --test server/*.test.mjs
+node --test server/*.test.ts
 (cd dev-servers && npm test)
 ```
 

@@ -2,7 +2,7 @@
   "mcpServers": {
     "cocopilot": {
       "command": "node",
-      "args": ["/absolute/path/to/cocopilot/server/mcp.mjs"]
+      "args": ["/absolute/path/to/cocopilot/server/mcp.ts"]
     }
   }
 }

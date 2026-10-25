@@ -26,7 +26,7 @@ command, do not run it.
 
 Look for one before cloning anything. `$APP` is the first checkout found:
 
-1. The current directory, when it has `server/index.mjs` and
+1. The current directory, when it has `server/index.ts` and
    `paseo-plugin/`.
 2. A running server: `curl -s http://127.0.0.1:8777/api/setup` answers with
    `guide`, the path of this file inside `$APP`.

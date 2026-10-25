@@ -8,7 +8,7 @@ const COCO = process.env.COCO_URL || 'http://127.0.0.1:8790';
 const REPO = process.env.DEMO_REPO || '/tmp/coco-demo/widgets';
 const DATA = process.env.DEMO_DATA || '/tmp/coco-demo/data';
 const SLUG = 'invoice-csv-export';
-const { normalizePlan } = await import(path.join(APP, 'server/review-plan.mjs'));
+const { normalizePlan } = await import(path.join(APP, 'server/review-plan.ts'));
 
 const api = async (method, p, body) => {
   const r = await fetch(COCO + p, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -283,7 +283,7 @@ const replyBlocks = [
 ];
 const lines = git('show', `${head.api}:${CSV}`).split('\n');
 for (const b of replyBlocks.filter((x) => x.type === 'suggestion')) b.before = lines.slice(b.startLine - 1, b.endLine).join('\n');
-const { blocksToMarkdown } = await import(path.join(APP, 'server/blocks.mjs'));
+const { blocksToMarkdown } = await import(path.join(APP, 'server/blocks.ts'));
 fs.writeFileSync(path.join(threads, `${threadKey}.json`), JSON.stringify({
   key: threadKey, groupId: null, waiting: null,
   messages: [

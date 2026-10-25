@@ -19,7 +19,7 @@ In this guide, "the repo" is `repo.path`, "the default branch" is
 ```bash
 npm ci
 npm start                              # build, then serve on 127.0.0.1:8777
-node server/index.mjs 8777 127.0.0.1   # serve an existing build; port and bind are optional
+node server/index.ts 8777 127.0.0.1   # serve an existing build; port and bind are optional
 ```
 
 No authentication. Keep the default `127.0.0.1` bind: on any other address
@@ -196,7 +196,7 @@ as `file-<n>~<path>`. Monaco is a lazy chunk, desktop only; phones get LiteDiff.
 
 The diff base is `git merge-base <baseSha> <headSha>`, so a stacked PR shows
 its own slice, like GitHub's three-dot diff, not what the default branch gained since.
-Refs, tree, file, diff and search come from `server/code.mjs`
+Refs, tree, file, diff and search come from `server/code.ts`
 (`GET /api/code/pr/<n>/refs|tree|file|diff|search`); the head is re-resolved
 from `gh pr view` (60 s cache; `?fresh=1` skips it but shares a lookup
 younger than 10 s) and refetched when it moved.
@@ -216,12 +216,12 @@ mapped line, and no match marks it `outdated` (kept, greyed, old snippet
 shown). An outdated comment becomes `open` again if a later head matches it.
 Only `open` comments turn `outdated`: `sent`, `fixed` and `declined` keep
 their status, since a run settles a sent comment from its result. Stored by
-`server/comments.mjs` in `data/works/<slug>/comments/`.
+`server/comments.ts` in `data/works/<slug>/comments/`.
 
 ### Review plan and reading order
 
 Each changed file gets a category, computed on the server from its path and
-diff shape (`server/review-plan.mjs`, no LLM): `core` (logic), `refactor`
+diff shape (`server/review-plan.ts`, no LLM): `core` (logic), `refactor`
 (renames, formatting only, code moved from removed lines, call-site edits of
 3 lines or fewer), `wiring` (registries, config entries, `.d.ts`, index
 files, hunks that only touch imports/exports), `tests`, and `other` (docs,
@@ -281,7 +281,7 @@ mode and the hidden categories are kept per PR in localStorage.
 
 "findings ▸" on a PR card (or `findings` in the Review bar) opens `findings-<n>`;
 `findings` on the Plan opens the whole stack. One list merges every remark
-on the PR (`server/findings.mjs`, `GET /api/works/<slug>/findings?pr=<n>`):
+on the PR (`server/findings.ts`, `GET /api/works/<slug>/findings?pr=<n>`):
 
 - review pages: the work's `Review*` artifacts, `<repo.reviewsDir>/*.md` of
   the PR worktrees, and the repo's `<repo.reviewsDir>/*.md` naming a stack PR; a
@@ -355,14 +355,14 @@ Structured findings: `title` is the short row label (max 100 chars, refused
 above); a comment may carry `summary` (the full claim, shown as the lede),
 `category` (shown as the class plus one chip per parenthesized qualifier,
 security in red), `recommendation`,
-`sources` and `blocks` (`server/blocks.mjs`, validated on POST/PUT, the error
+`sources` and `blocks` (`server/blocks.ts`, validated on POST/PUT, the error
 names the field). Block types: `text`, `callout` (tone), `steps` (+ outcome),
 `diagram` (mermaid), `code`, `suggestion` (`before` read at the comment's
 sha, never trusted), `table` (sortable, cell tones), `media` (image or video
 uploaded to `POST /api/works/<slug>/media`, raw bytes, stored in
 `data/works/<slug>/media/`). Inline text: `**bold**`, `*italic*`, `` `code` ``,
 code refs, and `<risk|warn|ok|note|mute>` marks; any other tag shows as text.
-`src/components/Blocks.jsx` + `blocks.css` render them on the board and in
+`src/components/Blocks.tsx` + `blocks.css` render them on the board and in
 the diff comment zone. The server keeps `body` as the markdown twin for fix
 agents, threads and briefs; a hand edit of `body` drops the blocks.
 
@@ -382,7 +382,7 @@ failure is keyed per head sha.
 
 A work lists the flags a tester must switch on: `betaFlags: [{ code, why,
 prs? }]` (no `prs` = every PR; coco proposes them in a scaffold). With a
-`featureFlags.provider` configured (`server/feature-flags.mjs` loads it, see
+`featureFlags.provider` configured (`server/feature-flags.ts` loads it, see
 [configuration.md](configuration.md#feature-flag-provider)), the provider
 reads what your repo says about each flag and how to switch it on. The PR
 card then shows a "test with:" line, orange until the PR body names the
@@ -392,7 +392,7 @@ kit item. Without a provider, no flag line shows.
 ## PR agent and its brief
 
 "agent ▸" on a PR card opens `brief-<n>`: the Paseo agent sitting in the PR
-worktree (if any) and the brief rendered from the work (`server/briefs.mjs`;
+worktree (if any) and the brief rendered from the work (`server/briefs.ts`;
 a section with nothing to say is dropped):
 title and description, the row (branch, base, scope, siblings, what merged),
 links, precedents (`## Precedents` in the notes and `stack[i].precedents`,
@@ -420,7 +420,7 @@ Routes: `GET /api/works/<slug>/briefs/<n>`, `POST …/briefs/<n>/save|start|hand
 
 ## Kit freshness
 
-Each PR card shows a `kit:` line (`server/kit.mjs`, `GET
+Each PR card shows a `kit:` line (`server/kit.ts`, `GET
 /api/works/<slug>/kit/<n>`): one piece per `kitKinds` entry (body, diagram,
 video by default) plus Notion, each fresh (green), stale (orange, the head
 moved since it was made), missing, or present (made, head unknown); a piece
@@ -442,7 +442,7 @@ shows where it comes from, the head it was made for and the current head.
 
 ## Checklist rail
 
-Each PR card carries the gates in order (`server/gates.mjs`): self review,
+Each PR card carries the gates in order (`server/gates.ts`): self review,
 fixes picked, manual test, history tidy, kit (one gate per kit kind), push,
 ready for review, review-pr, triage, merged. A pill per
 gate (○ todo, ● running, ✓ done, struck through when skipped); the next
@@ -471,7 +471,7 @@ from a coco review plan at the current head. Stored on `stack[i].gates`
 
 When a stack PR merges while the next row is still open, the sidebar shows
 a `restack` chip on the work (from the last GitHub snapshot, no gh call) and
-the Plan a Stack keeper card (`server/stack-keeper.mjs`,
+the Plan a Stack keeper card (`server/stack-keeper.ts`,
 `GET /api/works/<slug>/stack-keeper`). The dry run lists, bottom-up, each
 open child with its tip and the exact lines: `git fetch origin <default>`,
 then `git rebase --onto origin/<default> <merged parent head> <child>` (with
@@ -496,8 +496,8 @@ touching git.
 With the dev-servers Paseo plugin installed
 ([dev-servers/OVERVIEW.md](../dev-servers/OVERVIEW.md), config in
 [configuration.md](configuration.md#dev-servers)), the Plan shows the
-servers of the work's stack (`server/dev-servers.mjs`,
-`src/workbench/tabs/DevServers.jsx`). Without it, or with it down, the hero
+servers of the work's stack (`server/dev-servers.ts`,
+`src/workbench/tabs/DevServers.tsx`). Without it, or with it down, the hero
 says `dev servers off` (hover for why) and nothing else changes.
 
 - Hero: a `Dev servers` line, `Dev servers 2/3 · 1 building` (slots taken
@@ -544,7 +544,7 @@ branch in merge order, each with its PR head or planned branch;
 
 ## Rules ledger
 
-One-line rules in three scopes (`server/rules.mjs`): global
+One-line rules in three scopes (`server/rules.ts`): global
 (`data/rules.json`, seeded on first read from `seedRules`), work (`work.rules[]`) and PR row (`stack[i].rules[]`). A
 rule is `{ id, text, source, addedAt, status: proposed | kept | retired }`.
 The kept rules, global first, then work, then PR, go into every brief
@@ -569,7 +569,7 @@ default, `models.default` for deep work); on a comment, **✓ Resolve** / **✕ 
 with the text as reason (saved in the work notes). There is no separate
 remark box. The agent answers inline and suggests a change; you approve or
 dismiss it in the thread. cocopilot is the
-orchestration layer (`server/threads.mjs`):
+orchestration layer (`server/threads.ts`):
 
 - Groups. Items on the same subject share one agent: a comment joins the
   open group of its PR whose files include the comment's file (files grow
@@ -609,7 +609,7 @@ orchestration layer (`server/threads.mjs`):
 Agents (and, before threads, the hub) start a run with
 `POST …/prs/<n>/review-runs` (`{ commentIds, commits, provider }`): open
 comments (max 30), one commit per comment or one squash, the provider
-(default `models.default`). `server/review-agent.mjs` writes a brief to
+(default `models.default`). `server/review-agent.ts` writes a brief to
 `data/works/<slug>/reviews/pr-<n>-run-<id>.md` (rules, PR and stack context,
 the work notes, the owner personas' checks, the comments in file order); the
 agent prompt is only "read this file and follow it". The runner is chosen
@@ -642,14 +642,14 @@ Anywhere markdown renders inside a work (plan, decision cards, threads,
 comments, PR body), a repo path with a folder and an extension, optionally
 `:line` or `:start-end`, as text or inline code, becomes a link: hover shows
 the lines around it, click opens the editor tab at that line
-(`src/components/CodeRefs.jsx`). Paths are read at the head of a PR: the
+(`src/components/CodeRefs.tsx`). Paths are read at the head of a PR: the
 Review and code tabs use their own PR, a decision card its `pr` field, and
 everything else the last stack row with a PR; a file missing at head is
 shown from the merge-base. Paths without a folder (`PLAN.md:245`) stay text.
 
 Go to definition, find references and hover on `.ts`, `.tsx` and `.js` files
-of the PR head. `server/lang.mjs` runs a TypeScript language service in a
-child process (`server/lang-worker.mjs`, `--max-old-space-size=4096`, so 4 GB
+of the PR head. `server/lang.ts` runs a TypeScript language service in a
+child process (`server/lang-worker.ts`, `--max-old-space-size=4096`, so 4 GB
 at most and a blow-up never takes the server down) over the head tree read
 with `git show`/`git ls-tree`, with the `paths` of `repo.tsconfig`.
 One service lives at a time, for the last head used; it starts on the first
@@ -698,7 +698,7 @@ Pull based, no webhooks:
 ## Inbox (a link → a work proposal)
 
 Sidebar `Inbox`: paste a Notion page, a PR or issue of `repo.github`, or a
-Slack permalink, plus an optional note (`server/inbox.mjs`, `POST
+Slack permalink, plus an optional note (`server/inbox.ts`, `POST
 /api/inbox { url, note }`; any other link is refused). It starts an Ask run
 (`kind: inbox`) that also loads the claude.ai Notion and Slack connectors
 when your Claude Code account has them, read tools only (`notion-fetch`,
@@ -715,7 +715,7 @@ about $1 to $2.5.
 
 `POST /api/ask` starts a Paseo agent (`coco · Ask: …`) in the repo's
 workspace, or the work's stack worktree workspace when asked from a work,
-with the cocopilot MCP server in its config (`server/mcp.mjs`, stdio:
+with the cocopilot MCP server in its config (`server/mcp.ts`, stdio:
 `list_works`, `get_work`, `list_personas`, `read_persona`,
 `suggest_personas`, `read_skill`, `list_paseo`, `github_pr`,
 `github_search`, `propose_work_scaffold`). It is a normal Paseo agent: every
@@ -783,14 +783,14 @@ zip), `POST /api/pack/import` (raw zip, 200 MB max → preview),
 ## Tests
 
 ```bash
-node --test server/*.test.mjs
+node --test server/*.test.ts
 (cd dev-servers && npm test)   # the dev-servers plugin, Node 22+
 ```
 
 ## Design notes
 
 Theme: `system` (default, follows `prefers-color-scheme`), `light` or `dark`, stored in `localStorage` `cc.theme` and applied as `data-theme` on `<html>` before first paint; cycle with the sidebar button or Cmd/Ctrl+Shift+L.
-Colours go through the CSS variables in `src/styles.css` (dark values under `html[data-theme="dark"]`); Monaco (`cocopilot-dark`) and mermaid follow via `src/theme.js`.
+Colours go through the CSS variables in `src/styles.css` (dark values under `html[data-theme="dark"]`); Monaco (`cocopilot-dark`) and mermaid follow via `src/theme.ts`.
 
 ## Pages
 
@@ -864,7 +864,7 @@ persona (your own voice), not a reviewer. See
 A work can own one Notion page: `work.notion = { pageId, url, syncedAt,
 syncedHash }`. The hero's Notion line links an existing page (paste URL) or
 creates a sub-page under one of the work's Notion links. Each sync replaces the
-whole page body with `server/notion.mjs` `renderWorkMarkdown`: title,
+whole page body with `server/notion.ts` `renderWorkMarkdown`: title,
 description (summary, Surface | Before | After table, mermaid code block),
 progress + stack table (PR, title, state, reviewers), links, notes, artifact
 names. Timeline and developer details stay out. Humans write in child pages or

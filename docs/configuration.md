@@ -1,6 +1,6 @@
 # Configuration
 
-cocopilot reads its defaults from `server/config.mjs`, then overlays the JSON
+cocopilot reads its defaults from `server/config.ts`, then overlays the JSON
 file at `$COCO_CONFIG`, or `coco.config.json` at the app root (gitignored).
 Start from the example:
 
@@ -28,7 +28,7 @@ keys, while your personal keys (`owner`, `dataDir`, `briefsDir`, `skillsDir`,
 `personasDir`, `baseUrl`, `importRoots`, `repo.path`) always stay yours.
 
 The server port and bind address are command-line arguments, not config:
-`node server/index.mjs [port=8777] [bind=127.0.0.1]`.
+`node server/index.ts [port=8777] [bind=127.0.0.1]`.
 
 ## Keys
 
@@ -241,10 +241,10 @@ coco starts every agent through the Paseo daemon with the `@getpaseo/client`
 SDK. It reaches the daemon at `PASEO_URL` when set, otherwise at the
 endpoint `paseo status` reports (`ws://127.0.0.1:6767/ws` by default), with
 `PASEO_PASSWORD` when the daemon asks for one. Ask runs and review plans get
-the cocopilot MCP server (`server/mcp.mjs`, its tools preapproved) in their
+the cocopilot MCP server (`server/mcp.ts`, its tools preapproved) in their
 session config; nothing to configure. To mount the server in another
 client, copy `server/mcp-config.example.json` and set the absolute path of
-`server/mcp.mjs`.
+`server/mcp.ts`.
 
 Every agent coco starts gets the `coco · ` title prefix, the providers of
 `models` (`fast` for Notion syncs, `default` for the rest) and runs in a
