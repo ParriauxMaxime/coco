@@ -12,26 +12,34 @@ import { fileCommentProps } from '../code/CommentZone.tsx';
 import FileList from '../code/FileList.tsx';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { prUrl, useConfig } from '../../config.ts';
+import type { Reveal } from '../code/DiffView.tsx';
+import type { LineRange, PrKey, RefFile, Refs, ReviewComment, Side } from '../types.ts';
+import type { ReactNode } from 'react';
+
+type LangStatus = { cls: string; label: string; tip?: string };
+type LangStats = { status: string; sha?: string; lastError?: string; programFiles?: number };
+type TextsState = { loading?: boolean; error?: string; unified?: string; original?: string; modified?: string; text?: string; binary?: boolean; tooLarge?: boolean };
+const NO_TAB = { kind: 'file', n: '', path: '' } as const;
 
 const LANG_POLL_MS = 3000;
-const railScroll = new Map();
-let lastClick = { path: null, at: 0 };
+const railScroll = new Map<PrKey, number>();
+let lastClick: { path: string | null; at: number } = { path: null, at: 0 };
 
-export function useLocal(key, initial) {
-  const [v, setV] = useState(() => {
+export function useLocal<T>(key: string, initial: T): [T, (next: T) => void] {
+  const [v, setV] = useState<T>(() => {
     try { const raw = localStorage.getItem(key); return raw === null ? initial : JSON.parse(raw); } catch { return initial; }
   });
-  const set = (next) => { setV(next); try { localStorage.setItem(key, JSON.stringify(next)); } catch {} };
+  const set = (next: T) => { setV(next); try { localStorage.setItem(key, JSON.stringify(next)); } catch {} };
   return [v, set];
 }
 
-export const sha256 = async (text) => {
+export const sha256 = async (text: string) => {
   if (!globalThis.crypto?.subtle) return '';
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 };
 
-export function openCodeAt(slug, n, path, line, { group, side = 'head' } = {}) {
+export function openCodeAt(slug: string, n: PrKey, path: string, line: number | null | undefined, { group, side = 'head' }: { group?: number; side?: string } = {}) {
   const files = useReviewStore.getState().prs[`${slug}:${n}`]?.refs?.files || [];
   const id = codeTabId(n, path, files);
   const s = useWorkbench.getState();
@@ -40,10 +48,10 @@ export function openCodeAt(slug, n, path, line, { group, side = 'head' } = {}) {
   return id;
 }
 
-export function useLangStatus(n, sha, path, desktop, on) {
-  const [stats, setStats] = useState(null);
+export function useLangStatus(n: PrKey, sha: string | null | undefined, path: string | undefined, desktop: boolean, on: boolean): LangStatus | null {
+  const [stats, setStats] = useState<LangStats | null>(null);
   useEffect(() => {
-    if (!sha || !desktop) return;
+    if (!sha || !desktop || !path) return;
     fetch(`/api/code/pr/${n}/open?${new URLSearchParams({ sha, path })}`).catch(() => {});
   }, [n, sha, path, desktop]);
   useEffect(() => {
@@ -60,29 +68,29 @@ export function useLangStatus(n, sha, path, desktop, on) {
   return stats.status === 'ready' ? { cls: 'c-green', label: 'ready', tip: `${stats.programFiles || 0} files in program` } : { cls: 'c-orange', label: 'indexing…' };
 }
 
-export function useTexts(n, refs, path, file, mode, desktop) {
-  const [state, setState] = useState({ loading: true });
+export function useTexts(n: PrKey, refs: Refs | null | undefined, path: string, file: RefFile | undefined, mode: 'diff' | 'file', desktop: boolean) {
+  const [state, setState] = useState<TextsState>({ loading: true });
   const headSha = refs?.headSha;
   useEffect(() => {
     if (!refs) return undefined;
     let live = true;
     setState({ loading: true });
-    const get = (sha, p) => codeApi.file(n, sha, p);
+    const get = (sha: string, p: string) => codeApi.file(n, sha, p);
     const blank = Promise.resolve({ text: '' });
-    let job;
-    if (mode === 'diff' && !desktop) job = codeApi.diff(n, path, file.previous).then((d) => ({ unified: d.unified }));
+    let job: Promise<TextsState>;
+    if (mode === 'diff' && !desktop) job = codeApi.diff(n, path, file?.previous).then((d) => ({ unified: d.unified }));
     else if (mode === 'diff') {
-      job = Promise.all([file.status === 'added' ? blank : get(refs.mergeBase, file.previous || path).catch(() => ({ text: '' })), file.status === 'removed' ? blank : get(refs.headSha, path)])
+      job = Promise.all([file?.status === 'added' ? blank : get(refs.mergeBase, file?.previous || path).catch(() => ({ text: '' })), file?.status === 'removed' ? blank : get(refs.headSha, path)])
         .then(([b, h]) => ({ original: b.text, modified: h.text, binary: b.binary || h.binary, tooLarge: b.tooLarge || h.tooLarge }));
     } else job = get(refs.headSha, path).then((f) => ({ text: f.text, binary: f.binary, tooLarge: f.tooLarge }));
-    job.then((r) => live && setState(r)).catch((e) => live && setState({ error: e.message }));
+    job.then((r) => live && setState(r)).catch((e: Error) => live && setState({ error: e.message }));
     return () => { live = false; };
   }, [n, headSha, path, mode, desktop]);
   return state;
 }
 
 // groupFor() picks the group a definition target opens in, read at click time
-export function useLangProviders(slug, n, sha, on, groupFor) {
+export function useLangProviders(slug: string, n: PrKey, sha: string | null | undefined, on: boolean, groupFor: () => number) {
   const target = useRef(groupFor);
   target.current = groupFor;
   useEffect(() => {
@@ -93,25 +101,41 @@ export function useLangProviders(slug, n, sha, on, groupFor) {
   }, [on, slug, n, sha]);
 }
 
-function DesktopBody({ slug, n, refs, mode, path, texts, comments, zone, onCreate, reveal, sbs, active, group }) {
+type DesktopBodyProps = {
+  slug: string;
+  n: PrKey;
+  refs: Refs;
+  mode: 'diff' | 'file';
+  path: string;
+  texts: TextsState;
+  comments: ReviewComment[];
+  zone: (comment: ReviewComment) => ReactNode;
+  onCreate: (range: LineRange & { side: Side }) => void;
+  reveal: Reveal | null;
+  sbs: boolean;
+  active: boolean;
+  group: number;
+};
+
+function DesktopBody({ slug, n, refs, mode, path, texts, comments, zone, onCreate, reveal, sbs, active, group }: DesktopBodyProps) {
   useLangProviders(slug, n, refs?.headSha, active, () => group);
   if (mode === 'diff') return <DiffView original={texts.original} modified={texts.modified} path={path} sideBySide={sbs} comments={comments} onCreateComment={onCreate} renderZone={zone} reveal={reveal} />;
   return <CodeView text={texts.text} path={path} reveal={reveal} comments={comments.filter((c) => c.side === 'head')} onCreateComment={onCreate} renderZone={zone} />;
 }
 
-export default function CodeTab({ tabId, group }) {
+export default function CodeTab({ tabId, group }: { tabId: string; group: number }) {
   const { slug } = useWork();
-  const { kind, n, path } = parseCodeTab(tabId);
+  const { kind, n, path } = parseCodeTab(tabId) ?? NO_TAB;
   const rv = useComments(slug, n);
   const active = useWorkbench((s) => s.groups.some((g) => g.active === tabId));
   const pending = useWorkbench((s) => s.pendingLine[tabId]);
   const desktop = useMemo(isDesktop, []);
   const [rail, setRail] = useLocal(desktop ? 'cc.rail' : 'cc.rail.m', desktop);
   const [sbs, setSbs] = useLocal('cc.sbs', innerWidth >= 1300);
-  const [reveal, setReveal] = useState(null);
+  const [reveal, setReveal] = useState<Reveal | null>(null);
   const [anchor, setAnchor] = useState('');
   const github = useConfig((s) => s.repo.github);
-  const railRef = useRef(null);
+  const railRef = useRef<HTMLElement>(null);
   const refs = rv.refs;
   const files = refs?.files || [];
   const file = files.find((f) => f.filename === path);
@@ -130,7 +154,7 @@ export default function CodeTab({ tabId, group }) {
   }, [rail, n, files.length]);
 
   const { open, pin } = useWorkbench.getState();
-  const openFile = (p, { preview }) => {
+  const openFile = (p: string, { preview }: { preview: boolean }) => {
     const id = `diff-${n}~${p}`;
     const now = Date.now();
     const dbl = !preview || (lastClick.path === p && now - lastClick.at < 450);
@@ -161,7 +185,7 @@ export default function CodeTab({ tabId, group }) {
         <span className="cc-spacer" />
         {desktop && mode === 'diff' && <button className="wb-act" onClick={() => setSbs(!sbs)}>{sbs ? 'inline' : 'side by side'}</button>}
         {lang && <span className={`chip ${lang.cls}`} title={lang.tip}>{lang.label}</span>}
-        {mode === 'diff' && github && <a className="wb-act" href={prUrl(github, n, anchor)} target="_blank" rel="noreferrer">↗ GitHub</a>}
+        {mode === 'diff' && github && <a className="wb-act" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer">↗ GitHub</a>}
       </div>
       <div className="ct-main">
         {rail && files.length > 0 && (

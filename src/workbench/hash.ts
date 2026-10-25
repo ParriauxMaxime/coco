@@ -1,12 +1,15 @@
 import { useWorkbench } from './workbench-store.ts';
+import type { WorkbenchState } from './workbench-store.ts';
 
 const TAB = /^(plan|artifacts|ask|timeline|notes|decisions|findings|rules|pr-\d+|artifact-.+|diff-.+|file-.+|review-.+|findings-.+|brief-.+|agent-.+|stack-.+)$/;
 const PANE = /^(ask|artifacts|timeline|notes|pr-\d+|artifact-.+)$/;
-const dec = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+const dec = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
 
-export const toHash = (slug, tabId, max) => `#/work/${slug}/${encodeURIComponent(tabId)}${max ? '/max' : ''}`;
+export const toHash = (slug: string, tabId: string, max: boolean) => `#/work/${slug}/${encodeURIComponent(tabId)}${max ? '/max' : ''}`;
 
-export function parseHash(hash) {
+type ParsedHash = { slug: string; legacy?: string; tabId?: string; max?: boolean };
+
+export function parseHash(hash: string): ParsedHash | null {
   const [root, slug, t, x] = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(dec);
   if (root !== 'work' || !slug || slug === 'new') return null;
   if (t === 'plan' && PANE.test(x || '')) return { slug, legacy: x };
@@ -14,13 +17,13 @@ export function parseHash(hash) {
   return { slug, tabId: t, max: x === 'max' };
 }
 
-const focusedTab = (s) => s.groups.find((g) => g.id === s.focused)?.active || 'plan';
-const allTabs = (s) => s.groups.flatMap((g) => g.tabs);
+const focusedTab = (s: WorkbenchState) => s.groups.find((g) => g.id === s.focused)?.active || 'plan';
+const allTabs = (s: WorkbenchState) => s.groups.flatMap((g) => g.tabs);
 
-export function startHashSync(slug) {
+export function startHashSync(slug: string) {
   const store = useWorkbench;
   let applying = false;
-  const write = (s, push) => {
+  const write = (s: WorkbenchState, push: boolean) => {
     const h = parseHash(location.hash);
     const tab = focusedTab(s);
     if (!h || h.slug !== slug || (h.tabId === tab && Boolean(h.max) === s.max)) return;
@@ -34,7 +37,7 @@ export function startHashSync(slug) {
     if (h.legacy) s.replaceLayout(['plan'], [h.legacy], 2);
     else if (h.tabId) {
       if (allTabs(s).includes(h.tabId)) s.activate(h.tabId); else s.open(h.tabId);
-      s.setMax(h.max);
+      s.setMax(Boolean(h.max));
     }
     applying = false;
     write(store.getState(), false);

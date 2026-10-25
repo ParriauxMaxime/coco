@@ -3,49 +3,127 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import type { ExecFileOptions } from 'node:child_process';
 import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { createNotionSync } from './notion.ts';
+import type { NotionAgents } from './notion.ts';
 import { keyLabel, rowKey } from './stack.ts';
 import { decisionBullet, decisionSummary, validChoice } from './decisions.ts';
+import type { Decision } from './decisions.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { validateNext } from './next.ts';
+import type { Config } from './config.ts';
+import { errorMessage } from './core-types.ts';
+import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Send, Work } from './core-types.ts';
 
 const HOME = os.homedir();
-const run = (cmd, args, opts = {}) =>
-  new Promise((resolve) => {
+const run = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
+  new Promise<RunResult>((resolve) => {
     execFile(cmd, args, { maxBuffer: 20 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
     });
   });
-const parseJson = (r, fallback) => {
+const parseJson = <T>(r: RunResult, fallback: T): T => {
   try {
     return JSON.parse(r.stdout);
   } catch {
     return fallback;
   }
 };
-const MIME = { '.html': 'text/html', '.md': 'text/plain', '.txt': 'text/plain', '.log': 'text/plain', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.diff': 'text/plain', '.ts': 'text/plain' };
+const MIME: Record<string, string> = { '.html': 'text/html', '.md': 'text/plain', '.txt': 'text/plain', '.log': 'text/plain', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.webm': 'video/webm', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.diff': 'text/plain', '.ts': 'text/plain' };
 
-export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
-  const hooks = {};
+interface PaseoProject {
+  name: string;
+  projectId: string;
+}
+interface PaseoWorkspace {
+  project: string;
+  cwd: string;
+}
+interface PaseoAgent {
+  cwd: string;
+  status?: string;
+}
+interface GhCheck {
+  name?: string;
+  context?: string;
+  status?: string;
+  state?: string;
+  conclusion?: string;
+}
+interface GhPr {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  reviewDecision: string | null;
+  headRefName: string;
+  baseRefName: string;
+  headRefOid?: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  mergedAt: string | null;
+  updatedAt: string;
+  statusCheckRollup?: GhCheck[];
+  reviews?: { author?: { login: string }; state: string }[];
+  labels?: { name: string }[];
+}
+interface PrFile {
+  filename: string;
+  additions: number;
+  deletions: number;
+  status: string;
+}
+interface Snapshot {
+  state?: string;
+  isDraft?: boolean;
+  ci?: string;
+  reviewDecision?: string | null;
+  sha?: string;
+  reviewers: Record<string, string>;
+}
+interface ArtifactSource {
+  pr?: string | number | null;
+  kind?: string | null;
+  headSha?: string | null;
+}
+interface DecideInput {
+  id: string;
+  choice?: Decision['choice'];
+  rationale?: string;
+  status?: string;
+  archived?: boolean;
+}
+interface NotionBody {
+  action?: string;
+  url?: string;
+  force?: boolean;
+  parentPageId?: string | null;
+  mode?: string;
+}
+
+export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents }) {
+  const hooks: { onArchived?: (number: number) => unknown } = {};
   const GITHUB = config.repo.github;
-  const noRepo = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
-  const gh = (args) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
+  const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
+  const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
   const notion = createNotionSync({ DATA, REPO, config, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => Promise.all((get(s)?.stack || []).map((x) => prInfo(x.number))), prInfo: (n) => prInfo(n) } });
   const ROOT = path.join(DATA, 'works');
   fs.mkdirSync(ROOT, { recursive: true });
-  const file = (slug) => path.join(ROOT, `${slug}.json`);
-  const artDir = (slug) => path.join(ROOT, slug, 'artifacts');
-  const prCache = new Map();
+  const file = (slug: string) => path.join(ROOT, `${slug}.json`);
+  const artDir = (slug: string) => path.join(ROOT, slug, 'artifacts');
+  const prCache = new Map<number, { at: number; data: PrInfo }>();
 
-  const list = () =>
+  const list = (): Work[] =>
     fs
       .readdirSync(ROOT)
       .filter((f) => f.endsWith('.json') && !f.endsWith('.state.json'))
-      .map((f) => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')))
+      .map((f): Work => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')))
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  const get = (slug) => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
-  const save = (work) => {
+  const get = (slug: string): Work | null => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
+  const save = (work: Work) => {
     work.updatedAt = new Date().toISOString();
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
     return work;
@@ -53,30 +131,30 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
 
   async function paseo() {
     const [p, w, a] = await Promise.all([run('paseo', ['project', 'ls', '--json']), run('paseo', ['workspace', 'ls', '--json']), run('paseo', ['ls', '--json'])]);
-    const projects = parseJson(p, []);
-    const workspaces = parseJson(w, []);
-    const agents = parseJson(a, []).map((x) => ({ ...x, cwdAbs: x.cwd.replace(/^~/, HOME) }));
+    const projects = parseJson<PaseoProject[]>(p, []);
+    const workspaces = parseJson<PaseoWorkspace[]>(w, []);
+    const paseoAgents = parseJson<PaseoAgent[]>(a, []).map((x) => ({ ...x, cwdAbs: x.cwd.replace(/^~/, HOME) }));
     const works = list();
     const tree = projects.map((pr) => {
       const ws = workspaces
         .filter((x) => x.project === pr.name)
-        .map((x) => ({ ...x, agents: agents.filter((ag) => ag.cwdAbs === x.cwd) }));
+        .map((x) => ({ ...x, agents: paseoAgents.filter((ag) => ag.cwdAbs === x.cwd) }));
       const work = works.find((wk) => wk.projectId === pr.projectId);
       return { ...pr, workspaces: ws, agentCount: ws.reduce((n, x) => n + x.agents.length, 0), running: ws.reduce((n, x) => n + x.agents.filter((ag) => ag.status === 'running').length, 0), work: work ? { slug: work.slug, title: work.title } : null };
     });
-    const orphanAgents = agents.filter((ag) => !workspaces.some((x) => x.cwd === ag.cwdAbs));
+    const orphanAgents = paseoAgents.filter((ag) => !workspaces.some((x) => x.cwd === ag.cwdAbs));
     return { projects: tree, orphanAgents, error: p.ok ? null : p.stderr };
   }
 
-  async function prInfo(number, fresh = false) {
+  async function prInfo(number: number | null | undefined, fresh = false): Promise<PrInfo> {
     if (!number) return { number: null, state: 'PLANNED', isDraft: false, ci: 'none', checks: [], reviewers: [], additions: 0, deletions: 0, changedFiles: 0 };
     const cached = prCache.get(number);
     if (!fresh && cached && Date.now() - cached.at < 60000) return cached.data;
     const r = await gh(['pr', 'view', String(number), '--repo', GITHUB, '--json', 'number,title,url,state,isDraft,reviewDecision,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,mergedAt,updatedAt,statusCheckRollup,reviews,labels,author']);
-    const d = parseJson(r, null);
+    const d = parseJson<GhPr | null>(r, null);
     if (!d) return { number, error: r.stderr.slice(0, 200) };
-    const checks = (d.statusCheckRollup || []).map((c) => ({ name: c.name || c.context, status: c.status || c.state, conclusion: c.conclusion || '' }));
-    const data = {
+    const checks = (d.statusCheckRollup || []).map((c) => ({ name: c.name || c.context || '', status: c.status || c.state || '', conclusion: c.conclusion || '' }));
+    const data: PrInfo = {
       number: d.number,
       title: d.title,
       url: d.url,
@@ -94,21 +172,21 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
       labels: (d.labels || []).map((l) => l.name),
       ci: checks.length === 0 ? 'none' : checks.some((c) => c.conclusion === 'FAILURE') ? 'failure' : checks.some((c) => c.status !== 'COMPLETED') ? 'pending' : 'success',
       checks,
-      reviewers: Object.entries((d.reviews || []).reduce((acc, rv) => ((acc[rv.author?.login || '?'] = rv.state), acc), {})).map(([login, state]) => ({ login, state })),
+      reviewers: Object.entries((d.reviews || []).reduce<Record<string, string>>((acc, rv) => ((acc[rv.author?.login || '?'] = rv.state), acc), {})).map(([login, state]) => ({ login, state })),
     };
     prCache.set(number, { at: Date.now(), data });
     return data;
   }
 
   // { [artifact name]: { pr, kind, headSha, at } }: which PR head a kit piece was made for
-  const metaFile = (slug) => path.join(artDir(slug), '.meta.json');
-  const readMeta = (slug) => (fs.existsSync(metaFile(slug)) ? JSON.parse(fs.readFileSync(metaFile(slug), 'utf8')) : {});
-  function setArtifactMeta(slug, name, meta) {
+  const metaFile = (slug: string) => path.join(artDir(slug), '.meta.json');
+  const readMeta = (slug: string): Record<string, ArtifactMeta> => (fs.existsSync(metaFile(slug)) ? JSON.parse(fs.readFileSync(metaFile(slug), 'utf8')) : {});
+  function setArtifactMeta(slug: string, name: string, meta: Omit<ArtifactMeta, 'at'>) {
     fs.mkdirSync(artDir(slug), { recursive: true });
     fs.writeFileSync(metaFile(slug), JSON.stringify({ ...readMeta(slug), [name]: { ...meta, at: new Date().toISOString() } }, null, 1));
   }
 
-  function listArtifacts(slug) {
+  function listArtifacts(slug: string): Artifact[] {
     const dir = artDir(slug);
     if (!fs.existsSync(dir)) return [];
     const meta = readMeta(slug);
@@ -123,7 +201,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
     });
   }
 
-  async function importArtifact(slug, src, label, { pr, kind, headSha } = {}) {
+  async function importArtifact(slug: string, src: string, label: string | undefined, { pr, kind, headSha }: ArtifactSource = {}) {
     const abs = path.resolve(src.replace(/^~/, HOME));
     if (!config.importRoots.some((r) => abs === r || abs.startsWith(r + path.sep))) throw new Error(`source outside allowed roots: ${abs}`);
     if (!fs.existsSync(abs)) throw new Error(`not found: ${abs}`);
@@ -132,17 +210,18 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
     const dest = path.join(artDir(slug), name);
     fs.cpSync(abs, dest, { recursive: true });
     const sha = pr && !headSha && /^\d+$/.test(String(pr)) ? (await prInfo(Number(pr))).sha : headSha;
-    if (pr || kind) setArtifactMeta(slug, name, { pr: pr ? String(pr) : null, kind: config.kitKinds.includes(kind) ? kind : null, headSha: sha || null });
+    if (pr || kind) setArtifactMeta(slug, name, { pr: pr ? String(pr) : null, kind: kind && config.kitKinds.includes(kind) ? kind : null, headSha: sha || null });
     const work = get(slug);
+    if (!work) throw new Error('no such work');
     work.timeline = work.timeline || [];
     work.timeline.unshift({ ts: new Date().toISOString(), kind: 'artifact', text: `imported ${name} from ${abs}${pr ? ` for #${pr}${sha ? ` at ${String(sha).slice(0, 10)}` : ''}` : ''}` });
     save(work);
     return { name, dest, headSha: sha || null };
   }
 
-  function personasForPaths(paths) {
+  function personasForPaths(paths: string[]) {
     if (!fs.existsSync(PERSONAS)) return [];
-    const out = [];
+    const out: { login: string; hits: number }[] = [];
     for (const f of fs.readdirSync(PERSONAS).filter((x) => x.endsWith('.md'))) {
       const globs = surfaceGlobs(fs.readFileSync(path.join(PERSONAS, f), 'utf8'));
       if (!globs.length) continue;
@@ -151,36 +230,36 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
     }
     return out.sort((a, b) => b.hits - a.hits);
   }
-  const matchGlob = (glob, p) => globToRegExp(glob).test(p);
+  const matchGlob = (glob: string, p: string) => globToRegExp(glob).test(p);
 
-  const filesCache = new Map();
-  async function prFiles(number) {
+  const filesCache = new Map<number, { at: number; data: PrFile[] }>();
+  async function prFiles(number: number): Promise<PrFile[]> {
     const cached = filesCache.get(number);
     if (cached && Date.now() - cached.at < 120000) return cached.data;
     const r = await gh(['api', '--paginate', `repos/${GITHUB}/pulls/${number}/files?per_page=100`, '--jq', '.[] | {filename,additions,deletions,status}']);
-    const data = r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    const data: PrFile[] = r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
     filesCache.set(number, { at: Date.now(), data });
     return data;
   }
-  const bodyCache = new Map();
-  async function prBody(number) {
+  const bodyCache = new Map<number, { at: number; data: string }>();
+  async function prBody(number: number): Promise<string> {
     const cached = bodyCache.get(number);
     if (cached && Date.now() - cached.at < 120000) return cached.data;
     const r = await gh(['pr', 'view', String(number), '--repo', GITHUB, '--json', 'body']);
-    const data = parseJson(r, { body: '' }).body || '';
+    const data = parseJson<{ body?: string }>(r, { body: '' }).body || '';
     bodyCache.set(number, { at: Date.now(), data });
     return data;
   }
-  const stackInfo = (work, fresh) => Promise.all((work.stack || []).map(async (s) => ({ ...(await prInfo(s.number, fresh)), key: rowKey(s), personas: s.personas || [] })));
+  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await prInfo(s.number, fresh)), key: rowKey(s), personas: s.personas || [] })));
 
-  async function plan(work) {
+  async function plan(work: Work) {
     const prs = await stackInfo(work);
     recordChanges(work.slug, prs);
     const extras = await Promise.all((work.stack || []).map(async (s) => ({ body: s.number ? await prBody(s.number) : '', files: s.number ? await prFiles(s.number) : [], personas: s.personas || [], planned: s.planned || null })));
     return prs.map((pr, i) => ({ ...pr, ...extras[i] }));
   }
 
-  async function stackFiles(work) {
+  async function stackFiles(work: Work) {
     const prs = work.stack || [];
     if (!prs.length) return [];
     const results = await Promise.all(prs.filter((s) => s.number).map((s) => gh(['pr', 'diff', String(s.number), '--repo', GITHUB, '--name-only'])));
@@ -189,18 +268,18 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
 
   const SNAPS = path.join(ROOT, '.snapshots');
   fs.mkdirSync(SNAPS, { recursive: true });
-  const snapFile = (slug) => path.join(SNAPS, `${slug}.json`);
-  function recordChanges(slug, prs) {
-    const prev = fs.existsSync(snapFile(slug)) ? JSON.parse(fs.readFileSync(snapFile(slug), 'utf8')) : {};
-    const next = {};
-    const events = [];
+  const snapFile = (slug: string) => path.join(SNAPS, `${slug}.json`);
+  function recordChanges(slug: string, prs: PrInfo[]) {
+    const prev: Record<string, Snapshot> = fs.existsSync(snapFile(slug)) ? JSON.parse(fs.readFileSync(snapFile(slug), 'utf8')) : {};
+    const next: Record<string, Snapshot> = {};
+    const events: string[] = [];
     for (const pr of prs) {
       if (pr.error || !pr.number) continue;
-      const cur = { state: pr.state, isDraft: pr.isDraft, ci: pr.ci, reviewDecision: pr.reviewDecision, sha: pr.sha, reviewers: Object.fromEntries((pr.reviewers || []).map((r) => [r.login, r.state])) };
+      const cur: Snapshot = { state: pr.state, isDraft: pr.isDraft, ci: pr.ci, reviewDecision: pr.reviewDecision, sha: pr.sha, reviewers: Object.fromEntries((pr.reviewers || []).map((r) => [r.login, r.state])) };
       next[pr.number] = cur;
       const old = prev[pr.number];
       if (!old) continue;
-      if (old.state !== cur.state) events.push(`#${pr.number} ${cur.state.toLowerCase()}${cur.state === 'MERGED' ? ' 🎉' : ''}`);
+      if (old.state !== cur.state) events.push(`#${pr.number} ${cur.state?.toLowerCase()}${cur.state === 'MERGED' ? ' 🎉' : ''}`);
       if (old.isDraft && !cur.isDraft) events.push(`#${pr.number} marked ready for review`);
       if (!old.isDraft && cur.isDraft) events.push(`#${pr.number} back to draft`);
       if (old.sha !== cur.sha) events.push(`#${pr.number} new head ${cur.sha}`);
@@ -210,6 +289,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
     fs.writeFileSync(snapFile(slug), JSON.stringify(next));
     if (events.length) {
       const work = get(slug);
+      if (!work) return events;
       work.timeline = work.timeline || [];
       for (const text of events.reverse()) work.timeline.unshift({ ts: new Date().toISOString(), kind: 'github', text });
       save(work);
@@ -217,9 +297,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
     return events;
   }
 
-  const isDone = (work, prs) => !(work.stack || []).some((s) => !s.number) && prs.length > 0 && prs.every((p) => p.state === 'MERGED' || p.state === 'CLOSED') && prs.some((p) => p.state === 'MERGED');
+  const isDone = (work: Work, prs: PrInfo[]) => !(work.stack || []).some((s) => !s.number) && prs.length > 0 && prs.every((p) => p.state === 'MERGED' || p.state === 'CLOSED') && prs.some((p) => p.state === 'MERGED');
 
-  function setArchived(slug, archived, reason) {
+  function setArchived(slug: string, archived: boolean, reason: string) {
     const work = get(slug);
     if (!work) return null;
     work.timeline = work.timeline || [];
@@ -243,47 +323,47 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
     }
   }
 
-  async function detail(slug, fresh = false) {
+  async function detail(slug: string, fresh = false) {
     const work = get(slug);
     if (!work) return null;
     const prs = await stackInfo(work, fresh);
     const events = recordChanges(slug, prs);
     const artifacts = listArtifacts(slug);
     if (!work.archived && work.autoArchive !== false && isDone(work, prs)) setArchived(slug, true, 'auto');
-    const current = events.length || get(slug).archived !== work.archived ? get(slug) : work;
+    const current = (events.length || get(slug)?.archived !== work.archived ? get(slug) : work) ?? work;
     return { ...current, prs, artifacts, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [, a, b, c] = parts;
+    const query = () => new URL(req.url ?? '', 'http://x').searchParams;
     if (!a) {
       if (req.method === 'POST') {
-        const body = JSON.parse(await readBody(req));
+        const body: Partial<Work> = JSON.parse(await readBody(req));
         if (!body.slug || !body.title) return send(res, 400, { error: 'slug and title required' });
         if (get(body.slug)) return send(res, 409, { error: 'exists' });
-        return send(res, 200, save({ stack: [], links: [], personas: [], notes: '', timeline: [{ ts: new Date().toISOString(), kind: 'created', text: 'work created' }], createdAt: new Date().toISOString(), ...body }));
+        return send(res, 200, save({ stack: [], links: [], personas: [], notes: '', timeline: [{ ts: new Date().toISOString(), kind: 'created', text: 'work created' }], createdAt: new Date().toISOString(), ...body, slug: body.slug, title: body.title }));
       }
       return send(res, 200, list());
     }
     const work = get(a);
     if (!work) return send(res, 404, { error: 'no such work' });
     if (b === 'artifacts' && req.method === 'POST') {
-      const body = JSON.parse(await readBody(req));
+      const body: { path: string; label?: string } & ArtifactSource = JSON.parse(await readBody(req));
       try {
         return send(res, 200, await importArtifact(a, body.path, body.label, { pr: body.pr, kind: body.kind, headSha: body.headSha }));
       } catch (e) {
-        return send(res, 400, { error: e.message });
+        return send(res, 400, { error: errorMessage(e) });
       }
     }
     if (b === 'personas-suggest') {
-      const url = new URL(req.url, 'http://x');
-      const pr = url.searchParams.get('pr');
+      const pr = query().get('pr');
       const files = pr ? (await prFiles(Number(pr))).map((f) => f.filename) : await stackFiles(work);
       return send(res, 200, { files: files.length, personas: personasForPaths(files) });
     }
     if (b === 'plan') return send(res, 200, { ...work, prs: await plan(work) });
     if (b === 'timeline' && req.method === 'POST') {
-      const body = JSON.parse(await readBody(req));
+      const body: { kind?: string; text: string } = JSON.parse(await readBody(req));
       work.timeline = work.timeline || [];
       work.timeline.unshift({ ts: new Date().toISOString(), kind: body.kind || 'note', text: body.text });
       return send(res, 200, save(work));
@@ -293,32 +373,32 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
       try {
         return send(res, 200, await upsertDecision(a, card));
       } catch (e) {
-        return send(res, 400, { error: e.message });
+        return send(res, 400, { error: errorMessage(e) });
       }
     }
     if (b === 'decisions' && req.method === 'POST') {
-      const body = JSON.parse(await readBody(req));
+      const body: DecideInput = JSON.parse(await readBody(req));
       const next = decide(a, body);
       return next ? send(res, 200, next) : send(res, 400, { error: 'unknown decision or option' });
     }
     if (b === 'archive' && req.method === 'POST') {
-      const body = JSON.parse((await readBody(req)) || '{}');
+      const body: { archived?: boolean } = JSON.parse((await readBody(req)) || '{}');
       return send(res, 200, setArchived(a, body.archived !== false, 'manual'));
     }
     if (b === 'notion' && req.method === 'POST') {
-      const body = JSON.parse((await readBody(req)) || '{}');
-      if (body.action === 'link') return send(res, 200, notion.link(a, body.url));
+      const body: NotionBody = JSON.parse((await readBody(req)) || '{}');
+      if (body.action === 'link') return send(res, 200, notion.link(a, body.url ?? ''));
       if (body.action === 'unlink') return send(res, 200, notion.unlink(a));
       if (body.action === 'discard-preview') return send(res, 200, notion.discardPreview(a));
       return send(res, 200, await notion.sync(a, { force: Boolean(body.force), parentPageId: body.parentPageId || null, mode: body.mode || 'apply' }));
     }
     if (b === 'notion' && req.method === 'GET') return send(res, 200, notion.status({ ...work, artifacts: listArtifacts(a) }, await Promise.all((work.stack || []).map((s) => prInfo(s.number)))));
     if (req.method === 'PUT') {
-      const body = JSON.parse(await readBody(req));
+      const body: Partial<Work> = JSON.parse(await readBody(req));
       try {
         if ('next' in body) body.next = validateNext(body.next);
       } catch (e) {
-        return send(res, 400, { error: e.message });
+        return send(res, 400, { error: errorMessage(e) });
       }
       return send(res, 200, save({ ...work, ...body, slug: work.slug }));
     }
@@ -326,11 +406,11 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
       fs.rmSync(file(a));
       return send(res, 200, { ok: true });
     }
-    const fresh = new URL(req.url, 'http://x').searchParams.get('fresh') === '1';
+    const fresh = query().get('fresh') === '1';
     return send(res, 200, await detail(a, fresh));
   }
 
-  function serveArtifact(res, urlPath, send) {
+  function serveArtifact(res: Res, urlPath: string, send: Send) {
     const rel = decodeURIComponent(urlPath.replace(/^\/works\//, ''));
     const [slug, ...rest] = rel.split('/');
     const base = artDir(slug);
@@ -340,7 +420,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
   }
 
   // a review remark (watch point or comment verdict) goes to the notes under "## Review remarks" and to the timeline
-  const remark = (slug, { n, where, verdict, text }) => {
+  const remark = (slug: string, { n, where, verdict, text }: { n: number | string; where: string; verdict: string; text: string }) => {
     const work = get(slug);
     if (!work || !text?.trim()) return null;
     const line = `- ${keyLabel(n)} ${where} ${verdict}: ${text.trim()}`;
@@ -352,7 +432,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
   };
 
   // appends a bullet at the end of a "## heading" section, creating the section at the end when missing
-  const appendUnder = (notes, heading, line) => {
+  const appendUnder = (notes: string | undefined, heading: string, line: string) => {
     const lines = (notes || '').trimEnd().split('\n');
     const start = lines.indexOf(heading);
     if (start < 0) return `${lines.join('\n')}\n\n${heading}\n${line}\n`;
@@ -364,10 +444,10 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
   };
 
   // a decision taken, reopened or archived on a work: the card state, a bullet under "## Decisions taken", a timeline entry
-  const decide = (slug, { id, choice, rationale, status, archived }) => {
+  const decide = (slug: string, { id, choice, rationale, status, archived }: DecideInput) => {
     const work = get(slug);
     const decision = (work?.decisions || []).find((d) => d.id === id);
-    if (!decision) return null;
+    if (!work || !decision) return null;
     const ts = new Date().toISOString();
     work.timeline = work.timeline || [];
     if (typeof archived === 'boolean') {
@@ -389,8 +469,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
 
   // one card added or updated by id; fields left out (e.g. the user's choice) stay as they are.
   // Typed blocks as on findings: `details` becomes their markdown twin, a suggestion's `before` is read at the card's `sha`.
-  const upsertDecision = async (slug, input) => {
+  const upsertDecision = async (slug: string, input: Partial<Decision> & { id: string }) => {
     const work = get(slug);
+    if (!work) throw new Error('no such work');
     work.decisions = work.decisions || [];
     const decision = work.decisions.find((d) => d.id === input.id);
     const card = { ...input, ...validateRich(input) };
@@ -400,7 +481,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }) {
       card.details = blocksToMarkdown({ summary: card.summary ?? decision?.summary, blocks: card.blocks, sources: card.sources ?? decision?.sources });
     }
     if (decision) Object.assign(decision, card);
-    else work.decisions.push({ status: 'pending', ...card });
+    else work.decisions.push({ status: 'pending', ...card } as Decision);
     return save(work);
   };
 

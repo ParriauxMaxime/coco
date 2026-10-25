@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import Collapsible from './Collapsible.tsx';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import { toast } from './Toast.tsx';
+import type { Rule, RuleScope, RulesResponse } from '../types.ts';
 
 const POLL_MS = 3000;
-const STATUS_CHIP = { proposed: 'c-orange', kept: 'c-green', retired: 'c-grey' };
+const STATUS_CHIP: Record<string, string> = { proposed: 'c-orange', kept: 'c-green', retired: 'c-grey' };
 
-function RuleLine({ r, scope, onSet }) {
+type Patch = { status?: string; drop?: boolean };
+type ScopeEntry = [string, string, Rule[]];
+
+function RuleLine({ r, scope, onSet }: { r: Rule; scope: string; onSet: (r: Rule, patch: Patch) => void }) {
   return (
     <div className={`list-item rule-line ${r.status}`}>
       <span className="chip c-grey">{scope}</span>
@@ -22,13 +26,13 @@ function RuleLine({ r, scope, onSet }) {
 }
 
 // global, work and PR rules on one page; slug null is the global ledger only
-export default function Rules({ slug = null }) {
-  const [data, setData] = useState(null);
+export default function Rules({ slug = null }: { slug?: string | null }) {
+  const [data, setData] = useState<RulesResponse | null>(null);
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [excerpt, setExcerpt] = useState('');
   const [target, setTarget] = useState(slug ? 'work' : 'global');
-  const load = () => api.rules(slug).then(setData, (e) => setError(e.message));
+  const load = () => api.rules(slug).then(setData, (e) => setError(errorMessage(e)));
   useEffect(() => { load(); }, [slug]);
   const running = data?.proposing?.status === 'running';
   useEffect(() => {
@@ -37,18 +41,18 @@ export default function Rules({ slug = null }) {
     return () => clearInterval(t);
   }, [running]);
 
-  const where = (t) => (t.startsWith('pr:') ? { scope: 'pr', pr: t.slice(3) } : { scope: t });
-  const run = (p) => p.then(setData, (e) => toast.error(e.message));
-  const set = (scopeKey) => (r, patch) => run(api.updateRule(slug, r.id, { ...where(scopeKey), ...patch }));
+  const where = (t: string): RuleScope => (t.startsWith('pr:') ? { scope: 'pr', pr: t.slice(3) } : { scope: t });
+  const run = (p: Promise<RulesResponse>) => p.then(setData, (e) => toast.error(errorMessage(e)));
+  const set = (scopeKey: string) => (r: Rule, patch: Patch) => run(api.updateRule(slug, r.id, { ...where(scopeKey), ...patch }));
   const add = () => text.trim() && run(api.addRule(slug, { ...where(target), text, source: 'added by hand' })).then(() => setText(''));
   const propose = () => excerpt.trim() && run(api.proposeRules(slug, { ...where(target), text: excerpt })).then(() => setExcerpt(''));
 
   if (error) return <div className="card danger">{error}</div>;
   if (!data) return <div className="sub">Loading rules…</div>;
-  const scopes = [['global', 'global', data.global], ...(slug ? [['work', 'work', data.work], ...data.prs.filter((p) => p.key).map((p) => [`pr:${p.key}`, p.title, p.rules])] : [])];
-  const live = scopes.flatMap(([k, label, list]) => list.filter((r) => r.status !== 'retired').map((r) => [k, label, r]));
-  const retired = scopes.flatMap(([k, label, list]) => list.filter((r) => r.status === 'retired').map((r) => [k, label, r]));
-  const order = { proposed: 0, kept: 1 };
+  const scopes: ScopeEntry[] = [['global', 'global', data.global], ...(slug ? [['work', 'work', data.work ?? []] satisfies ScopeEntry, ...(data.prs ?? []).filter((p) => p.key).map((p): ScopeEntry => [`pr:${p.key}`, p.title, p.rules])] : [])];
+  const live = scopes.flatMap(([k, label, list]) => list.filter((r) => r.status !== 'retired').map((r): [string, string, Rule] => [k, label, r]));
+  const retired = scopes.flatMap(([k, label, list]) => list.filter((r) => r.status === 'retired').map((r): [string, string, Rule] => [k, label, r]));
+  const order: Record<string, number> = { proposed: 0, kept: 1 };
   return (
     <div className="rules">
       <p className="sub">Kept rules go into every agent brief and review plan{slug ? ': global first, then this work, then the PR' : ''}.</p>

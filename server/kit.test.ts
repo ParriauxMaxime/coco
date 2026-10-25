@@ -23,19 +23,21 @@ test('a kit piece made for an older head is stale; a GitHub piece edited after t
 const BODY_AT = '2026-10-22T19:00:00Z';
 const work = { slug: 'w', stack: [{ number: 7 }], links: [] };
 // pr: { sha, commits: [[authoredDate, committedDate]] }; patchIds: { [sha]: patch-id }, none = the sha is not in the clone
-const kitFor = (DATA, pr, patchIds, artifacts = []) =>
+type KitPr = { sha: string; commits: string[][] };
+const kitFor = (DATA: string, pr: KitPr, patchIds: Record<string, string>, artifacts: { name: string; meta: { pr: string; kind: string; headSha: string; at: string } }[] = []) =>
   createKit({
     REPO: '/repo',
     DATA,
     config: { repo: { github: 'o/r', defaultBranch: 'main' }, kitKinds: ['body', 'diagram', 'video'] },
     works: { get: () => work, listArtifacts: () => artifacts },
     exec: async (cmd, args) => {
-      if (cmd === 'sh') return { ok: true, stdout: patchIds[args.at(-1)] ? `${patchIds[args.at(-1)]} ${args.at(-1)}\n` : '' };
+      const last = args.at(-1) ?? '';
+      if (cmd === 'sh') return { ok: true, stdout: patchIds[last] ? `${patchIds[last]} ${last}\n` : '' };
       const commits = pr.commits.map(([authoredDate, committedDate]) => ({ commit: { authoredDate, committedDate } }));
       return { ok: true, stdout: JSON.stringify({ data: { repository: { pullRequest: { body: 'text\n```mermaid\nflowchart LR\n```', lastEditedAt: BODY_AT, headRefOid: pr.sha, baseRefOid: 'base', commits: { nodes: commits } } } } }) };
     },
   });
-const states = async (kit) => Object.fromEntries((await kit.view('w', '7')).pieces.map((p) => [p.id, p.state]));
+const states = async (kit: ReturnType<typeof createKit>) => Object.fromEntries((await kit.view('w', '7')).pieces.map((p) => [p.id, p.state]));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'kit-'));
 
 test('a rebase keeps the body, diagram and artifacts fresh: same own change, new sha and commit date', async () => {

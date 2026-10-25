@@ -4,13 +4,49 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createPaseoAgents, workCwd } from './paseo-agent.ts';
+import type { Config } from './config.ts';
+import { errorMessage } from './core-types.ts';
+import type { Artifact, PrInfo, StackRow, Work } from './core-types.ts';
 
 const PAGE_ID_RE = /([0-9a-f]{32})(?:[?#]|$)/i;
 const TIMEOUT_MS = 10 * 60 * 1000;
 
+export interface AgentJson {
+  status?: string;
+  pageId?: string;
+  url?: string;
+  lastEditedTime?: string | null;
+  message?: string;
+  changes?: unknown;
+  [key: string]: unknown;
+}
+
+interface AgentRun {
+  status?: string;
+  finalText?: string;
+  text?: string;
+  cost?: unknown;
+  agentId?: string | null;
+  workspaceId?: string | null;
+  createdWorkspace?: string | null;
+  error?: string | null;
+}
+
+export interface NotionAgents {
+  run(opts: { title: string; prompt: string; provider: string; cwd: string; labels: Record<string, string>; timeoutMs: number }): Promise<AgentRun>;
+}
+
+interface NotionWorks {
+  get(slug: string): Work | null;
+  save(work: Work): unknown;
+  listArtifacts(slug: string): Artifact[];
+  detailPrs(slug: string): Promise<PrInfo[]>;
+  prInfo(number: number | null): Promise<PrInfo>;
+}
+
 // the agent ends on one line of JSON; the last such line wins, then any object in the text
-export const lastJson = (text) => {
-  const attempt = (s) => {
+export const lastJson = (text: unknown): AgentJson | null => {
+  const attempt = (s: string): AgentJson | null => {
     try {
       const v = JSON.parse(s);
       return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
@@ -27,17 +63,17 @@ export const lastJson = (text) => {
   return m ? attempt(m[0]) : null;
 };
 
-export const pageIdFromUrl = (url) => {
+export const pageIdFromUrl = (url: string | null | undefined): string | null => {
   const m = (url || '').replace(/-/g, '').match(PAGE_ID_RE);
   return m ? m[1].toLowerCase() : null;
 };
 
-const stateOf = (pr) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : 'in review');
+const stateOf = (pr: PrInfo) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : 'in review');
 
-export function renderWorkMarkdown(work, prs) {
+export function renderWorkMarkdown(work: Work, prs: PrInfo[]): string {
   const merged = prs.filter((p) => p.state === 'MERGED').length;
   const rows = prs.map((pr, i) => {
-    const row = work.stack[i] || {};
+    const row: StackRow = work.stack[i] || {};
     const planned = row.planned;
     const title = row.notionPage ? `<mention-page url="${row.notionPage.url}">${row.notionPage.title}</mention-page>` : pr.title || planned?.title || `PR ${i + 1}`;
     const ref = pr.number ? `[#${pr.number}](${pr.url})` : `planned · \`${planned?.branch || ''}\``;
@@ -45,7 +81,7 @@ export function renderWorkMarkdown(work, prs) {
     const reviewers = (row.personas || []).join(', ') || '—';
     return `| ${ref} | ${title} | ${scope} | ${stateOf(pr)} | ${reviewers} |`;
   });
-  const childPages = (work.stack || []).filter((s) => s.notionPage).map((s) => `<page url="${s.notionPage.url}">${s.notionPage.title}</page>`);
+  const childPages = (work.stack || []).flatMap((s) => (s.notionPage ? [`<page url="${s.notionPage.url}">${s.notionPage.title}</page>`] : []));
   const links = (work.links || []).map((l) => `- [${l.label}](${l.url})`);
   const artifacts = (work.artifacts || []).map((a) => `- ${a.name}`);
   return [
@@ -74,14 +110,30 @@ export function renderWorkMarkdown(work, prs) {
   ].join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
-export const hashOf = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16);
+export const hashOf = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16);
 
-export function createNotionSync({ DATA, REPO, config, works, agents = createPaseoAgents() }) {
-  const running = new Map();
-  const runsFile = (slug) => path.join(DATA, 'works', slug, 'notion-runs.jsonl');
-  const mdFile = (slug) => path.join(DATA, 'works', slug, 'notion-sync.md');
+interface SyncOptions {
+  force?: boolean;
+  parentPageId?: string | null;
+  mode?: string;
+}
 
-  function status(work, prs) {
+interface FinishArgs {
+  status?: string;
+  result?: AgentJson | null;
+  cost?: unknown;
+  agentId?: string | null;
+  workspaceId?: string | null;
+  createdWorkspace?: string | null;
+  err?: string;
+}
+
+export function createNotionSync({ DATA, REPO, config, works, agents = createPaseoAgents() }: { DATA: string; REPO: string; config: Config; works: NotionWorks; agents?: NotionAgents }) {
+  const running = new Map<string, { mode: string; startedAt: string }>();
+  const runsFile = (slug: string) => path.join(DATA, 'works', slug, 'notion-runs.jsonl');
+  const mdFile = (slug: string) => path.join(DATA, 'works', slug, 'notion-sync.md');
+
+  function status(work: Work, prs: PrInfo[]) {
     const markdown = renderWorkMarkdown(work, prs);
     const currentHash = hashOf(markdown);
     const n = work.notion || null;
@@ -92,7 +144,7 @@ export function createNotionSync({ DATA, REPO, config, works, agents = createPas
       url: n?.url || null,
       syncedAt: n?.syncedAt || null,
       currentHash,
-      outOfSync: Boolean(n?.pageId) && n.syncedHash !== currentHash,
+      outOfSync: Boolean(n?.pageId) && n?.syncedHash !== currentHash,
       editedInNotion: n?.editedInNotion || null,
       lastError: n?.lastError || null,
       running: run?.mode || null,
@@ -101,17 +153,17 @@ export function createNotionSync({ DATA, REPO, config, works, agents = createPas
     };
   }
 
-  function link(slug, url) {
+  function link(slug: string, url: string) {
     const work = works.get(slug);
     const pageId = pageIdFromUrl(url);
     if (!work || !pageId) return { error: 'no such work or no page id in url' };
     work.notion = { pageId, url, syncedAt: null, syncedHash: null, editedInNotion: null, lastError: null };
-    work.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `linked Notion page ${pageId}` });
+    (work.timeline ??= []).unshift({ ts: new Date().toISOString(), kind: 'notion', text: `linked Notion page ${pageId}` });
     works.save(work);
     return { ok: true, pageId };
   }
 
-  function discardPreview(slug) {
+  function discardPreview(slug: string) {
     const work = works.get(slug);
     if (!work?.notion) return { error: 'no such work' };
     work.notion.preview = null;
@@ -119,16 +171,16 @@ export function createNotionSync({ DATA, REPO, config, works, agents = createPas
     return { ok: true };
   }
 
-  function unlink(slug) {
+  function unlink(slug: string) {
     const work = works.get(slug);
     if (!work) return { error: 'no such work' };
     delete work.notion;
-    work.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: 'Notion page unlinked' });
+    (work.timeline ??= []).unshift({ ts: new Date().toISOString(), kind: 'notion', text: 'Notion page unlinked' });
     works.save(work);
     return { ok: true };
   }
 
-  function prompt({ work, markdown, force, parentPageId }) {
+  function prompt({ work, force, parentPageId }: { work: Work; force: boolean; parentPageId: string | null }) {
     const n = work.notion || {};
     const target = n.pageId
       ? `Target page id: ${n.pageId}. First call notion-fetch on it and read its last_edited_time. ${force ? 'Overwrite whatever is there.' : `If last_edited_time is later than ${n.syncedAt || '1970-01-01T00:00:00Z'}, STOP without writing and answer with status "edited-in-notion".`} Then notion-update-page with command replace_content, keeping the page title "${work.title}".`
@@ -138,12 +190,12 @@ Content rules: start with a gray callout "Synced from cocopilot on ${new Date().
 Final answer: one line of JSON only: {"status":"synced"|"edited-in-notion"|"error","pageId":"<id>","url":"<page url>","lastEditedTime":"<iso or null>","message":"<short>"}`;
   }
 
-  function previewPrompt({ work }) {
-    return `You prepare a Notion sync for a cocopilot work, read-only: you write nothing. Fetch Notion page ${work.notion.pageId} with notion-fetch and note its last_edited_time. Read the new content in ${mdFile(work.slug)} (Read tool). Compare the page as it is now with the new content and list what the sync would change for a reader of the page, one line per change, grouped by section (description, progress and stack, links, notes, other). Severity per change: "high" when a rule, a decision, a behaviour in the Before/After table or a whole section changes or disappears, or when text written by a human on the page (not present in the new content) would be lost; "medium" when a PR, reviewer set, open question or link changes; "low" for progress, state, dates and wording. Call out separately any paragraph on the page that is not in the new content: that is human text the sync would erase.
+  function previewPrompt({ work }: { work: Work }) {
+    return `You prepare a Notion sync for a cocopilot work, read-only: you write nothing. Fetch Notion page ${work.notion?.pageId} with notion-fetch and note its last_edited_time. Read the new content in ${mdFile(work.slug)} (Read tool). Compare the page as it is now with the new content and list what the sync would change for a reader of the page, one line per change, grouped by section (description, progress and stack, links, notes, other). Severity per change: "high" when a rule, a decision, a behaviour in the Before/After table or a whole section changes or disappears, or when text written by a human on the page (not present in the new content) would be lost; "medium" when a PR, reviewer set, open question or link changes; "low" for progress, state, dates and wording. Call out separately any paragraph on the page that is not in the new content: that is human text the sync would erase.
 Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes":[{"section":"<name>","severity":"high"|"medium"|"low","what":"<one sentence>"}],"lostText":["<verbatim first words of each paragraph that would be erased>"],"summary":"<two sentences max>"}`;
   }
 
-  function sync(slug, { force = false, parentPageId = null, mode = 'apply' } = {}) {
+  function sync(slug: string, { force = false, parentPageId = null, mode = 'apply' }: SyncOptions = {}) {
     const work = works.get(slug);
     if (!work) return { error: 'no such work' };
     if (running.has(slug)) return { error: 'sync already running' };
@@ -154,13 +206,15 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
       fs.writeFileSync(mdFile(slug), markdown);
       const hash = hashOf(markdown);
       const preview = mode === 'preview';
-      const brief = preview ? previewPrompt({ work }) : prompt({ work, markdown, force, parentPageId });
+      const brief = preview ? previewPrompt({ work }) : prompt({ work, force, parentPageId });
       const run = { mode, startedAt: new Date().toISOString() };
       running.set(slug, run);
-      const finish = ({ status = 'error', result = null, cost = null, agentId = null, workspaceId = null, createdWorkspace = null, err = '' }) => {
+      const finish = ({ status = 'error', result = null, cost = null, agentId = null, workspaceId = null, createdWorkspace = null, err = '' }: FinishArgs) => {
         running.delete(slug);
         const w = works.get(slug);
+        if (!w) return;
         const n = w.notion || {};
+        w.timeline ??= [];
         if (preview) {
           if (result?.changes) {
             w.notion = { ...n, preview: { at: new Date().toISOString(), hash, ...result }, lastError: null };
@@ -174,8 +228,9 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
           w.notion = { ...n, editedInNotion: result.lastEditedTime || 'unknown', lastError: null };
           w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `sync stopped: page edited in Notion at ${result.lastEditedTime}; confirm to overwrite` });
         } else {
-          w.notion = { ...n, lastError: result?.message || err.slice(0, 300) || `agent ${status}` };
-          w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `sync failed: ${w.notion.lastError}` });
+          const lastError = result?.message || err.slice(0, 300) || `agent ${status}`;
+          w.notion = { ...n, lastError };
+          w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `sync failed: ${lastError}` });
         }
         if (createdWorkspace) w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `no Paseo workspace was open for this work: created ${createdWorkspace}` });
         works.save(w);
@@ -185,7 +240,7 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
         .then((cwd) => agents.run({ title: `Notion ${preview ? 'preview' : 'sync'}: ${work.title}`, prompt: brief, provider: config.models.fast || config.models.default, cwd, labels: { source: 'cocopilot', kind: `notion-${mode}`, work: slug }, timeoutMs: TIMEOUT_MS }))
         .then(
           (r) => finish({ status: r.status, result: lastJson(r.finalText) || lastJson(r.text), cost: r.cost, agentId: r.agentId, workspaceId: r.workspaceId, createdWorkspace: r.createdWorkspace, err: r.error || '' }),
-          (e) => finish({ err: e.message }),
+          (e: unknown) => finish({ err: errorMessage(e) }),
         );
       return { ok: true, startedAt: run.startedAt };
     });

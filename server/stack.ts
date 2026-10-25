@@ -1,17 +1,20 @@
 // Stack row keys: a PR number, or `b:<branch with / as :>` for a local branch not pushed as a PR yet.
+import type { RowKey, StackRow, Work, Works } from './core-types.ts';
+
 const LOCAL = /^b:[\w][\w.:-]*$/;
 const BRANCH = /^[\w][\w./-]*$/;
 
-export const rowKey = (row) => (row?.number ? row.number : BRANCH.test(row?.planned?.branch || '') ? `b:${row.planned.branch.replaceAll('/', ':')}` : null);
-export const parseKey = (k) => (/^\d+$/.test(String(k)) ? Number(k) : LOCAL.test(String(k)) ? String(k) : null);
-export const isLocal = (k) => typeof k === 'string' && LOCAL.test(k);
-export const branchOf = (k) => String(k).slice(2).replaceAll(':', '/');
-export const fileKey = (k) => String(k).replaceAll(':', '~');
-export const keyLabel = (k) => (isLocal(k) ? branchOf(k) : `#${k}`);
+export const rowKey = (row: StackRow | null | undefined): RowKey | null => (row?.number ? row.number : BRANCH.test(row?.planned?.branch || '') ? `b:${row?.planned?.branch?.replaceAll('/', ':')}` : null);
+export const parseKey = (k: unknown): RowKey | null => (/^\d+$/.test(String(k)) ? Number(k) : LOCAL.test(String(k)) ? String(k) : null);
+export const isLocal = (k: unknown): k is `b:${string}` => typeof k === 'string' && LOCAL.test(k);
+export const branchOf = (k: RowKey): string => String(k).slice(2).replaceAll(':', '/');
+export const fileKey = (k: unknown): string => String(k).replaceAll(':', '~');
+export const keyLabel = (k: RowKey | null): string => (isLocal(k) ? branchOf(k) : `#${k}`);
 
 // work, row index and parent row of a key; a local key is looked up across works, live ones first
-export function findRow(works, key, slug) {
-  const pool = slug ? [works.get(slug)].filter(Boolean) : works.list().sort((a, b) => Boolean(a.archived) - Boolean(b.archived));
+export function findRow(works: Pick<Works, 'get' | 'list'>, key: RowKey | null, slug?: string): { work: Work; index: number; row: StackRow; parent: StackRow | null } | null {
+  const one = slug ? works.get(slug) : undefined;
+  const pool = slug ? (one ? [one] : []) : works.list().sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)));
   for (const work of pool) {
     const stack = work.stack || [];
     const index = stack.findIndex((s) => rowKey(s) === key);

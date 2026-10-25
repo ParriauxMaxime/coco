@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.ts';
+import type { AgentsResponse } from '../types.ts';
 
-const statusChip = (s) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
+const statusChip = (s: string) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
 
 export default function Agents() {
-  const [data, setData] = useState(null);
-  const [open, setOpen] = useState(null);
+  const [data, setData] = useState<AgentsResponse | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [log, setLog] = useState('');
   const refresh = () => api.agents().then(setData);
   useEffect(() => {
@@ -13,7 +14,7 @@ export default function Agents() {
     const t = setInterval(refresh, 15000);
     return () => clearInterval(t);
   }, []);
-  const show = async (id) => {
+  const show = async (id: string) => {
     if (open === id) return setOpen(null);
     setOpen(id);
     setLog('loading…');

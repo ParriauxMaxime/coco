@@ -4,17 +4,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { Socket } from 'node:net';
 import { createCode } from './code.ts';
 
-let dir, code, base, head;
-const git = (...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
+let dir = '';
+let code: ReturnType<typeof createCode>;
+let base = '';
+let head = '';
+const git = (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
 
 before(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-test-'));
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 't@t');
   git('config', 'user.name', 't');
-  const w = (f, c) => {
+  const w = (f: string, c: string | Buffer) => {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
     fs.writeFileSync(path.join(dir, f), c);
   };
@@ -33,7 +38,7 @@ before(() => {
   git('add', '-A');
   git('commit', '-qm', 'two');
   head = git('rev-parse', 'HEAD');
-  code = createCode({ REPO: dir, config: { repo: { github: 'acme/widgets', defaultBranch: 'main' } }, works: {} });
+  code = createCode({ REPO: dir, config: { repo: { github: 'acme/widgets', defaultBranch: 'main' } }, works: { get: () => null, list: () => [] } });
 });
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -53,11 +58,14 @@ test('prFilesFromGit shape', async () => {
 
 test('file: 404 outside tree, binary flag, text, traversal', async () => {
   await code.ensureRefs(2, { headSha: head, baseSha: base });
-  const stub = (n) => `/api/code/pr/2/${n}`;
-  const seed = async (u) => {
-    const out = {};
+  const stub = (n: string) => `/api/code/pr/2/${n}`;
+  const seed = async (u: string) => {
+    const out: { status?: number; body: { binary?: boolean; text?: string } } = { body: {} };
     const p = new URL(u, 'http://x').pathname.split('/').filter(Boolean).slice(1);
-    await code.handle({ method: 'GET', url: u }, {}, p, null, (_r, status, body) => Object.assign(out, { status, body }));
+    const req = new IncomingMessage(new Socket());
+    req.method = 'GET';
+    req.url = u;
+    await code.handle(req, new ServerResponse(req), p, async () => '', (_r, status, body) => void Object.assign(out, { status, body }));
     return out;
   };
   assert.equal((await seed(stub('file?ref=head&path=missing.txt'))).status, 404);

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
+import type { SetupStatus, StartedAgent } from '../types.ts';
 
 const DISMISSED = 'cc.onboarded';
-const dismissedIds = () => {
+const dismissedIds = (): string[] => {
   try {
-    const ids = JSON.parse(localStorage.getItem(DISMISSED));
+    const ids = JSON.parse(localStorage.getItem(DISMISSED) ?? 'null');
     return Array.isArray(ids) ? ids : [];
   } catch {
     return [];
@@ -14,12 +15,12 @@ const dismissedIds = () => {
 // setup checklist on the Dashboard, first install or update: ticks derived by the server, a command to copy per step, or an agent that finishes the setup.
 // Hide covers the steps open at that moment; a step that opens later, after an update, brings the card back.
 export default function Onboarding() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<SetupStatus | null>(null);
   const [error, setError] = useState('');
-  const [agent, setAgent] = useState(null);
+  const [agent, setAgent] = useState<StartedAgent | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(dismissedIds);
-  const load = () => api.setup().then((d) => { setData(d); setError(''); }, (e) => setError(e.message));
+  const load = () => api.setup().then((d) => { setData(d); setError(''); }, (e) => setError(errorMessage(e)));
   useEffect(() => {
     load();
   }, []);
@@ -33,7 +34,7 @@ export default function Onboarding() {
       setAgent(await api.setupAgent());
       setError('');
     } catch (e) {
-      setError(e.message);
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -56,7 +57,7 @@ export default function Onboarding() {
         <div key={s.id} className="list-item">
           <span className={`gate ${s.done ? 'done' : ''}`}>{s.done ? '✓' : '○'} {s.label}{s.optional ? ' · optional' : ''}</span>
           {!s.done && <div className="sub" style={{ margin: '4px 0 0' }}>{s.hint}</div>}
-          {!s.done && s.command && <div className="row" style={{ marginTop: 4 }}><code className="gate-cmd">{s.command}</code><button type="button" className="sm" onClick={() => navigator.clipboard?.writeText(s.command)}>copy</button></div>}
+          {!s.done && s.command && <div className="row" style={{ marginTop: 4 }}><code className="gate-cmd">{s.command}</code><button type="button" className="sm" onClick={() => navigator.clipboard?.writeText(s.command ?? '')}>copy</button></div>}
           {!s.done && s.id === 'work' && <div className="row" style={{ marginTop: 4 }}><a href="#/projects"><button type="button" className="sm">Attach a project</button></a><a href="#/inbox"><button type="button" className="sm">From a link</button></a></div>}
         </div>
       ))}

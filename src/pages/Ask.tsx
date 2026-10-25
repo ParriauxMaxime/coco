@@ -1,10 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import Markdown from '../components/Markdown.tsx';
 import AgentActivity from '../components/AgentActivity.tsx';
 import { ThreadComposer } from '../components/Thread.tsx';
 import { toast } from '../components/Toast.tsx';
 import { pendingClass } from '../components/action.ts';
+import type { ActivityEvent, AskRun } from '../types.ts';
+
+export type Run = Partial<AskRun> & { id: string };
+type Pending = { nonce: string; text: string };
+type StartFn = (prompt: string, nonce: string) => Promise<{ id: string }>;
 
 const EXAMPLES = [
   'Scaffold a work for adding CSV export to the invoices page, mirroring the PDF export stack. Who reviews each PR?',
@@ -13,15 +18,15 @@ const EXAMPLES = [
   'Summarise the csv-export work: what is blocked, what is next.',
 ];
 
-export function Proposal({ run, onApplied, label = 'Apply' }) {
+export function Proposal({ run, onApplied, label = 'Apply' }: { run: Run; onApplied?: (slug: string) => void; label?: string }) {
   const p = run.proposal;
   const [status, setStatus] = useState('');
   if (!p) return null;
-  const apply = async (replaceStack) => {
+  const apply = async (replaceStack: boolean) => {
     setStatus('applying…');
     const r = await api.applyAsk(run.id, { replaceStack });
-    setStatus(r.ok ? `${r.created ? 'created' : 'updated'} work ${r.slug}` : r.error);
-    if (r.ok) onApplied?.(r.slug);
+    setStatus(r.ok ? `${r.created ? 'created' : 'updated'} work ${r.slug}` : r.error ?? '');
+    if (r.ok && r.slug) onApplied?.(r.slug);
   };
   return (
     <div className="card" style={{ borderColor: 'var(--brand)', boxShadow: '0 0 0 3px var(--brand-100)' }}>
@@ -45,14 +50,14 @@ export function Proposal({ run, onApplied, label = 'Apply' }) {
   );
 }
 
-function AgentProposal({ run }) {
+function AgentProposal({ run }: { run: Run }) {
   const p = run.agentProposal;
   const [status, setStatus] = useState('');
   if (!p) return null;
   const start = async () => {
     setStatus('starting…');
     const r = await api.startAskAgent(run.id);
-    setStatus(r.ok ? `started ${r.agentId ? r.agentId.slice(0, 8) : ''}` : r.error);
+    setStatus(r.ok ? `started ${r.agentId ? r.agentId.slice(0, 8) : ''}` : r.error ?? '');
   };
   return (
     <div className="card" style={{ borderColor: 'var(--brand)', boxShadow: '0 0 0 3px var(--brand-100)' }}>
@@ -68,7 +73,7 @@ function AgentProposal({ run }) {
 }
 
 // conversation states (older one-shot runs read done or error)
-export const ASK_STATE = {
+export const ASK_STATE: Record<string, [string, string]> = {
   running: ['c-blue', 'working'],
   idle: ['c-green', 'agent live'],
   parked: ['c-grey', 'agent archived after an idle hour'],
@@ -77,7 +82,7 @@ export const ASK_STATE = {
   error: ['c-red', 'error'],
 };
 // the agent's side of one turn: tool and thinking rows, its text streaming until the finished message replaces it
-function AgentTurn({ events, active }) {
+function AgentTurn({ events, active }: { events: ActivityEvent[]; active: boolean }) {
   return (
     <div className="thread-msg agent">
       <b>coco</b>
@@ -88,39 +93,45 @@ function AgentTurn({ events, active }) {
 
 const LIVE = ['delta', 'think_delta'];
 
-function UserMessage({ e, sending }) {
-  const [first, ...rest] = e.text.split('\n');
+function UserMessage({ e, sending }: { e: { text?: string; steer?: boolean }; sending?: boolean }) {
+  const text = e.text ?? '';
+  const [first, ...rest] = text.split('\n');
   return (
     <div className="thread-msg user" style={sending ? { opacity: .6 } : undefined}>
       <b>You{e.steer ? ' · while coco worked' : ''}{sending ? ' · sending…' : ''}</b>
-      {rest.length && e.text.length > 400 ? <details><summary>{first}</summary><Markdown text={rest.join('\n')} /></details> : <Markdown text={e.text} />}
+      {rest.length && text.length > 400 ? <details><summary>{first}</summary><Markdown text={rest.join('\n')} /></details> : <Markdown text={text} />}
     </div>
   );
 }
 
 // a run's events as a chat: each message of the owner, then what coco did and said until the next one
-export function Conversation({ run, events, pending = [], working }) {
-  const ref = useRef(null);
+type Turn = { user?: ActivityEvent; agent?: ActivityEvent[] };
+
+export function Conversation({ run, events, pending = [], working }: { run: Run; events: ActivityEvent[]; pending?: Pending[]; working: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.scrollTo(0, ref.current.scrollHeight); }, [events.length, pending.length]);
-  const all = events[0]?.type === 'user' || !run.prompt ? events : [{ type: 'user', text: run.prompt }, ...events];
-  const turns = [];
+  const all: ActivityEvent[] = events[0]?.type === 'user' || !run.prompt ? events : [{ type: 'user', text: run.prompt }, ...events];
+  const turns: Turn[] = [];
   // a message sent mid-stream: the text still streaming carries over to the agent's side after it
-  let carry = [];
+  let carry: ActivityEvent[] = [];
   for (const e of all) {
     if (e.type === 'user') {
       const agent = turns.at(-1)?.agent;
-      while (agent && LIVE.includes(agent.at(-1)?.type)) carry.unshift(agent.pop());
+      while (agent && LIVE.includes(agent.at(-1)?.type ?? '')) {
+        const streaming = agent.pop();
+        if (streaming) carry.unshift(streaming);
+      }
       turns.push({ user: e });
     } else {
-      if (!turns.length || turns.at(-1).user) turns.push({ agent: carry });
+      if (!turns.length || turns.at(-1)?.user) turns.push({ agent: carry });
       carry = [];
-      turns.at(-1).agent.push(e);
+      turns.at(-1)?.agent?.push(e);
     }
   }
-  if (working && (!turns.length || turns.at(-1).user)) turns.push({ agent: carry });
+  if (working && (!turns.length || turns.at(-1)?.user)) turns.push({ agent: carry });
   return (
     <div ref={ref} className="thread ask-conv">
-      {turns.map((t, i) => (t.user ? <UserMessage key={i} e={t.user} /> : <AgentTurn key={i} events={t.agent} active={working && i === turns.length - 1} />))}
+      {turns.map((t, i) => (t.user ? <UserMessage key={i} e={t.user} /> : <AgentTurn key={i} events={t.agent ?? []} active={working && i === turns.length - 1} />))}
       {pending.map((p) => <UserMessage key={p.nonce} e={p} sending />)}
     </div>
   );
@@ -129,18 +140,18 @@ export function Conversation({ run, events, pending = [], working }) {
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
 
 // one conversation streamed over SSE; the stream stays open for the follow-ups, and a reconnect replays the whole log
-export function useAskConversation(kind, workSlug = null) {
-  const [run, setRun] = useState(null);
-  const [events, setEvents] = useState([]);
-  const [pending, setPending] = useState([]);
-  const [history, setHistory] = useState([]);
-  const source = useRef(null);
+export function useAskConversation(kind: string, workSlug: string | null = null) {
+  const [run, setRun] = useState<Run | null>(null);
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [history, setHistory] = useState<AskRun[]>([]);
+  const source = useRef<EventSource | null>(null);
   const loadHistory = () => api.asks().then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind && (!workSlug || h.workSlug === workSlug))), () => {});
   useEffect(() => {
     loadHistory();
     return () => source.current?.close();
   }, []);
-  const watch = (conv) => {
+  const watch = (conv: Run) => {
     source.current?.close();
     setRun(conv);
     setEvents([]);
@@ -148,7 +159,7 @@ export function useAskConversation(kind, workSlug = null) {
     source.current = es;
     es.onopen = () => setEvents([]);
     es.onmessage = (m) => {
-      const ev = JSON.parse(m.data);
+      const ev: ActivityEvent = JSON.parse(m.data);
       setEvents((prev) => [...prev, ev]);
       if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
       if (ev.type === 'end' || ev.type === 'closed') {
@@ -158,12 +169,13 @@ export function useAskConversation(kind, workSlug = null) {
     };
   };
   // the first message starts the conversation through start(nonce), any later one goes to its agent
-  const send = async (text, start) => {
+  const send = async (text: string, start?: (nonce: string) => Promise<{ id: string }>) => {
     const nonce = nonceOf();
     setPending((p) => [...p, { nonce, text }]);
     try {
       if (run) await api.askSay(run.id, { text, nonce });
       else {
+        if (!start) throw new Error('no conversation to start');
         const { id } = await start(nonce);
         watch({ id, prompt: text, kind, status: 'running' });
         loadHistory();
@@ -171,11 +183,11 @@ export function useAskConversation(kind, workSlug = null) {
       return true;
     } catch (e) {
       setPending((p) => p.filter((x) => x.nonce !== nonce));
-      toast.error(e.message);
+      toast.error(errorMessage(e));
       return false;
     }
   };
-  const open = (h) => {
+  const open = (h: Run) => {
     setPending([]);
     watch(h);
   };
@@ -190,18 +202,21 @@ export function useAskConversation(kind, workSlug = null) {
   const state = working ? 'running' : mark?.conversation || run?.status || null;
   return { run, events, pending, history, working, state, watch, send, open, reset, loadHistory };
 }
+type AskConvo = ReturnType<typeof useAskConversation>;
 
 // the conversation card: its messages, then the composer that stays open while coco works
-export function AskConversation({ convo, start, placeholder, examples = [] }) {
+type ConversationProps = { convo: AskConvo; start?: StartFn; placeholder: string; examples?: string[] };
+export function AskConversation({ convo, start, placeholder, examples = [] }: ConversationProps) {
   const { run, events, pending, working, state, send, reset } = convo;
   const [closing, setClosing] = useState(false);
-  const [chip, label] = ASK_STATE[state] || ['c-grey', state];
+  const [chip, label] = (state && ASK_STATE[state]) || ['c-grey', state];
   const close = async () => {
+    if (!run) return;
     setClosing(true);
     try {
       await api.closeAsk(run.id);
     } catch (e) {
-      toast.error(e.message);
+      toast.error(errorMessage(e));
     } finally {
       setClosing(false);
     }
@@ -228,14 +243,15 @@ export function AskConversation({ convo, start, placeholder, examples = [] }) {
         rows={run ? 2 : 4}
         sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'}
         placeholder={placeholder}
-        onSend={(text) => send(text, (nonce) => start(text, nonce))}
+        onSend={(text) => send(text, start && ((nonce) => start(text, nonce)))}
       />
-      {!run && examples.length > 0 && <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>{examples.map((e, i) => <button key={i} type="button" className="sm" onClick={() => send(e, (nonce) => start(e, nonce))}>{e.slice(0, 48)}…</button>)}</div>}
+      {!run && examples.length > 0 && <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>{examples.map((e, i) => <button key={i} type="button" className="sm" onClick={() => send(e, start && ((nonce) => start(e, nonce)))}>{e.slice(0, 48)}…</button>)}</div>}
     </div>
   );
 }
 
-export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.slice(0, 110) }) {
+type HistoryProps = { title: string; history: AskRun[]; onOpen: (h: AskRun) => void; label?: (h: AskRun) => string };
+export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.slice(0, 110) }: HistoryProps) {
   if (!history.length) return null;
   return (
     <>
@@ -246,7 +262,7 @@ export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.sli
           return (
             <div key={h.id} className="list-item row" style={{ justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => onOpen(h)}>
               <span><span className={`chip ${chip}`}>{text}</span> {label(h)}</span>
-              <span className="status">{h.startedAt.slice(0, 16).replace('T', ' ')}{h.turns > 1 ? ` · ${h.turns} turns` : ''}{h.proposal ? ` · ${h.proposal.title || 'proposal'}` : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span>
+              <span className="status">{h.startedAt.slice(0, 16).replace('T', ' ')}{(h.turns ?? 0) > 1 ? ` · ${h.turns} turns` : ''}{h.proposal ? ` · ${h.proposal.title || 'proposal'}` : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span>
             </div>
           );
         })}
@@ -255,7 +271,7 @@ export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.sli
   );
 }
 
-export default function Ask({ workSlug }) {
+export default function Ask({ workSlug }: { workSlug?: string }) {
   const convo = useAskConversation('ask', workSlug);
   const { run, open } = convo;
   return (

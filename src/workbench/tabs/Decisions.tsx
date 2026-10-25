@@ -7,20 +7,23 @@ import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { useAction, pendingClass } from '../../components/action.ts';
 import { decisionBullet, isLive, validChoice } from '../../../server/decisions.ts';
 import { useWork } from '../use-work.ts';
+import type { ReactNode } from 'react';
+import type { Decision, WorkDetail } from '../../types.ts';
+import type { DecisionChoice, DecisionView } from '../types.ts';
 
-export const decisionCounts = (w) => {
+export const decisionCounts = (w: Pick<WorkDetail, 'decisions'>) => {
   const live = (w.decisions || []).filter(isLive);
   return { taken: live.filter((d) => d.status === 'taken').length, total: live.length };
 };
 
-const takenMarkdown = (decisions) => decisions.filter((d) => d.status === 'taken' && isLive(d)).map(decisionBullet).join('\n');
-const inFilter = (d, filter) => (filter === 'archived' ? !isLive(d) : isLive(d) && (filter === 'all' || (filter === 'taken') === (d.status === 'taken')));
+const takenMarkdown = (decisions: Decision[]) => decisions.filter((d) => d.status === 'taken' && isLive(d)).map(decisionBullet).join('\n');
+const inFilter = (d: Decision, filter: string) => (filter === 'archived' ? !isLive(d) : isLive(d) && (filter === 'all' || (filter === 'taken') === (d.status === 'taken')));
 
-const initialChoice = (d) => d.choice || (d.rows ? Object.fromEntries(d.rows.filter((r) => r.recommended).map((r) => [r.key, r.recommended])) : d.recommended || '');
+const initialChoice = (d: DecisionView): DecisionChoice => d.choice || (d.rows ? Object.fromEntries(d.rows.flatMap((r): [string, string][] => (r.recommended ? [[r.key, r.recommended]] : []))) : d.recommended || '');
 
 // content cut at `max` px with a "show more" toggle once it grows past it (mermaid diagrams render late)
-function Clamp({ text, max = 140, children }) {
-  const ref = useRef(null);
+function Clamp({ text, max = 140, children }: { text?: string; max?: number; children?: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -33,21 +36,21 @@ function Clamp({ text, max = 140, children }) {
   const closed = long && !open;
   return (
     <div className="decision-md">
-      <div ref={ref} className={closed ? 'decision-clamp' : ''} style={closed ? { maxHeight: max } : null}>{children || <Markdown text={text} />}</div>
+      <div ref={ref} className={closed ? 'decision-clamp' : ''} style={closed ? { maxHeight: max } : undefined}>{children || <Markdown text={text} />}</div>
       {long && <button type="button" className="decision-more" onClick={() => setOpen(!open)}>{open ? 'show less' : 'show more'}</button>}
     </div>
   );
 }
 
 // typed blocks as on finding cards; a pending card shows its evidence open, a taken one folds it
-function Evidence({ d, taken }) {
+function Evidence({ d, taken }: { d: DecisionView; taken: boolean }) {
   if (!d.blocks) return d.details ? <Clamp text={d.details} /> : null;
   return taken ? <Clamp max={160}><FindingBody r={d} /></Clamp> : <FindingBody r={d} />;
 }
 
 // an option's own explanation: shown for the highlighted option, behind a toggle for the others
-function OptionDetails({ text, initial }) {
-  const [open, setOpen] = useState(initial ? 'clamped' : '');
+function OptionDetails({ text, initial }: { text?: string; initial: boolean }) {
+  const [open, setOpen] = useState<'' | 'clamped' | 'full'>(initial ? 'clamped' : '');
   if (!text) return null;
   if (open === 'clamped') return <Clamp text={text} max={100} />;
   if (open) return <div className="decision-md"><Markdown text={text} /></div>;
@@ -55,17 +58,18 @@ function OptionDetails({ text, initial }) {
 }
 
 // sub-decisions: one row each, the card options as columns
-function RowsTable({ d, choice, onPick }) {
+function RowsTable({ d, choice, onPick }: { d: DecisionView; choice?: DecisionChoice | null; onPick?: (choice: Record<string, string>) => void }) {
+  const picked = typeof choice === 'object' && choice ? choice : {};
   return (
     <table className="decision-rows">
       <thead><tr><th />{d.options.map((o) => <th key={o.key}>{o.label}</th>)}</tr></thead>
       <tbody>
-        {d.rows.map((r) => (
+        {(d.rows || []).map((r) => (
           <tr key={r.key}>
             <td><div>{r.label} <Confidence value={r.confidence} label="confidence in the recommended pick" /></div><OptionDetails text={r.details} initial={false} /></td>
             {d.options.map((o) => (
               <td key={o.key} className={`pick ${r.recommended === o.key ? 'rec' : ''}`} title={r.recommended === o.key ? 'recommended' : ''}>
-                <input type="radio" name={`${d.id}-${r.key}`} checked={choice?.[r.key] === o.key} disabled={!onPick} onChange={() => onPick({ ...choice, [r.key]: o.key })} />
+                <input type="radio" name={`${d.id}-${r.key}`} checked={picked[r.key] === o.key} disabled={!onPick} onChange={() => onPick?.({ ...picked, [r.key]: o.key })} />
               </td>
             ))}
           </tr>
@@ -76,39 +80,41 @@ function RowsTable({ d, choice, onPick }) {
 }
 
 // reviewer opinions fold behind one line: the card leads with the question and the evidence
-function Positions({ positions }) {
+function Positions({ positions }: { positions?: Record<string, string> }) {
   const [open, setOpen] = useState(false);
   const count = Object.keys(positions || {}).length;
   if (!count) return null;
   if (!open) return <button type="button" className="decision-more" onClick={() => setOpen(true)}>▸ {count} reviewer {count === 1 ? 'opinion' : 'opinions'}</button>;
   return (
     <div className="decision-positions">
-      {Object.entries(positions).map(([who, text]) => (
+      {Object.entries(positions || {}).map(([who, text]) => (
         <div key={who} className="decision-position"><strong>{who}</strong><Markdown text={text} /></div>
       ))}
     </div>
   );
 }
 
-export function DecisionCard({ d, slug, onDecide, onReply, talk = false }) {
-  const [choice, setChoice] = useState(() => initialChoice(d));
+type DecisionCardProps = { d: DecisionView; slug: string; onDecide: (body: Record<string, unknown>) => unknown; onReply?: () => unknown; talk?: boolean };
+
+export function DecisionCard({ d, slug, onDecide, onReply, talk = false }: DecisionCardProps) {
+  const [choice, setChoice] = useState<DecisionChoice>(() => initialChoice(d));
   const [rationale, setRationale] = useState(d.rationale || '');
   const { pending, busy, run: act } = useAction();
   const [talking, setTalking] = useState(talk);
   const key = threadKey.decision(d.id);
   const taken = d.status === 'taken';
   const chosen = d.options.find((o) => o.key === d.choice);
-  const run = (what, body) => act(what, () => onDecide(body));
+  const run = (what: string, body: Record<string, unknown>) => act(what, async () => onDecide(body));
   const archived = !isLive(d);
   const archive = <button className={`sm${pendingClass(pending === 'archive')}`} disabled={busy} title={archived ? 'back to the live cards' : 'overtaken by later work: out of counts, briefs and the review feed'} onClick={() => run('archive', { id: d.id, archived: !archived })}>{archived ? 'Unarchive' : 'Archive'}</button>;
   return (
-    <CodeRefScope n={d.pr}>
+    <CodeRefScope n={d.pr ?? undefined}>
     <div className={`card decision ${taken ? 'taken' : ''}`}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <strong>{d.title}</strong>
         <span className="row">
-          {archived && <span className="chip">archived {d.archivedAt.slice(0, 10)}</span>}
-          <span className={`chip ${taken ? 'c-green' : 'c-orange'}`}>{taken ? `taken ${d.decidedAt.slice(0, 10)}` : 'pending'}</span>
+          {archived && <span className="chip">archived {d.archivedAt?.slice(0, 10)}</span>}
+          <span className={`chip ${taken ? 'c-green' : 'c-orange'}`}>{taken ? `taken ${d.decidedAt?.slice(0, 10)}` : 'pending'}</span>
         </span>
       </div>
       <p className="sub" style={{ margin: '6px 0' }}>{d.question} <Confidence value={d.confidence} label="confidence in the recommendation" /></p>
@@ -118,7 +124,7 @@ export function DecisionCard({ d, slug, onDecide, onReply, talk = false }) {
         <>
           {d.rows ? <RowsTable d={d} choice={d.choice} /> : (
             <>
-              <div className="decision-choice">✓ {chosen?.label || d.choice}</div>
+              <div className="decision-choice">✓ {chosen?.label || (typeof d.choice === 'string' ? d.choice : '')}</div>
               <OptionDetails text={chosen?.details} initial={false} />
             </>
           )}

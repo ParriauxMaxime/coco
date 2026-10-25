@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import { cycleTheme, useTheme } from '../theme.ts';
+import type { ThemeMode } from '../theme.ts';
 import { useConfig } from '../config.ts';
+import type { Persona, Skill, WorkProgress, WorkSummary } from '../types.ts';
 
-const Icon = ({ d }) => (
+export type Nav = { works: WorkSummary[]; personas: Persona[]; skills: Skill[]; projects: number; running: number };
+
+const Icon = ({ d }: { d: string[] }) => (
   <svg className="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {d.map((p, i) => <path key={i} d={p} />)}
   </svg>
@@ -16,12 +20,13 @@ const ICONS = {
   rules: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
 };
 
-const usePersisted = (key, initial) => {
+const usePersisted = (key: string, initial: boolean): [boolean, () => void] => {
   const [v, setV] = useState(() => { const s = localStorage.getItem(key); return s === null ? initial : s === '1'; });
   return [v, () => { localStorage.setItem(key, v ? '0' : '1'); setV(!v); }];
 };
 
-function Section({ id, title, count, extra, defaultOpen = true, children }) {
+type SectionProps = { id: string; title: string; count?: number; extra?: React.ReactNode; defaultOpen?: boolean; children?: React.ReactNode };
+function Section({ id, title, count, extra, defaultOpen = true, children }: SectionProps) {
   const [open, toggle] = usePersisted(`nav:${id}`, defaultOpen);
   return (
     <div className="nav-section">
@@ -34,10 +39,10 @@ function Section({ id, title, count, extra, defaultOpen = true, children }) {
   );
 }
 
-function WorkLink({ w, on, onClose }) {
-  const p = w.progress || {};
+function WorkLink({ w, on, onClose }: { w: WorkSummary; on: boolean; onClose: () => void }) {
+  const p: Partial<WorkProgress> = w.progress || {};
   const total = w.stack || 1;
-  const seg = (n, cls) => n > 0 && <i className={cls} style={{ flex: n }} />;
+  const seg = (n: number | undefined, cls: string) => n !== undefined && n > 0 && <i className={cls} style={{ flex: n }} />;
   return (
     <a className={`nav work ${on ? 'on' : ''} ${w.archived ? 'archived' : ''}`} href={`#/work/${w.slug}`} onClick={onClose} title={w.title}>
       <span className="work-title">{p.attention && <span className="attn" title="changes requested or CI failing" />}{w.title}{p.restack && <span className="chip c-orange" title="a parent PR merged: its children still sit on the old base">restack</span>}</span>
@@ -49,7 +54,7 @@ function WorkLink({ w, on, onClose }) {
   );
 }
 
-const THEME_ICON = { system: '◐', light: '☀︎', dark: '☾' };
+const THEME_ICON: Record<ThemeMode, string> = { system: '◐', light: '☀︎', dark: '☾' };
 
 function ThemeToggle() {
   const { mode } = useTheme();
@@ -60,11 +65,13 @@ function ThemeToggle() {
   );
 }
 
-export default function Sidebar({ route, open, onClose, nav }) {
+type SidebarProps = { route: string; open: boolean; onClose: () => void; nav: Nav };
+
+export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
   const [root, a] = route.split('/').filter(Boolean);
-  const is = (r, x) => root === r && (!x || a === x);
+  const is = (r: string, x?: string) => root === r && (!x || a === x);
   const [showArchived, toggleArchived] = usePersisted('showArchived', false);
-  const Link = ({ href, on, icon, children }) => (
+  const Link = ({ href, on, icon, children }: { href: string; on: boolean; icon: React.ReactNode; children?: React.ReactNode }) => (
     <a className={`nav ${on ? 'on' : ''}`} href={href} onClick={onClose}>{icon}{children}</a>
   );
   const works = nav.works.filter((w) => showArchived || !w.archived);
@@ -73,7 +80,7 @@ export default function Sidebar({ route, open, onClose, nav }) {
   const hasRituals = useConfig((s) => s.rituals.length > 0);
   const me = nav.personas.find((p) => p.login === meLogin) || nav.personas.find((p) => p.kind === 'writer');
   const reviewers = nav.personas.filter((p) => p !== me && p.kind !== 'writer');
-  const firstName = (p) => p.title.replace(/ — .*$/, '');
+  const firstName = (p: Persona) => p.title.replace(/ — .*$/, '');
   return (
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <a className="brand" href="#/" onClick={onClose}><i>🦜</i> cocopilot</a>

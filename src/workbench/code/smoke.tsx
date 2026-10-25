@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import CommentZone from './CommentZone.tsx';
 import DiffView from './DiffView.tsx';
+import type { DiffHandle } from './DiffView.tsx';
+import type { LineRange, ReviewComment, Side } from '../types.ts';
 
 const BASE = `export function total(items) {
   let sum = 0;
@@ -16,14 +18,14 @@ const HEAD = `export function total(items, taxRate = 0) {
 }
 `;
 
-const FAKE = { id: 'c1', side: 'head', startLine: 3, endLine: 3, status: 'open', body: 'Should **qty** default to 1 when missing?' };
+const FAKE: ReviewComment = { id: 'c1', path: 'src/demo/total.ts', side: 'head', startLine: 3, endLine: 3, status: 'open', body: 'Should **qty** default to 1 when missing?' };
 
 // Not routed: mount <CodeSmoke /> anywhere to check Monaco diff, gutter drag, `c` shortcut and the zone portal
 export function CodeSmoke() {
-  const [comments, setComments] = useState([FAKE]);
+  const [comments, setComments] = useState<ReviewComment[]>([FAKE]);
   const [sideBySide, setSideBySide] = useState(true);
-  const view = useRef(null);
-  const create = ({ side, startLine, endLine }) => setComments((all) => [...all.filter((c) => c.status !== 'draft'), { id: `draft-${Date.now()}`, side, startLine, endLine, status: 'draft', body: '' }]);
+  const view = useRef<DiffHandle>(null);
+  const create = ({ side, startLine, endLine }: LineRange & { side: Side }) => setComments((all) => [...all.filter((c) => c.status !== 'draft'), { id: `draft-${Date.now()}`, path: FAKE.path, side, startLine, endLine, status: 'draft', body: '' }]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '80vh' }}>
       <div style={{ display: 'flex', gap: 8, padding: 8 }}>

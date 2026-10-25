@@ -1,10 +1,14 @@
 import React, { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import type { LineRange, ReviewComment } from '../types.ts';
 import './code.css';
+
+type DiffLine = { kind: 'hunk' | 'meta' | 'add' | 'del' | 'ctx'; text: string; oldNo?: number; newNo?: number };
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
 
-export function parseUnified(unified) {
-  const lines = [];
+export function parseUnified(unified: string | null | undefined) {
+  const lines: DiffLine[] = [];
   let oldNo = 0;
   let newNo = 0;
   let inHunk = false;
@@ -25,28 +29,35 @@ export function parseUnified(unified) {
   return lines;
 }
 
-const DefaultCard = ({ comment }) => (
+const DefaultCard = ({ comment }: { comment: ReviewComment }) => (
   <div className="cc-zone">
     <span className={`chip ${comment.status === 'open' ? 'c-blue' : 'c-grey'}`}>{comment.status}</span> {comment.body}
   </div>
 );
 
 // Phone fallback: server-side unified diff, comments on head lines only (side 'head')
-export default function LiteDiff({ unified, comments = [], onCreateComment, renderZone }) {
+type Props = {
+  unified?: string;
+  comments?: ReviewComment[];
+  onCreateComment?: (range: LineRange & { side: 'head' }) => void;
+  renderZone?: (comment: ReviewComment) => ReactNode;
+};
+
+export default function LiteDiff({ unified, comments = [], onCreateComment, renderZone }: Props) {
   const lines = useMemo(() => parseUnified(unified), [unified]);
-  const [range, setRange] = useState(null);
-  const card = renderZone || ((c) => <DefaultCard comment={c} />);
+  const [range, setRange] = useState<{ start: number; end: number } | null>(null);
+  const card = renderZone || ((c: ReviewComment) => <DefaultCard comment={c} />);
   const headComments = comments.filter((c) => c.side === 'head');
 
-  const tap = (no) => {
+  const tap = (no?: number) => {
     if (!no) return;
     setRange((r) => (!r || r.start !== r.end ? { start: no, end: no } : { start: Math.min(r.start, no), end: Math.max(r.start, no) }));
   };
-  const selected = (no) => range && no >= range.start && no <= range.end;
-  const lastNo = new Set(lines.filter((l) => l.newNo).map((l) => l.newNo));
-  const shown = new Set();
+  const selected = (no?: number) => Boolean(range && no !== undefined && no >= range.start && no <= range.end);
+  const lastNo = new Set(lines.flatMap((l) => (l.newNo ? [l.newNo] : [])));
+  const shown = new Set<string>();
 
-  const cardsAfter = (no) =>
+  const cardsAfter = (no: number) =>
     headComments
       .filter((c) => c.endLine === no && !shown.has(c.id))
       .map((c) => {

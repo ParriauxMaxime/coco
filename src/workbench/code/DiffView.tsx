@@ -1,15 +1,41 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import type { MutableRefObject, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import type { editor } from 'monaco-editor/editor/editor.api';
 import { EDITOR_OPTIONS, acquireModel, attachCommentUx, flashLines, releaseModel, revealLine, useCommentLayer, useMonaco } from './editor-shared.ts';
+import type { CommentHandlers } from './editor-shared.ts';
+import type { MonacoApi, ReviewComment, Side } from '../types.ts';
 import './code.css';
+
+export type Reveal = { line?: number; side?: string; at?: number; path?: string };
+export type DiffHandle = {
+  jumpTo(line: number, side?: Side): void;
+  flash(startLine: number, endLine: number, side?: Side): (() => void) | undefined;
+};
+export type DecorationsHandle = DiffHandle & { monaco: MonacoApi; original: editor.ICodeEditor | null; modified: editor.ICodeEditor | null };
+type Props = {
+  original?: string;
+  modified?: string;
+  path: string;
+  sideBySide?: boolean;
+  readOnly?: boolean;
+  comments?: ReviewComment[];
+  onCreateComment?: CommentHandlers['onCreateComment'];
+  onJump?: CommentHandlers['onJump'];
+  renderZone?: (comment: ReviewComment) => ReactNode;
+  decorationsRef?: MutableRefObject<DecorationsHandle | null>;
+  reveal?: Reveal | null;
+  options?: editor.IDiffEditorConstructionOptions;
+  onEditor?: (diff: editor.IStandaloneDiffEditor | null) => void;
+};
 
 // original = base text, modified = head text; comments on side 'base' live in the left editor, 'head' in the right one
 // options: extra createDiffEditor options (creation only) · onEditor(diffEditor | null)
-const DiffView = forwardRef(function DiffView({ original, modified, path, sideBySide = true, readOnly = true, comments = [], onCreateComment, onJump, renderZone, decorationsRef, reveal = null, options, onEditor }, ref) {
+const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, modified, path, sideBySide = true, readOnly = true, comments = [], onCreateComment, onJump, renderZone, decorationsRef, reveal = null, options, onEditor }, ref) {
   const { mod, error } = useMonaco();
-  const hostRef = useRef(null);
-  const [editor, setEditor] = useState(null);
-  const handlers = useRef({});
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [editor, setEditor] = useState<editor.IStandaloneDiffEditor | null>(null);
+  const handlers = useRef<CommentHandlers & { onEditor?: Props['onEditor'] }>({});
   handlers.current = { onCreateComment, onJump, onEditor };
 
   useEffect(() => {
@@ -56,12 +82,13 @@ const DiffView = forwardRef(function DiffView({ original, modified, path, sideBy
 
   useEffect(() => {
     if (!mod || !editor || !reveal?.line) return undefined;
+    const line = reveal.line;
     const target = reveal.side === 'base' ? editor.getOriginalEditor() : editor.getModifiedEditor();
-    let undo = revealLine(mod.monaco, target, reveal.line);
+    let undo = revealLine(mod.monaco, target, line);
     const sub = editor.onDidUpdateDiff(() => {
       sub.dispose();
       undo?.();
-      undo = revealLine(mod.monaco, target, reveal.line);
+      undo = revealLine(mod.monaco, target, line);
     });
     return () => {
       sub.dispose();
@@ -73,12 +100,14 @@ const DiffView = forwardRef(function DiffView({ original, modified, path, sideBy
   const modifiedEditor = editor ? editor.getModifiedEditor() : null;
   const zones = [...useCommentLayer(mod, originalEditor, 'base', comments), ...useCommentLayer(mod, modifiedEditor, 'head', comments)];
 
-  const api = {
+  const api: DiffHandle = {
     jumpTo(line, side = 'head') {
-      if (mod && editor) revealLine(mod.monaco, side === 'base' ? originalEditor : modifiedEditor, line);
+      const target = side === 'base' ? originalEditor : modifiedEditor;
+      if (mod && editor && target) revealLine(mod.monaco, target, line);
     },
     flash(startLine, endLine, side = 'head') {
-      if (mod && editor) return flashLines(mod.monaco, side === 'base' ? originalEditor : modifiedEditor, startLine, endLine);
+      const target = side === 'base' ? originalEditor : modifiedEditor;
+      if (mod && editor && target) return flashLines(mod.monaco, target, startLine, endLine);
       return undefined;
     },
   };
@@ -96,7 +125,10 @@ const DiffView = forwardRef(function DiffView({ original, modified, path, sideBy
     <div className="cc-editor-wrap">
       <div ref={hostRef} className="cc-editor" />
       {!mod && <div className="cc-editor-status">{error ? `Editor failed to load: ${error.message}` : 'Loading editor…'}</div>}
-      {renderZone && zones.map((z) => (byId.has(z.id) ? createPortal(renderZone(byId.get(z.id)), z.node, `${z.side}:${z.id}`) : null))}
+      {renderZone && zones.map((z) => {
+        const comment = byId.get(z.id);
+        return comment ? createPortal(renderZone(comment), z.node, `${z.side}:${z.id}`) : null;
+      })}
     </div>
   );
 });

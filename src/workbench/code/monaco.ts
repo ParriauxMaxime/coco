@@ -59,17 +59,17 @@ monaco.editor.defineTheme('cocopilot-dark', {
   },
 });
 
-const themeName = (t) => (t === 'dark' ? 'cocopilot-dark' : 'cocopilot');
+const themeName = (t: string) => (t === 'dark' ? 'cocopilot-dark' : 'cocopilot');
 monaco.editor.setTheme(themeName(getTheme().resolved));
 onThemeChange((t) => monaco.editor.setTheme(themeName(t)));
 
-const EXT = {
+const EXT: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
   scss: 'scss', css: 'css', html: 'html', json: 'javascript',
   md: 'markdown', yml: 'yaml', yaml: 'yaml', sh: 'shell',
 };
 
-export const languageFor = (path) => EXT[String(path || '').split('.').pop().toLowerCase()] || 'plaintext';
+export const languageFor = (path: string | null | undefined) => EXT[(String(path || '').split('.').pop() ?? '').toLowerCase()] || 'plaintext';
 
 export { monaco };

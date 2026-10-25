@@ -1,18 +1,37 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildTree, collapse } from '../../components/FileTree.tsx';
+import type { TreeDir } from '../../components/FileTree.tsx';
+import type { PrFile } from '../../types.ts';
+import type { FileCategory, FileGroup, RefFile } from '../types.ts';
 import './code.css';
 
-const sorted = (node) => Object.entries(node.children).sort(([a, na], [b, nb]) => (na.leaf === nb.leaf ? a.localeCompare(b) : na.leaf ? 1 : -1));
+type OpenFile = (path: string, options: { preview: boolean }) => void;
+type ListContext = {
+  activePath: string | null;
+  commentsByPath?: Record<string, number>;
+  onOpen: OpenFile;
+  collapsed: Set<string>;
+  toggle: (path: string) => void;
+  ticks: Set<string> | null;
+  cats: Record<string, FileCategory | undefined> | null | undefined;
+};
+
+const sorted = (node: TreeDir) => Object.entries(node.children).sort(([a, na], [b, nb]) => (na.leaf === nb.leaf ? a.localeCompare(b) : na.leaf ? 1 : -1));
 
 // files in the order the tree shows them
-export function treeOrder(files) {
-  const out = [];
-  const walk = (node) => sorted(node).forEach(([, child]) => (child.leaf ? out.push(child.file) : walk(child)));
+export function treeOrder<F extends PrFile>(files: F[]): F[] {
+  const byName = new Map(files.map((f) => [f.filename, f]));
+  const out: F[] = [];
+  const walk = (node: TreeDir) => sorted(node).forEach(([, child]) => {
+    if (!child.leaf) return walk(child);
+    const f = byName.get(child.file.filename);
+    if (f) out.push(f);
+  });
   walk(buildTree(files));
   return out;
 }
 
-function FileRow({ file, label, ctx }) {
+function FileRow({ file, label, ctx }: { file: PrFile; label: string; ctx: ListContext }) {
   const { filename, status, additions, deletions } = file;
   const count = ctx.commentsByPath?.[filename] || 0;
   const cat = ctx.cats?.[filename];
@@ -25,7 +44,7 @@ function FileRow({ file, label, ctx }) {
   );
 }
 
-function Groups({ groups, ctx }) {
+function Groups({ groups, ctx }: { groups: FileGroup[]; ctx: ListContext }) {
   return (
     <ul>
       {groups.map((g) => {
@@ -36,7 +55,7 @@ function Groups({ groups, ctx }) {
               <span className="fl-group-t">{g.title}</span>
               <span className={`fl-progress${done === g.files.length ? ' all' : ''}`}>{done}/{g.files.length}</span>
             </div>
-            <ul>{g.files.map((f) => <FileRow key={f.filename} file={f} label={f.filename.split('/').pop()} ctx={ctx} />)}</ul>
+            <ul>{g.files.map((f) => <FileRow key={f.filename} file={f} label={f.filename.split('/').pop() ?? f.filename} ctx={ctx} />)}</ul>
           </li>
         );
       })}
@@ -44,7 +63,7 @@ function Groups({ groups, ctx }) {
   );
 }
 
-function Entries({ node, prefix, ctx }) {
+function Entries({ node, prefix, ctx }: { node: TreeDir; prefix: string; ctx: ListContext }) {
   const entries = sorted(node);
   return (
     <ul>
@@ -68,15 +87,26 @@ function Entries({ node, prefix, ctx }) {
 
 // files: [{ filename, status, additions, deletions }] · commentsByPath: { [path]: count } · follow: scroll the list to keep activePath visible
 // groups: [{ key, title, why, files }] shows a flat reading order instead of the tree · ticks: Set of reviewed paths · cats: { [path]: { category, reason } }
-export default function FileList({ files, activePath, commentsByPath, onOpen, follow = false, groups = null, ticks = null, cats = null }) {
+type Props = {
+  files: RefFile[];
+  activePath: string | null;
+  commentsByPath?: Record<string, number>;
+  onOpen: OpenFile;
+  follow?: boolean;
+  groups?: FileGroup[] | null;
+  ticks?: Set<string> | null;
+  cats?: ListContext['cats'];
+};
+
+export default function FileList({ files, activePath, commentsByPath, onOpen, follow = false, groups = null, ticks = null, cats = null }: Props) {
   const [filter, setFilter] = useState('');
-  const rootRef = useRef(null);
-  const [collapsed, setCollapsed] = useState(() => new Set());
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const needle = filter.trim().toLowerCase();
   const shown = useMemo(() => (needle ? files.filter((f) => f.filename.toLowerCase().includes(needle)) : files), [files, needle]);
   const root = useMemo(() => buildTree(shown), [shown]);
   const shownGroups = useMemo(() => groups && groups.map((g) => ({ ...g, files: needle ? g.files.filter((f) => f.filename.toLowerCase().includes(needle)) : g.files })).filter((g) => g.files.length), [groups, needle]);
-  const toggle = (path) =>
+  const toggle = (path: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (!next.delete(path)) next.add(path);
@@ -85,9 +115,9 @@ export default function FileList({ files, activePath, commentsByPath, onOpen, fo
   const ctx = { activePath, commentsByPath, onOpen, collapsed, toggle, ticks, cats };
   useEffect(() => {
     if (!follow) return;
-    const ul = rootRef.current?.querySelector(':scope > ul');
-    const li = ul?.querySelector('.fl-file.on');
-    if (!li) return;
+    const ul = rootRef.current?.querySelector<HTMLElement>(':scope > ul');
+    const li = ul?.querySelector<HTMLElement>('.fl-file.on');
+    if (!ul || !li) return;
     const top = li.offsetTop;
     if (top < ul.scrollTop) ul.scrollTop = top - 24;
     else if (top + li.offsetHeight > ul.scrollTop + ul.clientHeight) ul.scrollTop = top + li.offsetHeight - ul.clientHeight + 24;

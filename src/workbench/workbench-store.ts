@@ -1,35 +1,78 @@
 import { create } from 'zustand';
+import type { Edge, Group, LayoutNode, LayoutRects, PendingLine, Rect, Split } from './types.ts';
 
-const key = (slug) => `cc.wb.${slug}`;
-const group = (id, tabs = [], active = tabs.at(-1) ?? null) => ({ type: 'group', id, tabs, active, preview: null });
-const split = (dir, children, sizes) => ({ type: 'split', dir, children, sizes: sizes || children.map(() => 1 / children.length) });
-const base = (slug) => ({ slug, layout: group(1, ['plan']), groups: [], focused: 1, max: false, nextId: 2, title: '', drag: null });
+type Data = {
+  slug: string;
+  layout: LayoutNode;
+  groups: Group[];
+  focused: number;
+  max: boolean;
+  nextId: number;
+  title: string;
+  drag: string | null;
+};
+type OpenOptions = { group?: number; preview?: boolean; focus?: boolean };
+type RawNode = { type?: string; id?: unknown; dir?: string; children?: RawNode[]; sizes?: number[]; tabs?: unknown[]; active?: string | null; preview?: string | null };
+type Actions = {
+  load: (slug: string) => void;
+  open: (tabId: string, options?: OpenOptions) => void;
+  close: (tabId: string) => void;
+  activate: (tabId: string) => void;
+  pin: (tabId: string) => void;
+  moveTab: (tabId: string, to: number, index?: number | null) => void;
+  splitWith: (tabId: string, target: number, edge: Edge) => void;
+  moveToOtherGroup: (tabId: string) => void;
+  focus: (id: number) => void;
+  toggleMax: () => void;
+  setMax: (max: boolean) => void;
+  resize: (path: number[], sizes: number[]) => void;
+  replaceLayout: (first: string[], second: string[], focused: number) => void;
+  setDrag: (drag: string | null) => void;
+  setTitle: (title: string) => void;
+  pendingLine: Record<string, PendingLine>;
+  setPendingLine: (tabId: string, line: number, side?: string) => void;
+  takePendingLine: (tabId: string) => PendingLine | undefined;
+  otherGroup: () => number;
+};
+export type WorkbenchState = Data & Actions;
 
-const leaves = (node, out = []) => { if (node.type === 'group') out.push(node); else node.children.forEach((c) => leaves(c, out)); return out; };
-const mapGroups = (node, f) => (node.type === 'group' ? f(node) : { ...node, children: node.children.map((c) => mapGroups(c, f)) });
-const patch = (layout, id, f) => mapGroups(layout, (g) => (g.id === id ? { ...g, ...f(g) } : g));
-const setAt = (node, path, f) => (path.length ? { ...node, children: node.children.map((c, i) => (i === path[0] ? setAt(c, path.slice(1), f) : c)) } : f(node));
-const owner = (s, tabId) => s.groups.find((g) => g.tabs.includes(tabId));
-const without = (g, tabId) => {
+const key = (slug: string) => `cc.wb.${slug}`;
+const group = (id: number, tabs: string[] = [], active: string | null = tabs.at(-1) ?? null): Group => ({ type: 'group', id, tabs, active, preview: null });
+const split = (dir: 'row' | 'col', children: LayoutNode[], sizes?: number[]): Split => ({ type: 'split', dir, children, sizes: sizes || children.map(() => 1 / children.length) });
+const base = (slug: string): Data => ({ slug, layout: group(1, ['plan']), groups: [], focused: 1, max: false, nextId: 2, title: '', drag: null });
+
+const leaves = (node: LayoutNode, out: Group[] = []): Group[] => { if (node.type === 'group') out.push(node); else node.children.forEach((c) => leaves(c, out)); return out; };
+const mapGroups = (node: LayoutNode, f: (g: Group) => Group): LayoutNode => (node.type === 'group' ? f(node) : { ...node, children: node.children.map((c) => mapGroups(c, f)) });
+const patch = (layout: LayoutNode, id: number, f: (g: Group) => Partial<Group>) => mapGroups(layout, (g) => (g.id === id ? { ...g, ...f(g) } : g));
+const setAt = (node: LayoutNode, path: number[], f: (n: LayoutNode) => LayoutNode): LayoutNode => {
+  if (!path.length) return f(node);
+  if (node.type === 'group') return node;
+  return { ...node, children: node.children.map((c, i) => (i === path[0] ? setAt(c, path.slice(1), f) : c)) };
+};
+const owner = (s: Data, tabId: string) => s.groups.find((g) => g.tabs.includes(tabId));
+const without = (g: Group, tabId: string): Partial<Group> => {
   const tabs = g.tabs.filter((t) => t !== tabId);
   const active = g.active === tabId ? tabs[Math.max(0, g.tabs.indexOf(tabId) - 1)] ?? null : g.active;
   return { tabs, active, preview: g.preview === tabId ? null : g.preview };
 };
-const dirOf = (edge) => (edge === 'left' || edge === 'right' ? 'row' : 'col');
-const splitAt = (node, id, edge, g) => {
+const dirOf = (edge: Edge) => (edge === 'left' || edge === 'right' ? 'row' : 'col');
+const splitAt = (node: LayoutNode, id: number, edge: Edge, g: Group): LayoutNode => {
   if (node.type === 'group') return node.id === id ? split(dirOf(edge), edge === 'left' || edge === 'top' ? [g, node] : [node, g]) : node;
   return { ...node, children: node.children.map((c) => splitAt(c, id, edge, g)) };
 };
 
 // drop empty groups, collapse single-child splits, flatten same-direction nesting, renormalize sizes
-const prune = (node) => {
-  if (node.type === 'group') return node.tabs.length ? { ...node, active: node.tabs.includes(node.active) ? node.active : node.tabs.at(-1), preview: node.tabs.includes(node.preview) ? node.preview : null } : null;
-  const kept = [];
+const prune = (node: LayoutNode): LayoutNode | null => {
+  if (node.type === 'group') {
+    if (!node.tabs.length) return null;
+    return { ...node, active: node.active && node.tabs.includes(node.active) ? node.active : node.tabs.at(-1) ?? null, preview: node.preview && node.tabs.includes(node.preview) ? node.preview : null };
+  }
+  const kept: [LayoutNode, number][] = [];
   node.children.forEach((c, i) => { const p = prune(c); if (p) kept.push([p, node.sizes[i] > 0 ? node.sizes[i] : 1]); });
   if (!kept.length) return null;
   if (kept.length === 1) return kept[0][0];
-  const children = [];
-  const sizes = [];
+  const children: LayoutNode[] = [];
+  const sizes: number[] = [];
   kept.forEach(([c, size]) => {
     if (c.type === 'split' && c.dir === node.dir) c.children.forEach((cc, j) => { children.push(cc); sizes.push(size * c.sizes[j]); });
     else { children.push(c); sizes.push(size); }
@@ -38,49 +81,50 @@ const prune = (node) => {
   return split(node.dir, children, sizes.map((n) => n / total));
 };
 
-const fix = (s) => {
+const fix = (s: Data): Data => {
   const layout = prune(s.layout) || group(1, ['plan']);
   const groups = leaves(layout);
   const nextId = Math.max(s.nextId || 1, ...groups.map((g) => g.id + 1));
   return { ...s, layout, groups, nextId, focused: groups.some((g) => g.id === s.focused) ? s.focused : groups[0].id };
 };
 
-const save = (s) => {
+const save = (s: Data) => {
   try { localStorage.setItem(key(s.slug), JSON.stringify({ layout: s.layout, focused: s.focused, max: s.max, nextId: s.nextId })); } catch {}
 };
 
-const clean = (node, seen, ids) => {
+const clean = (node: RawNode | null | undefined, seen: Set<string>, ids: Set<number>): LayoutNode | null => {
   if (!node || typeof node !== 'object') return null;
   if (node.type === 'split' && Array.isArray(node.children)) {
-    const kept = node.children.map((c, i) => [clean(c, seen, ids), node.sizes?.[i]]).filter(([c]) => c);
+    const kept = node.children.map((c, i): [LayoutNode | null, number | undefined] => [clean(c, seen, ids), node.sizes?.[i]]).filter((pair): pair is [LayoutNode, number | undefined] => pair[0] !== null);
     const sizes = kept.map(([, n]) => n);
-    return split(node.dir === 'col' ? 'col' : 'row', kept.map(([c]) => c), sizes.every((n) => n > 0) ? sizes : undefined);
+    const numeric = sizes.filter((n): n is number => n !== undefined);
+    return split(node.dir === 'col' ? 'col' : 'row', kept.map(([c]) => c), numeric.length === sizes.length && numeric.every((n) => n > 0) ? numeric : undefined);
   }
   const id = Number(node.id);
   if (!Number.isInteger(id) || id < 1 || ids.has(id)) return null;
   ids.add(id);
-  const tabs = (node.tabs || []).filter((t) => typeof t === 'string' && !seen.has(t) && seen.add(t));
+  const tabs = (node.tabs || []).filter((t): t is string => typeof t === 'string' && !seen.has(t) && Boolean(seen.add(t)));
   return { ...group(id, tabs, node.active), preview: node.preview ?? null };
 };
 
-const restore = (slug) => {
+const restore = (slug: string): Data => {
   try {
-    const raw = JSON.parse(localStorage.getItem(key(slug)));
-    const seen = new Set();
-    const ids = new Set();
-    let layout;
+    const raw = JSON.parse(localStorage.getItem(key(slug)) ?? 'null');
+    const seen = new Set<string>();
+    const ids = new Set<number>();
+    let layout: LayoutNode | null | undefined;
     if (raw.layout) layout = clean(raw.layout, seen, ids);
     else {
-      const groups = (raw.groups || []).slice(0, 2).map((g, i) => clean({ ...g, id: i + 1 }, seen, ids)).filter(Boolean);
-      const sizes = Array.isArray(raw.sizes) && raw.sizes.length === 2 && raw.sizes.every((n) => n > 0) ? raw.sizes : undefined;
+      const groups = (raw.groups || []).slice(0, 2).map((g: RawNode, i: number) => clean({ ...g, id: i + 1 }, seen, ids)).filter((g: LayoutNode | null): g is LayoutNode => g !== null);
+      const sizes = Array.isArray(raw.sizes) && raw.sizes.length === 2 && raw.sizes.every((n: number) => n > 0) ? raw.sizes : undefined;
       layout = groups.length > 1 ? split('row', groups, sizes) : groups[0];
     }
     return fix({ ...base(slug), layout: layout || group(1, []), focused: raw.focused, max: Boolean(raw.max), nextId: raw.nextId });
   } catch { return fix(base(slug)); }
 };
 
-export const useWorkbench = create((set, get) => {
-  const upd = (f) => { const next = fix({ ...get(), ...f(get()) }); set(next); save(next); };
+export const useWorkbench = create<WorkbenchState>()((set, get) => {
+  const upd = (f: (s: WorkbenchState) => Partial<Data>) => { const next = fix({ ...get(), ...f(get()) }); set(next); save(next); };
   return {
     ...base(''),
     load: (slug) => set(restore(slug)),
@@ -136,14 +180,14 @@ export const useWorkbench = create((set, get) => {
     focus: (id) => upd((s) => (s.groups.some((g) => g.id === id) ? { focused: id } : {})),
     toggleMax: () => upd((s) => ({ max: !s.max })),
     setMax: (max) => upd(() => ({ max })),
-    resize: (path, sizes) => upd((s) => ({ layout: setAt(s.layout, path, (n) => ({ ...n, sizes })) })),
+    resize: (path, sizes) => upd((s) => ({ layout: setAt(s.layout, path, (n) => (n.type === 'split' ? { ...n, sizes } : n)) })),
     replaceLayout: (first, second, focused) => upd(() => ({
       layout: second.length ? split('row', [group(1, first), group(2, second)]) : group(1, first),
       nextId: 3,
       focused,
     })),
     setDrag: (drag) => set({ drag }),
-    setTitle: (title) => get().title !== title && set({ title }),
+    setTitle: (title) => { if (get().title !== title) set({ title }); },
     pendingLine: {},
     setPendingLine: (tabId, line, side = 'head') => set((s) => ({ pendingLine: { ...s.pendingLine, [tabId]: { line, side } } })),
     takePendingLine: (tabId) => {
@@ -162,7 +206,7 @@ export const useWorkbench = create((set, get) => {
   };
 });
 
-export const layoutRects = (node, box, path = [], out = { groups: [], handles: [] }) => {
+export const layoutRects = (node: LayoutNode, box: Rect, path: number[] = [], out: LayoutRects = { groups: [], handles: [] }): LayoutRects => {
   if (node.type === 'group') { out.groups.push({ id: node.id, ...box }); return out; }
   const row = node.dir === 'row';
   const H = 6;

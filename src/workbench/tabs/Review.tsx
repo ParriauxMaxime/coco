@@ -13,6 +13,9 @@ import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { orderGroups, planNotes } from '../code/review-order.ts';
 import { useLangProviders, useLangStatus, useLocal } from './Code.tsx';
 import { stateChip, stateLabel } from './Plan.tsx';
+import { errorMessage } from '../../api.ts';
+import type { Reveal } from '../code/DiffView.tsx';
+import type { RefFile, ReviewComment } from '../types.ts';
 import '../code/code.css';
 
 const OPEN_FIRST = 15;
@@ -29,41 +32,41 @@ const SBS_MIN = 900;
 const COUNTS = ['open', 'sent', 'fixed', 'declined', 'outdated'];
 const SCRIPT = /\.[cm]?[jt]sx?$/;
 
-const typing = (t) => t.closest?.('.cc-zone-host, .find-widget') || /^(INPUT|SELECT)$/.test(t.tagName) || ((t.tagName === 'TEXTAREA' || t.isContentEditable) && !t.closest?.('.monaco-editor'));
+const typing = (t: EventTarget | null) => t instanceof HTMLElement && Boolean(t.closest('.cc-zone-host, .find-widget') || /^(INPUT|SELECT)$/.test(t.tagName) || ((t.tagName === 'TEXTAREA' || t.isContentEditable) && !t.closest('.monaco-editor')));
 
-export default function Review({ tabId }) {
+export default function Review({ tabId }: { tabId: string }) {
   const { slug, w, prs } = useWork();
-  const n = reviewKeyOfTab(tabId);
+  const n = reviewKeyOfTab(tabId) ?? '';
   const rv = useComments(slug, n);
   const desktop = useMemo(isDesktop, []);
   const active = useWorkbench((s) => s.groups.some((g) => g.active === tabId));
   const [sbs, setSbs] = useLocal('cc.sbs', innerWidth >= 1300);
   const [width, setWidth] = useLocal('cc.rv.w', 280);
   const [actWidth, setActWidth] = useLocal('cc.rv.aw', 380);
-  const [dragging, setDragging] = useState(false);
-  const [opened, setOpened] = useState(null);
-  const [mounted, setMounted] = useState(() => new Set());
-  const [activePath, setActivePath] = useState(null);
-  const [reveal, setReveal] = useState(null);
+  const [dragging, setDragging] = useState<false | 'left' | 'right'>(false);
+  const [opened, setOpened] = useState<Set<string> | null>(null);
+  const [mounted, setMounted] = useState<Set<string>>(() => new Set());
+  const [activePath, setActivePath] = useState<string | null>(null);
+  const [reveal, setReveal] = useState<Reveal | null>(null);
   const pr = prs.find((p) => p.key === n);
   const files = rv.refs?.files || [];
   const [mode, setMode] = useLocal(`cc.rv.order.${n}`, 'suggested');
-  const [hidden, setHidden] = useLocal(`cc.rv.hide.${n}`, []);
+  const [hidden, setHidden] = useLocal<string[]>(`cc.rv.hide.${n}`, []);
   const cats = rv.plan?.categories;
-  const shown = useMemo(() => files.filter((f) => !hidden.includes(cats?.[f.filename]?.category)), [files, hidden, cats]);
+  const shown = useMemo(() => files.filter((f) => !hidden.includes(cats?.[f.filename]?.category ?? '')), [files, hidden, cats]);
   const groups = useMemo(() => (mode === 'suggested' && rv.plan ? orderGroups(shown, rv.plan) : null), [mode, shown, rv.plan]);
   const order = useMemo(() => (groups ? groups.flatMap((g) => g.files) : treeOrder(shown)), [groups, shown]);
-  const ticks = useMemo(() => new Set(rv.plan?.ticks || []), [rv.plan?.ticks]);
+  const ticks = useMemo(() => new Set<string>(rv.plan?.ticks || []), [rv.plan?.ticks]);
   const notes = useMemo(() => planNotes(rv.plan?.plan), [rv.plan?.plan]);
-  const catCounts = useMemo(() => files.reduce((acc, f) => {
+  const catCounts = useMemo(() => files.reduce<Record<string, number>>((acc, f) => {
     const c = cats?.[f.filename]?.category;
     if (c) acc[c] = (acc[c] || 0) + 1;
     return acc;
   }, {}), [files, cats]);
   const { counts } = rv;
 
-  const mainRef = useRef(null);
-  const bodyRef = useRef(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [boxW, setBoxW] = useState(0);
   useEffect(() => {
     const el = bodyRef.current;
@@ -72,22 +75,22 @@ export default function Review({ tabId }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [Boolean(pr)]);
-  const els = useRef(new Map());
-  const heights = useRef(new Map());
-  const io = useRef(null);
+  const els = useRef(new Map<string, HTMLElement>());
+  const heights = useRef(new Map<string, number>());
+  const io = useRef<IntersectionObserver[] | null>(null);
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
-  const orderRef = useRef(order);
+  const orderRef = useRef<RefFile[]>(order);
   orderRef.current = order;
   const activeRef = useRef(activePath);
   activeRef.current = activePath;
-  const unhide = useRef(null);
-  unhide.current = (path) => {
-    const c = cats?.[path]?.category;
+  const unhide = useRef<((path: string) => void) | null>(null);
+  unhide.current = (path: string) => {
+    const c = cats?.[path]?.category ?? '';
     if (hidden.includes(c)) setHidden(hidden.filter((x) => x !== c));
   };
   const lock = useRef(0);
-  const pendingScroll = useRef(null);
+  const pendingScroll = useRef<string | null>(null);
   const raf = useRef(0);
   const [scrollTick, setScrollTick] = useState(0);
 
@@ -105,20 +108,21 @@ export default function Review({ tabId }) {
   useEffect(() => {
     const root = mainRef.current;
     if (!root) return undefined;
-    const update = (paths, add) => paths.length && setMounted((prev) => {
+    const update = (paths: string[], add: boolean) => paths.length && setMounted((prev) => {
       const next = new Set(prev);
       paths.forEach((p) => (add ? next.add(p) : next.delete(p)));
       return next.size === prev.size ? prev : next;
     });
-    const typingIn = (el) => el.contains(document.activeElement) || el.querySelector('.cc-zone-host textarea');
+    const typingIn = (el: Element) => el.contains(document.activeElement) || el.querySelector('.cc-zone-host textarea');
+    const pathOf = (e: IntersectionObserverEntry) => (e.target instanceof HTMLElement && e.target.dataset.path ? [e.target.dataset.path] : []);
     const near = new IntersectionObserver((entries) => {
-      update(entries.filter((e) => e.isIntersecting && !e.target.classList.contains('shut')).map((e) => e.target.dataset.path), true);
+      update(entries.filter((e) => e.isIntersecting && !e.target.classList.contains('shut')).flatMap(pathOf), true);
     }, { root, rootMargin: MOUNT_MARGIN });
     const far = new IntersectionObserver((entries) => {
-      update(entries.filter((e) => !e.isIntersecting && !typingIn(e.target)).map((e) => e.target.dataset.path), false);
+      update(entries.filter((e) => !e.isIntersecting && !typingIn(e.target)).flatMap(pathOf), false);
     }, { root, rootMargin: UNMOUNT_MARGIN });
     io.current = [near, far];
-    els.current.forEach((el) => io.current.forEach((o) => o.observe(el)));
+    els.current.forEach((el) => io.current?.forEach((o) => o.observe(el)));
     return () => { near.disconnect(); far.disconnect(); io.current = null; };
   }, [Boolean(pr)]);
 
@@ -132,14 +136,14 @@ export default function Review({ tabId }) {
     });
   }, [opened]);
 
-  const cardRef = useCallback((path, el) => {
+  const cardRef = useCallback((path: string, el: HTMLElement | null) => {
     const prev = els.current.get(path);
     if (prev && prev !== el) io.current?.forEach((o) => o.unobserve(prev));
     if (!el) return void els.current.delete(path);
     els.current.set(path, el);
     io.current?.forEach((o) => o.observe(el));
   }, []);
-  const onHeight = useCallback((path, h) => heights.current.set(path, h), []);
+  const onHeight = useCallback((path: string, h: number) => heights.current.set(path, h), []);
 
   const onScroll = useCallback(() => {
     if (raf.current) return;
@@ -156,14 +160,15 @@ export default function Review({ tabId }) {
         cur = f.filename;
       }
       const atEnd = main.scrollTop + main.clientHeight >= main.scrollHeight - 2;
-      const keep = atEnd && els.current.get(activeRef.current)?.offsetTop > main.scrollTop;
-      if (!keep) setActivePath(cur);
+      const activeEl = activeRef.current ? els.current.get(activeRef.current) : undefined;
+      const keep = atEnd && activeEl !== undefined && activeEl.offsetTop > main.scrollTop;
+      if (!keep) setActivePath(cur ?? null);
     });
   }, []);
 
-  const scrollMain = (top) => {
+  const scrollMain = (top: number) => {
     lock.current = Date.now() + 400;
-    mainRef.current.scrollTop = top;
+    if (mainRef.current) mainRef.current.scrollTop = top;
   };
   useLayoutEffect(() => {
     const p = pendingScroll.current;
@@ -173,20 +178,20 @@ export default function Review({ tabId }) {
     scrollMain(el.offsetTop - SCROLL_GAP);
   }, [scrollTick]);
 
-  const goTo = useCallback((path) => {
-    unhide.current(path);
+  const goTo = useCallback((path: string) => {
+    unhide.current?.(path);
     setOpened((prev) => (!prev || prev.has(path) ? prev : new Set(prev).add(path)));
     setActivePath(path);
     pendingScroll.current = path;
     setScrollTick((t) => t + 1);
   }, []);
-  const onToggle = useCallback((path) => setOpened((prev) => {
+  const onToggle = useCallback((path: string) => setOpened((prev) => {
     const next = new Set(prev);
     if (!next.delete(path)) next.add(path);
     return next;
   }), []);
-  const onTick = useCallback((path, on) => {
-    rv.tick(path, on).catch((e) => rv.setNotice(e.message));
+  const onTick = useCallback((path: string, on: boolean) => {
+    rv.tick(path, on).catch((e: unknown) => rv.setNotice(errorMessage(e)));
     setOpened((prev) => {
       const next = new Set(prev);
       if (on) next.delete(path);
@@ -194,16 +199,16 @@ export default function Review({ tabId }) {
       return next;
     });
   }, [rv.tick]);
-  const onOpenTab = useCallback((path) => {
+  const onOpenTab = useCallback((path: string) => {
     const s = useWorkbench.getState();
     s.open(`diff-${n}~${path}`, { group: s.otherGroup() });
   }, [n]);
-  const onReveal = useCallback((path, y, center) => {
+  const onReveal = useCallback((path: string, y: number, center: boolean) => {
     const el = els.current.get(path);
     const main = mainRef.current;
     if (el && main) scrollMain(el.offsetTop + y - (center ? main.clientHeight / 2 : SCROLL_GAP));
   }, []);
-  const jump = useCallback((c) => {
+  const jump = useCallback((c: ReviewComment) => {
     const path = (c.side === 'base' && orderRef.current.find((f) => f.previous === c.path)?.filename) || c.path;
     goTo(path);
     setReveal({ path, line: c.startLine, side: c.side, at: Date.now() });
@@ -211,7 +216,7 @@ export default function Review({ tabId }) {
 
   useEffect(() => {
     if (!active) return undefined;
-    const on = (e) => {
+    const on = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || (e.key !== 'j' && e.key !== 'k') || typing(e.target)) return;
       const s = useWorkbench.getState();
       if (s.groups.find((g) => g.id === s.focused)?.active !== tabId) return;
@@ -227,18 +232,18 @@ export default function Review({ tabId }) {
   }, [active, tabId, goTo]);
 
   const rvCards = useMemo(() => rv, [rv.comments, rv.drafts, rv.refs, rv.proposals]);
-  const setAll = (on) => setOpened(new Set(on ? order.map((f) => f.filename) : []));
-  const resize = (e) => {
-    if (!dragging) return;
+  const setAll = (on: boolean) => setOpened(new Set(on ? order.map((f) => f.filename) : []));
+  const resize = (e: React.PointerEvent) => {
+    if (!dragging || !bodyRef.current) return;
     const box = bodyRef.current.getBoundingClientRect();
     if (dragging === 'left') setWidth(Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, e.clientX - box.left))));
     else setActWidth(Math.round(Math.min(ACT_MAX, Math.max(ACT_MIN, box.right - e.clientX))));
   };
-  const handle = (side) => <div className="rv-handle" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(side); }} onPointerMove={resize} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)} />;
+  const handle = (side: 'left' | 'right') => <div className="rv-handle" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(side); }} onPointerMove={resize} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)} />;
 
   if (!pr) return <div className="sub" style={{ padding: 16 }}>{keyLabel(n)} is not in this work.</div>;
   const title = pr.title || pr.planned?.title;
-  const toggleCat = (c) => setHidden(hidden.includes(c) ? hidden.filter((x) => x !== c) : [...hidden, c]);
+  const toggleCat = (c: string) => setHidden(hidden.includes(c) ? hidden.filter((x) => x !== c) : [...hidden, c]);
   // panes that fit the group's width (a split halves it): the activity pane shrinks, then folds into the main column, then the file list does
   const room = boxW || innerWidth;
   const fitAct = Math.min(actWidth, room - width - 12 - MAIN_MIN);

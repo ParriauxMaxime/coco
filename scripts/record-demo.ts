@@ -7,7 +7,66 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+interface Point {
+  x: number;
+  y: number;
+}
+interface DomElement {
+  parentElement: DomElement | null;
+  scrollHeight: number;
+  clientHeight: number;
+  getBoundingClientRect(): { top: number; bottom: number; height: number };
+  scrollBy(opts: { top: number; behavior: string }): void;
+  scrollIntoView(opts: { block: string }): void;
+}
+interface LocatorOptions {
+  hasText?: string | RegExp;
+  has?: Locator;
+}
+interface Locator {
+  boundingBox(): Promise<Box | null>;
+  evaluate<A = undefined>(fn: (el: DomElement, arg: A) => unknown, arg?: A): Promise<unknown>;
+  waitFor(opts?: { state?: string; timeout?: number }): Promise<void>;
+  click(): Promise<void>;
+  count(): Promise<number>;
+  first(): Locator;
+  last(): Locator;
+  locator(selector: string, opts?: LocatorOptions): Locator;
+  getByRole(role: string, opts: { name: string | RegExp }): Locator;
+}
+interface Page {
+  waitForTimeout(ms: number): Promise<void>;
+  mouse: { move(x: number, y: number, opts?: { steps: number }): Promise<void>; down(): Promise<void>; up(): Promise<void>; wheel(dx: number, dy: number): Promise<void> };
+  keyboard: { press(key: string): Promise<void> };
+  locator(selector: string, opts?: LocatorOptions): Locator;
+  getByText(text: string): Locator;
+  getByRole(role: string, opts: { name: string | RegExp }): Locator;
+  evaluate<A>(fn: (arg: A) => unknown, arg: A): Promise<unknown>;
+  goto(url: string): Promise<unknown>;
+  reload(): Promise<unknown>;
+  screenshot(opts: { path: string }): Promise<unknown>;
+  video(): { path(): Promise<string> };
+}
+interface BrowserContext {
+  newPage(): Promise<Page>;
+  addInitScript(script: string): Promise<void>;
+  close(): Promise<void>;
+}
+interface Browser {
+  newContext(opts: Record<string, unknown>): Promise<BrowserContext>;
+  close(): Promise<void>;
+}
+
+declare const getComputedStyle: (el: DomElement) => { overflowY: string };
+declare const location: { hash: string };
+
+const { chromium }: { chromium: { launch(): Promise<Browser> } } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const URL = process.env.COCO_URL || 'http://127.0.0.1:8790';
 const OUT = path.resolve(process.env.OUT_DIR || path.join(HERE, '../docs/media'));
@@ -31,15 +90,15 @@ const CURSOR = `(() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add); else add();
 })()`;
 
-function actor(page) {
-  const wait = (ms) => page.waitForTimeout(ms);
-  const center = async (loc) => {
+function actor(page: Page) {
+  const wait = (ms: number) => page.waitForTimeout(ms);
+  const center = async (loc: Locator) => {
     const b = await loc.boundingBox();
     if (!b) throw new Error(`no box for ${loc}`);
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   };
-  const moveTo = (p, steps = 22) => page.mouse.move(p.x, p.y, { steps });
-  const reveal = async (loc, block = 'center') => {
+  const moveTo = (p: Point, steps = 22) => page.mouse.move(p.x, p.y, { steps });
+  const reveal = async (loc: Locator, block = 'center') => {
     // scroll only the nearest scrolling pane: scrollIntoView also nudges the document, hiding the top bar
     await loc.evaluate((el, block) => {
       let p = el.parentElement;
@@ -52,7 +111,7 @@ function actor(page) {
     }, block);
     await wait(750);
   };
-  const click = async (loc, { pause = 350, steps = 22 } = {}) => {
+  const click = async (loc: Locator, { pause = 350, steps = 22 }: { pause?: number; steps?: number } = {}) => {
     await loc.waitFor({ state: 'visible', timeout: 15000 });
     const b = await loc.boundingBox();
     if (!b || b.y < 60 || b.y + b.height > VIEWPORT.height - 10) await reveal(loc);
@@ -62,7 +121,7 @@ function actor(page) {
     await page.mouse.up();
     await wait(pause);
   };
-  const scroll = async (dy, at) => {
+  const scroll = async (dy: number, at?: Point) => {
     if (at) await moveTo(at, 14);
     const step = dy > 0 ? 40 : -40;
     for (let done = 0; Math.abs(done) < Math.abs(dy); done += step) {
@@ -71,14 +130,14 @@ function actor(page) {
     }
     await wait(250);
   };
-  const go = (hash) => page.evaluate((h) => (location.hash = h), hash);
+  const go = (hash: string) => page.evaluate((h: string) => (location.hash = h), hash);
   return { wait, moveTo, reveal, click, scroll, go };
 }
 
-const unfoldedChevrons = (page) => page.locator('.fd-spot > .fd-row > .fd-claimcell > .fd-chev', { hasText: '▾' });
-const spotByClaim = (page, text) => page.locator('.fd-spot > .fd-row', { has: page.locator('.fd-claim', { hasText: text }) });
+const unfoldedChevrons = (page: Page) => page.locator('.fd-spot > .fd-row > .fd-claimcell > .fd-chev', { hasText: '▾' });
+const spotByClaim = (page: Page, text: string) => page.locator('.fd-spot > .fd-row', { has: page.locator('.fd-claim', { hasText: text }) });
 
-async function foldAll(page, a, { animate }) {
+async function foldAll(page: Page, a: ReturnType<typeof actor>, { animate }: { animate: boolean }) {
   for (let i = 0; i < 12; i++) {
     const chev = unfoldedChevrons(page).first();
     if (!(await chev.count())) break;
@@ -87,11 +146,11 @@ async function foldAll(page, a, { animate }) {
   }
 }
 
-async function shots(browser) {
+async function shots(browser: Browser) {
   const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2, colorScheme: 'light' });
   const page = await ctx.newPage();
   const a = actor(page);
-  const shot = async (name) => {
+  const shot = async (name: string) => {
     await a.wait(600);
     await page.screenshot({ path: path.join(OUT, name) });
     console.log('wrote', name);
@@ -127,7 +186,7 @@ async function shots(browser) {
   await ctx.close();
 }
 
-async function video(browser) {
+async function video(browser: Browser) {
   const dir = fs.mkdtempSync(path.join(OUT, '.rec-'));
   const born = Date.now();
   const ctx = await browser.newContext({ viewport: VIEWPORT, colorScheme: 'light', recordVideo: { dir, size: VIEWPORT } });
@@ -209,8 +268,8 @@ async function video(browser) {
 }
 
 // trims the idle start, writes overview.webm (VP9), overview.mp4 (H.264, what GitHub plays) and an overview.jpg poster
-function encode(raw, start) {
-  const ff = (args) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args], { stdio: 'inherit' });
+function encode(raw: string, start: number) {
+  const ff = (args: string[]) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args], { stdio: 'inherit' });
   try {
     execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
   } catch {

@@ -7,38 +7,53 @@ import { attachFolds } from './folds.ts';
 import LiteDiff from './LiteDiff.tsx';
 import { CAT_CHIP } from './review-order.ts';
 import { prUrl, useConfig } from '../../config.ts';
+import type { editor } from 'monaco-editor/editor/editor.api';
+import type { Reveal } from './DiffView.tsx';
+import type { ReviewHandle } from './use-comments.ts';
+import type { FileCategory, PrKey, RefFile } from '../types.ts';
 import './code.css';
 
 const LINE_PX = 19;
 const SCROLLBAR_PX = 20;
-const STATUS = { added: 'c-green', removed: 'c-red', renamed: 'c-purple' };
+const STATUS: Record<string, string> = { added: 'c-green', removed: 'c-red', renamed: 'c-purple' };
 // The card takes the diff's full height, so the editor never scrolls vertically and the wheel scrolls the page.
-const CARD_OPTIONS = {
+const CARD_OPTIONS: editor.IDiffEditorConstructionOptions = {
   scrollbar: { vertical: 'hidden', verticalScrollbarSize: 0, alwaysConsumeMouseWheel: false },
   stickyScroll: { enabled: false },
   fixedOverflowWidgets: true,
   renderOverviewRuler: false,
 };
 
-export const estimateHeight = (f) => (f.additions + f.deletions + 6) * LINE_PX;
+export const estimateHeight = (f: RefFile) => (f.additions + f.deletions + 6) * LINE_PX;
 
-function Placeholder({ file, height, label = '' }) {
+function Placeholder({ file, height, label = '' }: { file: RefFile; height?: number; label?: string }) {
   return <div className="rv-ph" style={{ height: height || estimateHeight(file) }}>{label}</div>;
 }
 
+type DesktopDiffProps = {
+  n: PrKey;
+  rv: ReviewHandle;
+  file: RefFile;
+  reveal: Reveal | null;
+  sbs: boolean;
+  knownHeight?: number;
+  onReveal: (y: number, center: boolean) => void;
+  onHeight: (height: number) => void;
+};
+
 // onReveal(y, center): y in px from the card top, center = scroll so y sits mid-viewport · onHeight(h): measured diff height
-function DesktopDiff({ n, rv, file, reveal, sbs, knownHeight, onReveal, onHeight }) {
+function DesktopDiff({ n, rv, file, reveal, sbs, knownHeight, onReveal, onHeight }: DesktopDiffProps) {
   const path = file.filename;
   const texts = useTexts(n, rv.refs, path, file, 'diff', true);
   const { mod } = useMonaco();
-  const [diff, setDiff] = useState(null);
+  const [diff, setDiff] = useState<editor.IStandaloneDiffEditor | null>(null);
   const [contentH, setContentH] = useState(0);
-  const hostRef = useRef(null);
-  const revealed = useRef(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const revealed = useRef<number | undefined>(undefined);
   const { mine, onCreate, zone } = fileCommentProps(rv, path, file);
   const mineRef = useRef(mine);
   mineRef.current = mine;
-  const folds = useRef(null);
+  const folds = useRef<ReturnType<typeof attachFolds> | null>(null);
   const commented = mine.map((c) => `${c.side}:${c.startLine}:${c.endLine}`).join('|');
   // Declared before the folds: cleanups run in order, so an unmount stops measuring before the folds unhide every line.
   useEffect(() => {
@@ -85,7 +100,7 @@ function DesktopDiff({ n, rv, file, reveal, sbs, knownHeight, onReveal, onHeight
   );
 }
 
-function PhoneDiff({ n, rv, file }) {
+function PhoneDiff({ n, rv, file }: { n: PrKey; rv: ReviewHandle; file: RefFile }) {
   const texts = useTexts(n, rv.refs, file.filename, file, 'diff', false);
   const { mine, onCreate, zone } = fileCommentProps(rv, file.filename, file);
   if (texts.loading) return <Placeholder file={file} label="Loading…" />;
@@ -93,20 +108,41 @@ function PhoneDiff({ n, rv, file }) {
   return <LiteDiff unified={texts.unified} comments={mine} onCreateComment={onCreate} renderZone={zone} />;
 }
 
-function PathLabel({ path }) {
+function PathLabel({ path }: { path: string }) {
   const cut = path.lastIndexOf('/') + 1;
   return <>{path.slice(0, cut)}<b>{path.slice(cut)}</b></>;
 }
 
 // cardRef(path, el) registers the card for windowed mount and scroll tracking · knownHeight keeps an unmounted card at its last measured height
-function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, desktop, category, note, reviewed, cardRef, onToggle, onTick, onOpenTab, onReveal, onHeight }) {
+type CardProps = {
+  n: PrKey;
+  rv: ReviewHandle;
+  file: RefFile;
+  open: boolean;
+  mounted: boolean;
+  knownHeight?: number;
+  reveal: Reveal | null;
+  sbs: boolean;
+  desktop: boolean;
+  category?: FileCategory;
+  note?: string;
+  reviewed: boolean;
+  cardRef: (path: string, el: HTMLElement | null) => void;
+  onToggle: (path: string) => void;
+  onTick: ((path: string, on: boolean) => void) | null;
+  onOpenTab: (path: string) => void;
+  onReveal: (path: string, y: number, center: boolean) => void;
+  onHeight: (path: string, height: number) => void;
+};
+
+function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, desktop, category, note, reviewed, cardRef, onToggle, onTick, onOpenTab, onReveal, onHeight }: CardProps) {
   const path = file.filename;
   const [anchor, setAnchor] = useState('');
   const github = useConfig((s) => s.repo.github);
-  const ref = useCallback((el) => cardRef(path, el), [cardRef, path]);
+  const ref = useCallback((el: HTMLElement | null) => cardRef(path, el), [cardRef, path]);
   useEffect(() => { sha256(path).then(setAnchor); }, [path]);
-  const revealHere = useCallback((y, center) => onReveal(path, y, center), [onReveal, path]);
-  const heightHere = useCallback((h) => onHeight(path, h), [onHeight, path]);
+  const revealHere = useCallback((y: number, center: boolean) => onReveal(path, y, center), [onReveal, path]);
+  const heightHere = useCallback((h: number) => onHeight(path, h), [onHeight, path]);
 
   let body = null;
   if (open && file.status === 'removed') body = <div className="rv-note">File deleted, {file.deletions} lines.</div>;
@@ -127,7 +163,7 @@ function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, 
         <span className="ct-stat"><span className="add">+{file.additions}</span> <span className="del">−{file.deletions}</span></span>
         <span className="cc-spacer" />
         {onTick && <label className="rv-tick"><input type="checkbox" checked={reviewed} onChange={(e) => onTick(path, e.target.checked)} /> reviewed</label>}
-        {github && <a className="wb-act" href={prUrl(github, n, anchor)} target="_blank" rel="noreferrer" title="Open on GitHub">↗</a>}
+        {github && <a className="wb-act" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer" title="Open on GitHub">↗</a>}
         <button type="button" className="wb-act" title="Open in a tab in the other group" onClick={() => onOpenTab(path)}>open in tab</button>
       </header>
       {open && note && <div className="rv-focus"><b>coco</b> {note}</div>}

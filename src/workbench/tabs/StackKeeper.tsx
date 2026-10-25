@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../api.ts';
+import { api, errorMessage } from '../../api.ts';
+import type { KeepApplied, KeepPlan } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 
-const Cmd = ({ lines }) => (
+const Cmd = ({ lines }: { lines: string[] }) => (
   <div className="row keep-cmd">
     <pre>{lines.join('\n')}</pre>
     <button type="button" className="sm" onClick={() => navigator.clipboard?.writeText(lines.join('\n'))}>copy</button>
@@ -10,15 +11,15 @@ const Cmd = ({ lines }) => (
 );
 
 // after a parent PR merged: dry run of the children's rebase, apply the local part, the push left to the user
-export default function StackKeeper({ slug, onChange }) {
-  const [plan, setPlan] = useState(null);
-  const [result, setResult] = useState(null);
+export default function StackKeeper({ slug, onChange }: { slug: string; onChange?: () => void }) {
+  const [plan, setPlan] = useState<KeepPlan | null>(null);
+  const [result, setResult] = useState<KeepApplied | null>(null);
   const { pending, busy, run } = useAction();
   const [error, setError] = useState('');
-  const load = () => api.stackKeeper(slug).then(setPlan, (e) => setError(e.message));
+  const load = () => api.stackKeeper(slug).then(setPlan, (e) => setError(errorMessage(e)));
   useEffect(() => { load(); }, [slug]);
 
-  const act = (action, ask) => confirm(ask) && run(action, async () => {
+  const act = (action: string, ask: string) => confirm(ask) && run(action, async () => {
     const r = await api.stackKeeperAction(slug, action);
     if (action === 'apply') setResult(r);
     await load();
@@ -52,10 +53,10 @@ export default function StackKeeper({ slug, onChange }) {
           <b>Applied</b>
           {result.results.map((r) => (
             <div key={r.key} className="status">
-              <code>{r.branch}</code> {r.tipAfter ? `${r.tipBefore.slice(0, 10)} → ${r.tipAfter.slice(0, 10)}${r.worktreeJson ? ' · baseRef updated' : ''}` : r.conflict ? `conflict, stopped: ${r.conflict.join(', ')}` : r.skipped || r.error}
+              <code>{r.branch}</code> {r.tipAfter ? `${(r.tipBefore ?? '').slice(0, 10)} → ${r.tipAfter.slice(0, 10)}${r.worktreeJson ? ' · baseRef updated' : ''}` : r.conflict ? `conflict, stopped: ${r.conflict.join(', ')}` : r.skipped || r.error}
             </div>
           ))}
-          {result.results.some((r) => r.tipAfter) && <><p className="sub" style={{ margin: '8px 0 4px' }}>Yours to run, after a look at the diffs:</p><Cmd lines={result.results.filter((r) => r.tipAfter).flatMap((r) => [r.push, ...(r.ghBase ? [r.ghBase] : [])])} /></>}
+          {result.results.some((r) => r.tipAfter) && <><p className="sub" style={{ margin: '8px 0 4px' }}>Yours to run, after a look at the diffs:</p><Cmd lines={result.results.filter((r) => r.tipAfter).flatMap((r) => [...(r.push ? [r.push] : []), ...(r.ghBase ? [r.ghBase] : [])])} /></>}
         </div>
       )}
       {error && <div className="status danger">{error}</div>}

@@ -1,38 +1,57 @@
 // Endpoints the Paseo plugins call: map a Paseo workspace to its work and PR, list a branch's stack in merge order, describe the cocopilot run an agent is on, and, when an agent turn ends, settle its runs, read back its thread replies and refresh the refs of its work.
 import { execFile } from 'node:child_process';
 import { parseKey, rowKey } from './stack.ts';
+import type { Exec, PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, Work } from './core-types.ts';
 
 const BRANCH_TTL_MS = 5 * 60 * 1000;
 const RECENT_RUNS = 5;
 
-const defaultExec = (cmd, args) =>
+type RunBase = { runId?: string; id?: string; status: string; agentId?: string | null; startedAt?: string; finishedAt?: string | null };
+type Run = RunBase & { commentIds: string[] };
+type StackRun = RunBase & { cwd?: string | null; rows: { key: RowKey; worktree?: string | null; commentIds: string[] }[] };
+type TrackedComment = { id: string; status: string };
+type Counts ={ total: number } & Record<string, number>;
+type LinkWork = Work & { stack?: StackRow[] };
+
+type PaseoLinkOptions = {
+  config?: { repo?: { github?: string } } | null;
+  works: { list(): Work[]; prInfo?(n: number): Promise<PrInfo | null> };
+  comments: { list(slug: string, key: RowKey): { comments?: TrackedComment[] }; follow(slug: string, key: RowKey, refs: { headSha: string }): Promise<unknown> };
+  code: { ensureRefs(key: RowKey, opts?: { fresh?: boolean }): Promise<{ headSha: string }> };
+  reviewAgent: { sameDir(a: string, b: string): boolean; list(slug: string, key: RowKey): Run[]; ingest(slug: string, key: RowKey): Promise<{ runs: Run[] }> };
+  stackFix: { list(slug: string): StackRun[]; ingest(slug: string): Promise<{ runs: StackRun[] }> };
+  threads?: { turnEnded(agentId: string): Promise<unknown> } | null;
+  exec?: Exec;
+};
+
+const defaultExec: Exec = (cmd, args) =>
   new Promise((resolve) => {
     execFile(cmd, args, { maxBuffer: 4 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
     });
   });
 
-const countBy = (items, key) => items.reduce((acc, x) => ((acc[x[key]] = (acc[x[key]] || 0) + 1), acc), {});
-const tally = (mine) => ({ total: mine.length, ...countBy(mine, 'status') });
-const pick = (stored, ids) => (stored || []).filter((c) => ids.includes(c.id));
+const countBy = (items: { status: string }[]) => items.reduce<Record<string, number>>((acc, x) => ((acc[x.status] = (acc[x.status] || 0) + 1), acc), {});
+const tally = (mine: { status: string }[]): Counts => ({ total: mine.length, ...countBy(mine) });
+const pick = (stored: TrackedComment[] | undefined, ids: string[]) => (stored || []).filter((c) => ids.includes(c.id));
 
-export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, exec = defaultExec }) {
+export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, exec = defaultExec }: PaseoLinkOptions) {
   const GITHUB = config?.repo?.github || '';
-  const prByBranch = new Map();
-  const activeWorks = () => works.list().filter((w) => !w.archived);
-  const stackKeys = (work) => (work.stack || []).map(rowKey).filter(Boolean);
+  const prByBranch = new Map<string, { at: number; number: number | null }>();
+  const activeWorks = (): LinkWork[] => works.list().filter((w) => !w.archived);
+  const stackKeys = (work: LinkWork) => (work.stack || []).map(rowKey).filter((k): k is RowKey => Boolean(k));
 
-  async function prForBranch(branch) {
+  async function prForBranch(branch: string) {
     const cached = prByBranch.get(branch);
     if (cached && Date.now() - cached.at < BRANCH_TTL_MS) return cached.number;
     if (!GITHUB) return null;
     const r = await exec('gh', ['pr', 'list', '--repo', GITHUB, '--head', branch, '--state', 'all', '--json', 'number', '--limit', '1']);
-    const number = r.ok ? (JSON.parse(r.stdout || '[]')[0]?.number ?? null) : null;
+    const number: number | null = r.ok ? (JSON.parse(r.stdout || '[]')[0]?.number ?? null) : null;
     if (r.ok) prByBranch.set(branch, { at: Date.now(), number });
     return number;
   }
 
-  const runView = (work, kind, pr, run, mine) => ({
+  const runView = (work: LinkWork, kind: string, pr: RowKey | null, run: RunBase, mine: { status: string }[]) => ({
     kind,
     slug: work.slug,
     title: work.title,
@@ -44,24 +63,24 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     finishedAt: run.finishedAt || null,
     comments: tally(mine),
   });
-  const reviewView = (work, n, run) => runView(work, 'review', n, run, pick(comments.list(work.slug, n).comments, run.commentIds));
-  const stackView = (work, run) =>
+  const reviewView = (work: LinkWork, n: RowKey, run: Run) => runView(work, 'review', n, run, pick(comments.list(work.slug, n).comments, run.commentIds));
+  const stackView = (work: LinkWork, run: StackRun) =>
     runView(work, 'stack-fix', null, run, run.rows.flatMap((r) => pick(comments.list(work.slug, r.key).comments, r.commentIds)));
-  const touches = (run, cwd) => [run.cwd, ...run.rows.map((r) => r.worktree)].some((dir) => dir && reviewAgent.sameDir(dir, cwd));
+  const touches = (run: StackRun, cwd: string) => [run.cwd, ...run.rows.map((r) => r.worktree)].some((dir) => dir && reviewAgent.sameDir(dir, cwd));
 
   // the work row checked out in cwd: a PR row through `gh pr list --head`, else a local row on that branch
-  async function rowAt(cwd) {
+  async function rowAt(cwd?: string | null) {
     const active = activeWorks();
-    const branchRun = cwd ? await exec('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD']) : { ok: false };
+    const branchRun = cwd ? await exec('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD']) : { ok: false, stdout: '' };
     const branch = branchRun.ok ? branchRun.stdout.trim() : null;
     const number = branch && branch !== 'HEAD' ? await prForBranch(branch) : null;
     const byPr = number ? active.find((w) => (w.stack || []).some((s) => s.number === number)) : null;
-    const localRow = (w) => (w.stack || []).find((s) => !s.number && branch && s.planned?.branch === branch);
+    const localRow = (w: LinkWork) => (w.stack || []).find((s) => !s.number && branch && s.planned?.branch === branch);
     const byBranch = byPr ? null : active.find(localRow);
     return { branch, number, byPr, byBranch, localRow };
   }
 
-  async function resolve({ cwd, projectId }) {
+  async function resolve({ cwd, projectId }: { cwd?: string | null; projectId?: string | null }) {
     const { branch, number, byPr, byBranch, localRow } = await rowAt(cwd);
     const work = byPr || byBranch || (projectId ? activeWorks().find((w) => w.projectId === projectId) : null);
     if (!work) return { branch, work: null, pr: null, runs: [] };
@@ -73,23 +92,23 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     return {
       branch,
       work: { slug: work.slug, title: work.title, stack: (work.stack || []).map((s) => s.number).filter(Boolean) },
-      pr: byPr ? { number, comments: tally(comments.list(work.slug, number).comments || []) } : null,
+      pr: byPr && number ? { number, comments: tally(comments.list(work.slug, number).comments || []) } : null,
       runs,
     };
   }
 
   // the rows of the work holding this branch, in merge order, each with its branch: the PR head, else the planned branch
-  async function stack({ branch }) {
+  async function stack({ branch }: { branch: string }) {
     const number = await prForBranch(branch);
-    const holds = (s) => (number && s.number === number) || s.planned?.branch === branch;
+    const holds = (s: StackRow) => (number && s.number === number) || s.planned?.branch === branch;
     const work = activeWorks().find((w) => (w.stack || []).some(holds));
     if (!work) return { work: null, rows: [] };
-    const headOf = async (s) => (s.number ? (await works.prInfo?.(s.number))?.head : null) || s.planned?.branch || null;
+    const headOf = async (s: StackRow) => (s.number ? (await works.prInfo?.(s.number))?.head : null) || s.planned?.branch || null;
     const rows = await Promise.all((work.stack || []).filter(rowKey).map(async (s) => ({ key: rowKey(s), branch: holds(s) ? branch : await headOf(s) })));
     return { work: { slug: work.slug, title: work.title }, rows };
   }
 
-  function run({ kind, slug, runId, pr }) {
+  function run({ kind, slug, runId, pr }: { kind?: string; slug: string; runId?: string; pr?: string | number | null }) {
     const work = activeWorks().find((w) => w.slug === slug);
     if (!work) return null;
     if (kind === 'stack-fix') {
@@ -98,21 +117,22 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     }
     const n = parseKey(String(pr || '').replaceAll('~', ':'));
     const found = n ? reviewAgent.list(slug, n).find((r) => r.runId === runId) : null;
-    return found ? reviewView(work, n, found) : null;
+    return n && found ? reviewView(work, n, found) : null;
   }
 
   // an agent may have committed, restacked or pushed any row: move every row's refs and re-anchor its comments
-  const refreshing = new Map();
-  function refreshWork(work) {
-    if (refreshing.has(work.slug)) return refreshing.get(work.slug);
+  const refreshing = new Map<string, Promise<unknown[]>>();
+  function refreshWork(work: LinkWork) {
+    const held = refreshing.get(work.slug);
+    if (held) return held;
     const p = (async () => {
-      const out = [];
+      const out: unknown[] = [];
       for (const key of stackKeys(work)) {
         try {
           const refs = await code.ensureRefs(key, { fresh: true });
           out.push({ key, headSha: refs.headSha, reanchored: await comments.follow(work.slug, key, refs) });
         } catch (e) {
-          out.push({ key, error: e.message });
+          out.push({ key, error: e instanceof Error ? e.message : String(e) });
         }
       }
       return out;
@@ -121,7 +141,7 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     return p;
   }
 
-  async function turnEnded({ agentId, cwd }) {
+  async function turnEnded({ agentId, cwd }: { agentId: string; cwd?: string | null }) {
     if (cwd) {
       const { byPr, byBranch } = await rowAt(cwd);
       const work = byPr || byBranch;
@@ -129,7 +149,7 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     }
     threads?.turnEnded(agentId).catch(() => {});
     const settled = [];
-    const mine = (r) => r.status === 'running' && r.agentId === agentId;
+    const mine = (r: RunBase) => r.status === 'running' && r.agentId === agentId;
     for (const work of activeWorks()) {
       for (const n of stackKeys(work)) {
         const ids = reviewAgent.list(work.slug, n).filter(mine).map((r) => r.runId);
@@ -145,13 +165,13 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     return { runs: settled };
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const [, action] = parts;
       const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : {};
       if (action === 'resolve' && req.method === 'POST') return send(res, 200, await resolve(body));
       if (action === 'stack' && req.method === 'GET') {
-        const branch = new URL(req.url, 'http://local').searchParams.get('branch');
+        const branch = new URL(req.url || '/', 'http://local').searchParams.get('branch');
         if (!branch) return send(res, 400, { error: 'branch required' });
         return send(res, 200, await stack({ branch }));
       }
@@ -162,7 +182,7 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
       }
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, 500, { error: String(e.message || e) });
+      return send(res, 500, { error: String(e instanceof Error ? e.message || e : e) });
     }
   }
 

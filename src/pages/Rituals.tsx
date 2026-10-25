@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import { ritualFields, useConfig } from '../config.ts';
+import type { Persona, RitualRun } from '../types.ts';
 
-export default function Rituals({ preset }) {
+export default function Rituals({ preset }: { preset?: string }) {
   const rituals = useConfig((s) => s.rituals);
   const model = useConfig((s) => s.models.default);
   const loaded = useConfig((s) => s.loaded);
   const [picked, setKind] = useState(preset?.split('/')[0] || '');
-  const [form, setForm] = useState({ login: preset?.split('/')[1] || '', pr: '', paths: '', text: '' });
-  const [personas, setPersonas] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [form, setForm] = useState<Record<string, string>>({ login: preset?.split('/')[1] || '', pr: '', paths: '', text: '' });
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [history, setHistory] = useState<RitualRun[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -19,16 +20,16 @@ export default function Rituals({ preset }) {
   const spec = rituals.find((r) => r.kind === picked) || rituals[0];
   const kind = spec?.kind;
   const fields = spec ? ritualFields(spec) : [];
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
   const launch = async () => {
     setBusy(true);
     setStatus('launching Paseo agent…');
     try {
       const r = await api.launch({ kind, ...form });
-      setStatus(r.ok ? `launched ${r.agentId ? r.agentId.slice(0, 8) : ''} — ${r.title}` : `failed: ${r.out || r.error}`);
-      if (r.ts) setHistory([r, ...history]);
+      setStatus(r.ok ? `launched ${r.agentId ? r.agentId.slice(0, 8) : ''} — ${r.title}` : `failed: ${'error' in r ? r.error : r.out}`);
+      if ('ts' in r) setHistory([r, ...history]);
     } catch (e) {
-      setStatus(`failed: ${e.message}`);
+      setStatus(`failed: ${errorMessage(e)}`);
     }
     setBusy(false);
   };

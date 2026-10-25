@@ -1,28 +1,35 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { codeApi } from '../workbench/code/code-api.ts';
+import { errorMessage } from '../api.ts';
 
 // `path/to/file.ext:12-34` in rendered markdown becomes a link that opens the editor at that line, with a code peek on hover.
 // The workbench sets the PR the paths are read at (the top stack row); a Review tab or a card tagged with `pr` narrows it.
-export const CodeRefContext = createContext(null);
+type PrKey = number | string;
+type OpenAt = (n: PrKey, path: string, line: number | null) => void;
+type CodeRefValue = { n: PrKey; openAt: OpenAt; open: (path: string, line: number | null) => void };
+type PeekTarget = { path: string; start: number | null; end: number | null; rect: DOMRect };
+type PeekFile = { text?: string; tooLarge?: boolean; base?: boolean; error?: string };
 
-export function CodeRefScope({ n, children }) {
+export const CodeRefContext = createContext<CodeRefValue | null>(null);
+
+export function CodeRefScope({ n, children }: { n?: PrKey; children?: React.ReactNode }) {
   const parent = useContext(CodeRefContext);
-  const value = useMemo(() => parent && n && { ...parent, n, open: (path, line) => parent.openAt(n, path, line) }, [parent, n]);
+  const value = useMemo(() => (parent && n ? { ...parent, n, open: (path: string, line: number | null) => parent.openAt(n, path, line) } : null), [parent, n]);
   if (!value) return children;
   return <CodeRefContext.Provider value={value}>{children}</CodeRefContext.Provider>;
 }
 
 // the workbench root: openAt(n, path, line) opens the editor tab of a PR at a line
-export function CodeRefRoot({ n, openAt, children }) {
-  const value = useMemo(() => (n ? { n, openAt, open: (path, line) => openAt(n, path, line) } : null), [n, openAt]);
+export function CodeRefRoot({ n, openAt, children }: { n?: PrKey | null; openAt: OpenAt; children?: React.ReactNode }) {
+  const value = useMemo(() => (n ? { n, openAt, open: (path: string, line: number | null) => openAt(n, path, line) } : null), [n, openAt]);
   return <CodeRefContext.Provider value={value}>{children}</CodeRefContext.Provider>;
 }
 
 const REF = /(?<![\w/.@-])((?:[\w@.-]+\/)+[\w@.-]+\.[A-Za-z0-9]+)(?::(\d+)(?:-(\d+))?)?(?![\w/])/g;
 const SKIP = 'a, pre, .code-ref';
 
-const refLink = (doc, path, start, end, text) => {
+const refLink = (doc: Document, path: string, start: string | undefined, end: string | undefined, text: string) => {
   const a = doc.createElement('a');
   a.className = 'code-ref';
   a.href = '#';
@@ -34,44 +41,51 @@ const refLink = (doc, path, start, end, text) => {
 };
 
 // wraps code refs of a rendered markdown root in links: whole inline `code` elements, and refs inside text
-export function linkCodeRefs(root) {
+export function linkCodeRefs(root: HTMLElement) {
   const doc = root.ownerDocument;
   for (const code of root.querySelectorAll('code')) {
     if (code.closest(SKIP)) continue;
-    const m = new RegExp(`^${REF.source}$`).exec(code.textContent.trim());
+    const m = new RegExp(`^${REF.source}$`).exec((code.textContent ?? '').trim());
     if (!m) continue;
     const a = refLink(doc, m[1], m[2], m[3], '');
     code.replaceWith(a);
     a.appendChild(code);
   }
-  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement?.closest(`${SKIP}, code`) || !t.nodeValue.includes('/') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
-  const texts = [];
-  while (walker.nextNode()) texts.push(walker.currentNode);
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement?.closest(`${SKIP}, code`) || !t.nodeValue?.includes('/') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  const texts: Text[] = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode instanceof Text) texts.push(walker.currentNode);
+  }
   for (const t of texts) {
-    const parts = [];
+    const value = t.nodeValue ?? '';
+    const parts: (string | HTMLAnchorElement)[] = [];
     let last = 0;
-    for (const m of t.nodeValue.matchAll(REF)) {
-      parts.push(t.nodeValue.slice(last, m.index), refLink(doc, m[1], m[2], m[3], m[0]));
+    for (const m of value.matchAll(REF)) {
+      parts.push(value.slice(last, m.index), refLink(doc, m[1], m[2], m[3], m[0]));
       last = m.index + m[0].length;
     }
     if (!parts.length) continue;
-    parts.push(t.nodeValue.slice(last));
+    parts.push(value.slice(last));
     t.replaceWith(...parts.filter((p) => p !== ''));
   }
 }
 
-const files = new Map();
-const fileAt = (n, path) => {
+const files = new Map<string, Promise<PeekFile>>();
+const fileAt = (n: PrKey, path: string): Promise<PeekFile> => {
   const key = `${n}:${path}`;
-  if (!files.has(key)) files.set(key, codeApi.file(n, 'head', path).catch(() => codeApi.file(n, 'base', path).then((f) => ({ ...f, base: true }))).catch((e) => ({ error: e.message })));
-  return files.get(key);
+  const cached = files.get(key);
+  if (cached) return cached;
+  const loaded: Promise<PeekFile> = codeApi.file(n, 'head', path).catch(() => codeApi.file(n, 'base', path).then((f) => ({ ...f, base: true }))).catch((e) => ({ error: errorMessage(e) }));
+  files.set(key, loaded);
+  return loaded;
 };
 const CONTEXT = 4;
 
-function Peek({ n, at: target, onEnter, onLeave }) {
-  const [file, setFile] = useState(null);
-  const box = useRef(null);
-  const [pos, setPos] = useState(null);
+type PeekProps = { n: PrKey; at: PeekTarget; onEnter: () => void; onLeave: () => void };
+function Peek({ n, at: target, onEnter, onLeave }: PeekProps) {
+  const [file, setFile] = useState<PeekFile | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const { path, start, end } = target;
   useEffect(() => {
     let live = true;
@@ -108,29 +122,29 @@ function Peek({ n, at: target, onEnter, onLeave }) {
 }
 
 // click and hover handling for the code refs of one markdown root
-export function useCodeRefs(rootRef, deps) {
+export function useCodeRefs(rootRef: React.RefObject<HTMLElement | null>, deps: unknown[]) {
   const ctx = useContext(CodeRefContext);
-  const [peek, setPeek] = useState(null);
-  const timer = useRef(null);
+  const [peek, setPeek] = useState<PeekTarget | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     const root = rootRef.current;
     if (!ctx || !root) return undefined;
     linkCodeRefs(root);
-    const refOf = (e) => e.target.closest?.('a.code-ref');
-    const onClick = (e) => {
+    const refOf = (e: Event) => (e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a.code-ref') : null);
+    const onClick = (e: MouseEvent) => {
       const a = refOf(e);
       if (!a) return;
       e.preventDefault();
       setPeek(null);
-      ctx.open(a.dataset.path, Number(a.dataset.start) || null);
+      ctx.open(a.dataset.path ?? '', Number(a.dataset.start) || null);
     };
-    const onOver = (e) => {
+    const onOver = (e: MouseEvent) => {
       const a = refOf(e);
       if (!a) return;
       clearTimeout(timer.current);
-      timer.current = setTimeout(() => setPeek({ path: a.dataset.path, start: Number(a.dataset.start) || null, end: Number(a.dataset.end) || null, rect: a.getBoundingClientRect() }), 250);
+      timer.current = setTimeout(() => setPeek({ path: a.dataset.path ?? '', start: Number(a.dataset.start) || null, end: Number(a.dataset.end) || null, rect: a.getBoundingClientRect() }), 250);
     };
-    const onOut = (e) => {
+    const onOut = (e: MouseEvent) => {
       if (!refOf(e)) return;
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setPeek(null), 200);

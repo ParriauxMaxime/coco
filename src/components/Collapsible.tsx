@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-export default function Collapsible({ title, badge, open: initial = false, children, level = 'dev' }) {
+type Props = { title: React.ReactNode; badge?: React.ReactNode; open?: boolean; children?: React.ReactNode; level?: 'dev' | 'pm' };
+
+export default function Collapsible({ title, badge, open: initial = false, children, level = 'dev' }: Props) {
   const [open, setOpen] = useState(initial);
   return (
     <div className={`fold ${open ? 'open' : ''} fold-${level}`}>

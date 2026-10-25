@@ -2,11 +2,23 @@ import React from 'react';
 import Collapsible from '../../components/Collapsible.tsx';
 import FileList from './FileList.tsx';
 import { CATEGORIES, CAT_CHIP } from './review-order.ts';
+import type { ReviewHandle } from './use-comments.ts';
+import type { FileGroup, RefFile } from '../types.ts';
 import './code.css';
 
-export const CHIP = { open: 'c-blue', sent: 'c-orange', fixed: 'c-green', declined: 'c-red', outdated: 'c-grey', running: 'c-orange', done: 'c-green' };
+export type OrderState = {
+  mode: string;
+  setMode: (mode: string) => void;
+  groups: FileGroup[] | null;
+  hidden: string[];
+  onToggleCat: (category: string) => void;
+  catCounts: Record<string, number>;
+  ticks: Set<string>;
+};
 
-function OrderBar({ planned, mode, setMode, catCounts, hidden, onToggleCat }) {
+export const CHIP: Record<string, string> = { open: 'c-blue', sent: 'c-orange', fixed: 'c-green', declined: 'c-red', outdated: 'c-grey', running: 'c-orange', done: 'c-green' };
+
+function OrderBar({ planned, mode, setMode, catCounts, hidden, onToggleCat }: OrderState & { planned: boolean }) {
   return (
     <div className="rv-order">
       <span className="rv-seg">
@@ -23,7 +35,17 @@ function OrderBar({ planned, mode, setMode, catCounts, hidden, onToggleCat }) {
 
 // left pane of the Review tab: the changed files in suggested review order (or as a tree), ticks and comment counts; folded on phone
 // files: every changed file · shown: files left after hidden categories · order: { mode, setMode, groups, hidden, onToggleCat, catCounts, ticks }
-export default function ReviewSidebar({ files, shown, order, rv, activePath, onPick, phone = false }) {
+type Props = {
+  files: RefFile[];
+  shown: RefFile[];
+  order: OrderState;
+  rv: ReviewHandle;
+  activePath: string | null;
+  onPick: (path: string) => void;
+  phone?: boolean;
+};
+
+export default function ReviewSidebar({ files, shown, order, rv, activePath, onPick, phone = false }: Props) {
   const add = files.reduce((s, f) => s + f.additions, 0);
   const del = files.reduce((s, f) => s + f.deletions, 0);
   const bar = rv.plan && <OrderBar planned={Boolean(rv.plan.plan)} {...order} />;

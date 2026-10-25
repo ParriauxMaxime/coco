@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { errorMessage } from '../api.ts';
 
-export default function Editor({ load, save, label }) {
+type Props = { load: () => Promise<string>; save: (text: string) => Promise<{ bytes: number }>; label: string };
+
+export default function Editor({ load, save, label }: Props) {
   const [text, setText] = useState('');
   const [initial, setInitial] = useState('');
   const [status, setStatus] = useState('loading…');
@@ -14,7 +17,7 @@ export default function Editor({ load, save, label }) {
       setInitial(t);
       setStatus('');
     });
-    return () => (alive = false);
+    return () => { alive = false; };
   }, [load]);
 
   const dirty = text !== initial;
@@ -25,7 +28,7 @@ export default function Editor({ load, save, label }) {
       setInitial(text);
       setStatus(`saved ${r.bytes} bytes, .bak kept`);
     } catch (e) {
-      setStatus(`save failed: ${e.message}`);
+      setStatus(`save failed: ${errorMessage(e)}`);
     }
   };
 

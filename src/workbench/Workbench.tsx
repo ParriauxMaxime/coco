@@ -9,6 +9,10 @@ import { prOfTab, codeTabId } from './code/ids.ts';
 import { openCodeAt } from './tabs/Code.tsx';
 import { CodeRefRoot } from '../components/CodeRefs.tsx';
 import { findRun, loadReview, useReviewStore } from './code/use-comments.ts';
+import type { Edge, Group as GroupData, Handle as HandleData, PrKey, Rect, RefFile, WorkData } from './types.ts';
+
+type Zone = Edge | 'center';
+type Size = { width: number; height: number };
 
 const useMobile = () => {
   const [m, setM] = useState(() => matchMedia('(max-width: 900px)').matches);
@@ -21,9 +25,9 @@ const useMobile = () => {
   return m;
 };
 
-const useSize = () => {
-  const [el, setEl] = useState(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+const useSize = (): [Size, (el: HTMLDivElement | null) => void] => {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   useLayoutEffect(() => {
     if (!el) return undefined;
     const ro = new ResizeObserver(([e]) => setSize({ width: e.contentRect.width, height: e.contentRect.height }));
@@ -34,7 +38,7 @@ const useSize = () => {
 };
 
 const EDGE = 0.25;
-const zoneAt = (e, el) => {
+const zoneAt = (e: React.DragEvent, el: HTMLElement): Zone => {
   const b = el.getBoundingClientRect();
   const x = (e.clientX - b.left) / b.width;
   const y = (e.clientY - b.top) / b.height;
@@ -45,14 +49,14 @@ const zoneAt = (e, el) => {
   return 'center';
 };
 
-function Strip({ g, groups, ctx, merged, max, drag }) {
+function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: GroupData[]; ctx: WorkData; merged: boolean; max: boolean; drag: string | null }) {
   const { activate, close, pin, toggleMax, splitWith, moveTab, setDrag } = useWorkbench.getState();
   const previews = groups.map((x) => x.preview);
   const total = groups.reduce((n, x) => n + x.tabs.length, 0);
-  const [over, setOver] = useState(null);
-  const tabsRef = useRef(null);
-  const indexAt = (e) => {
-    const heads = [...tabsRef.current.querySelectorAll('[role=tab]')];
+  const [over, setOver] = useState<number | null>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const indexAt = (e: React.DragEvent) => {
+    const heads = [...(tabsRef.current?.querySelectorAll('[role=tab]') ?? [])];
     const i = heads.findIndex((h) => { const b = h.getBoundingClientRect(); return e.clientX < b.left + b.width / 2; });
     return i < 0 ? heads.length : i;
   };
@@ -62,7 +66,7 @@ function Strip({ g, groups, ctx, merged, max, drag }) {
         ref={tabsRef}
         className={`wb-tabs ${over === g.tabs.length ? 'drop-end' : ''}`}
         onDragOver={(e) => { if (!drag) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(indexAt(e)); }}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(null); }}
+        onDragLeave={(e) => { if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setOver(null); }}
         onDrop={(e) => { e.preventDefault(); setOver(null); if (drag) moveTab(drag, g.id, indexAt(e)); setDrag(null); }}
       >
         {g.tabs.map((id, i) => (
@@ -85,15 +89,15 @@ function Strip({ g, groups, ctx, merged, max, drag }) {
         ))}
       </div>
       <div className="wb-acts">
-        {!merged && g.tabs.length > 1 && <button className="wb-act" title="Split right (Cmd+\), Alt-click splits down" onClick={(e) => splitWith(g.active, g.id, e.altKey ? 'bottom' : 'right')}>⫿ split</button>}
+        {!merged && g.tabs.length > 1 && <button className="wb-act" title="Split right (Cmd+\), Alt-click splits down" onClick={(e) => splitWith(g.active ?? '', g.id, e.altKey ? 'bottom' : 'right')}>⫿ split</button>}
         {!merged && <button className={`wb-act ${max ? 'on' : ''}`} title="Maximize (Escape leaves)" onClick={toggleMax}>⤢</button>}
       </div>
     </div>
   );
 }
 
-function DropZone({ g, drag }) {
-  const [zone, setZone] = useState(null);
+function DropZone({ g, drag }: { g: GroupData; drag: string }) {
+  const [zone, setZone] = useState<Zone | null>(null);
   const { moveTab, splitWith, setDrag } = useWorkbench.getState();
   return (
     <div
@@ -114,7 +118,9 @@ function DropZone({ g, drag }) {
   );
 }
 
-function Group({ g, groups, ctx, focused, merged, max, rect, drag }) {
+type GroupProps = { g: GroupData; groups: GroupData[]; ctx: WorkData; focused: boolean; merged: boolean; max: boolean; rect?: Rect; drag: string | null };
+
+function Group({ g, groups, ctx, focused, merged, max, rect, drag }: GroupProps) {
   const { focus } = useWorkbench.getState();
   return (
     <section className={`wb-group ${focused ? 'focus' : ''}`} style={rect && { left: rect.left, top: rect.top, width: rect.width, height: rect.height }} hidden={!rect} onMouseDownCapture={() => !merged && focus(g.id)}>
@@ -130,10 +136,10 @@ function Group({ g, groups, ctx, focused, merged, max, rect, drag }) {
   );
 }
 
-function Handle({ h }) {
+function Handle({ h }: { h: HandleData }) {
   const [on, setOn] = useState(false);
   const row = h.dir === 'row';
-  const move = (e) => {
+  const move = (e: React.PointerEvent) => {
     if (!on) return;
     const total = h.sizes[h.i] + h.sizes[h.i + 1];
     const min = Math.min(0.1, total / 2);
@@ -155,8 +161,9 @@ function Handle({ h }) {
   );
 }
 
-export default function Workbench({ slug }) {
+export default function Workbench({ slug }: { slug: string }) {
   const data = useWorkData(slug);
+  const loaded: WorkData | null = data.w ? { ...data, w: data.w } : null;
   const ready = useWorkbench((s) => s.slug === slug);
   const { layout, groups, focused, max, drag } = useWorkbench();
   const mobile = useMobile();
@@ -170,22 +177,22 @@ export default function Workbench({ slug }) {
     return () => document.body.classList.remove('wb-max');
   }, [ready, max]);
   useEffect(() => {
-    const on = (e) => {
+    const on = (e: KeyboardEvent) => {
       const s = useWorkbench.getState();
       if (s.slug !== slug) return;
       if (e.key === 'Escape' && s.max) return s.toggleMax();
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-      const active = s.groups.find((g) => g.id === s.focused)?.active;
+      const active = s.groups.find((g) => g.id === s.focused)?.active ?? '';
       if (e.key === 'w') { e.preventDefault(); s.close(active); }
       else if (e.key === '\\') { e.preventDefault(); s.moveToOtherGroup(active); }
-      else if (/^[1-9]$/.test(e.key) && s.groups[e.key - 1]) { e.preventDefault(); s.focus(s.groups[e.key - 1].id); }
+      else if (/^[1-9]$/.test(e.key) && s.groups[Number(e.key) - 1]) { e.preventDefault(); s.focus(s.groups[Number(e.key) - 1].id); }
     };
     addEventListener('keydown', on);
     return () => removeEventListener('keydown', on);
   }, [slug]);
   const focusedActive = groups.find((g) => g.id === focused)?.active;
-  const [qo, setQo] = useState(null);
-  const qoFiles = useReviewStore((s) => (qo ? s.prs[`${slug}:${qo}`]?.refs?.files : null)) || [];
+  const [qo, setQo] = useState<PrKey | null>(null);
+  const qoFiles: RefFile[] = useReviewStore((s) => (qo ? s.prs[`${slug}:${qo}`]?.refs?.files : null)) || [];
   const quickOpen = useCallback(() => {
     if (!ready || !data.w) return;
     const id = focusedActive || '';
@@ -195,19 +202,19 @@ export default function Workbench({ slug }) {
     setQo(n);
   }, [ready, data.w, data.prs, focusedActive, slug]);
   useQuickOpenShortcut(quickOpen);
-  const title = ready && data.w && focusedActive ? tabDef(focusedActive).title(data) : '';
+  const title = ready && loaded && focusedActive ? tabDef(focusedActive).title(loaded) : '';
   useEffect(() => { useWorkbench.getState().setTitle(title); }, [title]);
-  const openAt = useCallback((n, path, line) => openCodeAt(data.slug, n, path, line, { group: useWorkbench.getState().otherGroup() }), [data.slug]);
+  const openAt = useCallback((n: PrKey, path: string, line: number | null) => openCodeAt(data.slug, n, path, line, { group: useWorkbench.getState().otherGroup() }), [data.slug]);
   if (data.err) return <div className="card danger">{data.err}</div>;
-  if (!data.w || !ready) return <div className="sub" style={{ padding: 20 }}>Loading…</div>;
+  if (!loaded || !ready) return <div className="sub" style={{ padding: 20 }}>Loading…</div>;
 
   const merged = mobile && groups.length > 1;
-  const full = { left: 0, top: 0, ...size };
+  const full: Rect = { left: 0, top: 0, ...size };
   let shown = groups;
-  const rects = {};
-  let handles = [];
+  const rects: Record<number, Rect> = {};
+  let handles: HandleData[] = [];
   if (merged) {
-    shown = [{ id: focused, tabs: groups.flatMap((g) => g.tabs), active: focusedActive, preview: null }];
+    shown = [{ type: 'group', id: focused, tabs: groups.flatMap((g) => g.tabs), active: focusedActive ?? null, preview: null }];
     rects[focused] = full;
   } else if (max) rects[focused] = full;
   else {
@@ -216,10 +223,10 @@ export default function Workbench({ slug }) {
     handles = laid.handles;
   }
   return (
-    <WorkContext.Provider value={data}>
+    <WorkContext.Provider value={loaded}>
       <CodeRefRoot n={(data.prs.findLast((p) => p.number) || data.prs.findLast((p) => p.key))?.key} openAt={openAt}>
       <div ref={root} className={`wb-root ${max ? 'max' : ''} ${drag ? 'drag' : ''}`}>
-        {shown.map((g) => <Group key={g.id} g={g} groups={groups} ctx={data} focused={merged || g.id === focused} merged={merged} max={max} rect={rects[g.id]} drag={drag} />)}
+        {shown.map((g) => <Group key={g.id} g={g} groups={groups} ctx={loaded} focused={merged || g.id === focused} merged={merged} max={max} rect={rects[g.id]} drag={drag} />)}
         {handles.map((h) => <Handle key={`${h.path.join('.')}:${h.i}`} h={h} />)}
         {qo && <QuickOpen key={qo} open onClose={() => setQo(null)} prFiles={qoFiles} fetchTree={() => codeApi.tree(qo)} onOpen={(p) => useWorkbench.getState().open(codeTabId(qo, p, qoFiles), { preview: true })} />}
         {max && <button className="wb-exit" onClick={() => useWorkbench.getState().toggleMax()}>↙ exit</button>}

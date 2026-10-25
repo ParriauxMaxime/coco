@@ -3,6 +3,14 @@ import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { branchOf, findRow, isLocal, parseKey, rowKey } from './stack.ts';
+import { errorMessage } from './core-types.ts';
+import type { PrFile, ReadBody, Refs, RefsOptions, Req, Res, RowKey, Send, Works } from './core-types.ts';
+
+type GitResult<T extends string | Buffer = string> = { ok: boolean; code: string | number; stdout: T; stderr: string };
+type GitOptions = { timeout?: number; cwd?: string };
+type PrShas = { headSha: string; baseSha: string; baseRef?: string };
+type FileBlob = { sha: string | null; path: string; text: string; size: number; binary: boolean; tooLarge?: boolean; external?: boolean };
+type Deps = { REPO: string; config?: { repo?: { github?: string; defaultBranch?: string } }; works: Pick<Works, 'get' | 'list'> };
 
 const SHA_RE = /^[0-9a-f]{7,40}$/;
 const MAX_TEXT = 5 * 1024 * 1024;
@@ -12,57 +20,65 @@ const INFO_TTL = 60000;
 const FRESH_TTL = 10000;
 
 class HttpError extends Error {
-  constructor(code, message) {
+  code: number;
+  constructor(code: number, message: string) {
     super(message);
     this.code = code;
   }
 }
 
-export function createCode({ REPO, config, works }) {
+export function createCode({ REPO, config, works }: Deps) {
   const GITHUB = config?.repo?.github || '';
   const BRANCH = config?.repo?.defaultBranch || 'main';
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
-  const headRefName = (n) => `refs/cocopilot/head/${n}`;
-  const baseRefName = (n) => `refs/cocopilot/base/${n}`;
+  const headRefName = (n: RowKey) => `refs/cocopilot/head/${n}`;
+  const baseRefName = (n: RowKey) => `refs/cocopilot/base/${n}`;
 
-  const exec = (cmd, args, { buffer = false, timeout = 0, cwd } = {}) =>
-    new Promise((resolve) => {
-      execFile(cmd, args, { cwd, env: ENV, timeout, maxBuffer: 64 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
-        resolve({ ok: !err, code: err?.code ?? 0, stdout: stdout ?? (buffer ? Buffer.alloc(0) : ''), stderr: String(stderr || err?.message || '') });
+  const exec = (cmd: string, args: string[], { timeout = 0, cwd }: GitOptions = {}) =>
+    new Promise<GitResult>((resolve) => {
+      execFile(cmd, args, { cwd, env: ENV, timeout, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' }, (err, stdout, stderr) => {
+        resolve({ ok: !err, code: err?.code ?? 0, stdout: stdout ?? '', stderr: String(stderr || err?.message || '') });
+      });
+    });
+  const execBuffer = (cmd: string, args: string[]) =>
+    new Promise<GitResult<Buffer>>((resolve) => {
+      execFile(cmd, args, { env: ENV, maxBuffer: 64 * 1024 * 1024, encoding: 'buffer' }, (err, stdout, stderr) => {
+        resolve({ ok: !err, code: err?.code ?? 0, stdout: stdout ?? Buffer.alloc(0), stderr: String(stderr || err?.message || '') });
       });
     });
   // git -C '' would run in the server's own cwd
-  const git = (args, opts) => (REPO ? exec('git', ['-C', REPO, ...args], opts) : Promise.resolve({ ok: false, code: 1, stdout: '', stderr: 'no repo configured (repo.path)' }));
+  const git = (args: string[], opts?: GitOptions): Promise<GitResult> => (REPO ? exec('git', ['-C', REPO, ...args], opts) : Promise.resolve({ ok: false, code: 1, stdout: '', stderr: 'no repo configured (repo.path)' }));
+  const gitBuffer = (args: string[]): Promise<GitResult<Buffer>> => (REPO ? execBuffer('git', ['-C', REPO, ...args]) : Promise.resolve({ ok: false, code: 1, stdout: Buffer.alloc(0), stderr: 'no repo configured (repo.path)' }));
 
-  let chain = Promise.resolve();
-  const withLock = (fn) => {
+  let chain: Promise<unknown> = Promise.resolve();
+  const withLock = <T>(fn: () => Promise<T>): Promise<T> => {
     const p = chain.then(fn, fn);
     chain = p.catch(() => {});
     return p;
   };
 
-  const revParse = async (ref) => {
+  const revParse = async (ref: string) => {
     const r = await git(['rev-parse', '--verify', '-q', `${ref}^{commit}`]);
     return r.ok ? r.stdout.trim() : null;
   };
-  const hasCommit = async (sha) => (await git(['cat-file', '-e', `${sha}^{commit}`])).ok;
-  const setRef = async (ref, sha) => {
+  const hasCommit = async (sha: string) => (await git(['cat-file', '-e', `${sha}^{commit}`])).ok;
+  const setRef = async (ref: string, sha: string) => {
     const r = await git(['update-ref', ref, sha]);
     if (!r.ok) throw new HttpError(500, `update-ref ${ref}: ${r.stderr.trim()}`);
   };
-  const fetchRef = async (refspec) => {
+  const fetchRef = async (refspec: string) => {
     const r = await git(['fetch', '--no-tags', '--quiet', '--no-write-fetch-head', 'origin', refspec], { timeout: 180000 });
     if (!r.ok) throw new HttpError(500, `git fetch ${refspec}: ${r.stderr.trim().slice(0, 300)}`);
   };
 
-  const infoCache = new Map();
-  async function prShas(number, fresh = false) {
+  const infoCache = new Map<number, { at: number; promise: Promise<PrShas> }>();
+  async function prShas(number: number, fresh = false): Promise<PrShas> {
     const hit = infoCache.get(number);
     if (hit && Date.now() - hit.at < (fresh ? FRESH_TTL : INFO_TTL)) return hit.promise;
-    const promise = (async () => {
+    const promise = (async (): Promise<PrShas> => {
       if (!GITHUB) throw new HttpError(503, 'no GitHub repo configured (repo.github)');
       const r = await exec('gh', ['pr', 'view', String(number), '--repo', GITHUB, '--json', 'headRefOid,baseRefOid,baseRefName']);
-      let d = null;
+      let d: { headRefOid?: string; baseRefOid: string; baseRefName: string } | null = null;
       try {
         d = JSON.parse(r.stdout);
       } catch {}
@@ -74,39 +90,40 @@ export function createCode({ REPO, config, works }) {
     return promise;
   }
 
-  const mergeBases = new Map();
-  async function mergeBaseOf(baseSha, headSha) {
+  const mergeBases = new Map<string, string>();
+  async function mergeBaseOf(baseSha: string, headSha: string): Promise<string> {
     const key = `${headSha}:${baseSha}`;
-    if (mergeBases.has(key)) return mergeBases.get(key);
+    const known = mergeBases.get(key);
+    if (known !== undefined) return known;
     const r = await git(['merge-base', baseSha, headSha]);
     if (!r.ok || !r.stdout.trim()) throw new HttpError(500, `merge-base ${baseSha.slice(0, 9)} ${headSha.slice(0, 9)}: ${r.stderr.trim().slice(0, 200) || 'none'}`);
     const mb = r.stdout.trim();
     mergeBases.set(key, mb);
-    if (mergeBases.size > 200) mergeBases.delete(mergeBases.keys().next().value);
+    if (mergeBases.size > 200) mergeBases.delete(mergeBases.keys().next().value ?? '');
     return mb;
   }
 
   // a local row diffs its branch against the previous row's branch (first row: origin/<default branch>)
-  async function localRefs(key) {
+  async function localRefs(key: string): Promise<Refs> {
     const branch = branchOf(key);
     const headSha = await revParse(`refs/heads/${branch}`);
     if (!headSha) throw new HttpError(404, `branch ${branch} not found locally`);
     const found = findRow(works, key);
     if (!found) throw new HttpError(404, `no work has a row on ${branch}`);
     const parentKey = rowKey(found.parent);
-    const baseSha = !found.parent ? (await revParse(`origin/${BRANCH}`)) || (await revParse(BRANCH)) : isLocal(parentKey) ? await revParse(`refs/heads/${branchOf(parentKey)}`) : (await ensureRefs(parentKey)).headSha;
+    const baseSha = !found.parent ? (await revParse(`origin/${BRANCH}`)) || (await revParse(BRANCH)) : isLocal(parentKey) ? await revParse(`refs/heads/${branchOf(parentKey)}`) : (await ensureRefs(parentKey ?? '')).headSha;
     if (!baseSha) throw new HttpError(404, `no base for ${branch}`);
     return { number: key, branch, headSha, baseSha, mergeBase: await mergeBaseOf(baseSha, headSha) };
   }
 
-  async function ensureRefs(number, opts = {}) {
+  async function ensureRefs(key: RowKey, opts: RefsOptions = {}): Promise<Refs> {
     if (!REPO) throw new HttpError(503, 'no repo configured (repo.path)');
-    if (isLocal(number)) return localRefs(number);
-    number = Number(number);
+    if (isLocal(key)) return localRefs(key);
+    const number = Number(key);
     if (!Number.isInteger(number) || number <= 0) throw new HttpError(400, 'bad pr number');
     let { headSha, baseSha, baseRef } = opts;
-    if (SHA_RE.test(headSha || '') && SHA_RE.test(baseSha || '')) infoCache.set(number, { at: Date.now(), promise: Promise.resolve({ headSha, baseSha, baseRef }) });
-    const needGh = !SHA_RE.test(headSha || '') || !SHA_RE.test(baseSha || '') || (!baseRef && !(await hasCommit(baseSha)));
+    if (headSha && baseSha && SHA_RE.test(headSha) && SHA_RE.test(baseSha)) infoCache.set(number, { at: Date.now(), promise: Promise.resolve({ headSha, baseSha, baseRef }) });
+    const needGh = !SHA_RE.test(headSha || '') || !SHA_RE.test(baseSha || '') || (!baseRef && !(await hasCommit(baseSha ?? '')));
     if (needGh) {
       const info = await prShas(number, Boolean(opts.fresh));
       headSha = SHA_RE.test(headSha || '') ? headSha : info.headSha;
@@ -114,29 +131,31 @@ export function createCode({ REPO, config, works }) {
       baseRef = baseRef || info.baseRef;
     }
     return withLock(async () => {
-      if ((await revParse(headRefName(number))) !== headSha) {
-        if (await hasCommit(headSha)) await setRef(headRefName(number), headSha);
+      let head = headSha ?? '';
+      let base: string | null = baseSha ?? '';
+      if ((await revParse(headRefName(number))) !== head) {
+        if (await hasCommit(head)) await setRef(headRefName(number), head);
         else {
           await fetchRef(`+pull/${number}/head:${headRefName(number)}`);
           const got = await revParse(headRefName(number));
           if (!got) throw new HttpError(500, `head ref missing after fetch for #${number}`);
-          headSha = got;
+          head = got;
         }
       }
-      if (await hasCommit(baseSha)) {
-        if ((await revParse(baseRefName(number))) !== baseSha) await setRef(baseRefName(number), baseSha);
+      if (await hasCommit(base)) {
+        if ((await revParse(baseRefName(number))) !== base) await setRef(baseRefName(number), base);
       } else {
         if (!baseRef || !/^[\w][\w./-]*$/.test(baseRef)) throw new HttpError(500, `no usable base ref for #${number}`);
         await fetchRef(`+${baseRef.startsWith('refs/') ? baseRef : `refs/heads/${baseRef}`}:${baseRefName(number)}`);
-        baseSha = (await hasCommit(baseSha)) ? baseSha : await revParse(baseRefName(number));
-        if (!baseSha) throw new HttpError(500, `base ref missing after fetch for #${number}`);
+        base = (await hasCommit(base)) ? base : await revParse(baseRefName(number));
+        if (!base) throw new HttpError(500, `base ref missing after fetch for #${number}`);
       }
-      return { number, headSha, baseSha, mergeBase: await mergeBaseOf(baseSha, headSha) };
+      return { number, headSha: head, baseSha: base, mergeBase: await mergeBaseOf(base, head) };
     });
   }
 
-  async function dropRefs(number) {
-    number = Number(number);
+  async function dropRefs(key: RowKey) {
+    const number = Number(key);
     if (!Number.isInteger(number) || number <= 0) return { ok: false };
     const out = await Promise.all([headRefName(number), baseRefName(number)].map((ref) => git(['update-ref', '-d', ref])));
     infoCache.delete(number);
@@ -144,14 +163,15 @@ export function createCode({ REPO, config, works }) {
     return { ok: out.every((r) => r.ok) };
   }
 
-  const STATUS = { A: 'added', M: 'modified', D: 'removed', T: 'modified', R: 'renamed', C: 'added' };
-  const filesCache = new Map();
-  async function filesBetween(mergeBase, headSha) {
+  const STATUS: Record<string, string> = { A: 'added', M: 'modified', D: 'removed', T: 'modified', R: 'renamed', C: 'added' };
+  const filesCache = new Map<string, PrFile[]>();
+  async function filesBetween(mergeBase: string, headSha: string): Promise<PrFile[]> {
     const key = `${mergeBase}:${headSha}`;
-    if (filesCache.has(key)) return filesCache.get(key);
+    const cached = filesCache.get(key);
+    if (cached) return cached;
     const [ns, nu] = await Promise.all([git(['diff', '-M', '--no-ext-diff', '--name-status', '-z', mergeBase, headSha]), git(['diff', '-M', '--no-ext-diff', '--numstat', '-z', mergeBase, headSha])]);
     if (!ns.ok || !nu.ok) throw new HttpError(500, `git diff: ${(ns.stderr || nu.stderr).trim().slice(0, 200)}`);
-    const counts = new Map();
+    const counts = new Map<string, { additions: number; deletions: number }>();
     const nt = nu.stdout.split('\0');
     for (let i = 0; i < nt.length; i++) {
       const m = nt[i].match(/^(-|\d+)\t(-|\d+)\t(.*)$/s);
@@ -163,7 +183,7 @@ export function createCode({ REPO, config, works }) {
       }
       counts.set(name, { additions: m[1] === '-' ? 0 : Number(m[1]), deletions: m[2] === '-' ? 0 : Number(m[2]) });
     }
-    const files = [];
+    const files: PrFile[] = [];
     const st = ns.stdout.split('\0');
     for (let i = 0; i < st.length; i++) {
       const code = st[i];
@@ -180,29 +200,29 @@ export function createCode({ REPO, config, works }) {
       }
     }
     filesCache.set(key, files);
-    if (filesCache.size > 50) filesCache.delete(filesCache.keys().next().value);
+    if (filesCache.size > 50) filesCache.delete(filesCache.keys().next().value ?? '');
     return files;
   }
-  async function prFilesFromGit(number, opts) {
+  async function prFilesFromGit(number: RowKey, opts?: RefsOptions) {
     const refs = await ensureRefs(number, opts);
     return filesBetween(refs.mergeBase, refs.headSha);
   }
 
-  const lru = (map, key, value, max) => {
+  const lru = <V>(map: Map<string, V>, key: string, value: V, max: number) => {
     map.delete(key);
     map.set(key, value);
-    if (map.size > max) map.delete(map.keys().next().value);
+    if (map.size > max) map.delete(map.keys().next().value ?? '');
   };
-  const touch = (map, key) => {
-    if (!map.has(key)) return undefined;
+  const touch = <V>(map: Map<string, V>, key: string): V | undefined => {
     const v = map.get(key);
+    if (v === undefined) return undefined;
     map.delete(key);
     map.set(key, v);
     return v;
   };
 
-  const trees = new Map();
-  async function treeOf(sha) {
+  const trees = new Map<string, string[]>();
+  async function treeOf(sha: string) {
     const hit = touch(trees, sha);
     if (hit) return hit;
     const r = await git(['ls-tree', '-r', '--name-only', '-z', sha]);
@@ -212,14 +232,14 @@ export function createCode({ REPO, config, works }) {
     return files;
   }
 
-  const checkPath = (p) => {
+  const checkPath = (p: unknown): string => {
     if (!p || typeof p !== 'string') throw new HttpError(400, 'path required');
     if (p.startsWith('/') || p.endsWith('/') || p.includes('\0') || p.includes('\n') || p.split('/').some((s) => s === '..' || s === '' || s === '.')) throw new HttpError(400, 'invalid path');
     return p;
   };
 
-  const blobs = new Map();
-  async function readFile(sha, p) {
+  const blobs = new Map<string, FileBlob>();
+  async function readFile(sha: string, p: string): Promise<FileBlob> {
     const key = `${sha}:${p}`;
     const hit = touch(blobs, key);
     if (hit) return hit;
@@ -228,10 +248,10 @@ export function createCode({ REPO, config, works }) {
     const m = ls.stdout.split('\0')[0].match(/^(\d+) (\w+) [0-9a-f]+\s+([\d-]+)\t(.*)$/s);
     if (!m || m[2] !== 'blob' || m[4] !== p) throw new HttpError(404, `not in tree: ${p}`);
     const size = Number(m[3]);
-    let value;
+    let value: FileBlob;
     if (size > MAX_TEXT) value = { sha, path: p, text: '', size, binary: false, tooLarge: true };
     else {
-      const r = await git(['show', `${sha}:${p}`], { buffer: true });
+      const r = await gitBuffer(['show', `${sha}:${p}`]);
       if (!r.ok) throw new HttpError(404, `not found: ${p}`);
       const buf = r.stdout;
       const binary = buf.subarray(0, 8192).includes(0);
@@ -241,34 +261,34 @@ export function createCode({ REPO, config, works }) {
     return value;
   }
 
-  const moduleRel = (p) => {
+  const moduleRel = (p: string) => {
     const rel = `/${p}`.startsWith(`${REPO}/`) ? `/${p}`.slice(REPO.length + 1) : p;
     return rel.split('/').includes('node_modules') && /\.([cm]?[jt]sx?|json)$/.test(rel) ? rel : null;
   };
-  async function readModule(p) {
+  async function readModule(p: string): Promise<FileBlob> {
     const rel = moduleRel(p);
-    const st = rel && (await fs.stat(path.join(REPO, rel)).catch(() => null));
-    if (!st?.isFile()) throw new HttpError(404, `not found: ${p}`);
+    const st = rel ? await fs.stat(path.join(REPO, rel)).catch(() => null) : null;
+    if (!rel || !st?.isFile()) throw new HttpError(404, `not found: ${p}`);
     if (st.size > MAX_TEXT) return { sha: null, path: rel, text: '', size: st.size, binary: false, tooLarge: true, external: true };
     return { sha: null, path: rel, text: await fs.readFile(path.join(REPO, rel), 'utf8'), size: st.size, binary: false, external: true };
   }
 
-  async function diffOf(refs, p, previous) {
+  async function diffOf(refs: Refs, p: string, previous: string | null) {
     const spec = [`:(literal)${p}`, ...(previous ? [`:(literal)${previous}`] : [])];
     const r = await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha, '--', ...spec]);
     if (!r.ok) throw new HttpError(500, `git diff: ${r.stderr.trim().slice(0, 200)}`);
     return r.stdout;
   }
 
-  function grep(sha, q, max) {
-    return new Promise((resolve, reject) => {
+  function grep(sha: string, q: string, max: number) {
+    return new Promise<{ hits: { path: string; line: number; text: string }[]; truncated: boolean }>((resolve, reject) => {
       const child = spawn('git', ['-C', REPO, 'grep', '-n', '-I', '-F', '--max-depth', '-1', '-e', q, sha, '--', ':!*.lock', ':!*.min.js'], { env: ENV });
-      const hits = [];
+      const hits: { path: string; line: number; text: string }[] = [];
       let truncated = false;
       let buf = '';
       let err = '';
       const prefix = `${sha}:`;
-      const take = (line) => {
+      const take = (line: string) => {
         if (!line.startsWith(prefix) || truncated) return;
         const m = line.slice(prefix.length).match(/^(.+?):(\d+):(.*)$/s);
         if (!m) return;
@@ -281,7 +301,7 @@ export function createCode({ REPO, config, works }) {
       };
       child.stdout.on('data', (c) => {
         buf += c.toString('utf8');
-        let i;
+        let i: number;
         while ((i = buf.indexOf('\n')) >= 0) {
           take(buf.slice(0, i));
           buf = buf.slice(i + 1);
@@ -291,13 +311,13 @@ export function createCode({ REPO, config, works }) {
       child.on('error', reject);
       child.on('close', (code) => {
         if (buf) take(buf);
-        if (!truncated && code > 1) return reject(new HttpError(500, `git grep: ${err.trim().slice(0, 200)}`));
+        if (!truncated && (code ?? 0) > 1) return reject(new HttpError(500, `git grep: ${err.trim().slice(0, 200)}`));
         resolve({ hits, truncated });
       });
     });
   }
 
-  async function resolveRef(refs, ref) {
+  async function resolveRef(refs: Refs, ref: string | null) {
     if (!ref || ref === 'head') return refs.headSha;
     if (ref === 'base') return refs.mergeBase;
     if (SHA_RE.test(ref)) {
@@ -308,12 +328,12 @@ export function createCode({ REPO, config, works }) {
     throw new HttpError(400, 'ref must be head, base or a sha');
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const [root, kind, n, action] = parts;
       const number = parseKey(n);
       if (root !== 'code' || kind !== 'pr' || req.method !== 'GET' || !number || !['refs', 'tree', 'file', 'diff', 'search'].includes(action)) return send(res, 404, { error: 'no route' });
-      const q = new URL(req.url, 'http://x').searchParams;
+      const q = new URL(req.url || '/', 'http://x').searchParams;
       const refs = await ensureRefs(number, { fresh: action === 'refs' && q.get('fresh') === '1' });
       if (action === 'refs') return send(res, 200, { ...refs, files: await filesBetween(refs.mergeBase, refs.headSha) });
       if (action === 'tree') {
@@ -340,7 +360,7 @@ export function createCode({ REPO, config, works }) {
       const sha = await resolveRef(refs, q.get('ref') || 'head');
       return send(res, 200, { q: term, ...(await grep(sha, term, max)) });
     } catch (e) {
-      return send(res, e instanceof HttpError ? e.code : 500, { error: e.message });
+      return send(res, e instanceof HttpError ? e.code : 500, { error: errorMessage(e) });
     }
   }
 

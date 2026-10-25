@@ -4,7 +4,10 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
+import type { ExecFileOptions } from 'node:child_process';
 import { isObject, merge, personaLogins } from './config.ts';
+import { errorMessage, httpStatus } from './core-types.ts';
+import type { ReadBody, Req, Res, Send } from './core-types.ts';
 
 export const PERSONAL_KEYS = ['owner', 'dataDir', 'briefsDir', 'skillsDir', 'personasDir', 'baseUrl', 'importRoots', 'repo.path', 'file'];
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'data']);
@@ -12,44 +15,87 @@ const MAX_BYTES = 200 * 1024 * 1024;
 const ID = /^[a-f0-9]{12}$/;
 const NAME = /^(?!\.\.?$)[\w.@-]+$/;
 
-const fail = (status, message) => Object.assign(new Error(message), { status });
-const run = (cmd, args, opts = {}) =>
-  new Promise((resolve, reject) => {
+type Json = Record<string, unknown>;
+
+interface PackConfig {
+  file?: string | null;
+  skillsDir?: string;
+  personasDir?: string;
+  featureFlags?: { provider?: string } | null;
+  personaFiles?: { ignore?: string[]; companionSuffixes?: string[] };
+  methodSkill?: string;
+  skillOverrides?: Record<string, string>;
+  skillPrefix?: string;
+  gateSkills?: Record<string, (string | { name: string })[]>;
+  rituals?: { prompt?: string }[];
+  owner?: { login?: string };
+}
+
+interface Manifest {
+  format?: number;
+  by?: string | null;
+  createdAt?: string | null;
+  contents?: { provider?: string | null };
+}
+
+interface PlanFile {
+  kind: string;
+  group: string | null;
+  rel: string;
+  src: string;
+  dest: string;
+  backup: string;
+  status: string;
+}
+
+interface ExportInput {
+  personas?: (string | null)[];
+  skills?: string[];
+  config?: boolean;
+  provider?: boolean;
+}
+
+const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
+const run = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
+  new Promise<string>((resolve, reject) => {
     execFile(cmd, args, { maxBuffer: 50 * 1024 * 1024, ...opts }, (err, stdout, stderr) => (err ? reject(new Error(String(stderr || err.message).trim())) : resolve(String(stdout))));
   });
-const readJson = (file) => (file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null);
-const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
-const real = (p) => {
+const readJson = <T = Json>(file: string | null | undefined): T | null => (file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null);
+const clone = <T>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
+const real = (p: string) => {
   try {
     return fs.realpathSync(p);
   } catch {
     return path.resolve(p);
   }
 };
-const getPath = (o, key) => key.split('.').reduce((v, k) => (isObject(v) ? v[k] : undefined), o);
-const setPath = (o, key, value) => {
+const getPath = (o: unknown, key: string): unknown => key.split('.').reduce<unknown>((v, k) => (isObject(v) ? v[k] : undefined), o);
+const setPath = (o: Json, key: string, value: unknown) => {
   const keys = key.split('.');
-  const last = keys.pop();
-  let cur = o;
-  for (const k of keys) cur = isObject(cur[k]) ? cur[k] : (cur[k] = {});
+  const last = keys.pop() ?? '';
+  let cur: Json = o;
+  for (const k of keys) {
+    const next = cur[k];
+    cur = isObject(next) ? next : (cur[k] = {});
+  }
   cur[last] = value;
 };
-const delPath = (o, key) => {
+const delPath = (o: Json, key: string) => {
   const keys = key.split('.');
-  const last = keys.pop();
-  const parent = keys.reduce((v, k) => (isObject(v) ? v[k] : undefined), o);
+  const last = keys.pop() ?? '';
+  const parent = keys.reduce<unknown>((v, k) => (isObject(v) ? v[k] : undefined), o);
   if (isObject(parent)) delete parent[last];
 };
-const inside = (root, rel) => {
+const inside = (root: string, rel: string) => {
   const full = path.resolve(root, rel);
   if (!full.startsWith(path.resolve(root) + path.sep)) throw fail(400, `${rel} escapes ${root}`);
   return full;
 };
 
 // relative file paths under root, without symlinks, *.bak, build/vcs/data dirs, or dirs listed in skip (real paths)
-export function walk(root, skip = []) {
-  const out = [];
-  const visit = (dir, rel) => {
+export function walk(root: string, skip: string[] = []): string[] {
+  const out: string[] = [];
+  const visit = (dir: string, rel: string) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (e.isSymbolicLink() || e.name === '.DS_Store') continue;
       const full = path.join(dir, e.name);
@@ -63,7 +109,7 @@ export function walk(root, skip = []) {
   return out.sort();
 }
 
-export function teamConfig(raw, { provider = null } = {}) {
+export function teamConfig(raw: Json | null | undefined, { provider = null }: { provider?: string | null } = {}): Json {
   const out = clone(raw || {});
   for (const k of PERSONAL_KEYS) delPath(out, k);
   if (isObject(out.featureFlags)) {
@@ -74,8 +120,9 @@ export function teamConfig(raw, { provider = null } = {}) {
 }
 
 // team values fill in and override; the user's personal keys and, when the pack ships none, their provider always win
-export function mergeConfig(user, team, { provider = null } = {}) {
-  const out = merge(clone(user || {}), clone(team || {}));
+export function mergeConfig(user: Json | null | undefined, team: Json | null | undefined, { provider = null }: { provider?: string | null } = {}): Json {
+  const combined = merge(clone(user || {}), clone(team || {}));
+  const out: Json = isObject(combined) ? combined : {};
   for (const k of PERSONAL_KEYS) {
     const v = getPath(user, k);
     if (v === undefined) delPath(out, k);
@@ -87,7 +134,7 @@ export function mergeConfig(user, team, { provider = null } = {}) {
   return out;
 }
 
-export function configDiff(user, merged) {
+export function configDiff(user: Json | null | undefined, merged: Json) {
   const u = user || {};
   const keys = Object.keys(merged);
   return {
@@ -98,17 +145,17 @@ export function configDiff(user, merged) {
 }
 
 // names from `unzip -Z1`, long lines from `unzip -Z`: absolute paths, `..` segments and symlinks are refused
-export function zipProblems(names, longLines = []) {
+export function zipProblems(names: string[], longLines: string[] = []) {
   const bad = names.filter((n) => n.startsWith('/') || /^[a-zA-Z]:/.test(n) || n.split(/[\\/]/).includes('..')).map((n) => `unsafe path ${n}`);
   const links = longLines.filter((l) => /^l[rwxsStT-]{9}/.test(l)).map((l) => `symlink ${l.trim().split(/\s+/).pop()}`);
   return [...bad, ...links];
 }
 
-const readBytes = (req) =>
-  new Promise((resolve, reject) => {
-    const chunks = [];
+const readBytes = (req: Req) =>
+  new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
     let size = 0;
-    req.on('data', (c) => {
+    req.on('data', (c: Buffer) => {
       size += c.length;
       if (size > MAX_BYTES) {
         reject(fail(413, `larger than ${MAX_BYTES / 1024 / 1024} MB`));
@@ -119,9 +166,9 @@ const readBytes = (req) =>
     req.on('error', reject);
   });
 
-export function createPack({ APP, DATA, config }) {
-  const SKILLS = config.skillsDir;
-  const PERSONAS = config.personasDir;
+export function createPack({ APP, DATA, config }: { APP: string; DATA: string; config: PackConfig }) {
+  const SKILLS = config.skillsDir ?? '';
+  const PERSONAS = config.personasDir ?? '';
   const PROVIDER = config.featureFlags?.provider || null;
   const STAGING = path.join(DATA, 'pack-staging');
   const BACKUPS = path.join(DATA, 'pack-backups');
@@ -135,25 +182,26 @@ export function createPack({ APP, DATA, config }) {
       .map((e) => e.name)
       .sort();
     const logins = personaLogins(files, config.personaFiles).sort((a, b) => b.length - a.length);
-    const groups = new Map();
+    const groups = new Map<string | null, string[]>();
     for (const f of files) {
       const login = logins.find((l) => f.startsWith(`${l}.`) || f.startsWith(`${l}-`)) ?? null;
-      if (!groups.has(login)) groups.set(login, []);
-      groups.get(login).push(f);
+      const group = groups.get(login) ?? [];
+      group.push(f);
+      groups.set(login, group);
     }
-    const named = [...groups.keys()].filter((l) => l !== null).sort((a, b) => a.localeCompare(b));
-    return [...named, ...(groups.has(null) ? [null] : [])].map((login) => ({ login, files: groups.get(login) }));
+    const named = [...groups.keys()].filter((l): l is string => l !== null).sort((a, b) => a.localeCompare(b));
+    return [...named, ...(groups.has(null) ? [null] : [])].map((login) => ({ login, files: groups.get(login) ?? [] }));
   }
 
   function offeredSkills() {
     if (!SKILLS || !fs.existsSync(SKILLS)) return [];
-    const named = new Set([config.methodSkill, ...Object.values(config.skillOverrides || {})]);
+    const named = new Set<string | undefined>([config.methodSkill, ...Object.values(config.skillOverrides || {})]);
     if (config.skillPrefix) for (const d of fs.readdirSync(SKILLS)) if (d.startsWith(config.skillPrefix)) named.add(d);
     for (const list of Object.values(config.gateSkills || {})) for (const s of list || []) named.add(typeof s === 'string' ? s : s?.name);
     for (const r of config.rituals || []) for (const m of String(r.prompt || '').matchAll(/(?:^|\s)\/([\w:-]+)/g)) named.add(m[1]);
     const skip = [real(APP), ...(PERSONAS ? [real(PERSONAS)] : [])];
     return [...named]
-      .filter((n) => n && NAME.test(n) && fs.existsSync(path.join(SKILLS, n, 'SKILL.md')))
+      .filter((n): n is string => typeof n === 'string' && NAME.test(n) && fs.existsSync(path.join(SKILLS, n, 'SKILL.md')))
       .sort()
       .map((name) => {
         const files = walk(path.join(SKILLS, name), skip);
@@ -170,11 +218,11 @@ export function createPack({ APP, DATA, config }) {
     };
   }
 
-  async function exportZip({ personas = [], skills = [], config: withConfig = false, provider: withProvider = false } = {}) {
+  async function exportZip({ personas = [], skills = [], config: withConfig = false, provider: withProvider = false }: ExportInput = {}) {
     const c = contents();
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-pack-'));
     const root = path.join(tmp, 'pack');
-    const put = (rel, src) => {
+    const put = (rel: string, src: string) => {
       const dest = path.join(root, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(src, dest);
@@ -186,7 +234,7 @@ export function createPack({ APP, DATA, config }) {
       const skillList = c.skills.filter((s) => skills.includes(s.name));
       for (const s of skillList) for (const f of s.files) put(`skills/${s.name}/${f}`, path.join(SKILLS, s.name, f));
       const providerName = withProvider && c.provider ? c.provider : null;
-      if (providerName) put(`providers/${providerName}`, PROVIDER);
+      if (providerName && PROVIDER) put(`providers/${providerName}`, PROVIDER);
       const withCfg = Boolean(withConfig && c.config);
       if (withCfg) fs.writeFileSync(path.join(root, 'config.json'), JSON.stringify(teamConfig(readJson(config.file), { provider: providerName }), null, 2) + '\n');
       const manifest = { format: 1, createdAt: new Date().toISOString(), by: config.owner?.login || null, contents: { personas: personaFiles, skills: skillList.map((s) => s.name), provider: providerName, config: withCfg } };
@@ -199,14 +247,14 @@ export function createPack({ APP, DATA, config }) {
     }
   }
 
-  function plan(id) {
-    if (!ID.test(id || '')) throw fail(400, 'bad pack id');
+  function plan(id: string | undefined) {
+    if (!id || !ID.test(id)) throw fail(400, 'bad pack id');
     const dir = path.join(STAGING, id);
     if (!fs.existsSync(dir)) throw fail(404, 'no such staged pack');
-    const manifest = readJson(path.join(dir, 'coco-pack.json'));
-    const status = (src, dest) => (!fs.existsSync(dest) ? 'new' : fs.readFileSync(src).equals(fs.readFileSync(dest)) ? 'same' : 'changed');
-    const files = [];
-    const add = (kind, group, rel, src, destRoot) => {
+    const manifest = readJson<Manifest>(path.join(dir, 'coco-pack.json'));
+    const status = (src: string, dest: string) => (!fs.existsSync(dest) ? 'new' : fs.readFileSync(src).equals(fs.readFileSync(dest)) ? 'same' : 'changed');
+    const files: PlanFile[] = [];
+    const add = (kind: string, group: string | null, rel: string, src: string, destRoot: string) => {
       const dest = inside(destRoot, rel);
       files.push({ kind, group, rel, src, dest, backup: `${kind === 'skill' ? `skills/${group}` : `${kind}s`}/${rel}`, status: status(src, dest) });
     };
@@ -216,12 +264,12 @@ export function createPack({ APP, DATA, config }) {
     if (fs.existsSync(sDir))
       for (const e of fs.readdirSync(sDir, { withFileTypes: true }))
         if (e.isDirectory() && NAME.test(e.name)) for (const f of walk(path.join(sDir, e.name))) add('skill', e.name, f, path.join(sDir, e.name, f), path.join(SKILLS, e.name));
-    const providerName = manifest.contents?.provider;
+    const providerName = manifest?.contents?.provider;
     const providerSrc = providerName && NAME.test(providerName) ? path.join(dir, 'providers', providerName) : null;
-    if (providerSrc && fs.existsSync(providerSrc)) add('provider', null, providerName, providerSrc, path.join(DATA, 'providers'));
+    if (providerName && providerSrc && fs.existsSync(providerSrc)) add('provider', null, providerName, providerSrc, path.join(DATA, 'providers'));
     const provider = files.find((f) => f.kind === 'provider') || null;
     const team = readJson(path.join(dir, 'config.json'));
-    let cfg = null;
+    let cfg: { target: string; user: Json; merged: Json; diff: ReturnType<typeof configDiff> } | null = null;
     if (team) {
       const target = configTarget();
       const user = readJson(target) || {};
@@ -231,17 +279,19 @@ export function createPack({ APP, DATA, config }) {
     return { dir, manifest, files, provider, config: cfg };
   }
 
-  function preview(id) {
+  function preview(id: string) {
     const p = plan(id);
-    const skills = new Map();
+    const skills = new Map<string, { file: string; status: string }[]>();
     for (const f of p.files.filter((x) => x.kind === 'skill')) {
-      if (!skills.has(f.group)) skills.set(f.group, []);
-      skills.get(f.group).push({ file: f.rel, status: f.status });
+      const group = f.group ?? '';
+      const list = skills.get(group) ?? [];
+      list.push({ file: f.rel, status: f.status });
+      skills.set(group, list);
     }
     return {
       id,
-      by: p.manifest.by || null,
-      createdAt: p.manifest.createdAt || null,
+      by: p.manifest?.by || null,
+      createdAt: p.manifest?.createdAt || null,
       personas: p.files.filter((f) => f.kind === 'persona').map((f) => ({ file: f.rel, status: f.status })),
       skills: [...skills].map(([name, files]) => ({ name, files })),
       provider: p.provider ? { file: p.provider.rel, status: p.provider.status } : null,
@@ -249,14 +299,15 @@ export function createPack({ APP, DATA, config }) {
     };
   }
 
-  async function stage(bytes) {
+  async function stage(bytes: Buffer) {
     const id = crypto.randomBytes(6).toString('hex');
     const dir = path.join(STAGING, id);
     const zip = path.join(STAGING, `${id}.zip`);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(zip, bytes);
     try {
-      let names, long;
+      let names: string[];
+      let long: string[];
       try {
         names = (await run('unzip', ['-Z1', zip])).split('\n').filter(Boolean);
         long = (await run('unzip', ['-Z', zip])).split('\n');
@@ -266,28 +317,28 @@ export function createPack({ APP, DATA, config }) {
       const problems = zipProblems(names, long);
       if (problems.length) throw fail(400, `refused: ${problems.slice(0, 5).join(', ')}`);
       await run('unzip', ['-q', '-o', zip, '-d', dir]);
-      const manifest = readJson(path.join(dir, 'coco-pack.json'));
+      const manifest = readJson<Manifest>(path.join(dir, 'coco-pack.json'));
       if (manifest?.format !== 1) throw fail(400, 'not a coco pack: coco-pack.json with format 1 is missing');
       return preview(id);
     } catch (e) {
       fs.rmSync(dir, { recursive: true, force: true });
-      throw e.status ? e : fail(400, e.message);
+      throw httpStatus(e) !== 500 ? e : fail(400, errorMessage(e));
     } finally {
       fs.rmSync(zip, { force: true });
     }
   }
 
-  function apply(id) {
+  function apply(id: string) {
     const p = plan(id);
     const backupDir = path.join(BACKUPS, new Date().toISOString().replace(/[:.]/g, '-'));
     let backedUp = 0;
-    const backup = (src, rel) => {
+    const backup = (src: string, rel: string) => {
       const dest = path.join(backupDir, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(src, dest);
       backedUp += 1;
     };
-    const applied = { personas: 0, skills: 0, provider: 0, config: 0 };
+    const applied: Record<string, number> = { personas: 0, skills: 0, provider: 0, config: 0 };
     for (const f of p.files) {
       if (f.status === 'same') continue;
       if (f.status === 'changed') backup(f.dest, f.backup);
@@ -306,14 +357,14 @@ export function createPack({ APP, DATA, config }) {
     return { applied, backup: backedUp ? backupDir : null, restart: true };
   }
 
-  function discard(id) {
-    if (!ID.test(id || '')) throw fail(400, 'bad pack id');
+  function discard(id: string | undefined) {
+    if (!id || !ID.test(id)) throw fail(400, 'bad pack id');
     fs.rmSync(path.join(STAGING, id), { recursive: true, force: true });
     return { ok: true };
   }
 
   // GET contents · POST export (JSON) → zip · POST import (raw zip) → preview · GET|DELETE import/<id> · POST import/<id>/apply
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [, a, id, action] = parts;
     try {
       if (a === 'contents' && req.method === 'GET') return send(res, 200, contents());
@@ -332,7 +383,7 @@ export function createPack({ APP, DATA, config }) {
       if (a === 'import' && id && !action && req.method === 'DELETE') return send(res, 200, discard(id));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, e.status || 500, { error: String(e.message || e) });
+      return send(res, httpStatus(e), { error: errorMessage(e) });
     }
   }
 

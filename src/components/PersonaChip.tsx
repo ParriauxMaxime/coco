@@ -1,5 +1,7 @@
+type Props = { login: string; label?: string; onRemove?: () => void; href?: string | null };
+
 // href null renders a span: use it inside another link (dashboard card).
-export function PersonaChip({ login, label, onRemove, href = `#/persona/${login}` }) {
+export function PersonaChip({ login, label, onRemove, href = `#/persona/${login}` }: Props) {
   const Tag = href ? 'a' : 'span';
   return (
     <Tag className="persona-chip" href={href || undefined} title={login}>

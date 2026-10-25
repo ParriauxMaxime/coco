@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import { useConfig } from '../config.ts';
 import { AskConversation, AskHistory, Proposal, useAskConversation } from './Ask.tsx';
 
@@ -22,7 +22,7 @@ export default function Inbox() {
       setUrl('');
       setNote('');
     } catch (e) {
-      setError(e.message);
+      setError(errorMessage(e));
     } finally {
       setReading(false);
     }

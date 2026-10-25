@@ -4,30 +4,32 @@ import Markdown from '../../components/Markdown.tsx';
 import Collapsible from '../../components/Collapsible.tsx';
 import Thread, { ThreadToggle, threadKey } from '../../components/Thread.tsx';
 import { toast } from '../../components/Toast.tsx';
+import type { ReviewHandle } from './use-comments.ts';
+import type { PlanLogEntry } from '../types.ts';
 import './code.css';
 
-const RISK = { high: 'c-red', medium: 'c-orange', low: 'c-green' };
-const ago = (iso) => {
+const RISK: Record<string, string> = { high: 'c-red', medium: 'c-orange', low: 'c-green' };
+const ago = (iso: string) => {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   return s < 90 ? `${s}s` : `${Math.round(s / 60)} min`;
 };
 
 // popover under "coco is planning": thinking summaries, what coco says, the tools it calls; follows the bottom while you have not scrolled up
-function PlanningLog({ log, anchor, onClose }) {
-  const ref = useRef(null);
+function PlanningLog({ log, anchor, onClose }: { log: PlanLogEntry[]; anchor: HTMLElement; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const box = anchor.getBoundingClientRect();
   useLayoutEffect(() => {
     if (pinned.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [log.length]);
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
-    const onDown = (e) => !ref.current?.contains(e.target) && !anchor.contains(e.target) && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onDown = (e: MouseEvent) => e.target instanceof Node && !ref.current?.contains(e.target) && !anchor.contains(e.target) && onClose();
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
     return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown); };
   }, [anchor, onClose]);
-  const onScroll = (e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
   // the plan box scrolls and clips: the popover sits on the body, under the button
   return createPortal(
     <div ref={ref} className="rv-think card" style={{ top: box.bottom + 4, left: box.left, width: Math.min(560, innerWidth - box.left - 16) }} onScroll={onScroll}>
@@ -43,21 +45,21 @@ function PlanningLog({ log, anchor, onClose }) {
 }
 
 // coco's review plan for the current head: start, progress, summary, surface; its watch points go to the activity feed
-export default function ReviewPlan({ rv }) {
+export default function ReviewPlan({ rv }: { rv: ReviewHandle }) {
   const [busy, setBusy] = useState(false);
   const [full, setFull] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [talking, setTalking] = useState(false);
-  const liveRef = useRef(null);
+  const liveRef = useRef<HTMLButtonElement>(null);
   const closeThinking = useCallback(() => setThinking(false), []);
   const st = rv.plan;
   if (!st) return null;
   const { run, plan } = st;
   const running = run?.status === 'running';
   const failed = run?.status === 'error' && (!plan || run.startedAt > plan.createdAt);
-  const start = (guidance) => {
+  const start = (guidance?: string) => {
     setBusy(true);
-    rv.startPlan(guidance).catch((e) => toast.error(e.message)).finally(() => setBusy(false));
+    rv.startPlan(guidance).catch((e: Error) => toast.error(e.message)).finally(() => setBusy(false));
   };
   const key = threadKey.plan(rv.n);
   return (

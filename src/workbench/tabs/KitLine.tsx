@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api.ts';
+import type { KitPiece, KitResponse } from '../../types.ts';
+import type { PrKey } from '../types.ts';
 const POLL_MS = 60000;
-const CHIP = { fresh: 'c-green', stale: 'c-orange', missing: 'c-grey', present: 'c-blue' };
-const tip = (p, head) => [p.source && `from ${p.source}`, p.madeFor && `made for ${p.madeFor.slice(0, 10)}`, p.at && `at ${p.at.slice(0, 16).replace('T', ' ')}`, head?.sha && `head ${head.sha.slice(0, 10)}${head.at ? ` (${head.at.slice(0, 16).replace('T', ' ')})` : ''}`].filter(Boolean).join(' · ');
+const CHIP: Record<string, string> = { fresh: 'c-green', stale: 'c-orange', missing: 'c-grey', present: 'c-blue' };
+const tip = (p: KitPiece, head: KitResponse['head']) => [p.source && `from ${p.source}`, p.madeFor && `made for ${p.madeFor.slice(0, 10)}`, p.at && `at ${p.at.slice(0, 16).replace('T', ' ')}`, head?.sha && `head ${head.sha.slice(0, 10)}${head.at ? ` (${head.at.slice(0, 16).replace('T', ' ')})` : ''}`].filter(Boolean).join(' · ');
 
 // kit pieces of a PR against its head: stale once the head moved after they were made
-export default function KitLine({ slug, n }) {
-  const [data, setData] = useState(null);  useEffect(() => {
+export default function KitLine({ slug, n }: { slug: string; n: PrKey }) {
+  const [data, setData] = useState<KitResponse | null>(null);  useEffect(() => {
     const load = () => api.kit(slug, n).then(setData, () => {});
     load();
     const t = setInterval(load, POLL_MS);
@@ -20,7 +22,7 @@ export default function KitLine({ slug, n }) {
       {shown.length > 0 && (
         <div className="row kit-line">
           <span className="status">kit:</span>
-          {shown.map((p) => <span key={p.id} className={`chip ${CHIP[p.state]}`} title={tip(p, data.head)}>{p.label}{p.state === 'fresh' || p.state === 'present' ? '' : ` ${p.state}`}</span>)}
+          {shown.map((p) => <span key={p.id} className={`chip ${CHIP[p.state]}`} title={data ? tip(p, data.head) : undefined}>{p.label}{p.state === 'fresh' || p.state === 'present' ? '' : ` ${p.state}`}</span>)}
         </div>
       )}
       {betas.length > 0 && (

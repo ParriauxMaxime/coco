@@ -4,14 +4,20 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createPaseoAgents } from './paseo-agent.ts';
+import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
 import { createAsk } from './ask.ts';
 import { DEFAULTS } from './config.ts';
+
+type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
+type FakeAgent = { id: string; workspaceId: string; status: string; archivedAt: string | null; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[]; last: string | null };
+type Created = { id: string; title?: string; config: Record<string, unknown>; labels?: Record<string, string>; prompt?: string };
+type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean };
 
 const APP = '/opt/coco';
 const REPO = '/acme/widgets';
 const config = { ...DEFAULTS, owner: { name: 'Alice', login: 'alice' }, repo: { ...DEFAULTS.repo, github: 'acme/widgets' } };
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ask-test-'));
-const until = async (cond, what = 'condition') => {
+const until = async (cond: () => boolean, what = 'condition') => {
   for (let i = 0; i < 300; i++) {
     if (cond()) return;
     await new Promise((r) => setTimeout(r, 5));
@@ -21,10 +27,10 @@ const until = async (cond, what = 'condition') => {
 
 // A daemon whose turns end when the test says so: send() opens a turn on an idle agent and joins the running one otherwise.
 function fakeDaemon() {
-  const agents = new Map();
-  const calls = { created: [], sent: [], archived: [] };
+  const agents = new Map<string, FakeAgent>();
+  const calls: { created: Created[]; sent: Sent[]; archived: string[] } = { created: [], sent: [], archived: [] };
   let seq = 0;
-  const handle = (a) => ({
+  const handle = (a: FakeAgent): DaemonAgent => ({
     id: a.id,
     workspaceId: a.workspaceId,
     get status() {
@@ -33,7 +39,7 @@ function fakeDaemon() {
     timeline: {
       subscribe: (h) => {
         a.handlers.add(h);
-        const unsubscribe = () => a.handlers.delete(h);
+        const unsubscribe = () => void a.handlers.delete(h);
         unsubscribe.ready = Promise.resolve();
         return unsubscribe;
       },
@@ -42,7 +48,7 @@ function fakeDaemon() {
       calls.sent.push({ agentId: a.id, text, behavior: opts.activeTurnBehavior || null, busy: a.status === 'running' });
       a.status = 'running';
     },
-    waitForFinish: () => (a.status === 'running' ? new Promise((resolve) => a.waiters.push(resolve)) : Promise.resolve({ status: 'idle', lastMessage: a.last, final: null, error: null })),
+    waitForFinish: () => (a.status === 'running' ? new Promise<WaitResult>((resolve) => a.waiters.push(resolve)) : Promise.resolve({ status: 'idle', lastMessage: a.last, final: null, error: null })),
     refresh: async () => (agents.has(a.id) ? { agent: { id: a.id, status: a.status, archivedAt: a.archivedAt } } : null),
     archive: async () => {
       a.status = 'closed';
@@ -51,16 +57,24 @@ function fakeDaemon() {
       return { archivedAt: 'now' };
     },
   });
+  const gone = (id: string): DaemonAgent => ({
+    id,
+    timeline: { subscribe: () => () => {} },
+    send: async () => {},
+    waitForFinish: async () => ({ status: 'error' }),
+    refresh: async () => null,
+    archive: async () => ({}),
+  });
   const client = {
     workspaces: {
       list: async () => ({ entries: [{ id: 'wks_repo', projectId: 'p1', workspaceDirectory: REPO }] }),
-      ref: (w) => {
+      ref: (w: string | WorkspaceEntry) => {
         const id = typeof w === 'string' ? w : w.id;
         return {
           id,
           agents: {
-            create: async (opts) => {
-              const a = { id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`, workspaceId: id, status: 'idle', archivedAt: null, handlers: new Set(), waiters: [], last: null };
+            create: async (opts: Omit<Created, 'id'>) => {
+              const a: FakeAgent = { id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`, workspaceId: id, status: 'idle', archivedAt: null, handlers: new Set(), waiters: [], last: null };
               agents.set(a.id, a);
               calls.created.push({ ...opts, id: a.id });
               return handle(a);
@@ -68,15 +82,27 @@ function fakeDaemon() {
           },
         };
       },
+      open: async () => {
+        throw new Error('not expected');
+      },
+      create: async () => {
+        throw new Error('not expected');
+      },
     },
-    agents: { ref: (id) => (agents.has(id) ? handle(agents.get(id)) : { id, refresh: async () => null }) },
+    agents: {
+      ref: (id: string) => {
+        const a = agents.get(id);
+        return a ? handle(a) : gone(id);
+      },
+    },
   };
-  const emit = (a, event) => {
+  const emit = (a: FakeAgent, event: TimelineEvent) => {
     for (const h of a.handlers) h({ agentId: a.id, event });
   };
   // the agent's running turn answers text (and an optional cocopilot proposal), then ends
-  const finish = (id, text, { propose = null, cost = 0.1 } = {}) => {
+  const finish = (id: string, text: string, { propose = null, cost = 0.1 }: { propose?: { tool: string; input: unknown } | null; cost?: number } = {}) => {
     const a = agents.get(id);
+    if (!a) throw new Error(`no agent ${id}`);
     emit(a, { type: 'timeline', provider: 'claude', item: { type: 'assistant_message', text, messageId: `m${Math.random()}` } });
     if (propose) emit(a, { type: 'timeline', provider: 'claude', item: { type: 'tool_call', callId: `c${Math.random()}`, name: `mcp__cocopilot__${propose.tool}`, detail: { type: 'unknown', input: propose.input, output: { recorded: true } }, status: 'completed', error: null } });
     emit(a, { type: 'turn_completed', provider: 'claude', usage: { totalCostUsd: cost } });
@@ -84,12 +110,14 @@ function fakeDaemon() {
     a.last = text;
     for (const wake of a.waiters.splice(0)) wake({ status: 'idle', lastMessage: text, final: null, error: null });
   };
-  return { connect: async () => client, calls, finish, agents, forget: (id) => agents.delete(id) };
+  return { connect: async () => client, calls, finish, agents, forget: (id: string) => agents.delete(id) };
 }
 
-const setup = (DATA = tmpDir(), daemon = fakeDaemon(), opts = {}) => ({ DATA, daemon, ask: createAsk({ DATA, APP, REPO, config, works: {}, agents: createPaseoAgents({ APP, connect: daemon.connect }), ...opts }) });
-const types = (conv) => conv.events.filter((e) => e.type !== 'meta').map((e) => e.type);
-const ends = (conv) => conv.events.filter((e) => e.type === 'end').length;
+const works = { get: () => undefined, save: () => {}, prInfo: async () => null };
+const setup = (DATA = tmpDir(), daemon = fakeDaemon(), opts: { idleMs?: number } = {}) => ({ DATA, daemon, ask: createAsk({ DATA, APP, REPO, config, works, agents: createPaseoAgents({ APP, connect: daemon.connect }), ...opts }) });
+type Events = { events: { type: string }[] };
+const types = (conv: Events) => conv.events.filter((e) => e.type !== 'meta').map((e) => e.type);
+const ends = (conv: Events) => conv.events.filter((e) => e.type === 'end').length;
 
 test('a follow-up goes to the same agent as a new turn, with only the new message', async () => {
   const { ask, daemon, DATA } = setup();
@@ -156,7 +184,7 @@ test('closing archives the agent; a quiet conversation is parked by the reaper; 
   assert.deepEqual(await ask.reap(Date.now() + 2000), [b.id]);
   assert.equal(b.status, 'parked');
   assert.deepEqual(daemon.calls.archived, [ia, ib]);
-  assert.equal(b.events.at(-1).type, 'closed');
+  assert.equal(b.events.at(-1)?.type, 'closed');
 
   await ask.say(a.id, 'Anything new since?');
   await until(() => daemon.calls.sent.length === 3, 'restart send');
@@ -180,10 +208,11 @@ test('after a coco restart a conversation re-attaches to its agent: a follow-up 
   await after.resume();
   daemon.finish(ib, '#12 and #13.');
   const resumed = after.load(busy.id);
+  assert.ok(resumed);
   await until(() => ends(resumed) === 1, 'resumed turn end');
   assert.equal(resumed.status, 'idle');
-  assert.ok(resumed.events.some((e) => e.type === 'meta' && /re-attached/.test(e.text)));
-  assert.equal(resumed.events.filter((e) => e.type === 'text').at(-1).text, '#12 and #13.');
+  assert.ok(resumed.events.some((e) => e.type === 'meta' && /re-attached/.test(String(e.text))));
+  assert.equal(resumed.events.filter((e) => e.type === 'text').at(-1)?.text, '#12 and #13.');
 
   await after.say(idle.id, 'Which one first?');
   await until(() => daemon.calls.sent.length === 3, 'follow-up send');
@@ -206,25 +235,26 @@ test('after a restart, a conversation whose agent is gone starts a new one fed t
   await after.say(conv.id, 'Split the UI PR.');
   await until(() => daemon.calls.sent.length === 2, 'fallback send');
   const reloaded = after.load(conv.id);
+  assert.ok(reloaded);
   assert.notEqual(reloaded.agentId, old);
   assert.equal(daemon.calls.created.length, 2);
-  assert.ok(reloaded.events.some((e) => e.type === 'meta' && /is gone: a new one starts/.test(e.text)));
+  assert.ok(reloaded.events.some((e) => e.type === 'meta' && /is gone: a new one starts/.test(String(e.text))));
   const prompt = daemon.calls.sent[1].text;
   assert.match(prompt, /\*\*Alice:\*\* Scaffold the gadgets import\n\n\*\*coco:\*\* Proposed\./);
   assert.match(prompt, /You already proposed a work scaffold for `gadgets-import`/);
   assert.ok(prompt.endsWith('Split the UI PR.'));
-  daemon.finish(reloaded.agentId, 'Split.');
+  daemon.finish(reloaded.agentId ?? '', 'Split.');
   await until(() => ends(reloaded) === 2, 'fallback turn');
   assert.equal(reloaded.status, 'idle');
 });
 
 test('a one-shot run (rules) archives its agent after the first turn', async () => {
   const { ask, daemon } = setup();
-  let ended = null;
-  const conv = ask.start({ prompt: 'Distill rules' }, { once: true, onEnd: (c) => (ended = c) });
+  const ended: { conv?: ReturnType<typeof ask.start> } = {};
+  const conv = ask.start({ prompt: 'Distill rules' }, { once: true, onEnd: (c) => (ended.conv = c) });
   await until(() => daemon.calls.sent.length === 1, 'send');
   daemon.finish(daemon.calls.created[0].id, 'None.', { propose: { tool: 'propose_rules', input: { rules: [] } } });
   await until(() => conv.status === 'closed', 'closed');
-  assert.deepEqual(ended.rulesProposal, { rules: [] });
+  assert.deepEqual(ended.conv?.rulesProposal, { rules: [] });
   assert.deepEqual(daemon.calls.archived, [daemon.calls.created[0].id]);
 });

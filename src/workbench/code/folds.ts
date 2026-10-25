@@ -1,4 +1,13 @@
+import type { editor, IRange } from 'monaco-editor/editor/editor.api';
 import { foldedLines } from './editor-shared.ts';
+import type { MonacoApi, ReviewComment } from '../types.ts';
+
+type Region = { o: number; m: number; len: number };
+type IdRegion = Region & { id: number; start: number; end: number };
+type FoldComment = Pick<ReviewComment, 'side' | 'startLine' | 'endLine'>;
+type Expansion = 'all' | 'down' | 'up';
+type Span = [number, number];
+type FoldSide = { editor: editor.ICodeEditor; key: 'o' | 'm'; zones: string[] };
 
 const CONTEXT = 3;
 const MIN_HIDDEN = 3;
@@ -6,15 +15,18 @@ const STEP = 50;
 const SHOW_ALL_MAX = 100;
 const SOURCE = 'cc-folds';
 
+type HiddenAreaEditor = editor.ICodeEditor & { setHiddenAreas(ranges: IRange[], source?: string): void };
+const setHiddenAreas = (target: editor.ICodeEditor, ranges: IRange[]) => (target as HiddenAreaEditor).setHiddenAreas(ranges, SOURCE);
+
 // [start, endExclusive) of a line change on one side; an empty side sits after `start`
-const span = (start, end) => (end === 0 ? [start + 1, start + 1] : [start, end + 1]);
+const span = (start: number, end: number): Span => (end === 0 ? [start + 1, start + 1] : [start, end + 1]);
 
 // unchanged runs shared by both sides, minus CONTEXT lines next to each change: [{ o, m, len }]
-export function unchangedRegions(changes, originalCount) {
-  const out = [];
+export function unchangedRegions(changes: editor.ILineChange[], originalCount: number) {
+  const out: Region[] = [];
   let o = 1;
   let m = 1;
-  const gap = (oEnd, first, last) => {
+  const gap = (oEnd: number, first: boolean, last: boolean) => {
     const from = first ? 0 : CONTEXT;
     const len = oEnd - o - from - (last ? 0 : CONTEXT);
     if (len >= MIN_HIDDEN) out.push({ o: o + from, m: m + from, len });
@@ -30,10 +42,10 @@ export function unchangedRegions(changes, originalCount) {
 }
 
 // opens [line - CONTEXT, end + CONTEXT] of every comment, splitting the region holding it
-export function forceOpen(regions, comments) {
+export function forceOpen<R extends Region>(regions: R[], comments: Iterable<FoldComment>) {
   let out = regions;
   for (const c of comments) {
-    const next = [];
+    const next: R[] = [];
     for (const r of out) {
       const base = c.side === 'base' ? r.o : r.m;
       const a = Math.max(0, c.startLine - base - CONTEXT);
@@ -51,17 +63,18 @@ export function forceOpen(regions, comments) {
 }
 
 // regions are { id, o, m, len }: id = original start of the unchanged run they come from
-export function withIds(regions) {
+export function withIds(regions: Region[]): IdRegion[] {
   return regions.map((r) => ({ ...r, id: r.o, start: r.o, end: r.o + r.len }));
 }
 
 // base runs minus the original line ranges revealed in each, per id: Map<id, [from, to)[]>
-export function applyRevealed(base, revealed) {
-  const out = [];
+export function applyRevealed(base: IdRegion[], revealed: Map<number, Span[]>) {
+  const out: (Region & { id: number })[] = [];
   for (const r of base) {
     let at = r.start;
     const cuts = [...(revealed.get(r.id) || [])].sort((a, b) => a[0] - b[0]);
-    for (const [from, to] of [...cuts, [r.end, r.end]]) {
+    const ends: Span[] = [...cuts, [r.end, r.end]];
+    for (const [from, to] of ends) {
       const end = Math.min(from, r.end);
       if (end > at) out.push({ id: r.id, o: at, m: r.m + at - r.o, len: end - at });
       at = Math.max(at, to);
@@ -71,15 +84,15 @@ export function applyRevealed(base, revealed) {
 }
 
 // original line range an expansion reveals: 'down' the top STEP lines (next to the code above), 'up' the bottom STEP, 'all' the whole region
-export function revealRange(r, how) {
+export function revealRange(r: Region, how: Expansion): Span {
   if (how === 'down' && r.len > STEP) return [r.o, r.o + STEP];
   if (how === 'up' && r.len > STEP) return [r.o + r.len - STEP, r.o + r.len];
   return [r.o, r.o + r.len];
 }
 
-export const canShowAll = (r, originalCount) => r.len <= SHOW_ALL_MAX || r.o === 1 || r.o + r.len - 1 >= originalCount;
+export const canShowAll = (r: Region, originalCount: number) => r.len <= SHOW_ALL_MAX || r.o === 1 || r.o + r.len - 1 >= originalCount;
 
-function button(label, title, onClick) {
+function button(label: string, title: string, onClick: () => void) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'cc-fold-btn';
@@ -93,7 +106,7 @@ function button(label, title, onClick) {
   return b;
 }
 
-function bar(r, originalCount, onExpand) {
+function bar(r: Region, originalCount: number, onExpand: (how: Expansion) => void) {
   const node = document.createElement('div');
   node.className = 'cc-fold';
   if (r.len <= STEP) node.append(button('↕', `Show ${r.len} lines`, () => onExpand('all')));
@@ -102,7 +115,7 @@ function bar(r, originalCount, onExpand) {
   const label = document.createElement(all ? 'button' : 'span');
   label.className = `cc-fold-label ${all ? 'on' : ''}`;
   label.textContent = `${r.len} hidden line${r.len === 1 ? '' : 's'}`;
-  if (all) {
+  if (label instanceof HTMLButtonElement) {
     label.type = 'button';
     label.title = 'Show all';
     label.addEventListener('click', (e) => {
@@ -116,16 +129,16 @@ function bar(r, originalCount, onExpand) {
 }
 
 // GitHub-like hidden lines on both sides of a diff editor; expansions survive diff recomputes; returns { setComments, dispose }
-export function attachFolds(monaco, diff, { onExpand } = {}) {
-  const sides = [
+export function attachFolds(monaco: MonacoApi, diff: editor.IStandaloneDiffEditor, { onExpand }: { onExpand?: () => void } = {}) {
+  const sides: FoldSide[] = [
     { editor: diff.getOriginalEditor(), key: 'o', zones: [] },
     { editor: diff.getModifiedEditor(), key: 'm', zones: [] },
   ];
-  let base = [];
-  let regions = [];
+  let base: IdRegion[] = [];
+  let regions: (Region & { id?: number })[] = [];
   let originalCount = 0;
-  const revealed = new Map();
-  const opened = new Map();
+  const revealed = new Map<number, Span[]>();
+  const opened = new Map<string, FoldComment>();
 
   const render = () => {
     for (const s of sides) {
@@ -140,19 +153,20 @@ export function attachFolds(monaco, diff, { onExpand } = {}) {
           const marginDomNode = document.createElement('div');
           marginDomNode.className = 'cc-fold-margin';
           const domNode = bar(r, originalCount, (how) => {
-            revealed.set(r.id, [...(revealed.get(r.id) || []), revealRange(r, how)]);
+            const id = r.id ?? r.o;
+            revealed.set(id, [...(revealed.get(id) || []), revealRange(r, how)]);
             update(true);
             onExpand?.();
           });
           return acc.addZone({ afterLineNumber: r[key] - 1, heightInPx: lineHeight + 4, domNode, marginDomNode, suppressMouseDown: false, showInHiddenAreas: true });
         });
       });
-      editor.setHiddenAreas(ranges, SOURCE);
+      setHiddenAreas(editor, ranges);
     }
   };
 
-  const same = (a, b) => a.length === b.length && a.every((r, i) => r.o === b[i].o && r.m === b[i].m && r.len === b[i].len);
-  const update = (force) => {
+  const same = (a: Region[], b: Region[]) => a.length === b.length && a.every((r, i) => r.o === b[i].o && r.m === b[i].m && r.len === b[i].len);
+  const update = (force: boolean) => {
     const next = forceOpen(applyRevealed(base, revealed), [...opened.values()]);
     if (!force && same(next, regions)) return;
     regions = next;
@@ -172,7 +186,7 @@ export function attachFolds(monaco, diff, { onExpand } = {}) {
   recompute();
 
   return {
-    setComments(next) {
+    setComments(next: FoldComment[]) {
       for (const c of next) opened.set(`${c.side}:${c.startLine}:${c.endLine}`, c);
       update(false);
     },
@@ -182,7 +196,7 @@ export function attachFolds(monaco, diff, { onExpand } = {}) {
         foldedLines.delete(editor);
         try {
           editor.changeViewZones((acc) => zones.forEach((id) => acc.removeZone(id)));
-          editor.setHiddenAreas([], SOURCE);
+          setHiddenAreas(editor, []);
         } catch {}
       }
     },

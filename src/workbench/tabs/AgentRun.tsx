@@ -5,24 +5,25 @@ import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { reviewApi, useReviewStore, findRun, putRuns } from '../code/use-comments.ts';
 import { keyLabel } from '../code/ids.ts';
+import { errorMessage } from '../../api.ts';
 
 const POLL_MS = 5000;
 
-export default function AgentRun({ tabId }) {
+export default function AgentRun({ tabId }: { tabId: string }) {
   const { slug, prs } = useWork();
   const runId = tabId.slice(6);
   const run = useReviewStore((s) => findRun(slug, runId, s.prs));
   const active = useWorkbench((s) => s.groups.some((g) => g.active === tabId));
   const [out, setOut] = useState('');
-  const [brief, setBrief] = useState(null);
+  const [brief, setBrief] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
-  const pre = useRef(null);
+  const pre = useRef<HTMLPreElement>(null);
   const n = run?.number;
 
   useEffect(() => {
     if (run) return;
     let live = true;
-    Promise.all(prs.filter((p) => p.key).map((p) => reviewApi.runs(slug, p.key).then((r) => putRuns(slug, p.key, r.runs || [])).catch(() => {})))
+    Promise.all(prs.flatMap((p) => (p.key ? [p.key] : [])).map((key) => reviewApi.runs(slug, key).then((r) => putRuns(slug, key, r.runs || [])).catch(() => {})))
       .then(() => live && !findRun(slug, runId) && setMissing(true));
     return () => { live = false; };
   }, [slug, runId, prs.length]);
@@ -37,7 +38,7 @@ export default function AgentRun({ tabId }) {
     if (!n || !active) return undefined;
     let live = true;
     const tick = async () => {
-      const [runs, logs] = await Promise.all([done ? null : reviewApi.runs(slug, n).catch(() => null), reviewApi.logs(slug, n, runId).catch((e) => ({ out: e.message }))]);
+      const [runs, logs] = await Promise.all([done ? null : reviewApi.runs(slug, n).catch(() => null), reviewApi.logs(slug, n, runId).catch((e) => ({ out: errorMessage(e) }))]);
       if (!live) return;
       if (runs) putRuns(slug, n, runs.runs || []);
       setOut(logs.out || '');

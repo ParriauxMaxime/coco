@@ -1,4 +1,6 @@
 import { createElement } from 'react';
+import type { ComponentType } from 'react';
+import type { WorkData } from '../types.ts';
 import Plan from './Plan.tsx';
 import Pr from './Pr.tsx';
 import Artifacts from './Artifacts.tsx';
@@ -17,10 +19,18 @@ import Rules from '../../components/Rules.tsx';
 import { useWork } from '../use-work.ts';
 import { parseCodeTab, baseName, findingsKeyOfTab, keyLabel, reviewKeyOfTab } from '../code/ids.ts';
 
+export type TabProps = { tabId: string; group: number };
+export type TabDef = {
+  title: (ctx: WorkData) => string;
+  tip?: (ctx: WorkData) => string;
+  Component: ComponentType<TabProps>;
+  flush?: boolean;
+};
+
 const Unknown = () => createElement('div', { className: 'sub' }, 'Unknown tab.');
 const RulesTab = () => createElement('div', { className: 'wb-plan' }, createElement(Rules, { slug: useWork().slug }));
 
-const fixed = {
+const fixed: Record<string, TabDef> = {
   plan: { title: () => 'Plan', Component: Plan },
   artifacts: { title: (c) => `Artifacts (${c.w.artifacts.length})`, Component: Artifacts },
   ask: { title: () => '🦜 Ask coco', Component: AskTab },
@@ -31,7 +41,7 @@ const fixed = {
   rules: { title: () => 'Rules', Component: RulesTab },
 };
 
-export function tabDef(id) {
+export function tabDef(id: string): TabDef {
   if (fixed[id]) return fixed[id];
   if (id.startsWith('pr-')) return { title: () => `#${id.slice(3)} · developer details`, Component: Pr };
   if (id.startsWith('artifact-')) return { title: () => id.slice(9), Component: Artifact, flush: true };

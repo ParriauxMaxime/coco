@@ -1,41 +1,46 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPaseoLink } from './paseo-link.ts';
+import type { Req, Res, RowKey, Work } from './core-types.ts';
 
-const WORKS = [
+type ReviewRunFixture = { slug: string; number: RowKey; runId: string; agentId: string; status: string; startedAt?: string; commentIds: string[] };
+type StackRunFixture = { id: string; slug: string; status: string; agentId: string; startedAt: string; cwd: string; rows: { key: RowKey; worktree: string; commentIds: string[] }[] };
+
+const WORKS: Work[] = [
   { slug: 'invoices', title: 'Invoices', projectId: 'prj_a', stack: [{ number: 100 }, { number: 101 }] },
-  { slug: 'old', title: 'Old', projectId: 'prj_b', archived: '2026-01-01', stack: [{ number: 200 }] },
+  { slug: 'old', title: 'Old', projectId: 'prj_b', archived: { at: '2026-01-01', reason: 'done' }, stack: [{ number: 200 }] },
 ];
 
-function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], stored = [], heads = {} } = {}) {
-  const calls = [];
-  const ingested = [];
-  const exec = async (cmd, args) => {
+function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], stored = [], heads = {} }: { branch?: string; prNumber?: number | null; runs?: ReviewRunFixture[]; stackRuns?: StackRunFixture[]; stored?: { id: string; status: string }[]; heads?: Record<number, string> } = {}) {
+  const calls: string[][] = [];
+  const ingested: (string | number)[][] = [];
+  const exec = async (cmd: string, args: string[]) => {
     calls.push([cmd, ...args]);
     if (cmd === 'git') return { ok: true, stdout: `${branch}\n`, stderr: '' };
     return { ok: true, stdout: JSON.stringify(prNumber ? [{ number: prNumber }] : []), stderr: '' };
   };
-  const works = { list: () => structuredClone(WORKS), prInfo: async (n) => (heads[n] ? { number: n, head: heads[n] } : { number: n, error: 'gh failed' }) };
-  const comments = { list: () => ({ comments: stored }) };
+  const works = { list: () => structuredClone(WORKS), prInfo: async (n: number) => (heads[n] ? { number: n, head: heads[n] } : { number: n, error: 'gh failed' }) };
+  const comments = { list: () => ({ comments: stored }), follow: async () => [] };
+  const code = { ensureRefs: async () => ({ headSha: 'abc' }) };
   const reviewAgent = {
-    list: (slug, n) => runs.filter((r) => r.slug === slug && r.number === n),
-    ingest: async (slug, n) => {
+    list: (slug: string, n: RowKey) => runs.filter((r) => r.slug === slug && r.number === n),
+    ingest: async (slug: string, n: RowKey) => {
       ingested.push([slug, n]);
       return { runs: runs.filter((r) => r.slug === slug && r.number === n).map((r) => ({ ...r, status: 'done' })) };
     },
-    sameDir: (a, b) => a === b,
+    sameDir: (a: string, b: string) => a === b,
   };
   const stackFix = {
-    list: (slug) => stackRuns.filter((r) => r.slug === slug),
-    ingest: async (slug) => {
+    list: (slug: string) => stackRuns.filter((r) => r.slug === slug),
+    ingest: async (slug: string) => {
       ingested.push([slug, 'stack']);
       return { runs: stackRuns.filter((r) => r.slug === slug).map((r) => ({ ...r, status: 'done' })) };
     },
   };
-  return { link: createPaseoLink({ config: { repo: { github: 'acme/widgets' } }, works, comments, reviewAgent, stackFix, exec }), calls, ingested };
+  return { link: createPaseoLink({ config: { repo: { github: 'acme/widgets' } }, works, comments, code, reviewAgent, stackFix, exec }), calls, ingested };
 }
 
-const stackRun = (over = {}) => ({
+const stackRun = (over: Partial<StackRunFixture> = {}): StackRunFixture => ({
   id: 's1',
   slug: 'invoices',
   status: 'running',
@@ -55,7 +60,7 @@ test('resolve maps the worktree branch to its work and PR with comment counts', 
   const out = await link.resolve({ cwd: '/wt' });
   assert.equal(out.branch, 'feat/x');
   assert.deepEqual(out.work, { slug: 'invoices', title: 'Invoices', stack: [100, 101] });
-  assert.deepEqual(out.pr.comments, { total: 3, open: 2, fixed: 1 });
+  assert.deepEqual(out.pr?.comments, { total: 3, open: 2, fixed: 1 });
 });
 
 test('resolve lists the PR review runs and the stack fixes touching the workspace, newest first', async () => {
@@ -78,7 +83,7 @@ test('resolve maps a local stack branch without PR to its work and its review ru
     const runs = [{ slug: 'local', number: 'b:feat:local', runId: 'r5', agentId: 'ag5', status: 'running', startedAt: '2026-10-20T10:00:00Z', commentIds: [] }];
     const { link } = setup({ branch: 'feat/local', prNumber: null, runs });
     const out = await link.resolve({ cwd: '/wt-local', projectId: 'prj_a' });
-    assert.equal(out.work.slug, 'local');
+    assert.equal(out.work?.slug, 'local');
     assert.equal(out.pr, null);
     assert.deepEqual(out.runs.map((r) => [r.kind, r.pr, r.runId]), [['review', 'b:feat:local', 'r5']]);
   } finally {
@@ -89,7 +94,7 @@ test('resolve maps a local stack branch without PR to its work and its review ru
 test('resolve falls back to the Paseo project when the branch has no PR in a work', async () => {
   const { link } = setup({ prNumber: null });
   const out = await link.resolve({ cwd: '/wt', projectId: 'prj_a' });
-  assert.equal(out.work.slug, 'invoices');
+  assert.equal(out.work?.slug, 'invoices');
   assert.equal(out.pr, null);
 });
 
@@ -108,8 +113,8 @@ test('resolve caches the PR lookup per branch', async () => {
 test('run finds a review run by its label PR key and a stack fix by id', () => {
   const runs = [{ slug: 'invoices', number: 101, runId: 'r1', agentId: 'ag1', status: 'running', commentIds: ['a'] }];
   const { link } = setup({ runs, stackRuns: [stackRun()], stored: [{ id: 'a', status: 'sent' }] });
-  assert.equal(link.run({ kind: 'review', slug: 'invoices', runId: 'r1', pr: '101' }).status, 'running');
-  assert.equal(link.run({ kind: 'stack-fix', slug: 'invoices', runId: 's1' }).comments.total, 1);
+  assert.equal(link.run({ kind: 'review', slug: 'invoices', runId: 'r1', pr: '101' })?.status, 'running');
+  assert.equal(link.run({ kind: 'stack-fix', slug: 'invoices', runId: 's1' })?.comments.total, 1);
   assert.equal(link.run({ kind: 'stack-fix', slug: 'invoices', runId: 'nope' }), null);
   assert.equal(link.run({ kind: 'review', slug: 'old', runId: 'r1', pr: '200' }), null);
 });
@@ -178,17 +183,17 @@ test('stack answers no work for an unknown branch and for a branch of an archive
 
 test('GET /api/paseo-link/stack needs a branch', async () => {
   const { link } = setup({ heads: { 100: 'feat/base' } });
-  const call = async (url) => {
-    const sent = [];
-    const send = (res, code, body) => sent.push([code, body]);
-    await link.handle({ method: 'GET', url }, {}, ['paseo-link', 'stack'], async () => '', send);
+  const call = async (url: string) => {
+    const sent: [number, unknown][] = [];
+    const send = (_res: Res, code: number, body: unknown) => sent.push([code, body]);
+    await link.handle({ method: 'GET', url } as Req, {} as Res, ['paseo-link', 'stack'], async () => '', send);
     return sent[0];
   };
   assert.deepEqual(await call('/api/paseo-link/stack'), [400, { error: 'branch required' }]);
-  const [code, body] = await call('/api/paseo-link/stack?branch=feat%2Fx');
+  const [code, body] = (await call('/api/paseo-link/stack?branch=feat%2Fx')) ?? [];
   assert.equal(code, 200);
   assert.deepEqual(
-    body.rows.map((r) => r.branch),
+    (body as { rows: { branch: string }[] }).rows.map((r) => r.branch),
     ['feat/base', 'feat/x'],
   );
 });

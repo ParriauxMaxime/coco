@@ -4,11 +4,12 @@ import { validateRich } from './blocks.ts';
 const MAX_BY = 80;
 
 // `null` clears it; otherwise summary + typed blocks (steps, callout, table…), stamped with when and who
-export function validateNext(input, now = new Date()) {
+export function validateNext(input: unknown, now = new Date()) {
   if (input == null) return null;
   if (typeof input !== 'object' || Array.isArray(input)) throw new Error('next must be an object or null');
-  const rich = validateRich({ summary: input.summary, blocks: input.blocks });
+  const fields = input as { summary?: unknown; blocks?: unknown; by?: unknown };
+  const rich = validateRich({ summary: fields.summary, blocks: fields.blocks });
   if (!rich.summary && !rich.blocks) throw new Error('next needs a summary or blocks');
-  const by = typeof input.by === 'string' && input.by.trim() ? input.by.trim().slice(0, MAX_BY) : undefined;
+  const by = typeof fields.by === 'string' && fields.by.trim() ? fields.by.trim().slice(0, MAX_BY) : undefined;
   return { summary: rich.summary || null, blocks: rich.blocks || null, at: now.toISOString(), ...(by ? { by } : {}) };
 }

@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { PersonaChip } from '../components/PersonaChip.tsx';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import { ritualFields, useConfig } from '../config.ts';
 import Markdown from '../components/Markdown.tsx';
 import TeamPack from '../components/TeamPack.tsx';
 import Onboarding from '../components/Onboarding.tsx';
+import type { Overview } from '../types.ts';
 
-const statusChip = (s) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
+const statusChip = (s: string) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
 
 export default function Dashboard() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<Overview | null>(null);
   const [err, setErr] = useState('');
   const rituals = useConfig((s) => s.rituals);
   useEffect(() => {
-    api.overview().then(setData).catch((e) => setErr(e.message));
+    api.overview().then(setData).catch((e) => setErr(errorMessage(e)));
   }, []);
   if (err) return <div className="card danger">{err}</div>;
   if (!data) return <div className="sub">Loading…</div>;

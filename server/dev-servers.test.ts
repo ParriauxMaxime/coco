@@ -9,11 +9,15 @@ const WORK = {
   title: 'Widget search',
   stack: [{ number: 41 }, { number: 42 }, { planned: { branch: 'feat/widget-filters' } }],
 };
-const HEADS = { 41: 'feat/widget-index', 42: 'feat/widget-search' };
+const HEADS: Record<number, string> = { 41: 'feat/widget-index', 42: 'feat/widget-search' };
+type Fields = Record<string, unknown>;
+type Seen = { method?: string; url?: string; headers: http.IncomingHttpHeaders; body: unknown };
+type Route = 'hang' | ((entry: Seen) => [number, unknown]);
+type Row = { key: number | string; branch: string | null; worktree: string | null; holderId: string; server?: { id: string } | null; servedFrom: string | null };
 const WORKTREES = ['worktree /code/widgets', 'HEAD aaa', 'branch refs/heads/main', '', 'worktree /wt/widget-index', 'HEAD bbb', 'branch refs/heads/feat/widget-index', '', 'worktree /wt/widget-search', 'HEAD ccc', 'branch refs/heads/feat/widget-search', '', 'worktree /wt/detached', 'HEAD ddd', 'detached', ''].join('\n');
 
-const lease = (over) => ({ id: 'ls_1', kind: 'agent', holderId: null, title: 'Fix the widget', agentId: 'agent-alice', mine: false, since: '2026-10-23T10:00:00.000Z', lastUsedAt: '2026-10-23T10:00:00.000Z', ...over });
-const server = (over) => ({
+const lease = (over: Fields = {}) => ({ id: 'ls_1', kind: 'agent', holderId: null, title: 'Fix the widget', agentId: 'agent-alice', mine: false, since: '2026-10-23T10:00:00.000Z', lastUsedAt: '2026-10-23T10:00:00.000Z', ...over });
+const server = (over: Fields = {}) => ({
   id: 'wt_search',
   project: 'widgets',
   worktree: { path: '/wt/widget-search', branch: 'feat/widget-search', head: 'ccc', dirty: false },
@@ -42,8 +46,14 @@ const BOARD = {
   ],
 };
 
-const listen = (srv) => new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve(srv.address().port)));
-const close = (srv) => new Promise((resolve) => (srv.listening ? srv.close(resolve) : resolve()));
+const listen = (srv: http.Server | net.Server) =>
+  new Promise<number>((resolve) =>
+    srv.listen(0, '127.0.0.1', () => {
+      const address = srv.address();
+      resolve(typeof address === 'object' && address ? address.port : 0);
+    }),
+  );
+const close = (srv: http.Server | net.Server) => new Promise<void>((resolve) => (srv.listening ? srv.close(() => resolve()) : resolve()));
 const freePort = async () => {
   const probe = net.createServer();
   const port = await listen(probe);
@@ -52,14 +62,14 @@ const freePort = async () => {
 };
 
 // a stand-in for the plugin's HTTP API: records what coco sends, answers from `routes`
-async function fakePlugin(routes = {}) {
-  const seen = [];
+async function fakePlugin(routes: Record<string, Route> = {}) {
+  const seen: Seen[] = [];
   const srv = http.createServer(async (req, res) => {
     let raw = '';
     for await (const chunk of req) raw += chunk;
-    const entry = { method: req.method, url: req.url, headers: req.headers, body: raw ? JSON.parse(raw) : undefined };
+    const entry: Seen = { method: req.method, url: req.url, headers: req.headers, body: raw ? JSON.parse(raw) : undefined };
     seen.push(entry);
-    const route = routes[`${req.method} ${req.url.split('?')[0]}`];
+    const route = routes[`${req.method} ${(req.url ?? '').split('?')[0]}`];
     if (route === 'hang') return;
     const [status, body] = route ? route(entry) : [404, { error: { code: 'not_found', message: `no route ${req.url}` } }];
     res.writeHead(status, { 'content-type': 'application/json' });
@@ -68,21 +78,21 @@ async function fakePlugin(routes = {}) {
   return { port: await listen(srv), seen, close: () => close(srv) };
 }
 
-async function coco(pluginPort, { timeouts } = {}) {
-  const works = { get: (slug) => (slug === WORK.slug ? structuredClone(WORK) : null), prInfo: async (n) => ({ number: n, head: HEADS[n] }) };
-  const exec = async (cmd, args) => (cmd === 'git' && args.includes('worktree') ? { ok: true, stdout: WORKTREES, stderr: '' } : { ok: false, stdout: '', stderr: 'no' });
+async function coco(pluginPort: number, { timeouts }: { timeouts?: { read?: number; action?: number } } = {}) {
+  const works = { get: (slug: string) => (slug === WORK.slug ? structuredClone(WORK) : null), prInfo: async (n: number) => ({ number: n, head: HEADS[n] }) };
+  const exec = async (cmd: string, args: string[]) => (cmd === 'git' && args.includes('worktree') ? { ok: true, stdout: WORKTREES, stderr: '' } : { ok: false, stdout: '', stderr: 'no' });
   const devServers = createDevServers({ REPO: '/code/widgets', config: { devServers: { api: { port: pluginPort } } }, works, exec, timeouts });
-  const send = (res, code, body) => {
+  const send = (res: http.ServerResponse, code: number, body: unknown) => {
     res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(body));
   };
-  const readBody = (req) => new Promise((resolve) => { let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => resolve(raw)); });
+  const readBody = (req: http.IncomingMessage) => new Promise<string>((resolve) => { let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => resolve(raw)); });
   const srv = http.createServer((req, res) => {
-    const parts = new URL(req.url, 'http://local').pathname.split('/').filter(Boolean).slice(1);
+    const parts = new URL(req.url ?? '', 'http://local').pathname.split('/').filter(Boolean).slice(1);
     devServers.handle(req, res, parts, readBody, send);
   });
   const port = await listen(srv);
-  const call = async (method, route, body, headers = {}) => {
+  const call = async (method: string, route: string, body?: unknown, headers: Record<string, string> = {}) => {
     const res = await fetch(`http://127.0.0.1:${port}${route}`, {
       method,
       headers: { ...(body !== undefined && { 'content-type': 'application/json' }), ...headers },
@@ -108,15 +118,15 @@ test('the work view maps each row to its worktree and the server serving it, wit
     assert.equal(body.on, true);
     assert.equal(body.board.cap, 3);
     assert.deepEqual(
-      body.rows.map(({ key, branch, worktree, holderId, server: s, servedFrom }) => [key, branch, worktree, holderId, s?.id ?? null, servedFrom]),
+      body.rows.map(({ key, branch, worktree, holderId, server: s, servedFrom }: Row) => [key, branch, worktree, holderId, s?.id ?? null, servedFrom]),
       [
         [41, 'feat/widget-index', '/wt/widget-index', 'widget-search/41', 'wt_search', '/wt/widget-search'],
         [42, 'feat/widget-search', '/wt/widget-search', 'widget-search/42', 'wt_search', null],
         ['b:feat:widget-filters', 'feat/widget-filters', null, 'widget-search/b:feat:widget-filters', null, null],
       ],
     );
-    assert.deepEqual(body.rows[0].server.leases.map(({ mine }) => mine), [false, true]);
-    assert.deepEqual(body.rows[1].server.leases.map(({ mine }) => mine), [false, false]);
+    assert.deepEqual(body.rows[0].server.leases.map(({ mine }: { mine: boolean }) => mine), [false, true]);
+    assert.deepEqual(body.rows[1].server.leases.map(({ mine }: { mine: boolean }) => mine), [false, false]);
     assert.equal((await app.call('GET', '/api/dev-servers/works/nope')).status, 404);
   } finally {
     await app.close();
@@ -125,7 +135,7 @@ test('the work view maps each row to its worktree and the server serving it, wit
 });
 
 test('row actions send the row worktree and a coco holder, never the browser Origin; logs never count as use', async () => {
-  const ok = (extra = {}) => () => [200, { server: server(), next: 'ready at http://127.0.0.1:8110', ...extra }];
+  const ok = (extra: Fields = {}): Route => () => [200, { server: server(), next: 'ready at http://127.0.0.1:8110', ...extra }];
   const plugin = await fakePlugin({
     'POST /api/servers/start': ok({ placement: { mode: 'own', servedFrom: '/wt/widget-search', because: [] }, lease: { id: 'ls_9' } }),
     'POST /api/servers/wt_search/stop': ok({ stopped: false, kept: 'leased', swept: [], portsBusy: [] }),
@@ -156,7 +166,7 @@ test('row actions send the row worktree and a coco holder, never the browser Ori
       assert.equal(headers.origin, undefined);
       assert.equal(headers.host, `127.0.0.1:${plugin.port}`);
     }
-    assert.equal(plugin.seen[0].headers['content-type'], 'application/json');
+    assert.equal(plugin.seen[0]?.headers['content-type'], 'application/json');
 
     const unchecked = await app.call('POST', `/api/dev-servers/works/${WORK.slug}/rows/b%3Afeat%3Awidget-filters/start`, {});
     assert.deepEqual([unchecked.status, unchecked.body.error], [409, 'feat/widget-filters is not checked out in a worktree: create its workspace first']);
@@ -213,7 +223,7 @@ test('requests from another site, a rebound host or a form post never reach the 
     const route = `/api/dev-servers/works/${WORK.slug}`;
     assert.equal((await app.call('GET', route, undefined, { origin: 'http://widgets.example' })).status, 403);
     assert.equal((await app.call('GET', route, undefined, { origin: 'null' })).status, 403);
-    const rebound = await new Promise((resolve, reject) => {
+    const rebound = await new Promise<number | undefined>((resolve, reject) => {
       http.get({ host: '127.0.0.1', port: app.port, path: route, headers: { host: 'widgets.example:8777' } }, (res) => resolve(res.resume().statusCode)).on('error', reject);
     });
     assert.equal(rebound, 403);

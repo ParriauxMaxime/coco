@@ -3,21 +3,26 @@ import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import Blocks from './Blocks.tsx';
 import AgentActivity from './AgentActivity.tsx';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import { toast } from './Toast.tsx';
 import { pendingClass } from './action.ts';
+import type { ActivityEvent, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadSummary } from '../types.ts';
 
 const POLL_MS = 10000;
-const MODELS = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
+const MODELS: [string, string][] = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
 const OPEN = ['pending', 'queued', 'conflict'];
-const STATE_CHIP = { pending: 'c-blue', queued: 'c-orange', conflict: 'c-red', applied: 'c-green', dismissed: 'c-grey' };
-const STATE_NOTE = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch' };
+const STATE_CHIP: Record<string, string> = { pending: 'c-blue', queued: 'c-orange', conflict: 'c-red', applied: 'c-green', dismissed: 'c-grey' };
+const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch' };
+
+type ThreadsOf = { summaries: Record<string, ThreadSummary>; groups: ThreadGroup[] };
+export type Verdict = { label: string; title?: string; on: (text: string) => void; allowEmpty?: boolean; className?: string; pending?: boolean };
+type SendResult = boolean | undefined | void;
 
 // per work: thread summaries ({ count, waiting, lastTs, groupId, open }) and dispatch groups, for toggles, the activity feed and regrouping
-const useThreads = create(() => ({}));
-export const refreshThreads = (slug) => Promise.all([api.threads(slug), api.groups(slug)]).then(([summaries, groups]) => useThreads.setState({ [slug]: { summaries, groups } }), () => {});
-const requested = new Set();
-export function useThreadsOf(slug) {
+const useThreads = create<Record<string, ThreadsOf>>(() => ({}));
+export const refreshThreads = (slug: string) => Promise.all([api.threads(slug), api.groups(slug)]).then(([summaries, groups]) => useThreads.setState({ [slug]: { summaries, groups } }), () => {});
+const requested = new Set<string>();
+export function useThreadsOf(slug: string): ThreadsOf {
   useEffect(() => {
     if (requested.has(slug)) return;
     requested.add(slug);
@@ -25,19 +30,21 @@ export function useThreadsOf(slug) {
   }, [slug]);
   return useThreads((s) => s[slug]) || { summaries: {}, groups: [] };
 }
-export const useThreadSummary = (slug, key) => useThreadsOf(slug).summaries[key];
+export const useThreadSummary = (slug: string, key: string): ThreadSummary | undefined => useThreadsOf(slug).summaries[key];
 
-export const threadKey = { decision: (id) => `d.${id}`, comment: (n, id) => `c.${String(n).replaceAll(':', '~')}.${id}`, plan: (n) => `p.${String(n).replaceAll(':', '~')}` };
-const groupLabel = (g) => `${g.id} · ${g.model}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
+export const threadKey = { decision: (id: string) => `d.${id}`, comment: (n: string | number, id: string) => `c.${String(n).replaceAll(':', '~')}.${id}`, plan: (n: string | number) => `p.${String(n).replaceAll(':', '~')}` };
+const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
 
-export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'discuss or dispatch' }) {
+type ToggleProps = { slug: string; threadKey: string; open?: boolean; onClick: () => void; label?: string };
+export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'discuss or dispatch' }: ToggleProps) {
   const s = useThreadSummary(slug, key);
   const label = s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle;
   return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 
 // pending: 'approve' | 'dismiss' while that decision is in flight
-function Suggestion({ s, onDecide, busy, pending }) {
+type SuggestionProps = { s: SuggestionData; onDecide: (action: SuggestionAction) => void; busy: boolean; pending: string | null };
+function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
   const open = OPEN.includes(s.state);
   return (
     <div className="thread-sugg">
@@ -66,11 +73,11 @@ function Suggestion({ s, onDecide, busy, pending }) {
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
 
 // each message's share of the agent's activity; a call that settles after a steer stays with the message it started under
-function activityByMessage(events) {
-  const owner = new Map();
-  const out = {};
+function activityByMessage(events: ActivityEvent[]) {
+  const owner = new Map<string, string>();
+  const out: Record<string, ActivityEvent[]> = {};
   for (const ev of events) {
-    const msgId = (ev.type === 'tool' && ev.id && owner.get(ev.id)) || ev.msgId;
+    const msgId = String((ev.type === 'tool' && ev.id && owner.get(ev.id)) || ev.msgId);
     if (ev.type === 'tool' && ev.id && !owner.has(ev.id)) owner.set(ev.id, msgId);
     (out[msgId] ||= []).push(ev);
   }
@@ -78,16 +85,16 @@ function activityByMessage(events) {
 }
 
 // the thread's agent activity over SSE (stored, then live), and a fresh thread on every change the server reports
-function useThreadStream(slug, key, onChange) {
-  const [events, setEvents] = useState([]);
+function useThreadStream(slug: string, key: string, onChange: () => void) {
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
   const changed = useRef(onChange);
   changed.current = onChange;
   useEffect(() => {
-    let timer = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const es = new EventSource(`/api/works/${slug}/threads/${key}/events`);
     es.onopen = () => setEvents([]);
     es.onmessage = (m) => {
-      const ev = JSON.parse(m.data);
+      const ev: ActivityEvent = JSON.parse(m.data);
       if (ev.type !== 'thread') return setEvents((prev) => [...prev, ev]);
       clearTimeout(timer);
       timer = setTimeout(() => changed.current?.(), 100);
@@ -102,15 +109,16 @@ function useThreadStream(slug, key, onChange) {
 
 // a scoped agent on one item: dispatch, follow its work live, read its answer, approve or dismiss what it suggests; writing to it never waits for it
 // verdicts: [{ label, title, on(note) }] buttons that use the box text as remark instead of dispatching it
-export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }) {
+type ThreadProps = { slug: string; threadKey: string; onSettled?: () => void; verdicts?: Verdict[]; autoFocus?: boolean };
+export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
   const { groups } = useThreadsOf(slug);
-  const [thread, setThread] = useState(null);
+  const [thread, setThread] = useState<ThreadData | null>(null);
   const [error, setError] = useState('');
   // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
-  const [pending, setPending] = useState(null);
+  const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
   // messages sent and not confirmed yet
-  const [sending, setSending] = useState([]);
+  const [sending, setSending] = useState<{ nonce: string; text: string }[]>([]);
   const [note, setNote] = useState('');
   const waiting = Boolean(thread?.waiting);
   const settled = useRef(onSettled);
@@ -130,7 +138,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   }, () => {});
   const activity = useThreadStream(slug, key, reload);
   useEffect(() => {
-    api.thread(slug, key).then(setThread, (e) => setError(e.message));
+    api.thread(slug, key).then(setThread, (e) => setError(errorMessage(e)));
   }, [slug, key]);
   // the stream reports replies at once; this catches an agent coco does not follow
   useEffect(() => {
@@ -146,7 +154,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     return () => clearInterval(timer);
   }, [slug, key, queued]);
 
-  const act = async (what, fn) => {
+  const act = async (what: string, fn: () => Promise<ThreadData>) => {
     setPending(what);
     try {
       const next = await fn();
@@ -154,7 +162,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       refreshThreads(slug);
       settled.current?.();
     } catch (e) {
-      toast.error(e.message);
+      toast.error(errorMessage(e));
       return false;
     } finally {
       setPending(null);
@@ -162,7 +170,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   };
   const group = groups.find((g) => g.id === thread?.groupId);
   // shown at once, confirmed by the server; while the agent works the message steers its turn
-  const send = (text, model) => {
+  const send = (text: string, model?: string) => {
     const nonce = nonceOf();
     setSending((s) => [...s, { nonce, text }]);
     api.postThread(slug, key, { text, ...(model ? { model } : {}) })
@@ -171,7 +179,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         setThread((prev) => ({ ...next, agent: next.agent ?? prev?.agent ?? null }));
         refreshThreads(slug);
         settled.current?.();
-      }, (e) => toast.error(e.message))
+      }, (e) => toast.error(errorMessage(e)))
       .finally(() => setSending((s) => s.filter((x) => x.nonce !== nonce)));
     return true;
   };
@@ -232,7 +240,18 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
 
 // the one text box of an item: Dispatch sends it to the scoped agent (model picked on the first dispatch), verdicts close the item with it as reason
 // verdicts: [{ label, title, on(text), allowEmpty?, className?, pending? }] · pending: 'send' while the dispatch is in flight
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false, rows = 2 }) {
+type ComposerProps = {
+  busy: boolean;
+  pending?: string | null;
+  withModel?: boolean;
+  sendLabel?: string;
+  verdicts?: Verdict[];
+  placeholder?: string;
+  onSend: (text: string, model?: string) => SendResult | Promise<SendResult>;
+  autoFocus?: boolean;
+  rows?: number;
+};
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false, rows = 2 }: ComposerProps) {
   const [text, setText] = useState('');
   const [model, setModel] = useState('sonnet');
   const send = async () => {

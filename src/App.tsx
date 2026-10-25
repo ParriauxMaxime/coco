@@ -13,6 +13,7 @@ import Rules from './components/Rules.tsx';
 import Inbox from './pages/Inbox.tsx';
 import { api } from './api.ts';
 import Sidebar from './components/Sidebar.tsx';
+import type { Nav } from './components/Sidebar.tsx';
 import Toasts from './components/Toast.tsx';
 
 const useHash = () => {
@@ -26,9 +27,9 @@ const useHash = () => {
 };
 
 
-function crumbs(route, nav, tabTitle) {
+function crumbs(route: string, nav: Nav, tabTitle?: string | null) {
   const [root, a, b] = route.split('/').filter(Boolean);
-  const out = [['#/', 'Dashboard']];
+  const out: [string, string][] = [['#/', 'Dashboard']];
   if (root === 'projects') out.push(['#/projects', 'Projects']);
   if (root === 'agents') out.push(['#/agents', 'Agents']);
   if (root === 'rituals') out.push(['#/rituals', 'Rituals']);
@@ -60,7 +61,7 @@ export default function App() {
   const tabTitle = useWorkbench((s) => s.title);
   const [root, a, b, c] = route.split('/').filter(Boolean);
   const [open, setOpen] = useState(false);
-  const [nav, setNav] = useState({ works: [], personas: [], skills: [], projects: 0, running: 0 });
+  const [nav, setNav] = useState<Nav>({ works: [], personas: [], skills: [], projects: 0, running: 0 });
   useEffect(() => {
     const load = () => api.overview().then((d) => setNav({ works: d.works || [], personas: d.personas, skills: d.skills, projects: d.projectCount || 0, running: d.agents.filter((x) => x.status === 'running').length })).catch(() => {});
     load();

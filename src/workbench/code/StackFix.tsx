@@ -7,14 +7,16 @@ import { reviewApi, loadReview } from './use-comments.ts';
 import { keyLabel } from './ids.ts';
 import { useConfig } from '../../config.ts';
 import { pendingClass } from '../../components/action.ts';
+import { errorMessage } from '../../api.ts';
+import type { ImportReviewFile, ImportReviewResult, StackFixOpenRow, StackFixRun, StackFixRunRow, StackFixState } from '../types.ts';
 import './code.css';
 
 const POLL_MS = 5000;
-const STATUS_CHIP = { running: 'c-orange', done: 'c-green', failed: 'c-red' };
-const short = (sha) => (sha ? sha.slice(0, 9) : '…');
+const STATUS_CHIP: Record<string, string> = { running: 'c-orange', done: 'c-green', failed: 'c-red' };
+const short = (sha?: string) => (sha ? sha.slice(0, 9) : '…');
 
-export function useStackFix(slug, live) {
-  const [state, setState] = useState({ runs: [], open: [] });
+export function useStackFix(slug: string, live: boolean) {
+  const [state, setState] = useState<StackFixState>({ runs: [], open: [] });
   const [nonce, setNonce] = useState(0);
   const running = state.runs.some((r) => r.status === 'running');
   useEffect(() => {
@@ -28,9 +30,9 @@ export function useStackFix(slug, live) {
   return { ...state, reload: () => setNonce((n) => n + 1) };
 }
 
-export const openStackRun = (id, group) => useWorkbench.getState().open(`stack-${id}`, { group });
+export const openStackRun = (id: string, group: number) => useWorkbench.getState().open(`stack-${id}`, { group });
 
-export function StackRunLink({ run, onOpen }) {
+export function StackRunLink({ run, onOpen }: { run: StackFixRun; onOpen: (id: string) => void }) {
   return (
     <span className="status">
       <a href="#" onClick={(e) => { e.preventDefault(); onOpen(run.id); }}>stack fix {run.id}</a> <span className={`chip ${STATUS_CHIP[run.status] || 'c-grey'}`}>{run.status}</span> {new Date(run.startedAt).toLocaleString()}
@@ -40,9 +42,11 @@ export function StackRunLink({ run, onOpen }) {
 }
 
 // select 'accepted': only the findings accepted on the board, with their triage
-export function FixDialog({ slug, open, select, onClose, onSent }) {
+type FixDialogProps = { slug: string; open: StackFixOpenRow[]; select?: string; onClose: () => void; onSent: (run: StackFixRun) => void };
+
+export function FixDialog({ slug, open, select, onClose, onSent }: FixDialogProps) {
   const accepted = select === 'accepted';
-  const countOf = (r) => (accepted ? r.accepted || 0 : r.count);
+  const countOf = (r: StackFixOpenRow) => (accepted ? r.accepted || 0 : r.count);
   const chain = open.slice(Math.max(0, open.findIndex(countOf)));
   const [commits, setCommits] = useState('one');
   const models = useConfig((s) => s.models);
@@ -58,7 +62,7 @@ export function FixDialog({ slug, open, select, onClose, onSent }) {
     try {
       onSent(await reviewApi.startStackFix(slug, { commits, ...(select ? { select } : {}), ...(provider ? { provider } : {}) }));
     } catch (e) {
-      setError(e.message);
+      setError(errorMessage(e));
       setBusy(false);
     }
   };
@@ -85,21 +89,21 @@ export function FixDialog({ slug, open, select, onClose, onSent }) {
   );
 }
 
-function ImportDialog({ slug, onClose, onDone }) {
-  const [files, setFiles] = useState(null);
+function ImportDialog({ slug, onClose, onDone }: { slug: string; onClose: () => void; onDone: () => void }) {
+  const [files, setFiles] = useState<ImportReviewFile[] | null>(null);
   // the path being imported, if any
   const [busy, setBusy] = useState('');
-  const [out, setOut] = useState(null);
+  const [out, setOut] = useState<ImportReviewResult | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { reviewApi.reviewFiles(slug).then((r) => setFiles(r.files), (e) => setError(e.message)); }, [slug]);
-  const run = async (path) => {
+  useEffect(() => { reviewApi.reviewFiles(slug).then((r) => setFiles(r.files), (e) => setError(errorMessage(e))); }, [slug]);
+  const run = async (path: string) => {
     setBusy(path);
     setError('');
     try {
       setOut(await reviewApi.importReview(slug, path));
       onDone();
     } catch (e) {
-      setError(e.message);
+      setError(errorMessage(e));
     }
     setBusy('');
   };
@@ -129,7 +133,7 @@ function ImportDialog({ slug, onClose, onDone }) {
   );
 }
 
-const RowLine = ({ row, i }) => (
+const RowLine = ({ row, i }: { row: StackFixRunRow; i: number }) => (
   <li>
     <code>{i + 1}</code> {row.branch} · {row.commentIds.length} comments · {short(row.tipBefore)} → {short(row.tipAfter)}
     {row.restacked && <span className="chip c-blue">restacked</span>}
@@ -137,14 +141,14 @@ const RowLine = ({ row, i }) => (
   </li>
 );
 
-export function StackFixCard({ group }) {
+export function StackFixCard({ group }: { group: number }) {
   const { slug } = useWork();
   const { runs, open, reload } = useStackFix(slug, true);
-  const [dialog, setDialog] = useState(null);
+  const [dialog, setDialog] = useState<'fix' | 'import' | null>(null);
   const total = open.reduce((n, r) => n + r.count, 0);
   const rows = open.filter((r) => r.count).length;
   const last = runs[0];
-  const openTab = (id) => openStackRun(id, group === 1 ? 2 : 1);
+  const openTab = (id: string) => openStackRun(id, group === 1 ? 2 : 1);
   const refresh = () => open.forEach((r) => loadReview(slug, r.key));
   return (
     <div className="card" style={{ marginTop: 8 }}>
@@ -162,28 +166,28 @@ export function StackFixCard({ group }) {
   );
 }
 
-export default function StackRun({ tabId }) {
+export default function StackRun({ tabId }: { tabId: string }) {
   const { slug } = useWork();
   const id = tabId.slice(6);
   const active = useWorkbench((s) => s.groups.some((g) => g.active === tabId));
   const { runs } = useStackFix(slug, active);
   const run = runs.find((r) => r.id === id);
-  const [brief, setBrief] = useState(null);
+  const [brief, setBrief] = useState<string | null>(null);
   const [out, setOut] = useState('');
-  const pre = useRef(null);
+  const pre = useRef<HTMLPreElement>(null);
   const done = run && run.status !== 'running';
   useEffect(() => { reviewApi.stackFixBrief(slug, id).then(setBrief); }, [slug, id]);
   useEffect(() => {
     if (!run?.agentId || !active) return undefined;
     let on = true;
-    const tick = () => reviewApi.stackFixLogs(slug, id).then((l) => on && setOut(l.out || ''), (e) => on && setOut(e.message));
+    const tick = () => reviewApi.stackFixLogs(slug, id).then((l) => on && setOut(l.out || ''), (e) => on && setOut(errorMessage(e)));
     tick();
     if (done) return () => { on = false; };
     const t = setInterval(tick, POLL_MS);
     return () => { on = false; clearInterval(t); };
   }, [slug, id, run?.agentId, active, done]);
   useLayoutEffect(() => { if (pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [out]);
-  useEffect(() => { if (done) run.rows.forEach((r) => loadReview(slug, r.key)); }, [done]);
+  useEffect(() => { if (run && done) run.rows.forEach((r) => loadReview(slug, r.key)); }, [done]);
 
   if (!run) return <div className="sub">Loading stack fix…</div>;
   return (

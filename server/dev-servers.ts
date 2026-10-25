@@ -1,24 +1,39 @@
 // The plan page's dev servers: the dev-servers plugin's HTTP API proxied same-origin, each stack row mapped to the worktree that has its branch,
 // the server serving it, and a coco holder of its own ({ kind: 'coco', id: '<work>/<row>' }). The plugin being down reads as "off", never as an error.
 import { execFile } from 'node:child_process';
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { keyLabel, rowKey } from './stack.ts';
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+type RowKey = number | string;
+type StackRow = { number?: number | null; planned?: { branch?: string } };
+type Work = { slug: string; title?: string; stack?: StackRow[] };
+type ExecResult = { ok: boolean; stdout: string; stderr: string };
+type Exec = (cmd: string, args: string[]) => Promise<ExecResult>;
+type DevServersConfig = { devServers?: { api?: { bind?: string; port?: number } } } | null;
+type Lease = { kind: string; holderId: string | null };
+type PluginServer = { running: boolean; leases: Lease[]; worktree: { path: string; branch?: string | null } };
+type ApiBody = { servers?: PluginServer[]; error?: { code?: string; message?: string; details?: Record<string, unknown> } };
+type Reply = { status: number; body?: ApiBody } | { down: string };
+type Holder = { kind: 'coco'; id: string; title: string };
+type Row = { key: RowKey; label: string; branch: string | null; worktree: string | null; holder: Holder };
+type Send = (res: ServerResponse, status: number, body: unknown) => unknown;
+
+const LOOPBACK = new Set<string | null>(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const READ_TIMEOUT_MS = 2500;
 // a start may first stop another server (its grace period), and a login waits for the project's provider (60 s by default)
 const ACTION_TIMEOUT_MS = 65000;
 const MAX_LOG_LINES = 200;
 const SERVER_ID = /^[\w-]{1,80}$/;
 
-const defaultExec = (cmd, args) =>
+const defaultExec: Exec = (cmd, args) =>
   new Promise((resolve) => {
     execFile(cmd, args, { maxBuffer: 4 * 1024 * 1024, timeout: 10000 }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
     });
   });
 
-const hostnameOf = (value, withScheme) => {
+const hostnameOf = (value: string, withScheme: boolean) => {
   try {
     return new URL(withScheme ? value : `http://${value}`).hostname;
   } catch {
@@ -27,7 +42,7 @@ const hostnameOf = (value, withScheme) => {
 };
 
 // coco itself has no auth: refuse what a web page on another site, a rebound DNS name or a form post could send through it
-export function refusal(req) {
+export function refusal(req: { headers: IncomingHttpHeaders; method?: string }) {
   if (!LOOPBACK.has(hostnameOf(req.headers.host || '', false))) return 'Host is not a loopback address';
   const origin = req.headers.origin;
   if (origin !== undefined && !LOOPBACK.has(hostnameOf(origin, true))) return `Origin ${origin} is not a loopback origin`;
@@ -35,30 +50,39 @@ export function refusal(req) {
   return null;
 }
 
-export const apiBase = (config) => {
+export const apiBase = (config?: DevServersConfig) => {
   const { bind = '127.0.0.1', port = 8779 } = config?.devServers?.api || {};
   return `http://${bind.includes(':') && !bind.startsWith('[') ? `[${bind}]` : bind}:${port}`;
 };
 
-export function parseWorktrees(porcelain) {
-  const byBranch = new Map();
+export function parseWorktrees(porcelain: string) {
+  const byBranch = new Map<string, string>();
   for (const block of porcelain.split(/\n\s*\n/)) {
     const lines = block.split('\n');
-    const wt = lines.find((l) => l.startsWith('worktree '));
-    const br = lines.find((l) => l.startsWith('branch refs/heads/'));
+    const wt = lines.find((l: string) => l.startsWith('worktree '));
+    const br = lines.find((l: string) => l.startsWith('branch refs/heads/'));
     if (wt && br) byBranch.set(br.slice('branch refs/heads/'.length).trim(), wt.slice('worktree '.length).trim());
   }
   return byBranch;
 }
 
-const samePath = (a, b) => Boolean(a && b) && path.resolve(a) === path.resolve(b);
+const samePath = (a?: string | null, b?: string | null) => !!a && !!b && path.resolve(a) === path.resolve(b);
 
-export function createDevServers({ REPO, config, works, exec = defaultExec, fetchImpl = fetch, timeouts = {} }) {
+type DevServersOptions = {
+  REPO?: string;
+  config?: DevServersConfig;
+  works: { get(slug: string): Work | null | undefined; prInfo(number: number): Promise<{ head?: string | null } | null> };
+  exec?: Exec;
+  fetchImpl?: typeof fetch;
+  timeouts?: { read?: number; action?: number };
+};
+
+export function createDevServers({ REPO, config, works, exec = defaultExec, fetchImpl = fetch, timeouts = {} }: DevServersOptions) {
   const base = apiBase(config);
   const { read: READ_MS = READ_TIMEOUT_MS, action: ACTION_MS = ACTION_TIMEOUT_MS } = timeouts;
 
   // never forwards the browser's headers: the plugin sees a request from coco with no Origin, so its own guard still holds
-  async function call(method, route, body, timeout) {
+  async function call(method: string, route: string, body: unknown, timeout: number): Promise<Reply> {
     try {
       const res = await fetchImpl(new URL(route, base), {
         method,
@@ -72,18 +96,20 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
         return { down: `${base} answered ${res.status} without JSON: is something else on that port?` };
       }
     } catch (e) {
-      return { down: e?.name === 'TimeoutError' ? `${base} did not answer within ${timeout} ms` : `nothing answers on ${base}` };
+      return { down: e instanceof Error && e.name === 'TimeoutError' ? `${base} did not answer within ${timeout} ms` : `nothing answers on ${base}` };
     }
   }
 
-  const holderOf = (work, key) => ({ kind: 'coco', id: `${work.slug}/${key}`, title: `coco: ${work.title || work.slug} ${keyLabel(key)}` });
+  const holderOf = (work: Work, key: RowKey): Holder => ({ kind: 'coco', id: `${work.slug}/${key}`, title: `coco: ${work.title || work.slug} ${keyLabel(key)}` });
 
-  async function rowsOf(work) {
-    const listed = REPO ? await exec('git', ['-C', REPO, 'worktree', 'list', '--porcelain']) : { ok: false };
-    const worktrees = listed.ok ? parseWorktrees(listed.stdout) : new Map();
+  async function rowsOf(work: Work): Promise<Row[]> {
+    const listed = REPO ? await exec('git', ['-C', REPO, 'worktree', 'list', '--porcelain']) : null;
+    const worktrees = listed?.ok ? parseWorktrees(listed.stdout) : new Map<string, string>();
     return Promise.all(
-      (work.stack || []).filter(rowKey).map(async (s) => {
-        const key = rowKey(s);
+      (work.stack || [])
+        .map((s) => ({ s, key: rowKey(s) }))
+        .filter((r): r is { s: StackRow; key: RowKey } => Boolean(r.key))
+        .map(async ({ s, key }) => {
         const pr = s.number ? await works.prInfo(s.number).catch(() => null) : null;
         const branch = pr?.head || s.planned?.branch || null;
         return { key, label: keyLabel(key), branch, worktree: (branch && worktrees.get(branch)) || null, holder: holderOf(work, key) };
@@ -92,8 +118,8 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
   }
 
   // the server a row holds (maybe its stack top's), else the one of its own worktree; `mine` is relative to the row's holder
-  function serverFor(row, servers) {
-    const mine = (lease) => lease.kind === 'coco' && lease.holderId === row.holder.id;
+  function serverFor(row: Pick<Row, 'branch' | 'worktree' | 'holder'>, servers: PluginServer[]) {
+    const mine = (lease: Lease) => lease.kind === 'coco' && lease.holderId === row.holder.id;
     const server =
       servers.find((s) => s.running && s.leases.some(mine)) ||
       (row.worktree && servers.find((s) => samePath(s.worktree.path, row.worktree))) ||
@@ -102,20 +128,21 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return server && { ...server, leases: server.leases.map((lease) => ({ ...lease, mine: mine(lease) })) };
   }
 
-  async function workView(work) {
+  async function workView(work: Work) {
     const reply = await call('GET', '/api/board', undefined, READ_MS);
-    if (reply.down) return { on: false, reason: reply.down };
-    if (reply.status !== 200 || !Array.isArray(reply.body?.servers)) return { on: false, reason: reply.body?.error?.message || `the dev servers API answered ${reply.status}` };
+    if ('down' in reply) return { on: false, reason: reply.down };
     const board = reply.body;
+    if (reply.status !== 200 || !board || !Array.isArray(board.servers)) return { on: false, reason: reply.body?.error?.message || `the dev servers API answered ${reply.status}` };
+    const servers = board.servers;
     const rows = (await rowsOf(work)).map(({ holder, ...row }) => {
-      const server = serverFor({ ...row, holder }, board.servers);
+      const server = serverFor({ ...row, holder }, servers);
       return { ...row, holderId: holder.id, server, servedFrom: server && row.worktree && !samePath(server.worktree.path, row.worktree) ? server.worktree.path : null };
     });
     return { on: true, board, rows };
   }
 
-  const relay = (send, res, reply) => {
-    if (reply.down) return send(res, 503, { error: `dev servers off: ${reply.down}`, code: 'dev_servers_off' });
+  const relay = (send: Send, res: ServerResponse, reply: Reply) => {
+    if ('down' in reply) return send(res, 503, { error: `dev servers off: ${reply.down}`, code: 'dev_servers_off' });
     if (reply.status >= 400) {
       const { code, message, details } = reply.body?.error || {};
       return send(res, reply.status, { error: message || `the dev servers API answered ${reply.status}`, code: code || null, ...(details && { details }) });
@@ -123,7 +150,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return send(res, 200, reply.body);
   };
 
-  async function rowAction(work, key, action, body) {
+  async function rowAction(work: Work, key: string, action: string, body: Record<string, unknown>): Promise<Reply | { status: number; error: string }> {
     const row = (await rowsOf(work)).find((r) => String(r.key) === key);
     if (!row) return { status: 404, error: `${key} is not a row of ${work.slug}` };
     const holder = row.holder;
@@ -138,7 +165,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return { status: 404, error: `no row action ${action}` };
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: IncomingMessage, res: ServerResponse, parts: string[], readBody: (req: IncomingMessage) => Promise<string>, send: Send) {
     try {
       const refused = refusal(req);
       if (refused) return send(res, 403, { error: refused });
@@ -146,7 +173,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
       const body = req.method === 'POST' ? JSON.parse((await readBody(req)) || '{}') : {};
       if (a === 'board' && req.method === 'GET') {
         const reply = await call('GET', '/api/board', undefined, READ_MS);
-        return send(res, 200, reply.down ? { on: false, reason: reply.down } : { on: reply.status === 200, board: reply.body });
+        return send(res, 200, 'down' in reply ? { on: false, reason: reply.down } : { on: reply.status === 200, board: reply.body });
       }
       if (a === 'works' && b) {
         const work = works.get(b);
@@ -154,7 +181,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
         if (!c && req.method === 'GET') return send(res, 200, await workView(work));
         if (c === 'rows' && d && e && req.method === 'POST') {
           const reply = await rowAction(work, decodeURIComponent(d), e, body);
-          return reply.error ? send(res, reply.status, { error: reply.error }) : relay(send, res, reply);
+          return 'error' in reply ? send(res, reply.status, { error: reply.error }) : relay(send, res, reply);
         }
       }
       if (a === 'servers' && b && SERVER_ID.test(b)) {
@@ -163,14 +190,14 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
           return relay(send, res, await call('POST', `/api/servers/${b}/login`, page, ACTION_MS));
         }
         if (c === 'logs' && req.method === 'GET') {
-          const asked = Number(new URL(req.url, 'http://local').searchParams.get('lines')) || 60;
+          const asked = Number(new URL(req.url || '/', 'http://local').searchParams.get('lines')) || 60;
           const lines = Math.min(Math.max(1, Math.floor(asked)), MAX_LOG_LINES);
           return relay(send, res, await call('GET', `/api/servers/${b}/logs?lines=${lines}&touch=false`, undefined, READ_MS));
         }
       }
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, 500, { error: String(e.message || e) });
+      return send(res, 500, { error: String(e instanceof Error ? e.message || e : e) });
     }
   }
 

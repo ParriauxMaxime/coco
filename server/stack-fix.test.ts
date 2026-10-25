@@ -4,14 +4,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createStackFix } from './stack-fix.ts';
+import type { Work } from './core-types.ts';
 
 const WT = '/wt/a';
 const ME = 'e88d0ecc-0000-4000-8000-000000000000';
 
-function setup({ agents = [] } = {}) {
+type TestComment = { id: string; status: 'open'; path: string; startLine: number; endLine: number; body: string };
+type TestAgent = { id: string; cwd: string; status: string };
+
+function setup({ agents = [] }: { agents?: TestAgent[] } = {}) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-fix-'));
-  const work = { slug: 'w', stack: [{ number: 1 }, { number: 2 }] };
-  const store = {
+  const work: Work = { slug: 'w', title: 'W', stack: [{ number: 1 }, { number: 2 }] };
+  const store: Record<string, TestComment[]> = {
     1: [
       { id: 'c1', status: 'open', path: 'a.ts', startLine: 1, endLine: 1, body: 'Rename x' },
       { id: 'c2', status: 'open', path: 'a.ts', startLine: 5, endLine: 5, body: 'Guard y' },
@@ -32,16 +36,17 @@ function setup({ agents = [] } = {}) {
     { role: 'user', text: 'Then no code change, record the decision.' },
     { role: 'agent', text: 'old twin', blocks: [{ type: 'text', text: 'Agreed: **no code change**, decision recorded.' }, { type: 'callout', tone: 'note', text: 'Follow-up ticket.' }] },
   ] }));
-  const launched = [];
-  const updates = [];
+  const launched: Record<string, unknown>[] = [];
+  const updates: Record<string, unknown>[] = [];
   const sf = createStackFix({
     DATA,
     REPO: '/repo',
     config: { repo: { defaultBranch: 'master' }, owner: { name: 'max' }, models: { default: 'opus' } },
     works: { get: (s) => (s === 'w' ? work : null) },
-    comments: { list: (_, key) => ({ comments: store[key] || [] }), update: async (_, key, id, patch) => updates.push({ key, id, ...patch }) },
-    code: {},
+    comments: { list: (_, key) => ({ comments: store[key] || [] }), update: async (_, key, id, patch) => updates.push({ key, id, ...patch }), reanchor: async () => ({}) },
+    code: { ensureRefs: async () => ({ headSha: '', mergeBase: '' }) },
     reviewAgent: {
+      trailersBetween: async () => [],
       rowPr: async (_, i) => ({ head: i ? 'b' : 'a', title: `row ${i}`, state: 'OPEN' }),
       branchSha: async (b) => `${b}-sha`,
       worktreeFor: async (b) => (b === 'a' ? WT : null),
@@ -52,7 +57,7 @@ function setup({ agents = [] } = {}) {
       launch: async (runner, opts) => (launched.push({ runner, ...opts }), 'agent-1'),
       timeline: () => {},
     },
-    exec: async () => ({ ok: true, stdout: '' }),
+    exec: async () => ({ ok: true, stdout: '', stderr: '' }),
   });
   return { sf, DATA, launched, updates };
 }

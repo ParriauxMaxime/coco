@@ -6,8 +6,28 @@ import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, parseKey, rowKey } from './stack.ts';
 import { capitalize } from './review-agent.ts';
 import { createPaseoAgents, workCwd } from './paseo-agent.ts';
+import type { Entry, Started } from './paseo-agent.ts';
+import { HttpError, errorMessage, errorStatus, isSeverity } from './core-types.ts';
+import type { Config, FileLayers } from './config.ts';
+import type { CodeApi, Persona, PrFile, ReadBody, Refs, Req, Res, Rule, RowKey, Send, Works } from './core-types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
+
+type Pattern = [RegExp, string];
+type Diffs = Record<string, { added: string[]; removed: string[] }>;
+type Cat = { category: string; reason: string; layer: string; feature: string };
+type Cats = Record<string, Cat>;
+type RawFile = { path?: unknown; focus?: unknown } | null | undefined;
+type RawStep = { title?: unknown; why?: unknown; files?: RawFile[] };
+type RawSkim = { path?: unknown; reason?: unknown } | null | undefined;
+type RawWatch = { path?: unknown; startLine?: unknown; endLine?: unknown; body?: unknown; severity?: unknown; confidence?: unknown } | null | undefined;
+type RawSurface = { area?: unknown; entryPoints?: unknown; risk?: unknown; note?: unknown };
+export type RawPlan = { summary?: unknown; steps?: RawStep[]; skim?: RawSkim[]; watchPoints?: RawWatch[]; surface?: RawSurface[]; personas?: unknown[] };
+type PlanRun = { status: string; startedAt: string; finishedAt: string | null; headSha: string; error: string; cost: number | null | undefined; progress: string[]; log: { kind: string; text: string }[]; proposal: RawPlan | null; agentId?: string };
+type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined> };
+type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
+type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
+type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: CodeApi; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents };
 const MAX_PROMPT_DIFF = 160 * 1024;
 const MAX_STEPS = 8;
 const MAX_WATCH = 8;
@@ -18,16 +38,16 @@ const MAX_LOG_TEXT = 2000;
 const KEEP_TICK_SHAS = 3;
 const TIMEOUT_MS = 30 * 60 * 1000;
 
-const OTHER = [
+const OTHER: Pattern[] = [
   [/\.mdx?$|(^|\/)docs?\//, 'docs'],
   [/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$|\.snap$|(^|\/)__snapshots__\/|(^|\/)dist\/|\.min\.js$/, 'generated file'],
 ];
 const TESTS = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)tests?\/e2e\/|\.page\.ts$|test-helpers|(^|\/)__mocks__\/|(^|\/)fixtures?\//;
-const WIRING = [
+const WIRING: Pattern[] = [
   [/\.d\.ts$/, 'type declarations only'],
   [/(^|\/)index\.[cm]?[jt]sx?$/, 'index re-exports'],
 ];
-const LAYERS = [
+const LAYERS: Pattern[] = [
   [/(^|\/)(controllers?|routes|handlers?)\/|[-.]routes?\.[cm]?[jt]s$/, 'controller'],
   [/(^|\/)use-?cases?\//, 'use-case'],
   [/(^|\/)services?\//, 'service'],
@@ -39,18 +59,18 @@ const LAYERS = [
 ];
 const IMPORT_LINE = /^\s*(import\b|export\s+(\*|\{|type\s+\{)|\}\s*from\s+['"]|(type\s+)?[\w$]+(\s+as\s+[\w$]+)?,\s*$)/;
 
-export const featureOf = (p) => (p.match(/^(.*?)\/(server|client)\//) || [null, path.dirname(p)])[1];
-const squash = (l) => l.replace(/\s+/g, '');
+export const featureOf = (p: string): string => (p.match(/^(.*?)\/(server|client)\//) || [null, path.dirname(p)])[1] ?? '';
+const squash = (l: string) => l.replace(/\s+/g, '');
 
 // Unified diff text of a whole PR → { [path]: { added: string[], removed: string[] } }
-export function splitDiff(text) {
-  const out = {};
+export function splitDiff(text: string): Diffs {
+  const out: Diffs = {};
   for (const chunk of text.split(/^diff --git /m).slice(1)) {
     const lines = chunk.split('\n');
     const header = lines[0].match(/^a\/(.*) b\/(.*)$/);
     let p = header ? header[2] : null;
-    const added = [];
-    const removed = [];
+    const added: string[] = [];
+    const removed: string[] = [];
     let inHunk = false;
     for (const l of lines.slice(1)) {
       if (!inHunk && l.startsWith('rename to ')) p = l.slice(10);
@@ -66,25 +86,25 @@ export function splitDiff(text) {
 }
 
 // fileLayers ({ wiring, layers, other }: [regexSource, label][]) replaces the matching default list
-export function createClassifier(fileLayers = null) {
-  const compile = (list, fallback) => (Array.isArray(list) ? list.map(([src, label]) => [new RegExp(src), label]) : fallback);
+export function createClassifier(fileLayers: FileLayers | null | undefined = null) {
+  const compile = (list: [string, string][] | undefined, fallback: Pattern[]): Pattern[] => (Array.isArray(list) ? list.map(([src, label]): Pattern => [new RegExp(src), label]) : fallback);
   const other = compile(fileLayers?.other, OTHER);
   const wiringList = compile(fileLayers?.wiring, WIRING);
   const layers = compile(fileLayers?.layers, LAYERS);
   const layerRank = Object.fromEntries(layers.map(([, name], i) => [name, i]));
-  const layerOf = (p) => (layers.find(([re]) => re.test(p)) || [null, 'other'])[1];
+  const layerOf = (p: string): string => (layers.find(([re]) => re.test(p)) || [null, 'other'])[1];
 
   // files from /refs, diffs from splitDiff → { [path]: { category, reason, layer, feature } }
-  function classify(files, diffs) {
-    const removedElsewhere = new Map();
+  function classify(files: PrFile[], diffs: Diffs): Cats {
+    const removedElsewhere = new Map<string, string>();
     for (const [p, d] of Object.entries(diffs)) for (const l of d.removed) if (squash(l).length > 8) removedElsewhere.set(squash(l), p);
-    const out = {};
+    const out: Cats = {};
     for (const f of files) {
       const p = f.filename;
       const d = diffs[p] || { added: [], removed: [] };
       const changed = [...d.added, ...d.removed].filter((l) => l.trim());
       const size = `+${f.additions} −${f.deletions}`;
-      const put = (category, reason) => (out[p] = { category, reason, layer: layerOf(p), feature: featureOf(p) });
+      const put = (category: string, reason: string) => (out[p] = { category, reason, layer: layerOf(p), feature: featureOf(p) });
       const misc = other.find(([re]) => re.test(p));
       if (misc) { put('other', misc[1]); continue; }
       if (TESTS.test(p)) { put('tests', `test file, ${size}`); continue; }
@@ -104,15 +124,15 @@ export function createClassifier(fileLayers = null) {
   }
 
   // Deterministic reading order: core by feature (biggest first) then layer order (entry point inward), then the other categories
-  function suggestedOrder(files, cats) {
-    const churn = (f) => f.additions + f.deletions;
-    const featureChurn = new Map();
+  function suggestedOrder(files: PrFile[], cats: Cats): string[] {
+    const churn = (f: PrFile) => f.additions + f.deletions;
+    const featureChurn = new Map<string, number>();
     for (const f of files) if (cats[f.filename]?.category === 'core') featureChurn.set(cats[f.filename].feature, (featureChurn.get(cats[f.filename].feature) || 0) + churn(f));
-    const key = (f) => {
+    const key = (f: PrFile) => {
       const c = cats[f.filename] || { category: 'core', layer: 'other', feature: '' };
       return [CATEGORIES.indexOf(c.category), c.category === 'core' ? -(featureChurn.get(c.feature) || 0) : 0, c.category === 'core' ? c.feature : '', layerRank[c.layer] ?? layers.length, -churn(f), f.filename];
     };
-    const cmp = (a, b) => {
+    const cmp = (a: PrFile, b: PrFile) => {
       const ka = key(a);
       const kb = key(b);
       for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
@@ -127,29 +147,36 @@ export function createClassifier(fileLayers = null) {
 export const { classify, suggestedOrder, layerOf } = createClassifier();
 
 // Keep only changed paths, each once; anything coco left out goes to skim with its category reason
-export function normalizePlan(raw, files, cats, lineCounts = {}) {
+export function normalizePlan(raw: RawPlan, files: PrFile[], cats: Cats, lineCounts: Record<string, number> = {}) {
   const known = new Set(files.map((f) => f.filename));
-  const seen = new Set();
-  const take = (p) => known.has(p) && !seen.has(p) && seen.add(p);
-  const str = (v, max) => String(v ?? '').trim().slice(0, max);
+  const seen = new Set<string>();
+  const take = (p: unknown): p is string => typeof p === 'string' && known.has(p) && !seen.has(p) && Boolean(seen.add(p));
+  const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
   const steps = (raw.steps || []).slice(0, MAX_STEPS).map((s) => ({
     title: str(s.title, 120),
     why: str(s.why, 600),
-    files: (s.files || []).filter((x) => take(x?.path)).map((x) => ({ path: x.path, focus: str(x.focus, 400) })),
+    files: (s.files || []).flatMap((x) => {
+      const p = x?.path;
+      return take(p) ? [{ path: p, focus: str(x?.focus, 400) }] : [];
+    }),
   })).filter((s) => s.files.length);
-  const skim = (raw.skim || []).filter((x) => take(x?.path)).map((x) => ({ path: x.path, reason: str(x.reason, 200) }));
+  const skim = (raw.skim || []).flatMap((x) => {
+    const p = x?.path;
+    return take(p) ? [{ path: p, reason: str(x?.reason, 200) }] : [];
+  });
   for (const f of files) if (take(f.filename)) skim.push({ path: f.filename, reason: cats[f.filename]?.reason || '' });
-  const watchPoints = (raw.watchPoints || []).filter((w) => known.has(w?.path) && Number.isInteger(w.startLine) && str(w.body, 1)).slice(0, MAX_WATCH).map((w) => {
+  const watchPoints = (raw.watchPoints || []).flatMap((w) => {
+    if (!w || typeof w.path !== 'string' || !known.has(w.path) || typeof w.startLine !== 'number' || !Number.isInteger(w.startLine) || !str(w.body, 1)) return [];
     const max = lineCounts[w.path] || Infinity;
     const startLine = Math.min(Math.max(1, w.startLine), max);
     const confidence = Number.isFinite(Number(w.confidence)) ? Math.round(Math.min(100, Math.max(0, Number(w.confidence)))) : null;
-    return { path: w.path, startLine, endLine: Math.min(Math.max(startLine, Number(w.endLine) || startLine), max), body: str(w.body, 2000), severity: SEVERITIES.includes(w.severity) ? w.severity : 'minor', confidence };
-  });
-  const surface = (raw.surface || []).slice(0, 6).map((s) => ({ area: str(s.area, 80), entryPoints: str(s.entryPoints, 300), risk: ['high', 'medium', 'low'].includes(s.risk) ? s.risk : 'medium', note: str(s.note, 400) }));
+    return [{ path: w.path, startLine, endLine: Math.min(Math.max(startLine, Number(w.endLine) || startLine), max), body: str(w.body, 2000), severity: isSeverity(w.severity) ? w.severity : 'minor', confidence }];
+  }).slice(0, MAX_WATCH);
+  const surface = (raw.surface || []).slice(0, 6).map((s) => ({ area: str(s.area, 80), entryPoints: str(s.entryPoints, 300), risk: typeof s.risk === 'string' && ['high', 'medium', 'low'].includes(s.risk) ? s.risk : 'medium', note: str(s.note, 400) }));
   return { summary: str(raw.summary, 1500), surface, personas: (raw.personas || []).map((x) => str(x, 40)).filter(Boolean).slice(0, 6), steps, skim, watchPoints };
 }
 
-const systemPrompt = (owner, repo) => `You are coco, the review copilot inside cocopilot, ${owner}'s local review tool. ${capitalize(owner)} reviews a pull request and asks you for a review plan: where to look, in which order, and what to check.
+const systemPrompt = (owner: string, repo: string) => `You are coco, the review copilot inside cocopilot, ${owner}'s local review tool. ${capitalize(owner)} reviews a pull request and asks you for a review plan: where to look, in which order, and what to check.
 Everything is a proposal: never edit, push, post or send. The working tree of ${repo} is on another branch: read PR code only through git at the given shas (git show <head>:<path>, git grep -n <term> <head> -- <pathspec>, git diff <mergeBase> <head> -- <path>, git log). Never use the working tree.
 Method:
 1. Read the PR body (github_pr) and, when a work slug is given, its notes and decisions (get_work). Owner personas come with the prompt; read_persona only for the main one.
@@ -158,21 +185,23 @@ Method:
 4. Watch points: precise risks worth a review comment, anchored on head line numbers you verified with git show <head>:<path> (cat -n numbering). Eight at most, only real findings, phrased as the review comment ${owner} would leave. Each gets a severity (blocking: wrong behaviour, security or data loss; major: a real bug or gap to fix before merge; minor: worth fixing, not blocking; nit: style or naming) and a confidence from 0 to 100 that the finding is real, lower when you could not verify a caller or a runtime path.
 Write for ${owner}: product effect first, short plain English, no filler, paths quoted exactly. End with exactly one propose_review_plan call carrying the full plan; every changed file goes in exactly one step or in skim.`;
 
-const fenced = (text) => {
+const fenced = (text: string) => {
   const f = '`'.repeat(Math.max(3, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length + 1)));
   return `${f}diff\n${text}\n${f}`;
 };
 
-export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, guidance = '', rules = [], owner = 'the user', order: orderOf = suggestedOrder }) {
-  const byPath = {};
+type PromptInput = { n: RowKey; slug?: string; refs: Pick<Refs, 'headSha' | 'mergeBase'>; files: PrFile[]; cats: Cats; diffText: string; personas: Persona[]; guidance?: string; rules?: Rule[]; owner?: string; order?: (files: PrFile[], cats: Cats) => string[] };
+
+export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, guidance = '', rules = [], owner = 'the user', order: orderOf = suggestedOrder }: PromptInput) {
+  const byPath: Record<string, string> = {};
   for (const chunk of diffText.split(/^(?=diff --git )/m)) {
     const m = chunk.match(/^diff --git a\/.* b\/(.*)$/m);
     if (m) byPath[m[1]] = chunk.trimEnd();
   }
   const order = orderOf(files, cats);
   let budget = MAX_PROMPT_DIFF;
-  const inline = [];
-  const omitted = [];
+  const inline: string[] = [];
+  const omitted: string[] = [];
   for (const p of order) {
     const d = byPath[p];
     if (d && d.length <= budget) {
@@ -182,7 +211,7 @@ export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, gu
   }
   const rows = order.map((p) => {
     const f = files.find((x) => x.filename === p);
-    return `| ${p} | ${f.status} | +${f.additions} −${f.deletions} | ${cats[p].category} | ${cats[p].reason} |`;
+    return `| ${p} | ${f?.status} | +${f?.additions} −${f?.deletions} | ${cats[p].category} | ${cats[p].reason} |`;
   });
   return [
     `Plan the review of ${isLocal(n) ? `local branch ${branchOf(n)} (no PR yet, skip github_pr)` : `PR #${n}`}${slug ? ` (work ${slug})` : ''}.`,
@@ -203,47 +232,48 @@ export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, gu
   ].join('\n');
 }
 
-export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }) }) {
+export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }) }: Deps) {
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   const OWNER = config.owner.name;
   const SYSTEM = systemPrompt(OWNER, REPO);
   const classifier = createClassifier(config.fileLayers);
-  const git = (args) => new Promise((resolve) => execFile('git', ['-C', REPO, ...args], { env: ENV, maxBuffer: 64 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out))));
-  const dir = (slug) => path.join(DATA, 'works', slug, 'reviews');
-  const file = (slug, n) => path.join(dir(slug), `pr-${fileKey(n)}-plan.json`);
-  const read = (slug, n) => {
+  const git = (args: string[]) => new Promise<string>((resolve) => execFile('git', ['-C', REPO, ...args], { env: ENV, maxBuffer: 64 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out))));
+  const dir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
+  const file = (slug: string, n: RowKey) => path.join(dir(slug), `pr-${fileKey(n)}-plan.json`);
+  const read = (slug: string, n: RowKey): PlanData => {
     try {
       return JSON.parse(fs.readFileSync(file(slug, n), 'utf8'));
     } catch {
       return { run: null, plan: null, ticks: {}, watch: {} };
     }
   };
-  const write = (slug, n, data) => {
+  const write = (slug: string, n: RowKey, data: PlanData) => {
     fs.mkdirSync(dir(slug), { recursive: true });
     const tmp = `${file(slug, n)}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(data, null, 1));
     fs.renameSync(tmp, file(slug, n));
   };
-  const mutate = (slug, n, fn) => {
+  const mutate = <T>(slug: string, n: RowKey, fn: (data: PlanData) => T): T => {
     const data = read(slug, n);
     const out = fn(data);
     write(slug, n, data);
     return out;
   };
-  const live = new Map();
+  const live = new Map<string, PlanRun>();
 
-  const catCache = new Map();
-  async function categories(refs, files) {
+  const catCache = new Map<string, { diffText: string; cats: Cats }>();
+  async function categories(refs: Pick<Refs, 'mergeBase' | 'headSha'>, files: PrFile[]) {
     const key = `${refs.mergeBase}:${refs.headSha}`;
-    if (!catCache.has(key)) {
-      const diffText = await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha]);
-      catCache.set(key, { diffText, cats: classifier.classify(files, splitDiff(diffText)) });
-      if (catCache.size > 20) catCache.delete(catCache.keys().next().value);
-    }
-    return catCache.get(key);
+    const hit = catCache.get(key);
+    if (hit) return hit;
+    const diffText = await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha]);
+    const made = { diffText, cats: classifier.classify(files, splitDiff(diffText)) };
+    catCache.set(key, made);
+    if (catCache.size > 20) catCache.delete(catCache.keys().next().value ?? '');
+    return made;
   }
 
-  async function state(slug, n) {
+  async function state(slug: string, n: RowKey) {
     const refs = await code.ensureRefs(n);
     const files = await code.prFilesFromGit(n, refs);
     const { cats } = await categories(refs, files);
@@ -261,7 +291,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     };
   }
 
-  async function start(slug, n, { guidance = '' } = {}) {
+  async function start(slug: string, n: RowKey, { guidance = '' }: { guidance?: unknown } = {}) {
     const k = `${slug}:${n}`;
     if (live.get(k)?.status === 'running') return { ok: true, running: true };
     const refs = await code.ensureRefs(n, { fresh: true });
@@ -271,41 +301,44 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     const work = works.get(slug);
     const kept = rules && work ? rules.keptFor(work, (work.stack || []).findIndex((s) => rowKey(s) === n)) : [];
     const prompt = buildPrompt({ n, slug, refs, files, cats, diffText, personas, guidance: String(guidance).slice(0, 4000), rules: kept, owner: OWNER, order: classifier.suggestedOrder });
-    const run = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, headSha: refs.headSha, error: '', cost: null, progress: [], log: [], proposal: null };
+    const run: PlanRun = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, headSha: refs.headSha, error: '', cost: null, progress: [], log: [], proposal: null };
     live.set(k, run);
-    const note = (text) => {
+    const note = (text: string) => {
       run.progress.push(text.replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1').slice(0, 160));
       if (run.progress.length > MAX_PROGRESS) run.progress.shift();
     };
     // what the popover on "coco is planning" shows: thinking summaries, what coco says, the tools it calls
-    const log = (kind, text) => {
+    const log = (kind: string, text: string) => {
       run.log.push({ kind, text: text.slice(0, MAX_LOG_TEXT) });
       if (run.log.length > MAX_LOG) run.log.shift();
     };
-    const onEntry = (e) => {
+    const onEntry = (e: Entry) => {
       if (e.type === 'tool') {
-        const step = e.kind === 'shell' ? e.text || e.name : e.name.replace('mcp__cocopilot__', '');
+        const step = e.kind === 'shell' ? e.text || e.name || '' : (e.name ?? '').replace('mcp__cocopilot__', '');
         note(step);
         log('tool', step);
       }
       if (e.type === 'text') {
-        note(e.text.split('\n')[0]);
-        log('say', e.text);
+        note((e.text ?? '').split('\n')[0]);
+        log('say', e.text ?? '');
       }
-      if (e.type === 'think') log('think', e.text);
+      if (e.type === 'think') log('think', e.text ?? '');
     };
-    const finish = async (result, failure) => {
+    const finish = async (result: AgentResult | null, failure?: unknown) => {
       run.finishedAt = new Date().toISOString();
       try {
         if (failure) throw failure;
+        if (!result) throw new Error('the agent returned no result');
         run.cost = result.cost;
         run.agentId = result.agentId;
-        run.proposal = result.submitted.propose_review_plan || null;
+        const proposed = result.submitted?.propose_review_plan;
+        run.proposal = proposed && typeof proposed === 'object' ? proposed : null;
         if (!run.proposal) throw new Error(result.error || `the agent ended (${result.status}) without a plan`);
-        const lineCounts = {};
+        const lineCounts: Record<string, number> = {};
         for (const w of run.proposal.watchPoints || []) {
-          if (lineCounts[w?.path] !== undefined || !files.some((f) => f.filename === w?.path)) continue;
-          lineCounts[w.path] = (await git(['show', `${refs.headSha}:${w.path}`])).split('\n').length;
+          const wp = w?.path;
+          if (typeof wp !== 'string' || lineCounts[wp] !== undefined || !files.some((f) => f.filename === wp)) continue;
+          lineCounts[wp] = (await git(['show', `${refs.headSha}:${wp}`])).split('\n').length;
         }
         const plan = { ...normalizePlan(run.proposal, files, cats, lineCounts), headSha: refs.headSha, mergeBase: refs.mergeBase, createdAt: run.finishedAt };
         run.status = 'done';
@@ -315,7 +348,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
         });
       } catch (e) {
         run.status = 'error';
-        run.error = e.message;
+        run.error = errorMessage(e);
       }
       const { proposal, log: _log, ...kept } = run;
       mutate(slug, n, (data) => {
@@ -323,7 +356,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       });
       live.delete(k);
     };
-    const onStart = ({ agentId, createdWorkspace }) => {
+    const onStart = ({ agentId, createdWorkspace }: Started) => {
       run.agentId = agentId;
       if (!createdWorkspace) return;
       note(`created Paseo workspace ${createdWorkspace}`);
@@ -335,7 +368,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     return { ok: true };
   }
 
-  const tick = (slug, n, { headSha, path: p, on }) =>
+  const tick = (slug: string, n: RowKey, { headSha, path: p, on }: { headSha: string; path: string; on?: boolean }) =>
     mutate(slug, n, (data) => {
       const list = new Set(data.ticks[headSha] || []);
       if (on) list.add(p);
@@ -346,10 +379,10 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       return { ticks: data.ticks[headSha] };
     });
   // a note on accept/dismiss lands in the work notes (coco's context) and the timeline
-  const watch = (slug, n, { index, state: st, note }) => {
+  const watch = (slug: string, n: RowKey, { index, state: st, note }: { index: number; state?: unknown; note?: unknown }) => {
     const out = mutate(slug, n, (data) => {
       const w = data.plan?.watchPoints?.[index];
-      if (!w) throw Object.assign(new Error('no such watch point'), { status: 404 });
+      if (!w) throw new HttpError(404, 'no such watch point');
       data.watch[index] = st === 'accepted' || st === 'dismissed' ? st : undefined;
       return { watch: data.watch, point: w };
     });
@@ -360,7 +393,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     return { watch: out.watch };
   };
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const [, slug, , raw, , action] = parts;
       const n = parseKey(raw);
@@ -373,9 +406,9 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       if (action === 'watch' && req.method === 'PUT') return send(res, 200, watch(slug, n, await body()));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, e.status || (typeof e.code === 'number' ? e.code : 500), { error: e.message });
+      return send(res, errorStatus(e), { error: errorMessage(e) });
     }
   }
 
-  return { handle, state, start, watch, planOf: (slug, n) => read(slug, n).plan, planState: (slug, n) => read(slug, n) };
+  return { handle, state, start, watch, planOf: (slug: string, n: RowKey) => read(slug, n).plan, planState: (slug: string, n: RowKey) => read(slug, n) };
 }

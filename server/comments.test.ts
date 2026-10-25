@@ -4,17 +4,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { Socket } from 'node:net';
 import { createComments } from './comments.ts';
+import { HttpError } from './core-types.ts';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'comments-test-'));
 const REPO = path.join(tmp, 'repo');
-const sh = (...args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8' }).trim();
-const L = (n) => `line ${n}`;
+const sh = (...args: string[]) => execFileSync('git', args, { cwd: REPO, encoding: 'utf8' }).trim();
+const L = (n: number) => `line ${n}`;
 const base = Array.from({ length: 60 }, (_, i) => L(i + 1));
-const put = (name, lines) => fs.writeFileSync(path.join(REPO, name), lines.join('\n') + '\n');
-const commit = (msg) => (sh('add', '-A'), sh('commit', '-q', '-m', msg), sh('rev-parse', 'HEAD'));
-let c1, c2, c3, c4;
-let c3Lines;
+const put = (name: string, lines: string[]) => fs.writeFileSync(path.join(REPO, name), lines.join('\n') + '\n');
+const commit = (msg: string) => (sh('add', '-A'), sh('commit', '-q', '-m', msg), sh('rev-parse', 'HEAD'));
+let c1 = '';
+let c2 = '';
+let c3 = '';
+let c4 = '';
+let c3Lines: string[] = [];
 
 before(() => {
   fs.mkdirSync(REPO);
@@ -48,9 +54,10 @@ function setup() {
   const DATA = fs.mkdtempSync(path.join(tmp, 'data-'));
   fs.mkdirSync(path.join(DATA, 'works'), { recursive: true });
   fs.writeFileSync(path.join(DATA, 'works', 'w.json'), '{"slug":"w"}');
-  return { DATA, comments: createComments({ DATA, REPO, config: { owner: { name: 'Alice', login: 'alice' } } }) };
+  return { DATA, comments: createComments({ DATA, REPO, config: { owner: { login: 'alice' } } }) };
 }
-const mk = (comments, startLine, endLine, extra = {}) => comments.add('w', 1, { path: 'f.txt', side: 'head', sha: c1, startLine, endLine, body: 'b', ...extra });
+type Comments = ReturnType<typeof createComments>;
+const mk = (comments: Comments, startLine: number, endLine: number, extra: Record<string, unknown> = {}) => comments.add('w', 1, { path: 'f.txt', side: 'head', sha: c1, startLine, endLine, body: 'b', ...extra });
 
 test('comment above an edit keeps its lines', async () => {
   const { comments } = setup();
@@ -143,7 +150,7 @@ test('add validates; snippetFor returns 3+3 context, fewer near line 1', async (
   const { comments } = setup();
   const ok = { path: 'f.txt', side: 'head', sha: c1, startLine: 5, endLine: 5, body: 'x' };
   for (const bad of [{ path: '' }, { sha: undefined }, { startLine: undefined }, { endLine: undefined }, { body: '' }, { endLine: 4 }, { body: 'x'.repeat(5001) }, { startLine: 200, endLine: 200 }, { side: 'left' }, { sha: 'deadbeef' }]) {
-    await assert.rejects(comments.add('w', 1, { ...ok, ...bad }), (e) => e.status === 400, JSON.stringify(Object.keys(bad)));
+    await assert.rejects(comments.add('w', 1, { ...ok, ...bad }), (e) => e instanceof HttpError && e.status === 400, JSON.stringify(Object.keys(bad)));
   }
   const mid = await comments.snippetFor({ sha: c1, path: 'f.txt', startLine: 10, endLine: 11 });
   assert.deepEqual(mid, { snippet: 'line 10\nline 11', ctxBefore: ['line 7', 'line 8', 'line 9'], ctxAfter: ['line 12', 'line 13', 'line 14'] });
@@ -160,10 +167,11 @@ test('add validates; snippetFor returns 3+3 context, fewer near line 1', async (
 
 test('handle routes and error codes', async () => {
   const { comments } = setup();
-  const call = async (method, parts, body) => {
-    let out;
-    const req = { method };
-    await comments.handle(req, {}, parts, async () => (body === undefined ? '' : JSON.stringify(body)), (_res, code, payload) => (out = { code, payload }));
+  const call = async (method: string, parts: string[], body?: unknown) => {
+    let out: { code: number; payload: { id: string; status: string; comments: unknown[] } } = { code: 0, payload: { id: '', status: '', comments: [] } };
+    const req = new IncomingMessage(new Socket());
+    req.method = method;
+    await comments.handle(req, new ServerResponse(req), parts, async () => (body === undefined ? '' : JSON.stringify(body)), (_res, code, payload) => void (out = { code, payload: JSON.parse(JSON.stringify(payload)) }));
     return out;
   };
   const p = ['works', 'w', 'prs', '1', 'comments'];

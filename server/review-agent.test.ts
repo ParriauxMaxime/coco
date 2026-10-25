@@ -6,6 +6,12 @@ import path from 'node:path';
 import { createComments } from './comments.ts';
 import { createReviewAgent } from './review-agent.ts';
 import { DEFAULTS } from './config.ts';
+import { HttpError } from './core-types.ts';
+import type { Comment, ExecResult, StackRow, Work } from './core-types.ts';
+
+type StartCall = { title: string; cwd?: string; worktree: unknown; labels: Record<string, unknown> };
+type ExecReply = { ok: boolean; stdout: string; stderr?: string };
+type TestAgent = { id: string; status: string; cwd: string };
 
 const config = { ...DEFAULTS, owner: { name: 'Alice', login: 'alice' }, repo: { ...DEFAULTS.repo, github: 'acme/widgets', defaultBranch: 'main' } };
 
@@ -15,29 +21,29 @@ const SHA = 'a'.repeat(40);
 const C1 = 'c'.repeat(40);
 const C2 = 'd'.repeat(40);
 
-const comment = (id, over = {}) => ({ id, path: 'src/a.ts', side: 'head', sha: SHA, startLine: 10, endLine: 11, snippet: 'const a = 1;\nconst b = 2;', ctxBefore: ['// before'], ctxAfter: ['// after'], body: `fix ${id}`, author: 'alice', createdAt: 'x', updatedAt: 'x', status: 'open', runId: null, resolution: null, githubReviewCommentId: null, ...over });
+const comment = (id: string, over: Partial<Comment> = {}): Comment => ({ id, path: 'src/a.ts', side: 'head', sha: SHA, startLine: 10, endLine: 11, snippet: 'const a = 1;\nconst b = 2;', ctxBefore: ['// before'], ctxAfter: ['// after'], body: `fix ${id}`, author: 'alice', createdAt: 'x', updatedAt: 'x', status: 'open', runId: null, resolution: null, ...over });
 
-function setup({ comments: list = [], execImpl, stack } = {}) {
+function setup({ comments: list = [], execImpl, stack }: { comments?: Comment[]; execImpl?: (cmd: string, args: string[]) => ExecReply; stack?: StackRow[] } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-agent-test-'));
   const DATA = path.join(tmp, 'data');
   const PERSONAS = path.join(tmp, 'personas');
   fs.mkdirSync(path.join(DATA, 'works', SLUG, 'comments'), { recursive: true });
   fs.mkdirSync(PERSONAS);
   fs.writeFileSync(path.join(DATA, 'works', SLUG, 'comments', `pr-${N}.json`), JSON.stringify({ number: N, headSha: SHA, mergeBase: null, comments: list }));
-  let work = { slug: SLUG, title: 'Demo', notes: 'Rule one\n```\nfenced\n```', timeline: [], stack: stack || [{ number: 101, personas: [] }, { number: N, personas: ['bob'] }, { number: 103, personas: [] }] };
-  const works = { get: (s) => (s === SLUG ? structuredClone(work) : null), save: (w) => ((work = structuredClone(w)), w) };
-  const calls = [];
-  const envs = [];
-  const exec = async (cmd, args, opts) => {
+  let work: Work = { slug: SLUG, title: 'Demo', notes: 'Rule one\n```\nfenced\n```', timeline: [], stack: stack || [{ number: 101, personas: [] }, { number: N, personas: ['bob'] }, { number: 103, personas: [] }] };
+  const works = { get: (s: string) => (s === SLUG ? structuredClone(work) : null), save: (w: Work) => ((work = structuredClone(w)), w) };
+  const calls: string[][] = [];
+  const envs: unknown[] = [];
+  const exec = async (cmd: string, args: string[], opts?: Record<string, unknown>): Promise<ExecResult> => {
     calls.push([cmd, ...args]);
     envs.push(opts?.env);
-    return execImpl ? execImpl(cmd, args) : { ok: true, stdout: '', stderr: '' };
+    return { stderr: '', ...(execImpl ? execImpl(cmd, args) : { ok: true, stdout: '' }) };
   };
   const comments = createComments({ DATA, REPO: tmp, config });
-  const started = [];
-  const agents = { start: async (opts) => (started.push(opts), { agentId: '12345678-1234-1234-1234-123456789abc', workspaceId: 'wks_thing', createdWorkspace: opts.worktree ? 'wks_new' : null }) };
+  const started: StartCall[] = [];
+  const agents = { start: async (opts: StartCall) => (started.push(opts), { agentId: '12345678-1234-1234-1234-123456789abc', workspaceId: 'wks_thing', createdWorkspace: opts.worktree ? 'wks_new' : null }) };
   const agent = createReviewAgent({ DATA, REPO: '/repo', config, works, comments, PERSONAS, exec, agents });
-  return { tmp, DATA, PERSONAS, work: () => work, calls, envs, comments, agent, started };
+  return { tmp, DATA, PERSONAS, timeline: () => work.timeline ?? [], calls, envs, comments, agent, started };
 }
 
 const pr = { number: N, title: 'Add thing', url: 'https://github.com/x/y/pull/102', base: 'feat/base', head: 'feat/thing', sha: SHA, body: 'Body text\n# Heading inside' };
@@ -84,17 +90,17 @@ test('buildBrief squash wording, no persona file, 30 cap', () => {
   assert.match(text, /One single commit/);
   assert.match(text, /## Owner personas\n\n\(none\)/);
   const many = Array.from({ length: 31 }, (_, i) => comment(`id${i}`));
-  assert.throws(() => agent.buildBrief({ ...base, comments: many }), (e) => e.status === 400 && /30/.test(e.message));
+  assert.throws(() => agent.buildBrief({ ...base, comments: many }), (e) => e instanceof HttpError && e.status === 400 && /30/.test(e.message));
 });
 
-function seedRun(ctx, over = {}) {
+function seedRun(ctx: ReturnType<typeof setup>, over: { pushedByUser?: boolean } = {}) {
   const dir = path.join(ctx.DATA, 'works', SLUG, 'reviews');
   fs.mkdirSync(dir, { recursive: true });
   const run = { runId: 'abcd1234', number: N, slug: SLUG, startedAt: new Date(Date.now() - 60000).toISOString(), agentId: 'agent-1', mode: 'cwd', cwd: '/wt', commentIds: ['c1', 'c2', 'c3'], commits: 'one', provider: 'p', status: 'running', remoteHeadBefore: 'r0', prSha: SHA, briefPath: '/b.md', resultPath: path.join(dir, `pr-${N}-run-abcd1234-result.json`), ...over };
   fs.writeFileSync(path.join(dir, `pr-${N}-run-${run.runId}.json`), JSON.stringify(run));
   return run;
 }
-const sent = (id) => comment(id, { status: 'sent', runId: 'abcd1234' });
+const sent = (id: string) => comment(id, { status: 'sent', runId: 'abcd1234' });
 
 test('ingest applies a hand-written result file onto comments', async () => {
   const ctx = setup({ comments: [sent('c1'), sent('c2'), sent('c3')], execImpl: (cmd, args) => (args[0] === 'ls' ? { ok: true, stdout: '[]' } : { ok: true, stdout: 'r0\trefs/pull/x' }) });
@@ -108,9 +114,9 @@ test('ingest applies a hand-written result file onto comments', async () => {
   assert.match(JSON.stringify(byId.c2.resolution), /out of scope/);
   assert.equal(byId.c3.status, 'sent');
   assert.equal(runs[0].status, 'done');
-  assert.match(ctx.work().timeline[0].text, /^review #102: 1 fixed, 1 declined \(abcd1234\)$/);
+  assert.match(ctx.timeline()[0].text, /^review #102: 1 fixed, 1 declined \(abcd1234\)$/);
   assert.equal((await ctx.agent.ingest(SLUG, N)).runs[0].status, 'done');
-  assert.equal(ctx.work().timeline.length, 1);
+  assert.equal(ctx.timeline().length, 1);
 });
 
 test('ingest falls back to Cc-Comment trailers from two commits and waits for an idle agent', async () => {
@@ -137,27 +143,27 @@ test('ingest falls back to Cc-Comment trailers from two commits and waits for an
   agentStatus = 'idle';
   runs = (await ctx.agent.ingest(SLUG, N)).runs;
   assert.equal(runs[0].status, 'done');
-  assert.equal(ctx.comments.list(SLUG, N).comments.find((c) => c.id === 'c3').status, 'sent');
+  assert.equal(ctx.comments.list(SLUG, N).comments.find((c) => c.id === 'c3')?.status, 'sent');
 });
 
 test('push guard warns once when the remote head moved, not when the user pushed', async () => {
-  const exec = (cmd, args) => (cmd === 'paseo' ? { ok: true, stdout: JSON.stringify([{ id: 'agent-1', status: 'running', cwd: '/wt' }]) } : args.includes('ls-remote') ? { ok: true, stdout: 'r1\trefs/pull/x' } : { ok: true, stdout: '' });
+  const exec = (cmd: string, args: string[]) => (cmd === 'paseo' ? { ok: true, stdout: JSON.stringify([{ id: 'agent-1', status: 'running', cwd: '/wt' }]) } : args.includes('ls-remote') ? { ok: true, stdout: 'r1\trefs/pull/x' } : { ok: true, stdout: '' });
   const moved = setup({ comments: [sent('c1')], execImpl: exec });
   seedRun(moved);
   await moved.agent.ingest(SLUG, N);
   await moved.agent.ingest(SLUG, N);
-  const warnings = moved.work().timeline.filter((t) => t.kind === 'warning');
+  const warnings = moved.timeline().filter((t) => t.kind === 'warning');
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].text, 'review #102: remote head moved during run abcd1234');
 
   const pushed = setup({ comments: [sent('c1')], execImpl: exec });
   seedRun(pushed, { pushedByUser: true });
   await pushed.agent.ingest(SLUG, N);
-  assert.equal(pushed.work().timeline.filter((t) => t.kind === 'warning').length, 0);
+  assert.equal(pushed.timeline().filter((t) => t.kind === 'warning').length, 0);
 });
 
 const ghJson = JSON.stringify({ number: N, title: 'Add thing', url: 'u', state: 'OPEN', isDraft: true, headRefName: 'feat/thing', baseRefName: 'feat/base', headRefOid: SHA, body: 'b' });
-const startExec = ({ worktree, agents }) => (cmd, args) => {
+const startExec = ({ worktree, agents }: { worktree?: string | null; agents?: TestAgent[] }) => (cmd: string, args: string[]): ExecReply => {
   if (cmd === 'gh') return { ok: true, stdout: ghJson };
   if (cmd === 'git' && args.includes('worktree')) return { ok: true, stdout: worktree ? `worktree /repo\nHEAD x\nbranch refs/heads/main\n\nworktree ${worktree}\nHEAD y\nbranch refs/heads/feat/thing\n` : 'worktree /repo\nHEAD x\nbranch refs/heads/main\n' };
   if (cmd === 'git') return { ok: true, stdout: `${'9'.repeat(40)}\trefs/pull/${N}/head\n` };
@@ -168,7 +174,7 @@ const startExec = ({ worktree, agents }) => (cmd, args) => {
 
 test('start picks the runner by the plan rule and records the run', async () => {
   const wt = path.join(os.homedir(), '.paseo/worktrees/p/thing');
-  const open = (extra) => [comment('c1'), comment('c2'), comment('old', { status: 'outdated' }), ...(extra || [])];
+  const open = (extra?: Comment[]) => [comment('c1'), comment('c2'), comment('old', { status: 'outdated' }), ...(extra || [])];
 
   const a = setup({ comments: open(), execImpl: startExec({ worktree: wt, agents: [{ id: 'closed-1', status: 'closed', cwd: '~/.paseo/worktrees/p/thing' }, { id: 'live-1', status: 'idle', cwd: '~/.paseo/worktrees/p/thing' }] }) });
   const runA = await a.agent.start(SLUG, N, { commentIds: ['c1', 'c2', 'old'], commits: 'squash' });
@@ -178,15 +184,15 @@ test('start picks the runner by the plan rule and records the run', async () => 
   assert.equal(runA.remoteHeadBefore, '9'.repeat(40));
   assert.ok(a.calls.some((c) => c[0] === 'paseo' && c[1] === 'send' && c[2] === 'live-1' && c[3].startsWith('Read ') && c[3].includes(runA.briefPath)));
   const relabel = a.calls.find((c) => c[0] === 'paseo' && c[1] === 'agent' && c[2] === 'update');
-  assert.ok(relabel.includes('live-1') && relabel.includes(`run=${runA.runId}`) && relabel.includes('kind=review') && relabel.includes('comments=2'));
+  assert.ok(relabel?.includes('live-1') && relabel.includes(`run=${runA.runId}`) && relabel.includes('kind=review') && relabel.includes('comments=2'));
   assert.ok(fs.existsSync(runA.briefPath));
   assert.match(fs.readFileSync(runA.briefPath, 'utf8'), /One single commit/);
   const stored = a.comments.list(SLUG, N).comments;
   assert.deepEqual(stored.map((c) => [c.id, c.status, c.runId]), [['c1', 'sent', runA.runId], ['c2', 'sent', runA.runId], ['old', 'outdated', null]]);
-  assert.equal(a.work().timeline[0].kind, 'agent');
-  assert.equal(a.work().timeline[0].text, `review #${N}: sent 2 comments to send agent live-1`);
+  assert.equal(a.timeline()[0].kind, 'agent');
+  assert.equal(a.timeline()[0].text, `review #${N}: sent 2 comments to send agent live-1`);
   assert.equal(a.agent.list(SLUG, N).length, 1);
-  await assert.rejects(a.agent.start(SLUG, N, { commentIds: ['c1'] }), (e) => e.status === 400);
+  await assert.rejects(a.agent.start(SLUG, N, { commentIds: ['c1'] }), (e) => e instanceof HttpError && e.status === 400);
 
   const b = setup({ comments: open(), execImpl: startExec({ worktree: wt, agents: [] }) });
   const requester = 'aaaaaaaa-1234-1234-1234-123456789abc';
@@ -207,10 +213,10 @@ test('start picks the runner by the plan rule and records the run', async () => 
   assert.equal(startC.cwd, '/repo');
   assert.deepEqual(startC.worktree, { mode: 'checkout-pr', prNumber: N });
   assert.ok(!('paseo.parent-agent-id' in startC.labels));
-  assert.ok(c.work().timeline.some((t) => t.text === 'new checkout-pr worktree: created workspace wks_new'));
+  assert.ok(c.timeline().some((t) => t.text === 'new checkout-pr worktree: created workspace wks_new'));
 
   const d = setup({ comments: open(), execImpl: startExec({ worktree: null }) });
-  await assert.rejects(d.agent.start(SLUG, N, { commentIds: ['old'] }), (e) => e.status === 400);
-  await assert.rejects(d.agent.start(SLUG, N, { commentIds: [] }), (e) => e.status === 400);
+  await assert.rejects(d.agent.start(SLUG, N, { commentIds: ['old'] }), (e) => e instanceof HttpError && e.status === 400);
+  await assert.rejects(d.agent.start(SLUG, N, { commentIds: [] }), (e) => e instanceof HttpError && e.status === 400);
   assert.equal(d.comments.list(SLUG, N).comments[0].status, 'open');
 });

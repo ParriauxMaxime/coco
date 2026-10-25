@@ -6,25 +6,30 @@ import { useAction, pendingClass } from '../../components/action.ts';
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { keyLabel } from '../code/ids.ts';
+import { errorMessage } from '../../api.ts';
+import type { BriefResponse } from '../../types.ts';
+import type { PrKey } from '../types.ts';
 
-export const briefKeyOfTab = (id) => {
+const HANDOFF_VIEWS: [boolean, string][] = [[false, 'brief'], [true, 'handoff preview']];
+
+export const briefKeyOfTab =(id: string): PrKey => {
   const raw = id.slice('brief-'.length);
   return /^\d+$/.test(raw) ? Number(raw) : raw;
 };
 
 // the PR agent tab: the agent sitting in the PR worktree, the brief rendered from the work, start or hand off in the same workspace
-export default function Brief({ tabId, group }) {
+export default function Brief({ tabId, group }: { tabId: string; group: number }) {
   const { slug, load } = useWork();
   const n = briefKeyOfTab(tabId);
   const open = useWorkbench((s) => s.open);
-  const [data, setData] = useState(null);
+  const [data, setData] = useState<BriefResponse | null>(null);
   const [error, setError] = useState('');
   const { pending, busy, run } = useAction();
   const [handoff, setHandoff] = useState(false);
-  const refresh = () => api.brief(slug, n, handoff).then((d) => { setData(d); setError(''); }, (e) => setError(e.message));
+  const refresh = () => api.brief(slug, n, handoff).then((d) => { setData(d); setError(''); }, (e) => setError(errorMessage(e)));
   useEffect(() => { refresh(); }, [slug, n, handoff]);
 
-  const act = (action, ask) => (!ask || confirm(ask)) && run(action, async () => {
+  const act = (action: string, ask?: string | null) => (!ask || confirm(ask)) && run(action, async () => {
     const r = await api.briefAction(slug, n, action);
     await refresh();
     load();
@@ -56,7 +61,7 @@ export default function Brief({ tabId, group }) {
           {data.stored.map((name) => <div key={name} className="list-item row" style={{ justifyContent: 'space-between' }}><code>{name}</code><button className="sm" onClick={() => open(`artifact-${name}`, { preview: true, group })}>view ▸</button></div>)}
         </Collapsible>
       )}
-      {data.worktree && <span className="rv-seg">{[[false, 'brief'], [true, 'handoff preview']].map(([v, label]) => <button key={label} type="button" className={handoff === v ? 'on' : ''} onClick={() => setHandoff(v)}>{label}</button>)}</span>}
+      {data.worktree && <span className="rv-seg">{HANDOFF_VIEWS.map(([v, label]) => <button key={label} type="button" className={handoff === v ? 'on' : ''} onClick={() => setHandoff(v)}>{label}</button>)}</span>}
       <div className="card" style={{ marginTop: 8 }}><Markdown text={data.text} /></div>
     </div>
   );

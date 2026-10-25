@@ -13,11 +13,18 @@ import GateRail from './Gates.tsx';
 import StackKeeper from './StackKeeper.tsx';
 import KitLine from './KitLine.tsx';
 import { DevServerRow, DevServersSummary, useDevServers } from './DevServers.tsx';
+import type { DevServerRowData, DevServersResponse, PersonaSuggestion, StackRow, WorkDetail } from '../../types.ts';
+import type { NotionState, PrKey, WhatsNextData, WorkPr } from '../types.ts';
 
-const ciChip = (ci) => ({ success: 'c-green', failure: 'c-red', pending: 'c-orange', none: 'c-grey' })[ci] || 'c-grey';
-const stateKey = (pr) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
-export const stateChip = (pr) => ({ merged: 'c-purple', closed: 'c-red', draft: 'c-grey', approved: 'c-green', changes: 'c-red', ready: 'c-blue', planned: 'c-grey' })[stateKey(pr)];
-export const stateLabel = (pr) => ({ merged: 'merged', closed: 'closed', draft: 'draft', approved: 'approved', changes: 'changes requested', ready: 'in review', planned: 'planned' })[stateKey(pr)];
+const STATE_CHIPS: Record<string, string> = { merged: 'c-purple', closed: 'c-red', draft: 'c-grey', approved: 'c-green', changes: 'c-red', ready: 'c-blue', planned: 'c-grey' };
+const STATE_LABELS: Record<string, string> = { merged: 'merged', closed: 'closed', draft: 'draft', approved: 'approved', changes: 'changes requested', ready: 'in review', planned: 'planned' };
+const isWhatsNext = (x: unknown): x is WhatsNextData => typeof x === 'object' && x !== null;
+
+const CI_CHIPS: Record<string, string> = { success: 'c-green', failure: 'c-red', pending: 'c-orange', none: 'c-grey' };
+const ciChip = (ci?: string) => (ci && CI_CHIPS[ci]) || 'c-grey';
+const stateKey = (pr: WorkPr) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
+export const stateChip = (pr: WorkPr) => STATE_CHIPS[stateKey(pr)];
+export const stateLabel = (pr: WorkPr) => STATE_LABELS[stateKey(pr)];
 
 function userFacing(body = '') {
   const m = body.match(/## What changes for users\s*\n([\s\S]*?)(?=\n## |$)/i);
@@ -25,7 +32,7 @@ function userFacing(body = '') {
   const paras = body.replace(/^>.*$/gm, '').split(/\n\s*\n/).map((p) => p.trim()).filter((p) => p && !/^PR \d+ of/.test(p) && !p.startsWith('#') && !p.startsWith('```'));
   return paras[0] || '';
 }
-function nextAction(prs) {
+function nextAction(prs: WorkPr[]) {
   const first = prs.find((p) => !['merged', 'closed'].includes(stateKey(p)));
   if (!first) return 'Stack complete.';
   const k = stateKey(first);
@@ -35,12 +42,13 @@ function nextAction(prs) {
   if (k === 'ready') return `#${first.number}: waiting for review${first.ci === 'failure' ? ', CI red' : ''}.`;
   return `${first.planned?.title || 'next PR'}: not opened yet.`;
 }
-const favicon = (url) => { try { return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`; } catch { return ''; } };
+const favicon = (url: string) => { try { return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=32`; } catch { return ''; } };
 
-function PersonaChips({ work, pr, index, onChange }) {
-  const [suggest, setSuggest] = useState(null);
-  const list = work.stack[index]?.personas || [];
-  const update = (personas) => onChange(work.stack.map((s, i) => (i === index ? { ...s, personas } : s)));
+function PersonaChips({ work, pr, index, onChange }: { work: WorkDetail; pr: WorkPr; index: number; onChange: (stack: StackRow[]) => void }) {
+  const [suggest, setSuggest] = useState<PersonaSuggestion | '…' | null>(null);
+  const stack = work.stack || [];
+  const list = stack[index]?.personas || [];
+  const update = (personas: string[]) => onChange(stack.map((s, i) => (i === index ? { ...s, personas } : s)));
   const run = async () => { setSuggest('…'); setSuggest(await api.suggestPersonas(work.slug, pr.number)); };
   return (
     <div className="row">
@@ -55,8 +63,20 @@ function PersonaChips({ work, pr, index, onChange }) {
   );
 }
 
-function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChange }) {
-  const planned = work.stack[index]?.planned;
+type PrCardProps = {
+  work: WorkDetail;
+  pr: WorkPr;
+  index: number;
+  onStack: (stack: StackRow[]) => void;
+  onDetails: (n: number) => void;
+  onReview: (key: PrKey, kind?: string) => void;
+  dev: DevServerRowData | null | undefined;
+  onDevChange: () => unknown;
+};
+
+function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChange }: PrCardProps) {
+  const planned = work.stack?.[index]?.planned;
+  const { key, number } = pr;
   const title = pr.title || planned?.title || `PR ${index + 1}`;
   const what = userFacing(pr.body) || planned?.scope || '';
   return (
@@ -73,19 +93,19 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChang
         </span>
       </div>
       {what && <div className="what"><Markdown text={what} /></div>}
-      {pr.key && <KitLine slug={work.slug} n={pr.key} />}
+      {key && <KitLine slug={work.slug} n={key} />}
       {dev && <DevServerRow slug={work.slug} row={dev} onChange={onDevChange} />}
-      {pr.key && <GateRail slug={work.slug} n={pr.key} onOpen={(kind) => onReview(pr.key, kind)} />}
-      <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{pr.key && <span className="row open-side"><button className="sm" onClick={() => onReview(pr.key)}>review ▸</button><button className="sm" onClick={() => onReview(pr.key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(pr.key, 'brief')}>agent ▸</button>{pr.number && <button className="sm" onClick={() => onDetails(pr.number)}>details ▸</button>}</span>}</div>
+      {key && <GateRail slug={work.slug} n={key} onOpen={(kind) => onReview(key, kind)} />}
+      <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{key && <span className="row open-side"><button className="sm" onClick={() => onReview(key)}>review ▸</button><button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(key, 'brief')}>agent ▸</button>{number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}</span>}</div>
     </section>
   );
 }
 
-function NotionLine({ w, onChange }) {
-  const s = w.notionStatus || {};
+function NotionLine({ w, onChange }: { w: WorkDetail; onChange: () => void }) {
+  const s: NotionState = w.notionStatus || {};
   const notionLinks = (w.links || []).filter((l) => /notion\.(so|site|com)/.test(l.url));
   const { busy, run } = useAction();
-  const act = (body) => run(body.action || body.mode, async () => { const r = await api.notionAction(w.slug, body); if (r.error) toast.error(r.error); onChange(); });
+  const act = (body: Record<string, unknown>) => run(String(body.action || body.mode || 'create'), async () => { const r = await api.notionAction(w.slug, body); if (r.error) toast.error(r.error); onChange(); });
   const link = () => { const url = prompt('Notion page URL'); if (url) act({ action: 'link', url }); };
   const create = () => {
     if (!notionLinks.length) return toast.error('Add a Notion link to the work first: the new page is created under it.');
@@ -98,18 +118,19 @@ function NotionLine({ w, onChange }) {
   if (!s.linked) return <><button className="sm" onClick={link}>Link a Notion page</button><button className="sm" onClick={create}>Create sub-page</button></>;
   const chip = s.lastError ? ['c-red', `sync failed · retry`] : s.preview ? ['c-orange', 'preview ready below'] : s.editedInNotion ? ['c-red', 'edited in Notion · preview'] : s.outOfSync ? ['c-orange', 'out of sync · preview'] : ['c-green', `synced ${(s.syncedAt || '').slice(0, 16).replace('T', ' ')}`];
   return <>
-    <a href={s.url} target="_blank" rel="noreferrer"><img className="fav" src={favicon(s.url)} alt="" loading="lazy" />page</a>
+    <a href={s.url} target="_blank" rel="noreferrer"><img className="fav" src={favicon(s.url ?? '')} alt="" loading="lazy" />page</a>
     <span className={`chip ${chip[0]}`} onClick={sync} style={{ cursor: 'pointer' }} title={s.lastError || 'click to sync'}>{chip[1]}</span>
     <button className="sm" onClick={() => confirm('Unlink the Notion page? Nothing is deleted in Notion.') && act({ action: 'unlink' })} style={{ background: 'transparent', border: 0, color: 'var(--mute)' }}>×</button>
   </>;
 }
 
-function NotionPreview({ w, onChange }) {
-  const p = w.notionStatus?.preview;
+function NotionPreview({ w, onChange }: { w: WorkDetail; onChange: () => void }) {
+  const status: NotionState = w.notionStatus;
+  const p = status.preview;
   const { pending, busy, run } = useAction();
   if (!p) return null;
-  const act = (body) => run(body.action || body.mode, async () => { const r = await api.notionAction(w.slug, body); if (r.error) toast.error(r.error); onChange(); });
-  const crit = { high: 'c-red', medium: 'c-orange', low: 'c-grey' };
+  const act = (body: Record<string, unknown>) => run(String(body.action || body.mode), async () => { const r = await api.notionAction(w.slug, body); if (r.error) toast.error(r.error); onChange(); });
+  const crit: Record<string, string> = { high: 'c-red', medium: 'c-orange', low: 'c-grey' };
   const high = p.changes.filter((c) => c.severity === 'high').length;
   return (
     <div className="card" style={{ marginTop: 8, borderLeft: '3px solid var(--brand)' }}>
@@ -121,7 +142,7 @@ function NotionPreview({ w, onChange }) {
       <ul style={{ margin: 0, paddingLeft: 18 }}>
         {p.changes.map((c, i) => <li key={i}><span className={`chip ${crit[c.severity] || 'c-grey'}`}>{c.severity}</span> <b>{c.section}</b> · {c.what}</li>)}
       </ul>
-      {p.lostText?.length > 0 && <div className="card danger" style={{ marginTop: 8 }}><b>Text on the page that would be erased</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{p.lostText.map((t, i) => <li key={i}>{t}</li>)}</ul></div>}
+      {p.lostText && p.lostText.length > 0 && <div className="card danger" style={{ marginTop: 8 }}><b>Text on the page that would be erased</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{p.lostText.map((t, i) => <li key={i}>{t}</li>)}</ul></div>}
       <div className="row" style={{ marginTop: 10 }}>
         <button className={`primary sm${pendingClass(pending === 'apply')}`} disabled={busy} onClick={() => (high === 0 || confirm(`${high} high-severity change(s). Overwrite the Notion page?`)) && act({ mode: 'apply', force: true })}>Apply sync</button>
         <button className={`sm${pendingClass(pending === 'preview')}`} disabled={busy} onClick={() => act({ mode: 'preview' })}>Refresh preview</button>
@@ -131,7 +152,9 @@ function NotionPreview({ w, onChange }) {
   );
 }
 
-function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }) {
+type HeroProps = { w: WorkDetail; prs: WorkPr[]; refreshing: boolean; onRefresh: () => void; onAddLink: () => void; onChange: () => void; devServers: DevServersResponse | null };
+
+function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }: HeroProps) {
   const { busy: archiving, run } = useAction();
   const merged = prs.filter((p) => stateKey(p) === 'merged').length;
   const total = prs.reduce((a, p) => ({ add: a.add + (p.additions || 0), del: a.del + (p.deletions || 0), files: a.files + (p.changedFiles || 0) }), { add: 0, del: 0, files: 0 });
@@ -166,8 +189,8 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }
 }
 
 // the owner's to-do, written by the orchestrating agent (PUT { next }); the stack's own "Next" line stays in the hero
-function WhatsNext({ next }) {
-  if (!next) return null;
+function WhatsNext({ next }: { next: unknown }) {
+  if (!isWhatsNext(next)) return null;
   return (
     <section className="card whats-next">
       <div className="headline">
@@ -180,9 +203,9 @@ function WhatsNext({ next }) {
   );
 }
 
-const SIDE = [['ask', '🦜 Ask coco'], ['decisions', 'Decisions'], ['findings', 'Findings'], ['rules', 'Rules'], ['artifacts', 'Artifacts'], ['timeline', 'Timeline'], ['notes', 'Notes']];
+const SIDE: [string, string][] = [['ask', '🦜 Ask coco'], ['decisions', 'Decisions'], ['findings', 'Findings'], ['rules', 'Rules'], ['artifacts', 'Artifacts'], ['timeline', 'Timeline'], ['notes', 'Notes']];
 
-export default function Plan({ group }) {
+export default function Plan({ group }: { group: number }) {
   const { w, prs, refreshing, load, saveStack, addLink } = useWork();
   const dev = useDevServers(w.slug);
   const open = useWorkbench((s) => s.open);

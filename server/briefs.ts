@@ -3,25 +3,89 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { decisionSummary, isLive } from './decisions.ts';
+import type { Decision } from './decisions.ts';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, fenced, listText } from './review-agent.ts';
+import type { Config } from './config.ts';
+import { errorMessage, httpStatus } from './core-types.ts';
+import type { ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, StackRow, Work } from './core-types.ts';
+import type { FeatureFlag, FeatureFlags } from './feature-flags.ts';
 
 const MAX_LOG = 30;
 const CORE_KIT = ['body', 'diagram', 'video'];
 
 class HttpError extends Error {
-  constructor(status, message) {
+  status: number;
+  constructor(status: number, message: string) {
     super(message);
     this.status = status;
   }
 }
 
+interface BriefPr {
+  head: string;
+  base: string;
+  sha?: string;
+  title?: string;
+}
+
+interface BriefStackPr {
+  number?: RowKey | null;
+  state?: string;
+  head?: string | null;
+  title?: string;
+}
+
+interface BriefRule {
+  text: string;
+}
+
+interface BriefComment {
+  id: string;
+  path: string;
+  startLine: number;
+  body: string;
+  status?: string;
+}
+
+interface BriefState {
+  at: string;
+  tip: string;
+  remote: string;
+  baseRef: string;
+  baseTip: string;
+  fork: string;
+  log: string[];
+  dirty: string[];
+  comments: BriefComment[];
+  decisions: Decision[];
+  worktree: string | null;
+}
+
+interface RenderInput {
+  work: Work;
+  index: number;
+  pr: BriefPr;
+  worktree: string | null;
+  stackPrs?: BriefStackPr[];
+  rules?: BriefRule[];
+  betas?: FeatureFlag[];
+  config: Config;
+}
+
+interface BriefContext extends RenderInput {
+  n: number | string;
+  stackPrs: BriefStackPr[];
+  rules: BriefRule[];
+  betas: FeatureFlag[];
+}
+
 // bullet lines of a "## heading" section of the notes
-export const notesSection = (notes, heading) => {
+export const notesSection = (notes: string | null | undefined, heading: string) => {
   const lines = String(notes || '').split('\n');
   const start = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading}`.toLowerCase());
   if (start < 0) return [];
-  const out = [];
+  const out: string[] = [];
   for (const l of lines.slice(start + 1)) {
     if (l.startsWith('## ')) break;
     if (/^\s*[-*]\s+/.test(l)) out.push(l.replace(/^\s*[-*]\s+/, '').trim());
@@ -29,7 +93,7 @@ export const notesSection = (notes, heading) => {
   return out;
 };
 
-const precedentCommands = (lines) => {
+const precedentCommands = (lines: string[]) => {
   const shas = [...new Set(lines.flatMap((l) => [...l.matchAll(/\b[0-9a-f]{9,40}\b/g)].map((m) => m[0])))];
   const prs = [...new Set(lines.flatMap((l) => [...l.matchAll(/#(\d{3,6})\b/g)].map((m) => m[1])))];
   return [...shas.map((s) => `git show ${s}`), ...prs.map((n) => `gh pr view ${n} --json body --jq .body`)];
@@ -37,35 +101,35 @@ const precedentCommands = (lines) => {
 
 // kit pieces a PR is expected to ship with; a kind beyond body/diagram/video is a companion PR, expected when a work link names it.
 // row.kit can turn any of them off ({ video: false } = "no demo")
-export const kitFlags = (work, row, kinds = CORE_KIT) => ({
+export const kitFlags = (work: Pick<Work, 'links'>, row: StackRow, kinds = CORE_KIT): Record<string, boolean> => ({
   ...Object.fromEntries(kinds.map((k) => [k, CORE_KIT.includes(k) || (work.links || []).some((l) => new RegExp(k.replace(/[^\w-]/g, ''), 'i').test(`${l.label} ${l.url}`))])),
   ...(row.kit || {}),
 });
-export const kitOf = (work, row, config) => {
+export const kitOf = (work: Pick<Work, 'links' | 'slug'>, row: StackRow, config: Pick<Config, 'kitKinds' | 'gateSkills' | 'baseUrl'>) => {
   const kinds = config.kitKinds || CORE_KIT;
   const kit = kitFlags(work, row, kinds);
-  const skill = (gate) => config.gateSkills?.[gate]?.[0];
+  const skill = (gate: string) => config.gateSkills?.[gate]?.[0];
   return [
     kit.body && `PR body${skill('kit-body') ? ` drafted with the \`${skill('kit-body')}\` skill` : ''}, product effect first.`,
     kit.diagram && `Mermaid diagram in the body${skill('kit-diagram') ? `, \`${skill('kit-diagram')}\` house style` : ''}.`,
     kinds.includes('video') && (kit.video ? `Demo video${skill('kit-video') ? ` (\`${skill('kit-video')}\`)` : ''} when a user sees the change.` : 'No demo video for this PR.'),
     ...kinds.filter((k) => !CORE_KIT.includes(k) && kit[k]).map((k) => `${capitalize(k)} companion PR updated for the surface this PR changes.`),
     `Hand each kit file to cocopilot so it keeps the head it was made for: \`curl -s -X POST ${config.baseUrl}/api/works/${work.slug}/artifacts -H 'Content-Type: application/json' -d '{"path":"<file>","pr":"${rowKey(row)}","kind":"${kinds.join('|')}"}'\`.`,
-  ].filter(Boolean);
+  ].filter((line): line is string => Boolean(line));
 };
 
-export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = [], betas = [], config }) {
+export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = [], betas = [], config }: RenderInput) {
   const row = work.stack[index];
   const scope = row.planned?.title || pr.title || `PR ${index + 1}`;
   const out = [`# ${work.title} — PR ${index + 1}: ${scope}`, ''];
-  const section = (title, lines) => {
+  const section = (title: string, lines: string[]) => {
     if (lines.filter(Boolean).length) out.push(`## ${title}`, '', ...lines, '');
   };
 
   section('Task', [`${row.planned?.scope || pr.title || scope}`, '', `You own ONE PR: \`${pr.head}\`${isLocal(rowKey(row)) ? ' (local branch, no PR yet)' : ` (#${row.number})`}. Sibling PRs belong to other agents.`]);
 
   const merged = stackPrs.filter((p) => p.state === 'MERGED').map((p) => `#${p.number}`);
-  const siblings = work.stack.map((s, i) => (i === index ? null : `PR ${i + 1} \`${s.planned?.branch || stackPrs[i]?.head || '?'}\`${s.number ? ` #${s.number}` : ''} (${s.planned?.title || stackPrs[i]?.title || 'no scope'})`)).filter(Boolean);
+  const siblings = work.stack.flatMap((s, i) => (i === index ? [] : [`PR ${i + 1} \`${s.planned?.branch || stackPrs[i]?.head || '?'}\`${s.number ? ` #${s.number}` : ''} (${s.planned?.title || stackPrs[i]?.title || 'no scope'})`]));
   section('Context', [
     `- Worktree: ${worktree ? `\`${worktree}\`` : 'none yet'}; branch \`${pr.head}\`; base \`${pr.base}\` (head \`${pr.sha || '?'}\`).`,
     merged.length ? `- Already merged: ${merged.join(', ')}.` : '',
@@ -108,7 +172,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   return out.join('\n');
 }
 
-export function renderHandoff({ brief, pr, agentId, state, owner = 'the user' }) {
+export function renderHandoff({ brief, pr, agentId, state, owner = 'the user' }: { brief: string; pr: BriefPr; agentId?: string | null; state: BriefState; owner?: string }) {
   return [
     `# Handoff — ${pr.head}`,
     '',
@@ -141,35 +205,44 @@ export function renderHandoff({ brief, pr, agentId, state, owner = 'the user' })
   ].join('\n');
 }
 
-export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules = null, betaFlags = null }) {
+export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules = null, betaFlags = null }: {
+  DATA: string;
+  REPO: string;
+  config: Config;
+  works: { get(slug: string): Work | null };
+  comments: { list(slug: string, n: number | string): { comments?: BriefComment[] } };
+  reviewAgent: ReviewAgentApi;
+  rules?: { keptFor(work: Work, index: number): BriefRule[] } | null;
+  betaFlags?: FeatureFlags | null;
+}) {
   const owner = config.owner.name;
-  const dir = (slug) => path.join(DATA, 'works', slug, 'artifacts', 'briefs');
-  const exec = (cmd, args) => reviewAgent.exec(cmd, args);
+  const dir = (slug: string) => path.join(DATA, 'works', slug, 'artifacts', 'briefs');
+  const exec = (cmd: string, args: string[]) => reviewAgent.exec(cmd, args);
 
-  async function context(slug, raw) {
+  async function context(slug: string, raw: string): Promise<BriefContext> {
     const work = works.get(slug);
     if (!work) throw new HttpError(404, 'no such work');
     const n = parseKey(raw);
     const index = (work.stack || []).findIndex((s) => rowKey(s) === n);
-    if (index < 0) throw new HttpError(404, `${raw} is not in this work`);
+    if (n === null || index < 0) throw new HttpError(404, `${raw} is not in this work`);
     const pr = await reviewAgent.rowPr(work, index);
-    const [worktree, stackPrs] = await Promise.all([reviewAgent.worktreeFor(pr.head), Promise.all(work.stack.map((s) => (s.number ? reviewAgent.fetchStackState(s.number) : { number: null })))]);
+    const [worktree, stackPrs] = await Promise.all([reviewAgent.worktreeFor(pr.head), Promise.all(work.stack.map((s): Promise<BriefStackPr> | BriefStackPr => (s.number ? reviewAgent.fetchStackState(s.number) : { number: null })))]);
     return { work, n, index, pr, worktree, stackPrs, rules: rules ? rules.keptFor(work, index) : [], betas: betaFlags ? betaFlags.forRow(work, n) : [], config };
   }
 
-  const store = (slug, n, text, suffix = '') => {
+  const store = (slug: string, n: number | string, text: string, suffix = '') => {
     fs.mkdirSync(dir(slug), { recursive: true });
     const name = `pr-${fileKey(n)}-${new Date().toISOString().slice(0, 10)}${suffix}.md`;
     fs.writeFileSync(path.join(dir(slug), name), text);
     return { name: `briefs/${name}`, path: path.join(dir(slug), name) };
   };
 
-  async function agentIn(worktree) {
+  async function agentIn(worktree: string | null) {
     if (!worktree) return null;
     return (await reviewAgent.agentsList()).find((a) => a.cwd && a.status !== 'closed' && a.status !== 'error' && reviewAgent.sameDir(a.cwd, worktree)) || null;
   }
 
-  async function view(slug, raw, { handoff = false } = {}) {
+  async function view(slug: string, raw: string, { handoff = false } = {}) {
     const ctx = await context(slug, raw);
     const stored = fs.existsSync(dir(slug)) ? fs.readdirSync(dir(slug)).filter((f) => f.startsWith(`pr-${fileKey(ctx.n)}-`)).sort().reverse() : [];
     const agent = await agentIn(ctx.worktree);
@@ -178,8 +251,8 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     return { text, worktree: ctx.worktree, agent, stored: stored.map((f) => `briefs/${f}`) };
   }
 
-  async function state(ctx) {
-    const git = (args) => exec('git', ['-C', ctx.worktree || REPO, ...args]).then((r) => (r.ok ? r.stdout.trim() : ''));
+  async function state(ctx: BriefContext): Promise<BriefState> {
+    const git = (args: string[]) => exec('git', ['-C', ctx.worktree || REPO, ...args]).then((r) => (r.ok ? r.stdout.trim() : ''));
     const parent = ctx.work.stack[ctx.index - 1];
     const baseRef = !parent ? `origin/${config.repo.defaultBranch}` : parent.planned?.branch || ctx.stackPrs[ctx.index - 1]?.head || ctx.pr.base;
     const [tip, baseTip, remote] = await Promise.all([reviewAgent.branchSha(ctx.pr.head), git(['rev-parse', '--verify', '-q', baseRef]), reviewAgent.remoteHead(ctx.n)]);
@@ -188,11 +261,11 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     const dirty = ctx.worktree ? (await git(['status', '--short'])).split('\n').filter(Boolean) : [];
     const open = (comments.list(ctx.work.slug, ctx.n).comments || []).filter((c) => c.status === 'open' || c.status === 'sent');
     const decisions = (ctx.work.decisions || []).filter((d) => d.status !== 'taken' && isLive(d) && String(d.pr) === String(ctx.n));
-    return { at: new Date().toISOString(), tip, baseTip, remote, baseRef, fork, log, dirty, comments: open, decisions, worktree: ctx.worktree };
+    return { at: new Date().toISOString(), tip: tip ?? '', baseTip, remote: remote ?? '', baseRef, fork, log, dirty, comments: open, decisions, worktree: ctx.worktree };
   }
 
   // the brief's agent runs in the PR worktree (its Paseo workspace) when there is one, else Paseo checks the branch out
-  async function start(slug, raw, { handoff = false } = {}) {
+  async function start(slug: string, raw: string, { handoff = false } = {}) {
     const ctx = await context(slug, raw);
     const brief = renderBrief(ctx);
     const agent = await agentIn(ctx.worktree);
@@ -206,11 +279,11 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     return { ...saved, agentId, mode: runner.mode };
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], _readBody: ReadBody, send: Send) {
     try {
       const [, slug, , raw, action] = parts;
       if (!raw) throw new HttpError(400, 'pr required');
-      if (req.method === 'GET') return send(res, 200, await view(slug, decodeURIComponent(raw), { handoff: new URL(req.url, 'http://x').searchParams.get('handoff') === '1' }));
+      if (req.method === 'GET') return send(res, 200, await view(slug, decodeURIComponent(raw), { handoff: new URL(req.url ?? '', 'http://x').searchParams.get('handoff') === '1' }));
       if (req.method === 'POST' && action === 'save') {
         const ctx = await context(slug, decodeURIComponent(raw));
         return send(res, 200, store(slug, ctx.n, renderBrief(ctx)));
@@ -218,7 +291,7 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
       if (req.method === 'POST' && (action === 'start' || action === 'handoff')) return send(res, 200, await start(slug, decodeURIComponent(raw), { handoff: action === 'handoff' }));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, e.status || 500, { error: e.message });
+      return send(res, httpStatus(e), { error: errorMessage(e) });
     }
   }
 

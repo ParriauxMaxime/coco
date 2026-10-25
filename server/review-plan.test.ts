@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { classify, createClassifier, normalizePlan, splitDiff, suggestedOrder } from './review-plan.ts';
 
 const L = 'src';
-const hunk = (minus, plus) => ['@@ -1,1 +1,1 @@', ...minus.map((l) => `-${l}`), ...plus.map((l) => `+${l}`)].join('\n');
-const diffOf = (p, minus, plus) => `diff --git a/${p} b/${p}\nindex 1..2 100644\n--- a/${p}\n+++ b/${p}\n${hunk(minus, plus)}\n`;
+const hunk = (minus: string[], plus: string[]) => ['@@ -1,1 +1,1 @@', ...minus.map((l) => `-${l}`), ...plus.map((l) => `+${l}`)].join('\n');
+const diffOf = (p: string, minus: string[], plus: string[]) => `diff --git a/${p} b/${p}\nindex 1..2 100644\n--- a/${p}\n+++ b/${p}\n${hunk(minus, plus)}\n`;
 
-const FIXTURE = [
+const FIXTURE: [string, string[], string[]][] = [
   [`${L}/invoices/server/use-case/export-use-case.ts`, [], ['  const allowed = await canExport(callerId);', '  if (!allowed) throw new HttpError(403);', '  return toCsv(rows);']],
   [`${L}/invoices/server/controller/export-route.ts`, ['  return useCase.run(req);'], ['  const out = await useCase.run(req);', '  res.status(out ? 200 : 403);', '  return out;']],
   [`${L}/invoices/server/service/invoice-service.ts`, ['  helper(a);'], ['  helper(a, b);']],
@@ -22,14 +22,14 @@ const FIXTURE = [
 const files = FIXTURE.map(([filename, minus, plus]) => ({ filename, status: 'modified', additions: plus.length, deletions: minus.length }));
 const diffs = splitDiff(FIXTURE.map(([p, minus, plus]) => diffOf(p, minus, plus)).join(''));
 const cats = classify(files, diffs);
-const cat = (suffix) => cats[`${L}/${suffix}`];
+const cat = (suffix: string) => cats[`${L}/${suffix}`];
 
 test('splitDiff keeps added and removed lines per path', () => {
   assert.deepEqual(diffs[`${L}/invoices/server/service/invoice-service.ts`], { added: ['  helper(a, b);'], removed: ['  helper(a);'] });
 });
 
 test('classify puts each fixture file in the expected category', () => {
-  const want = {
+  const want: Record<string, [string, RegExp]> = {
     'invoices/server/use-case/export-use-case.ts': ['core', /use-case/],
     'invoices/server/controller/export-route.ts': ['core', /controller/],
     'invoices/server/service/invoice-service.ts': ['refactor', /call-site/],

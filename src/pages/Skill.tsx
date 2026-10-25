@@ -1,23 +1,24 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 import Markdown from '../components/Markdown.tsx';
 import Editor from '../components/Editor.tsx';
 import Feedback from '../components/Feedback.tsx';
+import type { SkillDetail } from '../types.ts';
 
-export default function Skill({ name, tab = 'read' }) {
-  const [s, setS] = useState(null);
+export default function Skill({ name, tab = 'read' }: { name: string; tab?: string }) {
+  const [s, setS] = useState<SkillDetail | null>(null);
   const [err, setErr] = useState('');
   const [file, setFile] = useState('SKILL.md');
   const [text, setText] = useState('');
   useEffect(() => {
-    api.skill(name).then(setS).catch((e) => setErr(e.message));
+    api.skill(name).then(setS).catch((e) => setErr(errorMessage(e)));
   }, [name]);
   useEffect(() => {
     if (!s) return;
     api.skillFile(name, file).then(setText);
   }, [name, file, s]);
   const load = useCallback(() => api.skillFile(name, file), [name, file]);
-  const save = useCallback((t) => api.saveSkillFile(name, file, t), [name, file]);
+  const save = useCallback((t: string) => api.saveSkillFile(name, file, t), [name, file]);
   if (err) return <div className="card danger">{err}</div>;
   if (!s) return <div className="sub">Loading…</div>;
   return (

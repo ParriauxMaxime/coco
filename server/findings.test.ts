@@ -2,25 +2,27 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { claimOf, confidenceOf, findingKey, githubSourceOf, reviewerOf, reviewSource, settle, severityOf } from './findings.ts';
 
+const raw = (r: { key: string; path?: string; claim: string }) => ({ n: null, source: 'review-as:bob', body: '', url: null, ...r });
+
 test('a finding dismissed once stays dismissed when the same reviewer raises it again on another line', () => {
   const first = findingKey('review-as:bob', 'a/b.ts', claimOf('### 1. Medium · PR 1 · Default `true` on the export flag, `a/b.ts:100`'));
   const again = findingKey('review-as:bob', 'a/b.ts', claimOf('### 3. Medium · PR 1 · Default `true` on the export flag, `a/b.ts:112`'));
   const other = findingKey('review-as:carol', 'a/b.ts', claimOf('### 3. Medium · PR 1 · Default `true` on the export flag, `a/b.ts:112`'));
   assert.equal(first, again);
   assert.notEqual(first, other);
-  const [row] = settle([{ key: again, path: 'a/b.ts', claim: 'Default true on the export flag' }], { ledger: { [first]: { status: 'dismissed', at: '2026-10-21', reason: 'decision 4' } } });
-  assert.equal(row.status, 'dismissed');
-  assert.equal(row.dismissed.reason, 'decision 4');
+  const [row] = settle([raw({ key: again, path: 'a/b.ts', claim: 'Default true on the export flag' })], { ledger: { [first]: { status: 'dismissed', at: '2026-10-21', reason: 'decision 4' } } });
+  assert.equal(row?.status, 'dismissed');
+  assert.equal(row?.dismissed?.reason, 'decision 4');
 });
 
 test('an accepted finding shows its comment status and the comment is not listed twice', () => {
-  const comment = { id: 'c1', path: 'a/b.ts', startLine: 3, endLine: 3, body: 'Silent error for the customer, is that okay?', status: 'fixed', author: 'bob' };
-  const rows = settle([{ key: 'k1', path: 'a/b.ts', claim: claimOf(comment.body) }], { comments: [comment] });
+  const comment = { id: 'c1', path: 'a/b.ts', startLine: 3, endLine: 3, body: 'Silent error for the customer, is that okay?', status: 'fixed', author: 'bob', createdAt: '2026-10-21' };
+  const rows = settle([raw({ key: 'k1', path: 'a/b.ts', claim: claimOf(comment.body) })], { comments: [comment] });
   assert.deepEqual(rows.map((r) => [r.key, r.status, r.commentId]), [['k1', 'fixed', 'c1']]);
 });
 
 test("the owner's own comments are local, anyone else's are not", () => {
-  const mine = { id: 'c1', path: 'a/b.ts', startLine: 1, endLine: 1, body: 'Rename this.', status: 'open', author: 'alice' };
+  const mine = { id: 'c1', path: 'a/b.ts', startLine: 1, endLine: 1, body: 'Rename this.', status: 'open', author: 'alice', createdAt: '2026-10-21' };
   const theirs = { ...mine, id: 'c2', body: 'Split this.', author: 'bob' };
   const rows = settle([], { comments: [mine, theirs], me: 'alice' });
   assert.deepEqual(rows.map((r) => r.source), ['local', 'local:bob']);

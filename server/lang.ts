@@ -3,16 +3,24 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import type { Config } from './config.ts';
+import type { ReadBody, Req, Res, Send } from './core-types.ts';
 
 const WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'lang-worker.ts');
 const SHA_RE = /^[0-9a-f]{40}$/;
 const CRASH_COOLDOWN = 60000;
 
-export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 }) {
+type WorkerReply = { error?: string; result?: unknown };
+type Pending = { resolve: (reply: WorkerReply) => void; timer: NodeJS.Timeout | undefined };
+type Exited = { code: number | null; signal: NodeJS.Signals | null; stderr: string };
+type WorkerOptions = { repo: string; sha: string; tsPath?: string; tsconfig?: string; maxOldSpaceMB?: number };
+type Worker = ReturnType<typeof startWorker>;
+
+export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 }: WorkerOptions) {
   const child = spawn(process.execPath, [`--max-old-space-size=${maxOldSpaceMB}`, '--expose-gc', WORKER], { stdio: ['pipe', 'pipe', 'pipe'] });
-  const pending = new Map();
+  const pending = new Map<number, Pending>();
   let seq = 0;
-  let exited = null;
+  let exited: Exited | null = null;
   let stderr = '';
   child.stderr.on('data', (c) => (stderr = (stderr + c).slice(-4000)));
   readline.createInterface({ input: child.stdout }).on('line', (line) => {
@@ -36,8 +44,8 @@ export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 
     }
     pending.clear();
   });
-  const request = (op, args = {}, timeoutMs = 0) =>
-    new Promise((resolve) => {
+  const request = (op: string, args: Record<string, unknown> = {}, timeoutMs = 0) =>
+    new Promise<WorkerReply>((resolve) => {
       if (exited) return resolve({ error: `worker exited (${exited.signal || exited.code})` });
       const id = ++seq;
       const timer = timeoutMs
@@ -45,7 +53,7 @@ export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 
             pending.delete(id);
             resolve({ error: 'timeout' });
           }, timeoutMs)
-        : null;
+        : undefined;
       pending.set(id, { resolve, timer });
       child.stdin.write(JSON.stringify({ id, op, ...args }) + '\n');
     });
@@ -53,13 +61,15 @@ export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 
   return { child, sha, ready, request, exited: () => exited, kill: () => child.kill('SIGKILL') };
 }
 
-export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsconfig, timeoutMs = 3000, idleMs = 15 * 60 * 1000, maxOldSpaceMB = 4096 }) {
-  let w = null;
+type LangOptions = { REPO: string; config?: Config; tsPath?: string; tsconfig?: string; timeoutMs?: number; idleMs?: number; maxOldSpaceMB?: number };
+
+export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsconfig, timeoutMs = 3000, idleMs = 15 * 60 * 1000, maxOldSpaceMB = 4096 }: LangOptions) {
+  let w: Worker | null = null;
   let status = 'idle';
-  let initResult = null;
-  let lastError = null;
-  let idleTimer = null;
-  const crashed = new Map();
+  let initResult: unknown = null;
+  let lastError: string | null = null;
+  let idleTimer: NodeJS.Timeout | undefined;
+  const crashed = new Map<string, { at: number; error: string | undefined }>();
 
   const touch = () => {
     clearTimeout(idleTimer);
@@ -75,8 +85,8 @@ export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsco
     initResult = null;
   }
 
-  function ensure(sha) {
-    if (!SHA_RE.test(sha || '')) throw Object.assign(new Error('bad sha'), { code: 400 });
+  function ensure(sha: string | undefined): Promise<WorkerReply> {
+    if (!sha || !SHA_RE.test(sha)) throw Object.assign(new Error('bad sha'), { code: 400 });
     if (!REPO) return Promise.resolve({ error: 'no repo configured (repo.path)' });
     touch();
     if (w && w.sha === sha && !w.exited()) return w.ready;
@@ -103,6 +113,7 @@ export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsco
     worker.child.on('exit', () => {
       if (w !== worker || status !== 'ready') return;
       const ex = worker.exited();
+      if (!ex) return;
       lastError = `worker exited (${ex.signal || ex.code})${ex.stderr ? `: ${ex.stderr}` : ''}`;
       crashed.set(sha, { at: Date.now(), error: lastError });
       status = 'error';
@@ -115,11 +126,11 @@ export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsco
     const base = { status, sha: w?.sha ?? null, init: initResult, lastError };
     if (!w || status !== 'ready') return base;
     const r = await w.request('stats', {}, timeoutMs);
-    return { ...base, ...(r.error ? { statsError: r.error } : r.result) };
+    return { ...base, ...(r.error ? { statsError: r.error } : r.result && typeof r.result === 'object' ? r.result : {}) };
   }
 
-  async function handle(req, res, parts, readBody, send) {
-    const url = new URL(req.url, 'http://x');
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
+    const url = new URL(req.url || '/', 'http://x');
     const q = Object.fromEntries(url.searchParams);
     if (parts[1] === 'lang' && parts[2] === 'stats') return send(res, 200, await stats());
     const [, scope, , op] = parts;
@@ -130,6 +141,7 @@ export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsco
     if (status === 'indexing') return send(res, 202, { status: 'indexing' });
     const init = await ready;
     if (init.error) return send(res, 200, { error: init.error });
+    if (!w) return send(res, 200, { error: 'worker not running' });
     if (op === 'open') {
       w.request('open', { path: q.path });
       return send(res, 202, { status: 'queued' });

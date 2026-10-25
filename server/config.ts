@@ -6,9 +6,51 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
 const HOME = os.homedir();
-const home = (p) => (typeof p === 'string' && p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
+const home = (p: string) => (typeof p === 'string' && p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
 
-export const DEFAULTS = {
+export interface Ritual {
+  kind: string;
+  label?: string;
+  hint?: string;
+  fields?: string[];
+  title?: string;
+  prompt: string;
+}
+
+export interface FileLayers {
+  wiring?: [string, string][];
+  layers?: [string, string][];
+  other?: [string, string][];
+}
+
+export interface Config {
+  owner: { name: string; login: string };
+  repo: { path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
+  baseUrl: string;
+  dataDir: string;
+  briefsDir: string;
+  skillsDir: string;
+  skillPrefix: string;
+  methodSkill: string;
+  methodNotes: string;
+  skillOverrides: Record<string, string>;
+  personasDir: string;
+  personaFiles: { ignore: string[]; companionSuffixes: string[] };
+  kitBody: { maxChars: number; mustMatch: string };
+  models: { default: string; fast: string };
+  importRoots: string[];
+  kitKinds: string[];
+  gateSkills: Record<string, (string | { name: string; ask?: string })[]>;
+  fileLayers: FileLayers | null;
+  botGroups: Record<string, string>;
+  seedRules: [string, string?][];
+  rituals: Ritual[];
+  featureFlags: { provider?: string } | null;
+  devServers?: { api?: { bind?: string; port?: number } };
+  file?: string | null;
+}
+
+export const DEFAULTS: Config = {
   owner: { name: 'the user', login: 'me' },
   repo: {
     path: '',
@@ -44,19 +86,19 @@ export const DEFAULTS = {
   featureFlags: null,
 };
 
-export const skillFor = (config, name) => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;
+export const skillFor = (config: Partial<Pick<Config, 'skillOverrides' | 'methodSkill'>> | null | undefined, name: string): string => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;
 
-export const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
-export const merge = (base, over) => {
+export const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+export const merge = (base: unknown, over: unknown): unknown => {
   if (!isObject(base) || !isObject(over)) return over === undefined ? base : over;
-  const out = { ...base };
+  const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(over)) out[k] = merge(base[k], v);
   return out;
 };
 
-export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(APP, 'coco.config.json') } = {}) {
+export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(APP, 'coco.config.json') }: { APP: string; file?: string }): Config {
   const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
-  const c = merge(DEFAULTS, raw);
+  const c = merge(DEFAULTS, raw) as Config;
   c.repo.path = home(process.env.COCO_REPO || c.repo.path);
   // outside the checkout so a `git clean` cannot take the works; `<app>/data` stays for installs that already have it
   const legacyData = path.join(APP, 'data');
@@ -74,7 +116,7 @@ export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(AP
   return c;
 }
 
-export function personaLogins(files, { ignore = [], companionSuffixes = [] } = {}) {
+export function personaLogins(files: string[], { ignore = [], companionSuffixes = [] }: { ignore?: string[]; companionSuffixes?: string[] } = {}): string[] {
   const companion = companionSuffixes.length ? new RegExp(`-(${companionSuffixes.join('|')})\\.md$`) : null;
   return files
     .filter((f) => f.endsWith('.md') && !companion?.test(f))
@@ -82,7 +124,7 @@ export function personaLogins(files, { ignore = [], companionSuffixes = [] } = {
     .filter((n) => !ignore.includes(n));
 }
 
-function sh(cmd, args, cwd) {
+function sh(cmd: string, args: string[], cwd: string): string {
   try {
     return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {

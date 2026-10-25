@@ -15,14 +15,53 @@ const COCO_TOOL = /^mcp__cocopilot__(propose_\w+)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
 export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan'];
 
+type ExecResult = { ok: boolean; stdout: string; stderr: string };
+type Exec = (cmd: string, args: string[], opts?: Record<string, unknown>) => Promise<ExecResult>;
+type RowKey = number | string;
+type StackRow = { number?: number | null; planned?: { branch?: string } };
+
+export type ToolDetail = { type: string; command?: string; filePath?: string; query?: string; url?: string; text?: string; label?: string; description?: string; input?: unknown; output?: unknown; content?: string; result?: string; log?: string; unifiedDiff?: string; oldString?: string; newString?: string };
+type TimelineItem = { type: string; text?: string; messageId?: string; callId?: string; status?: string; name?: string; detail?: ToolDetail; error?: unknown; message?: string };
+export type TimelineEvent = { type: string; provider?: string; item?: TimelineItem; request?: { id?: string; title?: string; name?: string; kind?: string }; requestId?: string; resolution?: unknown; usage?: { totalCostUsd?: number }; error?: unknown };
+type TimelineMessage = { agentId?: string; event?: TimelineEvent } | null;
+export type Entry = { type: string; text?: string; id?: string | null; name?: string; kind?: string; input?: unknown; output?: string; status?: string; error?: string | null };
+export type ToolStart = { type: 'tool'; id?: string; name?: string; kind: string; input: unknown; text: string; output: string; status: string; error: string | null };
+export type ActivityEvent = { type: string; id?: string | null; name?: string; kind?: string; summary?: string; input?: string; output?: string; status?: string; text?: string };
+export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text: string, kind?: 'text' | 'think') => void; onToolStart?: (e: ToolStart) => void; onPermission?: (what: string) => void };
+export type WaitResult = { status: string; error?: string | null; lastMessage?: string | null; final?: { lastUsage?: { totalCostUsd?: number } | null } | null };
+type Unsubscribe = (() => void) & { ready?: Promise<unknown> };
+export type DaemonAgent = {
+  id: string;
+  workspaceId?: string | null;
+  cwd?: string | null;
+  status?: string | null;
+  timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe };
+  send(text: string, opts?: { activeTurnBehavior?: string }): Promise<unknown>;
+  waitForFinish(timeoutMs?: number): Promise<WaitResult>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null } | null } | null>;
+  archive(): Promise<unknown>;
+};
+export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown };
+export type WorkspaceHandle = { id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
+export type DaemonClient = {
+  workspaces: {
+    list(opts: { page: { limit: number; cursor?: string } }): Promise<{ entries: WorkspaceEntry[]; pageInfo?: { nextCursor?: string } }>;
+    ref(w: string | WorkspaceEntry): WorkspaceHandle;
+    open(cwd: string): Promise<WorkspaceHandle>;
+    create(opts: Record<string, unknown>): Promise<WorkspaceHandle>;
+  };
+  agents: { ref(id: string): DaemonAgent };
+};
+type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
+
 // The server may run inside a Paseo agent's shell: its PASEO_AGENT_ID would make every CLI launch that agent's subagent and pin it to that agent's workspace.
 const AMBIENT_PASEO = ['PASEO_AGENT_ID', 'PASEO_AGENT_CWD', 'PASEO_WORKSPACE_ID'];
 export const launcherEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !AMBIENT_PASEO.includes(k)));
-export const expandHome = (p) => String(p || '').replace(/^~(?=\/|$)/, HOME);
-export const sameDir = (a, b) => path.resolve(expandHome(a)) === path.resolve(expandHome(b));
-export const cocoTitle = (title) => `${TITLE_PREFIX}${String(title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX)}`;
+export const expandHome = (p: unknown) => String(p || '').replace(/^~(?=\/|$)/, HOME);
+export const sameDir = (a: string, b: string) => path.resolve(expandHome(a)) === path.resolve(expandHome(b));
+export const cocoTitle = (title: unknown) => `${TITLE_PREFIX}${String(title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX)}`;
 
-const parseJson = (text, fallback) => {
+const parseJson = (text: string, fallback: unknown) => {
   try {
     return JSON.parse(text);
   } catch {
@@ -30,7 +69,7 @@ const parseJson = (text, fallback) => {
   }
 };
 
-const defaultExec = (cmd, args, opts = {}) =>
+const defaultExec: Exec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
     execFile(cmd, args, { maxBuffer: 20 * 1024 * 1024, timeout: 120000, ...opts }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
@@ -38,26 +77,26 @@ const defaultExec = (cmd, args, opts = {}) =>
   });
 
 // PASEO_URL wins; otherwise the endpoint `paseo status` reports for the local daemon
-export async function daemonUrl(exec = defaultExec) {
+export async function daemonUrl(exec: Exec = defaultExec) {
   if (process.env.PASEO_URL) return process.env.PASEO_URL;
   const r = await exec('paseo', ['status', '--json'], { env: launcherEnv(), timeout: 15000 });
   const listen = r.ok ? parseJson(r.stdout, null)?.listen : null;
   return `ws://${/^[\w.[\]-]+:\d+$/.test(listen || '') ? listen : DEFAULT_LISTEN}/ws`;
 }
 
-export async function connectDaemon({ exec = defaultExec } = {}) {
+export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}): Promise<DaemonClient> {
   const url = await daemonUrl(exec);
   const client = createPaseoClient({ url, clientId: 'cocopilot', password: process.env.PASEO_PASSWORD || undefined, reconnect: { enabled: true } });
   try {
     await client.connect();
   } catch (e) {
     await client.close().catch(() => {});
-    throw new Error(`cannot reach the Paseo daemon at ${url}: ${e.message}`);
+    throw new Error(`cannot reach the Paseo daemon at ${url}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return client;
+  return client as unknown as DaemonClient;
 }
 
-export async function worktreeFor(repo, branch, exec = defaultExec) {
+export async function worktreeFor(repo: string, branch: string, exec: Exec = defaultExec) {
   const r = await exec('git', ['-C', repo, 'worktree', 'list', '--porcelain']);
   if (!r.ok) return null;
   for (const block of r.stdout.split(/\n\s*\n/)) {
@@ -70,7 +109,7 @@ export async function worktreeFor(repo, branch, exec = defaultExec) {
 }
 
 // where a work's agents run: the worktree of the given row, else the top-most open row that has one, else the repo
-export async function workCwd({ repo, work, key = null, prInfo, exec = defaultExec }) {
+export async function workCwd({ repo, work, key = null, prInfo, exec = defaultExec }: { repo: string; work?: { stack?: StackRow[] } | null; key?: RowKey | null; prInfo: (n: number) => Promise<{ state?: string; head?: string | null } | null | undefined>; exec?: Exec }) {
   const rows = work?.stack || [];
   const ordered = [...rows.filter((s) => key && rowKey(s) === key), ...[...rows].reverse().filter((s) => !key || rowKey(s) !== key)];
   for (const s of ordered) {
@@ -83,40 +122,41 @@ export async function workCwd({ repo, work, key = null, prInfo, exec = defaultEx
   return repo;
 }
 
-const toolText = (d) => (!d ? '' : d.type === 'shell' ? d.command : d.type === 'read' || d.type === 'edit' || d.type === 'write' ? d.filePath : d.type === 'search' ? d.query : d.type === 'fetch' ? d.url : d.type === 'plain_text' ? d.text || d.label || '' : d.type === 'sub_agent' ? d.description || '' : d.type === 'unknown' ? JSON.stringify(d.input ?? null) : '');
-const marked = (text, mark) => (text == null || text === '' ? [] : String(text).split('\n').map((l) => `${mark} ${l}`));
-const editDiff = (d) => d.unifiedDiff || [...marked(d.oldString, '-'), ...marked(d.newString, '+')].join('\n');
-const toolOutput = (d) => (!d ? '' : d.type === 'shell' ? d.output || '' : d.type === 'read' || d.type === 'search' ? d.content || '' : d.type === 'fetch' ? d.result || '' : d.type === 'edit' ? editDiff(d) : d.type === 'write' ? d.content || '' : d.type === 'sub_agent' ? d.log || '' : d.type === 'unknown' ? (d.output == null ? '' : typeof d.output === 'string' ? d.output : JSON.stringify(d.output)) : '');
+const toolText = (d?: ToolDetail | null): string => (!d ? '' : d.type === 'shell' ? d.command || '' : d.type === 'read' || d.type === 'edit' || d.type === 'write' ? d.filePath || '' : d.type === 'search' ? d.query || '' : d.type === 'fetch' ? d.url || '' : d.type === 'plain_text' ? d.text || d.label || '' : d.type === 'sub_agent' ? d.description || '' : d.type === 'unknown' ? JSON.stringify(d.input ?? null) : '');
+const marked = (text: unknown, mark: string) => (text == null || text === '' ? [] : String(text).split('\n').map((l) => `${mark} ${l}`));
+const editDiff = (d: ToolDetail) => d.unifiedDiff || [...marked(d.oldString, '-'), ...marked(d.newString, '+')].join('\n');
+const toolOutput = (d?: ToolDetail | null): string => (!d ? '' : d.type === 'shell' ? (d.output as string) || '' : d.type === 'read' || d.type === 'search' ? d.content || '' : d.type === 'fetch' ? d.result || '' : d.type === 'edit' ? editDiff(d) : d.type === 'write' ? d.content || '' : d.type === 'sub_agent' ? d.log || '' : d.type === 'unknown' ? (d.output == null ? '' : typeof d.output === 'string' ? d.output : JSON.stringify(d.output)) : '');
 
 // Turns timeline events into entries: text and thinking once their message is complete (their deltas go to onDelta(text, 'text' | 'think') as they stream),
 // a tool call once it has its result; onToolStart sees a running call each time what it shows changes.
-export function createFollower({ onEntry, onDelta, onToolStart, onPermission } = {}) {
-  const entries = [];
-  const submitted = {};
-  const done = new Set();
-  const shown = new Map();
-  const waiters = new Set();
-  let chain = null;
-  let cost = null;
-  let failure = null;
-  const emit = (e) => {
+export function createFollower({ onEntry, onDelta, onToolStart, onPermission }: FollowerCallbacks = {}) {
+  const entries: Entry[] = [];
+  const submitted: Record<string, unknown> = {};
+  const done = new Set<string | undefined>();
+  const shown = new Map<string | undefined, string>();
+  const waiters = new Set<() => void>();
+  let chain: { type: string; id?: string; text: string } | null = null;
+  let cost: number | null = null;
+  let failure: unknown = null;
+  const emit = (e: Entry) => {
     entries.push(e);
     onEntry?.(e);
   };
   const close = () => {
     const text = chain?.text.trim();
-    if (text) emit({ type: chain.type, text });
+    if (chain && text) emit({ type: chain.type, text });
     chain = null;
   };
   const settle = () => {
     for (const wake of waiters) wake();
     waiters.clear();
   };
-  function push(message) {
+  function push(message: TimelineMessage | undefined) {
     const ev = message?.event;
     if (!ev) return;
     if (ev.type === 'timeline') {
       const it = ev.item;
+      if (!it) return;
       if (it.type === 'user_message') return;
       if (it.type === 'assistant_message' || it.type === 'reasoning') {
         const type = it.type === 'reasoning' ? 'think' : 'text';
@@ -125,7 +165,7 @@ export function createFollower({ onEntry, onDelta, onToolStart, onPermission } =
           chain = { type, id: it.messageId, text: '' };
         }
         chain.text += it.text;
-        onDelta?.(it.text, type);
+        onDelta?.(it.text ?? '', type);
         return;
       }
       close();
@@ -142,8 +182,8 @@ export function createFollower({ onEntry, onDelta, onToolStart, onPermission } =
         done.add(it.callId);
         shown.delete(it.callId);
         const input = it.detail?.type === 'unknown' ? it.detail.input : it.detail;
-        const m = it.name.match(COCO_TOOL);
-        if (m && it.status === 'completed') submitted[m[1]] = input;
+        const m = (it.name ?? '').match(COCO_TOOL);
+        if (m?.[1] && it.status === 'completed') submitted[m[1]] = input;
         emit({ type: 'tool', id: it.callId, name: it.name, kind: it.detail?.type || 'unknown', input, text: toolText(it.detail), output: toolOutput(it.detail), status: it.status, error: it.error ? String(it.error) : null });
       }
       if (it.type === 'error') emit({ type: 'error', text: it.message });
@@ -159,41 +199,42 @@ export function createFollower({ onEntry, onDelta, onToolStart, onPermission } =
     if (['permission_resolved', 'turn_completed', 'turn_failed', 'turn_canceled'].includes(ev.type)) settle();
   }
   // resolves on the next permission answer or turn end, or after ms
-  const nextSettle = (ms) =>
-    new Promise((resolve) => {
+  const nextSettle = (ms: number) =>
+    new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, Math.max(0, ms));
       waiters.add(() => (clearTimeout(timer), resolve()));
     });
   return { push, end: close, nextSettle, entries, submitted, cost: () => cost, failure: () => failure };
 }
+type Follower = ReturnType<typeof createFollower>;
 
 const EXCERPT = 2000;
-const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
-export const toolEvent = (e) => ({ type: 'tool', id: e.id || null, name: e.name, kind: e.kind || 'unknown', summary: clip(String(e.text || ''), 300), input: e.kind === 'unknown' && e.input != null ? clip(JSON.stringify(e.input), EXCERPT) : '', output: clip(String(e.error || e.output || ''), EXCERPT), status: e.status });
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+export const toolEvent = (e: Entry): ActivityEvent => ({ type: 'tool', id: e.id || null, name: e.name, kind: e.kind || 'unknown', summary: clip(String(e.text || ''), 300), input: e.kind === 'unknown' && e.input != null ? clip(JSON.stringify(e.input), EXCERPT) : '', output: clip(String(e.error || e.output || ''), EXCERPT), status: e.status });
 
 // the follower callbacks every conversation surface uses: keep() gets what is stored and replayed (text, think, tool running then settled under one id, stderr, meta),
 // live() what only a watcher sees (delta and think_delta, batched)
-export function activityEvents({ keep, live, deltaMs = 100 }) {
+export function activityEvents({ keep, live, deltaMs = 100 }: { keep: (ev: ActivityEvent) => void; live: (ev: ActivityEvent) => void; deltaMs?: number }) {
   const buffer = { delta: '', think_delta: '' };
-  let timer = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     timer = null;
-    for (const type of ['think_delta', 'delta']) {
+    for (const type of ['think_delta', 'delta'] as const) {
       if (buffer[type]) live({ type, text: buffer[type] });
       buffer[type] = '';
     }
   };
   return {
-    onDelta: (text, kind = 'text') => {
+    onDelta: (text: string, kind: 'text' | 'think' = 'text') => {
       buffer[kind === 'think' ? 'think_delta' : 'delta'] += text;
       timer ||= setTimeout(flush, deltaMs);
     },
-    onToolStart: (e) => {
+    onToolStart: (e: ToolStart) => {
       flush();
       keep(toolEvent(e));
     },
-    onEntry: (e) => {
+    onEntry: (e: Entry) => {
       if (e.type === 'text' || e.type === 'think') {
         buffer[e.type === 'text' ? 'delta' : 'think_delta'] = '';
         flush();
@@ -201,15 +242,29 @@ export function activityEvents({ keep, live, deltaMs = 100 }) {
       } else if (e.type === 'tool') {
         flush();
         keep(toolEvent(e));
-      } else if (e.type === 'error') keep({ type: 'stderr', text: e.text.slice(0, EXCERPT) });
+      } else if (e.type === 'error') keep({ type: 'stderr', text: (e.text ?? '').slice(0, EXCERPT) });
     },
-    onPermission: (what) => keep({ type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
+    onPermission: (what: string) => keep({ type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
     flush,
   };
 }
 
-export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) {
-  let pending = null;
+export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
+export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
+type AgentConfig = { provider?: string; mode?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
+type StartOptions = AgentConfig & { title: string; prompt?: string; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
+export type SessionOptions = Omit<StartOptions, 'prompt' | 'title'> & { title?: string } & FollowerCallbacks & { agentId?: string | null; flush?: () => void };
+export type AgentSession = Started & {
+  busy(): boolean;
+  cwd(): string | null;
+  say(text: string, opts?: { timeoutMs?: number }): Promise<Outcome | { steered: true }>;
+  resume(opts?: { timeoutMs?: number }): Promise<Outcome>;
+  detach(): void;
+  close(): Promise<void>;
+};
+
+export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP?: string | null; connect?: () => Promise<DaemonClient> } = {}) {
+  let pending: Promise<DaemonClient> | null = null;
   const client = () =>
     (pending ||= connect().catch((e) => {
       pending = null;
@@ -217,15 +272,15 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
     }));
 
   // the workspace already open on cwd (the biggest project's when several share it); opening one only when there is none
-  async function workspaceFor(cwd) {
+  async function workspaceFor(cwd: string) {
     const c = await client();
-    const entries = [];
-    for (let cursor, page; !page || cursor; ) {
+    const entries: WorkspaceEntry[] = [];
+    for (let cursor: string | undefined, page: Awaited<ReturnType<typeof c.workspaces.list>> | undefined; !page || cursor; ) {
       page = await c.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
       entries.push(...page.entries);
       cursor = page.pageInfo?.nextCursor;
     }
-    const size = (p) => entries.filter((w) => w.projectId === p).length;
+    const size = (p?: string) => entries.filter((w) => w.projectId === p).length;
     const [best] = entries.filter((w) => !w.archivingAt && w.workspaceDirectory && sameDir(w.workspaceDirectory, cwd)).sort((a, b) => size(b.projectId) - size(a.projectId));
     if (best) return { workspace: c.workspaces.ref(best), created: false };
     const workspace = await c.workspaces.open(path.resolve(expandHome(cwd)));
@@ -233,51 +288,52 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
   }
 
   // worktree: { mode: 'branch-off', newBranch, base, slug } | { mode: 'checkout-branch', branch } | { mode: 'checkout-pr', prNumber }, opened from the repo at cwd
-  async function worktreeWorkspace(cwd, wt) {
+  async function worktreeWorkspace(cwd: string | null, wt: Worktree) {
     const action =
       wt.mode === 'branch-off' ? { action: 'branch-off', branchName: wt.newBranch, ...(wt.base ? { baseBranch: wt.base } : {}) } : wt.mode === 'checkout-branch' ? { action: 'checkout', refName: wt.branch } : { action: 'checkout', checkoutSource: { kind: 'change_request', number: Number(wt.prNumber) } };
     const workspace = await (await client()).workspaces.create({ source: { kind: 'worktree', cwd, ...(wt.slug ? { worktreeSlug: wt.slug } : {}), ...action } });
     return { workspace, created: true };
   }
 
-  const configFor = ({ provider, mode, thinking, systemPrompt, mcp }) => ({
+  const configFor = ({ provider, mode, thinking, systemPrompt, mcp }: AgentConfig) => ({
     provider,
     ...(mode ? { modeId: mode } : {}),
     ...(thinking ? { thinkingOptionId: thinking } : {}),
     ...(systemPrompt ? { systemPrompt } : {}),
     ...(mcp
       ? {
-          mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP, 'server/mcp.ts')], alwaysLoad: true } },
+          mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true } },
           toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) },
         }
       : {}),
   });
-  const cleanLabels = (labels) => Object.fromEntries(Object.entries(labels || {}).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)]));
+  const cleanLabels = (labels?: Record<string, unknown>) => Object.fromEntries(Object.entries(labels || {}).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)]));
 
   // places and creates the agent; with a prompt it starts right away, coco does not follow it
-  async function start({ title, prompt, labels, cwd = null, workspaceId = null, worktree = null, ...config }) {
-    const { workspace, created } = workspaceId ? { workspace: (await client()).workspaces.ref(workspaceId), created: false } : worktree ? await worktreeWorkspace(cwd, worktree) : await workspaceFor(cwd);
+  async function start({ title, prompt, labels, cwd = null, workspaceId = null, worktree = null, ...config }: StartOptions) {
+    const { workspace, created } = workspaceId ? { workspace: (await client()).workspaces.ref(workspaceId), created: false } : worktree ? await worktreeWorkspace(cwd, worktree) : await workspaceFor(cwd ?? '');
     const agent = await workspace.agents.create({ title: cocoTitle(title), config: configFor(config), labels: cleanLabels(labels), ...(prompt ? { prompt } : {}) });
     return { agent, agentId: agent.id, workspaceId: workspace.id, createdWorkspace: created ? workspace.id : null };
   }
 
   // an agent coco started earlier, or null once it is archived or unknown to the daemon (an unreachable daemon throws)
-  async function attach(agentId) {
+  async function attach(agentId: string) {
     const agent = (await client()).agents.ref(agentId);
     const found = await agent.refresh();
     return found?.agent && !found.agent.archivedAt && found.agent.status !== 'closed' ? agent : null;
   }
 
-  async function archive(agentId) {
+  async function archive(agentId: string) {
     const agent = await attach(agentId);
     if (agent) await agent.archive();
     return Boolean(agent);
   }
 
-  const outcome = (result, follow, timeoutMs) => {
+  const outcome = (result: WaitResult, follow: Follower, timeoutMs: number): Outcome => {
     const status = result.status === 'idle' ? 'done' : result.status === 'permission' ? 'timeout' : result.status;
-    const texts = follow.entries.filter((e) => e.type === 'text').map((e) => e.text);
-    const error = status === 'timeout' ? `no answer within ${Math.round(timeoutMs / 60000)} min` : status === 'error' ? result.error || follow.failure() || 'the Paseo agent failed' : null;
+    const texts = follow.entries.filter((e) => e.type === 'text').map((e) => e.text ?? '');
+    const failure = follow.failure();
+    const error = status === 'timeout' ? `no answer within ${Math.round(timeoutMs / 60000)} min` : status === 'error' ? result.error || (failure ? String(failure) : null) || 'the Paseo agent failed' : null;
     return {
       status,
       error,
@@ -291,31 +347,38 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
 
   // one agent for a whole conversation, started from opts or re-attached by agentId (null once that agent is gone):
   // say() opens a turn, or steers the turn in flight like a thread follow-up; the agent lives until close()
-  async function session({ agentId = null, onEntry, onDelta, onToolStart, onPermission, flush, ...opts }) {
-    let agent;
-    let started;
+  async function session(opts: SessionOptions & { agentId: string }): Promise<AgentSession | null>;
+  async function session(opts: SessionOptions & { agentId?: null }): Promise<AgentSession>;
+  async function session({ agentId = null, onEntry, onDelta, onToolStart, onPermission, flush, ...opts }: SessionOptions): Promise<AgentSession | null> {
+    let agent: DaemonAgent;
+    let started: Started;
     if (agentId) {
-      agent = await attach(agentId);
-      if (!agent) return null;
+      const found = await attach(agentId);
+      if (!found) return null;
+      agent = found;
       started = { agentId, workspaceId: agent.workspaceId, createdWorkspace: null };
-    } else ({ agent, ...started } = await start(opts));
+    } else {
+      const { agent: created, ...rest } = await start({ ...opts, title: opts.title ?? '' });
+      agent = created;
+      started = rest;
+    }
     const callbacks = { onEntry, onDelta, onToolStart, onPermission };
     let follow = createFollower(callbacks);
     const unsubscribe = agent.timeline.subscribe((m) => follow.push(m));
     const { ready } = unsubscribe;
-    ready.catch(() => {});
+    ready?.catch(() => {});
     // messages leave in order, once the timeline is followed; one reaching a busy agent joins its turn
-    let sending = Promise.resolve();
-    const deliver = (text) => (sending = sending.catch(() => {}).then(() => ready).then(() => agent.send(text, { activeTurnBehavior: 'steer' })));
-    let inFlight = null;
+    let sending: Promise<unknown> = Promise.resolve();
+    const deliver = (text: string) => (sending = sending.catch(() => {}).then(() => ready).then(() => agent.send(text, { activeTurnBehavior: 'steer' })));
+    let inFlight: Promise<Outcome> | null = null;
     let steered = false;
 
     // prompt null waits on the turn the agent is already in; waits through permissions answered in Paseo and a steer landing as the turn ends
-    async function turn(prompt, timeoutMs) {
+    async function turn(prompt: string | null, timeoutMs: number): Promise<Outcome> {
       follow = createFollower(callbacks);
       steered = false;
       const deadline = Date.now() + timeoutMs;
-      let result;
+      let result: WaitResult;
       try {
         await (prompt === null ? ready : deliver(prompt));
         result = await agent.waitForFinish(timeoutMs);
@@ -330,13 +393,13 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
           result = await agent.waitForFinish(Math.max(1, deadline - Date.now()));
         }
       } catch (e) {
-        result = { status: 'error', error: e.message };
+        result = { status: 'error', error: e instanceof Error ? e.message : String(e) };
       }
       follow.end();
       flush?.();
       return outcome(result, follow, timeoutMs);
     }
-    const track = (p) => (inFlight = p.finally(() => (inFlight = null)));
+    const track = (p: Promise<Outcome>) => (inFlight = p.finally(() => (inFlight = null)));
 
     return {
       ...started,
@@ -358,12 +421,14 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon } = {}) 
   }
 
   // starts the agent, follows its timeline until the turn ends (waiting through permission requests answered in Paseo), then archives it, failures included
-  async function run({ prompt, timeoutMs = TIMEOUT_MS, onStart, ...opts }) {
+  async function run({ prompt, timeoutMs = TIMEOUT_MS, onStart, ...opts }: Omit<SessionOptions, 'agentId'> & { prompt: string; timeoutMs?: number; onStart?: (started: Started) => void }) {
     const s = await session(opts);
     const started = { agentId: s.agentId, workspaceId: s.workspaceId, createdWorkspace: s.createdWorkspace };
     onStart?.(started);
     try {
-      return { ...started, ...(await s.say(prompt, { timeoutMs })) };
+      const result = await s.say(prompt, { timeoutMs });
+      if ('steered' in result) throw new Error('the Paseo agent was already working');
+      return { ...started, ...result };
     } finally {
       await s.close();
     }

@@ -2,19 +2,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { rowKey } from './stack.ts';
+import { errorMessage, errorStatus } from './core-types.ts';
+import type { Config } from './config.ts';
+import type { CodeApi, CommentsApi, ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, Work, Works } from './core-types.ts';
 
 const MAX_BODY = 5000;
 const ANCHOR = /`([\w@][\w@./-]*\.\w+):(\d+)(?:-(\d+))?`/;
 
+type Finding = { path: string; startLine: number; endLine: number; body: string };
+type Skipped = { where: string; reason: string };
+type Added = { where: string; key: RowKey; id: string };
+
 // one finding per `### N.` heading or `N. **…**` item, anchored on its first `path:line`
-export function parseFindings(md) {
+export function parseFindings(md: string): Finding[] {
   return md
     .split(/^(?=### \d+\.|\d+\. \*\*)/m)
     .slice(1)
     .map((block) => block.split(/^#{1,2} /m)[0])
-    .map((block) => {
+    .flatMap((block): Finding[] => {
       const m = block.match(ANCHOR);
-      if (!m) return null;
+      if (!m) return [];
       const body = block
         .replace(/^### /, '')
         .split('\n')
@@ -22,14 +29,15 @@ export function parseFindings(md) {
         .join('\n')
         .trim();
       const startLine = Number(m[2]);
-      return { path: m[1], startLine, endLine: Math.max(startLine, Number(m[3] || m[2])), body: body.slice(0, MAX_BODY) };
-    })
-    .filter(Boolean);
+      return [{ path: m[1], startLine, endLine: Math.max(startLine, Number(m[3] || m[2])), body: body.slice(0, MAX_BODY) }];
+    });
 }
 
-export function createReviewImport({ REPO, config, works, comments, code, reviewAgent }) {
+type Deps = { REPO: string; config: Config; works: Works; comments: CommentsApi; code: CodeApi; reviewAgent: ReviewAgentApi };
+
+export function createReviewImport({ REPO, config, works, comments, code, reviewAgent }: Deps) {
   const REVIEWS = config.repo.reviewsDir;
-  async function candidates(work) {
+  async function candidates(work: Work) {
     const dirs = REPO ? [path.join(REPO, REVIEWS)] : [];
     for (const s of work.stack || []) {
       const wt = s.planned?.branch && (await reviewAgent.worktreeFor(s.planned.branch));
@@ -42,16 +50,16 @@ export function createReviewImport({ REPO, config, works, comments, code, review
       .slice(0, 40);
   }
 
-  async function importFile(work, file) {
+  async function importFile(work: Work, file: string) {
     const author = (path.basename(file, '.md').match(/-([\w.]+)$/) || [])[1];
-    const rows = [];
+    const rows: { key: RowKey; sha: string; files: Set<string> }[] = [];
     for (const s of work.stack || []) {
       const key = rowKey(s);
       if (!key) continue;
       const refs = await code.ensureRefs(key);
       rows.push({ key, sha: refs.headSha, files: new Set((await code.prFilesFromGit(key, refs)).map((f) => f.filename)) });
     }
-    const out = { added: [], skipped: [] };
+    const out: { added: Added[]; skipped: Skipped[] } = { added: [], skipped: [] };
     for (const f of parseFindings(fs.readFileSync(file, 'utf8'))) {
       const row = rows.findLast((r) => r.files.has(f.path));
       const where = `${f.path}:${f.startLine}`;
@@ -68,14 +76,14 @@ export function createReviewImport({ REPO, config, works, comments, code, review
         const c = await comments.add(work.slug, row.key, { path: f.path, side: 'head', sha: row.sha, startLine: f.startLine, endLine: f.endLine, body: f.body, author });
         out.added.push({ where, key: row.key, id: c.id });
       } catch (e) {
-        out.skipped.push({ where, reason: e.message });
+        out.skipped.push({ where, reason: errorMessage(e) });
       }
     }
     if (out.added.length) reviewAgent.timeline(work.slug, 'review', `imported ${out.added.length} findings from ${path.basename(file)}`);
     return out;
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const work = works.get(parts[1]);
       if (!work) return send(res, 404, { error: 'no such work' });
@@ -85,7 +93,7 @@ export function createReviewImport({ REPO, config, works, comments, code, review
       if (!files.some((f) => f.path === body.path)) return send(res, 400, { error: 'not a review file of this work' });
       return send(res, 200, await importFile(work, body.path));
     } catch (e) {
-      return send(res, e.status || (typeof e.code === 'number' ? e.code : 500), { error: e.message });
+      return send(res, errorStatus(e), { error: errorMessage(e) });
     }
   }
 

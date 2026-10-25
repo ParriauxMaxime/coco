@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import type { ExecFileOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createWorks } from './works.ts';
 import { createAsk } from './ask.ts';
@@ -29,6 +30,8 @@ import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import { createPaseoAgents } from './paseo-agent.ts';
+import { errorMessage } from './core-types.ts';
+import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -43,12 +46,18 @@ const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
 
+interface FeedbackItem {
+  node?: unknown;
+  ts?: string;
+  [key: string]: unknown;
+}
+
 fs.mkdirSync(DATA, { recursive: true });
 const paseoAgents = createPaseoAgents({ APP });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents });
-const rules = createRules({ DATA, REPO, config, works, ask });
-const inbox = createInbox({ REPO, config, ask });
+const rules = createRules({ DATA, config, works, ask });
+const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
 works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
 const comments = createComments({ DATA, REPO, config, works });
@@ -60,47 +69,47 @@ const reviewImport = createReviewImport({ REPO, config, works, comments, code, r
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads });
 threads.setFindingActor(findings.actOnComment);
-const media = createMedia({ DATA, REPO, config, works });
+const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
-const gates = createGates({ REPO, config, works, reviewAgent, reviewPlan });
+const gates = createGates({ config, works, reviewAgent, reviewPlan });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents });
-const paseoLink = createPaseoLink({ REPO, config, works, comments, code, reviewAgent, stackFix, threads });
+const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads });
 const devServers = createDevServers({ REPO, config, works });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
 fs.mkdirSync(BRIEFS, { recursive: true });
 
-const send = (res, code, body, type = 'application/json') => {
+const send: Send = (res, code, body, type = 'application/json') => {
   const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
   res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' });
   res.end(data);
 };
-const readBody = (req) =>
-  new Promise((resolve) => {
+const readBody = (req: Req) =>
+  new Promise<string>((resolve) => {
     let raw = '';
-    req.on('data', (c) => (raw += c));
+    req.on('data', (c: Buffer) => (raw += c));
     req.on('end', () => resolve(raw));
   });
-const safeJoin = (root, name) => {
+const safeJoin = (root: string, name: string) => {
   const full = path.resolve(root, name);
   if (!full.startsWith(root + path.sep) && full !== root) throw new Error('outside root');
   return full;
 };
-const run = (cmd, args, opts = {}) =>
-  new Promise((resolve) => {
+const run = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
+  new Promise<RunResult>((resolve) => {
     execFile(cmd, args, { maxBuffer: 20 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
     });
   });
 
-const frontmatter = (text) => {
+const frontmatter = (text: string) => {
   const m = text.match(/^---\n([\s\S]*?)\n---/);
-  const out = {};
+  const out: Record<string, string> = {};
   if (!m) return out;
   for (const line of m[1].split('\n')) {
     const kv = line.match(/^([\w-]+):\s*(.*)$/);
@@ -108,12 +117,12 @@ const frontmatter = (text) => {
   }
   return out;
 };
-const section = (text, heading) => {
+const section = (text: string, heading: string) => {
   const re = new RegExp(`^## ${heading}\\n([\\s\\S]*?)(?=^## |\\Z(?![\\s\\S]))`, 'm');
   const m = text.match(re);
   return m ? m[1] : '';
 };
-const countListItems = (text) => (text.match(/^\s*(?:[-*]|\d+\.)\s/gm) || []).length;
+const countListItems = (text: string) => (text.match(/^\s*(?:[-*]|\d+\.)\s/gm) || []).length;
 
 function listPersonas() {
   if (!fs.existsSync(PERSONAS)) return [];
@@ -149,7 +158,7 @@ function listPersonas() {
 }
 
 const PREFIX = config.skillPrefix;
-const mine = (name) => Boolean(PREFIX) && name.startsWith(PREFIX);
+const mine = (name: string) => Boolean(PREFIX) && name.startsWith(PREFIX);
 function listSkills() {
   if (!fs.existsSync(SKILLS)) return [];
   return fs
@@ -179,20 +188,20 @@ function readFeedback() {
     .readFileSync(file, 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((l) => JSON.parse(l));
+    .map((l): FeedbackItem => JSON.parse(l));
 }
 
 async function agents() {
   const [a, w] = await Promise.all([run('paseo', ['ls', '--json']), run('paseo', ['workspace', 'ls', '--json'])]);
-  const parse = (r) => {
+  const parse = <T>(r: RunResult): T[] => {
     try {
       return JSON.parse(r.stdout);
     } catch {
       return [];
     }
   };
-  const agents = parse(a).map((x) => ({ ...x, cwd: x.cwd?.replace(/^~/, os.homedir()) }));
-  return { agents, workspaces: parse(w), error: a.ok ? null : a.stderr };
+  const agents = parse<{ cwd?: string }>(a).map((x) => ({ ...x, cwd: x.cwd?.replace(/^~/, os.homedir()) }));
+  return { agents, workspaces: parse<unknown>(w), error: a.ok ? null : a.stderr };
 }
 
 function listReviews() {
@@ -209,16 +218,16 @@ function listReviews() {
 }
 
 // {field} or {a|b} (first non-empty) from the launch body, plus {briefsDir} and {owner}
-const fillRitual = (template, body) =>
-  String(template || '').replace(/\{([\w|]+)\}/g, (_, keys) => {
-    const vars = { ...body, briefsDir: BRIEFS, owner: config.owner.name };
+const fillRitual = (template: string | undefined, body: Record<string, unknown>) =>
+  String(template || '').replace(/\{([\w|]+)\}/g, (_, keys: string) => {
+    const vars: Record<string, unknown> = { ...body, briefsDir: BRIEFS, owner: config.owner.name };
     return keys.split('|').map((k) => String(vars[k] ?? '').trim()).find(Boolean) || '';
   });
 
 // sidebar progress from the last GitHub snapshot, no gh call per overview poll
-function workProgress(w) {
+function workProgress(w: Work) {
   const snapFile = path.join(DATA, 'works', '.snapshots', `${w.slug}.json`);
-  const snap = fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
+  const snap: Record<string, { state?: string; reviewDecision?: string | null; ci?: string }> = fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
   const out = { merged: 0, open: 0, planned: 0, closed: 0, attention: false, restack: needsKeeping(w, snap) };
   for (const s of w.stack || []) {
     const st = s.number ? snap[s.number] : null;
@@ -231,17 +240,17 @@ function workProgress(w) {
   return out;
 }
 
-async function launchRitual(body) {
+async function launchRitual(body: { kind: string; provider?: string; [key: string]: unknown }) {
   const spec = config.rituals.find((r) => r.kind === body.kind);
   if (!spec) return { ok: false, error: `unknown ritual ${body.kind}` };
   const title = fillRitual(spec.title || spec.label || spec.kind, body);
   const prompt = fillRitual(spec.prompt, body);
-  let started = {};
+  let started: { agentId?: string | null; createdWorkspace?: string | null } = {};
   let error = '';
   try {
     started = await paseoAgents.start({ title, provider: body.provider || config.models.default, thinking: 'high', cwd: REPO || os.homedir(), labels: { source: 'cockpit', ritual: body.kind }, prompt });
   } catch (e) {
-    error = e.message;
+    error = errorMessage(e);
   }
   const { agentId = null, createdWorkspace = null } = started;
   const entry = { ts: new Date().toISOString(), kind: body.kind, title, prompt, agentId, ok: !error, out: (error || `started ${agentId}${createdWorkspace ? ` in new workspace ${createdWorkspace}` : ''}`).slice(0, 2000) };
@@ -255,7 +264,7 @@ function readRituals() {
   return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).reverse();
 }
 
-async function api(req, res, url) {
+async function api(req: Req, res: Res, url: URL) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1);
   const [root, a, b, c] = parts;
   try {
@@ -291,7 +300,7 @@ async function api(req, res, url) {
       const pj = await run('paseo', ['project', 'ls', '--json']);
       let projectCount = 0;
       try { projectCount = JSON.parse(pj.stdout).length; } catch {}
-      const read = (n) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');
+      const read = (n: string) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');
       return send(res, 200, { projectCount, personas, skills, works: works.list().map((w) => ({ slug: w.slug, title: w.title, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null })), feedback: feedback.slice(-20).reverse(), feedbackCount: feedback.length, agents: ag.agents.slice(0, 12), agentsError: ag.error, backlog: read('backlog.md'), changelog: read('CHANGELOG.md'), rituals: readRituals().slice(0, 10) });
     }
     if (root === 'personas' && !a) return send(res, 200, listPersonas());
@@ -316,7 +325,8 @@ async function api(req, res, url) {
     if (root === 'avatar' && a) {
       const login = decodeURIComponent(a);
       const local = ['png', 'jpg', 'jpeg', 'webp'].map((ext) => path.join(DATA, 'avatars', `${login}.${ext}`)).find((f) => fs.existsSync(f));
-      if (local) return send(res, 200, fs.readFileSync(local), { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[path.extname(local).slice(1)]);
+      const avatarTypes: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
+      if (local) return send(res, 200, fs.readFileSync(local), avatarTypes[path.extname(local).slice(1)]);
       const p = listPersonas().find((x) => x.login === login);
       res.writeHead(302, { Location: `https://github.com/${p?.github || login}.png?size=96`, 'Cache-Control': 'public, max-age=3600' });
       return res.end();
@@ -347,7 +357,7 @@ async function api(req, res, url) {
     if (root === 'reviews' && a) return send(res, 200, listReviews());
     if (root === 'feedback') {
       if (req.method === 'POST') {
-        const item = JSON.parse(await readBody(req));
+        const item: FeedbackItem = JSON.parse(await readBody(req));
         item.ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
         fs.appendFileSync(path.join(DATA, 'feedback.jsonl'), JSON.stringify(item) + '\n');
         return send(res, 200, { ok: true });
@@ -360,12 +370,12 @@ async function api(req, res, url) {
     }
     return send(res, 404, { error: 'no route' });
   } catch (e) {
-    return send(res, 500, { error: String(e.message || e) });
+    return send(res, 500, { error: errorMessage(e) });
   }
 }
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2' };
-function serveStatic(res, url) {
+const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2' };
+function serveStatic(res: Res, url: URL) {
   let file = path.join(DIST, url.pathname === '/' ? 'index.html' : url.pathname);
   if (!file.startsWith(DIST)) return send(res, 403, 'forbidden', 'text/plain');
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html');
@@ -375,9 +385,9 @@ function serveStatic(res, url) {
 
 http
   .createServer(async (req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     // module handlers are returned, not awaited, inside api's try: their rejections land here instead of killing the server
-    if (url.pathname.startsWith('/api/')) return api(req, res, url).catch((e) => (res.headersSent ? res.end() : send(res, 500, { error: String(e.message || e) })));
+    if (url.pathname.startsWith('/api/')) return api(req, res, url).catch((e) => (res.headersSent ? res.end() : send(res, 500, { error: errorMessage(e) })));
     if (url.pathname.startsWith('/works/')) return works.serveArtifact(res, url.pathname, send);
     return serveStatic(res, url);
   })

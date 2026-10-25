@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { Socket } from 'node:net';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createLang } from './lang.ts';
@@ -20,13 +22,20 @@ const findTs = () => {
   }
 };
 const TS = findTs();
-let dir, lang, sha;
-const git = (...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
-const call = async (op, q) => {
-  const out = {};
+let dir = '';
+let lang: ReturnType<typeof createLang> | undefined;
+let sha = '';
+const git = (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
+type Loc = { path: string; line: number; col: number; preview: string };
+const call = async <T = never>(op: string, q: Record<string, string>) => {
+  if (!lang) throw new Error('lang is not ready');
+  const out: { status: number; body: { status?: string; error?: string; result: T } } = { status: 0, body: JSON.parse('{}') };
   const url = `/api/code/pr/1/${op}?${new URLSearchParams({ sha, ...q })}`;
   const parts = new URL(url, 'http://x').pathname.split('/').filter(Boolean).slice(1);
-  await lang.handle({ method: 'GET', url }, {}, parts, null, (_res, status, body) => Object.assign(out, { status, body }));
+  const req = new IncomingMessage(new Socket());
+  req.method = 'GET';
+  req.url = url;
+  await lang.handle(req, new ServerResponse(req), parts, async () => '', (_res, status, body) => void Object.assign(out, { status, body }));
   return out;
 };
 
@@ -38,7 +47,7 @@ before(async () => {
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 't@t');
   git('config', 'user.name', 't');
-  const w = (f, c) => {
+  const w = (f: string, c: string) => {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
     fs.writeFileSync(path.join(dir, f), c);
   };
@@ -48,12 +57,12 @@ before(async () => {
   git('add', '.');
   git('commit', '-q', '-m', 'init');
   sha = git('rev-parse', 'HEAD');
-  lang = createLang({ REPO: dir, tsPath: TS });
-  const first = await call('definition', { path: 'a.ts', line: 3, col: 18 });
+  lang = createLang({ REPO: dir, tsPath: TS ?? undefined });
+  const first = await call('definition', { path: 'a.ts', line: '3', col: '18' });
   assert.equal(first.status, 202);
   assert.equal(first.body.status, 'indexing');
   const init = await lang.ensure(sha);
-  assert.ok(init.result, init.error);
+  assert.ok(init.result, init.error ?? '');
 });
 
 after(() => {
@@ -62,7 +71,7 @@ after(() => {
 });
 
 test('definition of an imported symbol lands in the declaring file', { skip }, async () => {
-  const r = await call('definition', { path: 'a.ts', line: 3, col: 18 });
+  const r = await call<Loc[]>('definition', { path: 'a.ts', line: '3', col: '18' });
   assert.equal(r.status, 200);
   assert.deepEqual(
     r.body.result.map(({ path: p, line, col }) => ({ path: p, line, col })),
@@ -72,14 +81,14 @@ test('definition of an imported symbol lands in the declaring file', { skip }, a
 });
 
 test('references finds the declaration and the usages in both files', { skip }, async () => {
-  const r = await call('references', { path: 'lib/b.ts', line: 2, col: 18 });
+  const r = await call<Loc[]>('references', { path: 'lib/b.ts', line: '2', col: '18' });
   assert.equal(r.status, 200);
   const where = r.body.result.map((x) => `${x.path}:${x.line}`).sort();
   assert.deepEqual(where, ['a.ts:1', 'a.ts:3', 'lib/b.ts:2']);
 });
 
 test('hover shows the signature and the documentation', { skip }, async () => {
-  const r = await call('hover', { path: 'a.ts', line: 3, col: 19 });
+  const r = await call<{ contents: string; range: unknown }>('hover', { path: 'a.ts', line: '3', col: '19' });
   assert.equal(r.status, 200);
   assert.match(r.body.result.contents, /foo\(n: number\): number/);
   assert.match(r.body.result.contents, /Doubles n\./);
@@ -87,7 +96,7 @@ test('hover shows the signature and the documentation', { skip }, async () => {
 });
 
 test('an unknown path is an error', { skip }, async () => {
-  const r = await call('definition', { path: 'nope.ts', line: 1, col: 1 });
+  const r = await call('definition', { path: 'nope.ts', line: '1', col: '1' });
   assert.equal(r.status, 404);
-  assert.match(r.body.error, /unknown path/);
+  assert.match(r.body.error ?? '', /unknown path/);
 });

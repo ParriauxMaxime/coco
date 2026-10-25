@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import Markdown from './Markdown.tsx';
 import { useCodeRefs } from './CodeRefs.tsx';
+import type { Block, Source, TableCell } from '../types.ts';
 import './blocks.css';
 
 // typed blocks (server/blocks.ts) drawn with cocopilot's tokens: one look for every finding, whoever wrote it
@@ -9,7 +10,7 @@ const KEEP = new Set(['STRONG', 'EM', 'CODE', 'DEL', 'BR']);
 const MARKS = new Set(['RISK', 'WARN', 'OK', 'NOTE', 'MUTE']);
 const TONE_LABEL = { risk: 'Risk', warn: 'Watch', ok: 'Fine', note: 'Note', mute: 'Aside' };
 
-function clean(node) {
+function clean(node: ParentNode) {
   for (const el of [...node.children]) {
     clean(el);
     if (MARKS.has(el.tagName)) {
@@ -26,24 +27,24 @@ function clean(node) {
 }
 
 // **bold**, *italic*, `code`, file refs and <risk|warn|ok|note|mute> marks; any other tag shows as text
-export const inlineHtml = (text) => {
+export const inlineHtml = (text: unknown) => {
   const tpl = document.createElement('template');
-  tpl.innerHTML = marked.parseInline(String(text || ''));
+  tpl.innerHTML = marked.parseInline(String(text || ''), { async: false });
   clean(tpl.content);
   return tpl.innerHTML;
 };
 
-export function Inline({ text, as: Tag = 'span', className }) {
+export function Inline({ text, as: Tag = 'span', className }: { text?: string; as?: 'span' | 'div' | 'p'; className?: string }) {
   const html = useMemo(() => inlineHtml(text), [text]);
   return <Tag className={className} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-const Caption = ({ text }) => (text ? <Inline as="div" className="bk-caption" text={text} /> : null);
+const Caption = ({ text }: { text?: string }) => (text ? <Inline as="div" className="bk-caption" text={text} /> : null);
 // every block opens on a section heading, so a long finding scans at a glance
-const Heading = ({ text }) => (text ? <Inline as="div" className="bk-h" text={text} /> : null);
-const where = (path, start, end) => `${path}${start ? `:${start}` : ''}${end && end !== start ? `-${end}` : ''}`;
+const Heading = ({ text }: { text?: string }) => (text ? <Inline as="div" className="bk-h" text={text} /> : null);
+const where = (path: string, start?: number, end?: number) => `${path}${start ? `:${start}` : ''}${end && end !== start ? `-${end}` : ''}`;
 
-function Suggestion({ b }) {
+function Suggestion({ b }: { b: Extract<Block, { type: 'suggestion' }> }) {
   const [copied, setCopied] = useState(false);
   const before = b.before == null ? [] : b.before.split('\n');
   const after = b.after.split('\n');
@@ -65,15 +66,15 @@ function Suggestion({ b }) {
   );
 }
 
-const cellText = (c) => (typeof c === 'string' ? c : c.text);
-function Table({ b }) {
-  const [sort, setSort] = useState(null);
+const cellText = (c: TableCell) => (typeof c === 'string' ? c : c.text);
+function Table({ b }: { b: Extract<Block, { type: 'table' }> }) {
+  const [sort, setSort] = useState<{ col: number; desc: boolean } | null>(null);
   const rows = useMemo(() => {
     if (!sort) return b.rows;
     const dir = sort.desc ? -1 : 1;
     return [...b.rows].sort((x, y) => dir * cellText(x[sort.col]).localeCompare(cellText(y[sort.col]), undefined, { numeric: true }));
   }, [b.rows, sort]);
-  const by = (col) => setSort(sort?.col === col ? (sort.desc ? null : { col, desc: true }) : { col, desc: false });
+  const by = (col: number) => setSort(sort?.col === col ? (sort.desc ? null : { col, desc: true }) : { col, desc: false });
   return (
     <figure className="bk-table">
       <Heading text={b.caption} />
@@ -85,7 +86,7 @@ function Table({ b }) {
   );
 }
 
-function Block({ b }) {
+function BlockView({ b }: { b: Block }) {
   if (b.type === 'text') return <Inline as="p" className="bk-text" text={b.text} />;
   if (b.type === 'callout') return <div className={`bk-callout ${b.tone}`}><b>{b.title || TONE_LABEL[b.tone]}</b> <Inline text={b.text} /></div>;
   if (b.type === 'steps') return (
@@ -114,16 +115,18 @@ function Block({ b }) {
   return null;
 }
 
-export default function Blocks({ blocks }) {
-  const ref = useRef(null);
+export default function Blocks({ blocks }: { blocks: Block[] }) {
+  const ref = useRef<HTMLDivElement>(null);
   const peek = useCodeRefs(ref, [blocks]);
-  return <div ref={ref} className="bk">{blocks.map((b, i) => <Block key={i} b={b} />)}{peek}</div>;
+  return <div ref={ref} className="bk">{blocks.map((b, i) => <BlockView key={i} b={b} />)}{peek}</div>;
 }
 
 // a finding posted through the coco-findings skill: class and the fix up top, the evidence blocks, then where it came from
 // "Existing bug on master (security, cross-team)" → the class, then one chip per qualifier; security reads red
-function Category({ text }) {
-  const [, main = text, rest = ''] = /^(.*?)\s*\((.*)\)\s*$/.exec(text) || [];
+function Category({ text }: { text: string }) {
+  const parsed = /^(.*?)\s*\((.*)\)\s*$/.exec(text);
+  const main = parsed?.[1] ?? text;
+  const rest = parsed?.[2] ?? '';
   const tags = rest.split(/\s*,\s*/).filter(Boolean);
   return (
     <div className="bk-cat">
@@ -133,7 +136,9 @@ function Category({ text }) {
   );
 }
 
-export function FindingBody({ r }) {
+type FindingBodyData = { summary?: string; category?: string; recommendation?: string; blocks?: Block[]; sources?: Source[] };
+
+export function FindingBody({ r }: { r: FindingBodyData }) {
   return (
     <div className="bk-finding">
       {r.summary && <Inline as="p" className="bk-lede" text={r.summary} />}
@@ -143,8 +148,8 @@ export function FindingBody({ r }) {
           {r.recommendation && <div className="bk-fix"><span className="bk-fix-label">Fix</span><Inline text={r.recommendation} /></div>}
         </div>
       )}
-      <Blocks blocks={r.blocks} />
-      {r.sources?.length > 0 && <div className="bk-sources">from {r.sources.map((s, i) => <span key={i}>{s.url ? <a href={s.url} {...(s.url.startsWith('#') ? {} : { target: '_blank', rel: 'noreferrer' })}>{s.label}</a> : s.label}{s.path && <> <code>{s.path}</code></>}</span>)}</div>}
+      <Blocks blocks={r.blocks ?? []} />
+      {r.sources && r.sources.length > 0 && <div className="bk-sources">from {r.sources.map((s, i) => <span key={i}>{s.url ? <a href={s.url} {...(s.url.startsWith('#') ? {} : { target: '_blank', rel: 'noreferrer' })}>{s.label}</a> : s.label}{s.path && <> <code>{s.path}</code></>}</span>)}</div>}
     </div>
   );
 }

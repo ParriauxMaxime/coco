@@ -1,17 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { PersonaChip } from '../components/PersonaChip.tsx';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
+import type { PersonaDetail, PersonaJson, Quote } from '../types.ts';
 import { ritualFields, useConfig } from '../config.ts';
 import Markdown from '../components/Markdown.tsx';
 import Editor from '../components/Editor.tsx';
 import Feedback from '../components/Feedback.tsx';
 
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-function Overview({ p }) {
+type PersonaCheck = NonNullable<PersonaJson['checks']>[number];
+
+function Overview({ p }: { p: PersonaDetail }) {
   const P = p.json;
   if (!P) return <div className="card"><Markdown text={p.md} /></div>;
-  const quotes = (a) => (a || []).map(([q, w], i) => <blockquote key={i}>{q} <small style={{ color: 'var(--mute)' }}>— {w}</small></blockquote>);
+  const quotes = (a?: Quote[]) => (a || []).map(([q, w], i) => <blockquote key={i}>{q} <small style={{ color: 'var(--mute)' }}>— {w}</small></blockquote>);
   return (
     <>
       <div className="card kpis">
@@ -56,7 +59,7 @@ function Overview({ p }) {
   );
 }
 
-function Check({ i, c }) {
+function Check({ i, c }: { i: number; c: PersonaCheck }) {
   const [open, setOpen] = useState(false);
   return (
     <div className={`item ${open ? 'open' : ''}`}>
@@ -72,16 +75,16 @@ function Check({ i, c }) {
   );
 }
 
-export default function Persona({ login, tab = 'overview' }) {
-  const [p, setP] = useState(null);
+export default function Persona({ login, tab = 'overview' }: { login: string; tab?: string }) {
+  const [p, setP] = useState<PersonaDetail | null>(null);
   const [err, setErr] = useState('');
   const rituals = useConfig((s) => s.rituals);
   const [file, setFile] = useState(`${login}.md`);
   useEffect(() => {
-    api.persona(login).then(setP).catch((e) => setErr(e.message));
+    api.persona(login).then(setP).catch((e) => setErr(errorMessage(e)));
   }, [login]);
   const load = useCallback(() => api.personaFile(login, file), [login, file]);
-  const save = useCallback((t) => api.savePersonaFile(login, file, t), [login, file]);
+  const save = useCallback((t: string) => api.savePersonaFile(login, file, t), [login, file]);
   if (err) return <div className="card danger">{err}</div>;
   if (!p) return <div className="sub">Loading…</div>;
   const tabs = [['overview', 'Overview'], ['file', 'Persona file'], ['edit', 'Edit'], ['feedback', `Feedback (${p.feedback.length})`]];

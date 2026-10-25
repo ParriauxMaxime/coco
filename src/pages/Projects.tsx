@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.ts';
+import type { PaseoResponse } from '../types.ts';
 
-const statusChip = (s) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
-const short = (p) => p.replace(/^\/Users\/[^/]+/, '~');
+const statusChip = (s: string) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
+const short = (p: string) => p.replace(/^\/Users\/[^/]+/, '~');
 
 export default function Projects() {
-  const [data, setData] = useState(null);
-  const [open, setOpen] = useState({});
+  const [data, setData] = useState<PaseoResponse | null>(null);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const refresh = () => api.paseo().then(setData);
   useEffect(() => {
     refresh();

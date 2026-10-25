@@ -7,7 +7,7 @@ test('rich fields come back only for the keys sent, so a patch keeps the rest', 
   const rich = validateRich({ summary: '  Members see hidden names.  ', blocks: [{ type: 'suggestion', path: 'a.ts', startLine: 2, endLine: 3, after: 'y', before: 'forged' }] });
   assert.equal(rich.summary, 'Members see hidden names.');
   await readSuggestionBefore(rich.blocks, async (p) => (p === 'a.ts' ? ['one', 'two', 'three'] : null));
-  assert.equal(rich.blocks[0].before, 'two\nthree');
+  assert.equal(rich.blocks?.[0]?.before, 'two\nthree');
 });
 
 test('a bad block is refused with the field that broke', () => {

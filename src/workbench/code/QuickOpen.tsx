@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './code.css';
 
+type PathEntry = string | { filename?: string; path?: string };
+
 const MAX_ROWS = 20;
-const pathOf = (x) => (typeof x === 'string' ? x : x.filename || x.path);
+const pathOf = (x: PathEntry) => (typeof x === 'string' ? x : x.filename || x.path || '');
 
 // every typed char in order, case-insensitive; lower score is better, null = no match
-export function fuzzyScore(path, query) {
+export function fuzzyScore(path: string, query: string) {
   if (!query) return 0;
   const hay = path.toLowerCase();
   const slash = hay.lastIndexOf('/') + 1;
@@ -23,9 +25,9 @@ export function fuzzyScore(path, query) {
   return score + hay.length / 20;
 }
 
-export function useQuickOpenShortcut(onOpen) {
+export function useQuickOpenShortcut(onOpen: () => void) {
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         onOpen();
@@ -37,13 +39,21 @@ export function useQuickOpenShortcut(onOpen) {
 }
 
 // prFiles: [{ filename } | path] · fetchTree(): Promise<{ files } | string[]> of every head file, called once on first open
-export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOpen }) {
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  prFiles?: PathEntry[];
+  fetchTree?: () => Promise<PathEntry[] | { files?: PathEntry[] }>;
+  onOpen: (path: string) => void;
+};
+
+export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOpen }: Props) {
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
-  const [tree, setTree] = useState(null);
+  const [tree, setTree] = useState<string[] | null>(null);
   const requested = useRef(false);
-  const inputRef = useRef(null);
-  const listRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -63,7 +73,7 @@ export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOp
     const pr = prFiles.map(pathOf);
     const inPr = new Set(pr);
     const all = [...pr, ...(tree || []).filter((p) => !inPr.has(p))];
-    const scored = [];
+    const scored: { path: string; pr: boolean; score: number }[] = [];
     for (const p of all) {
       const score = fuzzyScore(p, query);
       if (score !== null) scored.push({ path: p, pr: inPr.has(p), score });
@@ -77,12 +87,12 @@ export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOp
   }, [cursor]);
 
   if (!open) return null;
-  const choose = (row) => {
+  const choose = (row: { path: string } | undefined) => {
     if (!row) return;
     onClose();
     onOpen(row.path);
   };
-  const onKeyDown = (e) => {
+  const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       onClose();

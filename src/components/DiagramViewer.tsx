@@ -4,14 +4,17 @@ import { createPortal } from 'react-dom';
 const MIN = 0.1;
 const MAX = 8;
 
-export default function DiagramViewer({ svg, onClose }) {
-  const stage = useRef(null);
-  const inner = useRef(null);
-  const drag = useRef(null);
-  const pointers = useRef(new Map());
-  const pinch = useRef(null);
+type Point = { x: number; y: number };
+type View = { k: number; x: number; y: number };
+
+export default function DiagramViewer({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const stage = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
+  const pointers = useRef(new Map<number, Point>());
+  const pinch = useRef<(View & { dist: number; cx: number; cy: number }) | null>(null);
   const lastTap = useRef(0);
-  const [view, setView] = useState({ k: 1, x: 0, y: 0 });
+  const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [rot, setRot] = useState(false);
   const box = rot ? { w: size.h, h: size.w } : size;
@@ -40,15 +43,15 @@ export default function DiagramViewer({ svg, onClose }) {
     const w = vb?.width || el.getBBox().width;
     const h = vb?.height || el.getBBox().height;
     el.removeAttribute('style');
-    el.setAttribute('width', w);
-    el.setAttribute('height', h);
+    el.setAttribute('width', String(w));
+    el.setAttribute('height', String(h));
     setSize({ w, h });
   }, [svg]);
   useEffect(start, [start]);
   useEffect(() => { const prev = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = prev; }; }, []);
 
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
       if (e.key === '0') fit();
       if (e.key === '+' || e.key === '=') zoomBy(1.25);
@@ -58,27 +61,28 @@ export default function DiagramViewer({ svg, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const zoomAt = (factor, cx, cy) => setView((v) => {
+  const zoomAt = (factor: number, cx: number, cy: number) => setView((v) => {
     const k = Math.min(MAX, Math.max(MIN, v.k * factor));
     const ratio = k / v.k;
     return { k, x: cx - (cx - v.x) * ratio, y: cy - (cy - v.y) * ratio };
   });
-  const zoomBy = (factor) => {
-    const r = stage.current.getBoundingClientRect();
-    zoomAt(factor, r.width / 2, r.height / 2);
+  const zoomBy = (factor: number) => {
+    const r = stage.current?.getBoundingClientRect();
+    if (r) zoomAt(factor, r.width / 2, r.height / 2);
   };
-  const onWheel = (e) => {
+  const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    const r = stage.current.getBoundingClientRect();
-    zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+    const r = stage.current?.getBoundingClientRect();
+    if (r) zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
   };
   useEffect(() => {
     const el = stage.current;
+    if (!el) return undefined;
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   });
-  const local = (e) => { const r = stage.current.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  const onDown = (e) => {
+  const local = (e: React.PointerEvent): Point => { const r = stage.current?.getBoundingClientRect(); return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) }; };
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, local(e));
     if (pointers.current.size === 2) {
@@ -92,7 +96,7 @@ export default function DiagramViewer({ svg, onClose }) {
     lastTap.current = now;
     drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
   };
-  const onMove = (e) => {
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, local(e));
     const p = pinch.current;
@@ -108,7 +112,7 @@ export default function DiagramViewer({ svg, onClose }) {
     const d = drag.current;
     if (d) setView((v) => ({ ...v, x: d.vx + e.clientX - d.x, y: d.vy + e.clientY - d.y }));
   };
-  const onUp = (e) => { pointers.current.delete(e.pointerId); if (pointers.current.size < 2) pinch.current = null; drag.current = null; };
+  const onUp = (e: React.PointerEvent<HTMLDivElement>) => { pointers.current.delete(e.pointerId); if (pointers.current.size < 2) pinch.current = null; drag.current = null; };
 
   return createPortal(
     <div className="diagram-viewer" role="dialog" aria-modal="true">
@@ -123,7 +127,7 @@ export default function DiagramViewer({ svg, onClose }) {
         <span className="status hint-touch">pinch · drag</span>
         <button className="sm" onClick={onClose} style={{ marginLeft: 'auto' }} aria-label="Close">×</button>
       </div>
-      <div ref={stage} className="diagram-stage" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={(e) => e.pointerType !== 'touch' && fit()}>
+      <div ref={stage} className="diagram-stage" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={(e) => !(e.nativeEvent instanceof PointerEvent && e.nativeEvent.pointerType === 'touch') && fit()}>
         <div ref={inner} style={{ transform: `translate(${view.x + (rot ? size.h * view.k : 0)}px, ${view.y}px) scale(${view.k})${rot ? ' rotate(90deg)' : ''}`, transformOrigin: '0 0' }} dangerouslySetInnerHTML={{ __html: svg }} />
       </div>
     </div>,

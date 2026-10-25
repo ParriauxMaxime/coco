@@ -1,94 +1,122 @@
-const json = async (res) => {
+import type {
+  AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
+  DevServersResponse, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
+  KitResponse, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
+  PersonaSuggestion, Persona, PinResult, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
+  StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
+} from './types.ts';
+
+export type * from './types.ts';
+
+export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+const JSON_HEADERS ={ 'Content-Type': 'application/json' };
+
+const json = async <T>(res: Response): Promise<T> => {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json();
 };
 
 // coco routes answer errors as { error: message }: throw the message, not the raw body
-const jsonOrError = async (res) => {
+const jsonOrError = async <T>(res: Response): Promise<T> => {
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error || `${res.status} ${res.statusText}`);
   return body;
 };
-const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+
+const get = <T>(url: string) => fetch(url).then(json<T>);
+const send = <T>(method: string, url: string, body: unknown) => fetch(url, { method, headers: JSON_HEADERS, body: JSON.stringify(body) }).then(json<T>);
+const post = <T>(url: string, body: unknown) => send<T>('POST', url, body);
+const postEmpty = <T>(url: string) => fetch(url, { method: 'POST' }).then(json<T>);
+const postJson = (url: string, body?: unknown) => fetch(url, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body || {}) });
+const text = (url: string) => fetch(url).then((r) => r.text());
+const putText = <T>(url: string, body: string) => fetch(url, { method: 'PUT', body }).then(json<T>);
 
 // a server started before threads existed answers thread routes with the work itself
-const asThread = (t) => {
+const asThread = (t: Thread) => {
   if (!Array.isArray(t.messages)) throw new Error('the cocopilot server predates threads: restart it');
   return t;
 };
 
+export type RowAction = 'start' | 'stop' | 'pin';
+type RowActionResult = { start: StartResult; stop: StopResult; pin: PinResult };
+
+const works = (slug: string) => `/api/works/${slug}`;
+const rulesBase = (slug: string | null | undefined) => (slug ? `${works(slug)}/rules` : '/api/rules');
+
 export const api = {
-  config: () => fetch('/api/config').then(json),
-  overview: () => fetch('/api/overview').then(json),
-  setup: () => fetch('/api/setup').then(json),
-  setupAgent: () => fetch('/api/setup/agent', { method: 'POST' }).then(json),
-  personas: () => fetch('/api/personas').then(json),
-  persona: (login) => fetch(`/api/personas/${login}`).then(json),
-  personaFile: (login, name) => fetch(`/api/personas/${login}/files/${encodeURIComponent(name)}`).then((r) => r.text()),
-  savePersonaFile: (login, name, text) => fetch(`/api/personas/${login}/files/${encodeURIComponent(name)}`, { method: 'PUT', body: text }).then(json),
-  skills: () => fetch('/api/skills').then(json),
-  skill: (name) => fetch(`/api/skills/${name}`).then(json),
-  skillFile: (name, file) => fetch(`/api/skills/${name}/files/${encodeURIComponent(file)}`).then((r) => r.text()),
-  saveSkillFile: (name, file, text) => fetch(`/api/skills/${name}/files/${encodeURIComponent(file)}`, { method: 'PUT', body: text }).then(json),
-  agents: () => fetch('/api/agents').then(json),
-  agentActivity: (id) => fetch(`/api/agents-activity/${id}`).then(json),
-  reviews: () => fetch('/api/reviews').then(json),
-  feedback: () => fetch('/api/feedback').then(json),
-  sendFeedback: (item) => fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) }).then(json),
-  rituals: () => fetch('/api/rituals').then(json),
-  paseo: () => fetch('/api/paseo').then(json),
-  works: () => fetch('/api/works').then(json),
-  work: (slug, fresh) => fetch(`/api/works/${slug}${fresh ? '?fresh=1' : ''}`).then(json),
-  createWork: (body) => fetch('/api/works', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  notionStatus: (slug) => fetch(`/api/works/${slug}/notion`).then(json),
-  notionAction: (slug, body) => fetch(`/api/works/${slug}/notion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  archiveWork: (slug, archived) => fetch(`/api/works/${slug}/archive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived }) }).then(json),
-  updateWork: (slug, body) => fetch(`/api/works/${slug}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  addTimeline: (slug, body) => fetch(`/api/works/${slug}/timeline`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  threads: (slug) => fetch(`/api/works/${slug}/threads`).then(json),
-  thread: (slug, key, agents) => fetch(`/api/works/${slug}/threads/${key}${agents ? '?agents=1' : ''}`).then(json).then(asThread),
-  postThread: (slug, key, body) => fetch(`/api/works/${slug}/threads/${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  regroup: (slug, key, groupId) => fetch(`/api/works/${slug}/threads/${key}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId }) }).then(json).then(asThread),
-  suggestion: (slug, key, msgId, action) => fetch(`/api/works/${slug}/threads/${key}/suggestions/${msgId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }).then(json).then(asThread),
-  groups: (slug) => fetch(`/api/works/${slug}/groups`).then(json),
-  closeGroup: (slug, id) => fetch(`/api/works/${slug}/groups/${id}/close`, { method: 'POST' }).then(json),
-  findings: (slug, pr, fresh, stale) => fetch(`/api/works/${slug}/findings?${new URLSearchParams({ ...(pr ? { pr } : {}), ...(fresh ? { fresh: '1' } : {}), ...(stale ? { stale: '1' } : {}) })}`).then(json),
-  findingAction: (slug, body) => fetch(`/api/works/${slug}/findings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  brief: (slug, n, handoff) => fetch(`/api/works/${slug}/briefs/${encodeURIComponent(n)}${handoff ? '?handoff=1' : ''}`).then(json),
-  briefAction: (slug, n, action) => fetch(`/api/works/${slug}/briefs/${encodeURIComponent(n)}/${action}`, { method: 'POST' }).then(json),
-  rules: (slug) => fetch(slug ? `/api/works/${slug}/rules` : '/api/rules').then(json),
-  addRule: (slug, body) => fetch(slug ? `/api/works/${slug}/rules` : '/api/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  updateRule: (slug, id, body) => fetch(`${slug ? `/api/works/${slug}/rules` : '/api/rules'}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  proposeRules: (slug, body) => fetch(`${slug ? `/api/works/${slug}/rules` : '/api/rules'}/propose`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  gates: (slug, n) => fetch(`/api/works/${slug}/gates/${encodeURIComponent(n)}`).then(json),
-  gateAction: (slug, n, id, body) => fetch(`/api/works/${slug}/gates/${encodeURIComponent(n)}/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  stackKeeper: (slug) => fetch(`/api/works/${slug}/stack-keeper`).then(json),
-  stackKeeperAction: (slug, action) => fetch(`/api/works/${slug}/stack-keeper/${action}`, { method: 'POST' }).then(json),
-  inbox: (body) => fetch('/api/inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  kit: (slug, n) => fetch(`/api/works/${slug}/kit/${encodeURIComponent(n)}`).then(json),
-  decide: (slug, body) => fetch(`/api/works/${slug}/decisions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  importArtifact: (slug, body) => fetch(`/api/works/${slug}/artifacts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  suggestPersonas: (slug, pr) => fetch(`/api/works/${slug}/personas-suggest${pr ? `?pr=${pr}` : ''}`).then(json),
-  plan: (slug) => fetch(`/api/works/${slug}/plan`).then(json),
-  asks: () => fetch('/api/ask').then(json),
-  ask: (body) => fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  askSay: (id, body) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError),
-  closeAsk: (id) => postJson(`/api/ask/${id}/close`).then(jsonOrError),
-  startAskAgent: (id) => fetch(`/api/ask/${id}/start-agent`, { method: 'POST' }).then(json),
-  applyAsk: (id, body) => fetch(`/api/ask/${id}/apply`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(json),
-  packContents: () => fetch('/api/pack/contents').then(json),
-  exportPack: async (body) => {
-    const res = await fetch('/api/pack/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  config: () => get<Partial<Config>>('/api/config'),
+  overview: () => get<Overview>('/api/overview'),
+  setup: () => get<SetupStatus>('/api/setup'),
+  setupAgent: () => postEmpty<StartedAgent>('/api/setup/agent'),
+  personas: () => get<Persona[]>('/api/personas'),
+  persona: (login: string) => get<PersonaDetail>(`/api/personas/${login}`),
+  personaFile: (login: string, name: string) => text(`/api/personas/${login}/files/${encodeURIComponent(name)}`),
+  savePersonaFile: (login: string, name: string, body: string) => putText<{ ok: boolean; bytes: number }>(`/api/personas/${login}/files/${encodeURIComponent(name)}`, body),
+  skills: () => get<Skill[]>('/api/skills'),
+  skill: (name: string) => get<SkillDetail>(`/api/skills/${name}`),
+  skillFile: (name: string, file: string) => text(`/api/skills/${name}/files/${encodeURIComponent(file)}`),
+  saveSkillFile: (name: string, file: string, body: string) => putText<{ ok: boolean; bytes: number }>(`/api/skills/${name}/files/${encodeURIComponent(file)}`, body),
+  agents: () => get<AgentsResponse>('/api/agents'),
+  agentActivity: (id: string) => get<AgentLog>(`/api/agents-activity/${id}`),
+  reviews: () => get<{ name: string; dir: boolean; mtime: string; entries: string[] }[]>('/api/reviews'),
+  feedback: () => get<FeedbackItem[]>('/api/feedback'),
+  sendFeedback: (item: Omit<FeedbackItem, 'ts'>) => post<{ ok: boolean }>('/api/feedback', item),
+  rituals: () => get<OverviewRituals>('/api/rituals'),
+  paseo: () => get<PaseoResponse>('/api/paseo'),
+  works: () => get<Work[]>('/api/works'),
+  work: (slug: string, fresh?: boolean) => get<WorkDetail>(`${works(slug)}${fresh ? '?fresh=1' : ''}`),
+  createWork: (body: CreateWorkBody) => post<Work>('/api/works', body),
+  notionStatus: (slug: string) => get<NotionStatus>(`${works(slug)}/notion`),
+  notionAction: (slug: string, body: Record<string, unknown>) => post<NotionResult>(`${works(slug)}/notion`, body),
+  archiveWork: (slug: string, archived: boolean) => post<Work>(`${works(slug)}/archive`, { archived }),
+  updateWork: (slug: string, body: WorkInput) => send<Work>('PUT', works(slug), body),
+  addTimeline: (slug: string, body: { kind: string; text: string }) => post<TimelineEntry | Work>(`${works(slug)}/timeline`, body),
+  threads: (slug: string) => get<Record<string, ThreadSummary>>(`${works(slug)}/threads`),
+  thread: (slug: string, key: string, agents?: boolean) => get<Thread>(`${works(slug)}/threads/${key}${agents ? '?agents=1' : ''}`).then(asThread),
+  postThread: (slug: string, key: string, body: ThreadPostBody) => post<Thread>(`${works(slug)}/threads/${key}`, body),
+  regroup: (slug: string, key: string, groupId: string) => send<Thread>('PUT', `${works(slug)}/threads/${key}`, { groupId }).then(asThread),
+  suggestion: (slug: string, key: string, msgId: string, action: SuggestionAction) => post<Thread>(`${works(slug)}/threads/${key}/suggestions/${msgId}`, { action }).then(asThread),
+  groups: (slug: string) => get<ThreadGroup[]>(`${works(slug)}/groups`),
+  closeGroup: (slug: string, id: string) => postEmpty<unknown>(`${works(slug)}/groups/${id}/close`),
+  findings: (slug: string, pr: string | null, fresh?: boolean, stale?: boolean) => get<FindingsResponse>(`${works(slug)}/findings?${new URLSearchParams({ ...(pr ? { pr } : {}), ...(fresh ? { fresh: '1' } : {}), ...(stale ? { stale: '1' } : {}) })}`),
+  findingAction: (slug: string, body: FindingActionBody) => post<FindingsResponse>(`${works(slug)}/findings`, body),
+  brief: (slug: string, n: string | number, handoff?: boolean) => get<BriefResponse>(`${works(slug)}/briefs/${encodeURIComponent(n)}${handoff ? '?handoff=1' : ''}`),
+  briefAction: (slug: string, n: string | number, action: string) => postEmpty<BriefActionResult>(`${works(slug)}/briefs/${encodeURIComponent(n)}/${action}`),
+  rules: (slug?: string | null) => get<RulesResponse>(slug ? `${works(slug)}/rules` : '/api/rules'),
+  addRule: (slug: string | null | undefined, body: RuleScope & { text: string; source: string }) => post<RulesResponse>(rulesBase(slug), body),
+  updateRule: (slug: string | null | undefined, id: string, body: RuleScope & { status?: Rule['status']; drop?: boolean }) => send<RulesResponse>('PUT', `${rulesBase(slug)}/${id}`, body),
+  proposeRules: (slug: string | null | undefined, body: Partial<RuleScope> & { text?: string; threadKey?: string }) => post<RulesResponse>(`${rulesBase(slug)}/propose`, body),
+  gates: (slug: string, n: string | number) => get<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}`),
+  gateAction: (slug: string, n: string | number, id: string, body: GateActionBody) => post<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}/${id}`, body),
+  stackKeeper: (slug: string) => get<KeepPlan>(`${works(slug)}/stack-keeper`),
+  stackKeeperAction: (slug: string, action: string) => postEmpty<KeepApplied & KeepPlan>(`${works(slug)}/stack-keeper/${action}`),
+  inbox: (body: { url: string; note: string }) => post<{ id: string; kind: string }>('/api/inbox', body),
+  kit: (slug: string, n: string | number) => get<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`),
+  decide: (slug: string, body: Record<string, unknown>) => post<Work['decisions']>(`${works(slug)}/decisions`, body),
+  importArtifact: (slug: string, body: ImportArtifactBody) => post<ImportedArtifact>(`${works(slug)}/artifacts`, body),
+  suggestPersonas: (slug: string, pr: string | number | null) => get<PersonaSuggestion>(`${works(slug)}/personas-suggest${pr ? `?pr=${pr}` : ''}`),
+  plan: (slug: string) => get<WorkPlan>(`${works(slug)}/plan`),
+  asks: () => get<AskRun[]>('/api/ask'),
+  ask: (body: AskStartBody) => post<{ id: string }>('/api/ask', body),
+  askSay: (id: string, body: { text: string; nonce: string }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
+  closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
+  startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
+  applyAsk: (id: string, body?: { replaceStack: boolean }) => post<AskApplyResult>(`/api/ask/${id}/apply`, body || {}),
+  packContents: () => get<PackContents>('/api/pack/contents'),
+  exportPack: async (body: PackExportBody) => {
+    const res = await fetch('/api/pack/export', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'coco-pack.zip';
     return { blob: await res.blob(), name };
   },
-  importPack: (file) => fetch('/api/pack/import', { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file }).then(json),
-  applyPack: (id) => fetch(`/api/pack/import/${id}/apply`, { method: 'POST' }).then(json),
-  discardPack: (id) => fetch(`/api/pack/import/${id}`, { method: 'DELETE' }).then(json),
-  launch: (body) => fetch('/api/rituals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(json),
-  devServers: (slug) => fetch(`/api/dev-servers/works/${slug}`).then(jsonOrError),
-  devServerRow: (slug, key, action, body) => postJson(`/api/dev-servers/works/${slug}/rows/${encodeURIComponent(key)}/${action}`, body).then(jsonOrError),
-  devServerLogin: (id) => postJson(`/api/dev-servers/servers/${id}/login`).then(jsonOrError),
-  devServerLogs: (id, lines) => fetch(`/api/dev-servers/servers/${id}/logs?lines=${lines}`).then(jsonOrError),
+  importPack: (file: File) => fetch('/api/pack/import', { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file }).then(json<PackPreview>),
+  applyPack: (id: string) => postEmpty<PackApplied>(`/api/pack/import/${id}/apply`),
+  discardPack: (id: string) => fetch(`/api/pack/import/${id}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
+  launch: (body: RitualLaunchBody) => post<RitualLaunchResult>('/api/rituals', body),
+  devServers: (slug: string) => get<DevServersResponse>(`/api/dev-servers/works/${slug}`),
+  devServerRow: <A extends RowAction>(slug: string, key: string | number, action: A, body?: Record<string, unknown>) =>
+    postJson(`/api/dev-servers/works/${slug}/rows/${encodeURIComponent(key)}/${action}`, body).then(jsonOrError<RowActionResult[A]>),
+  devServerLogin: (id: string) => postJson(`/api/dev-servers/servers/${id}/login`).then(jsonOrError<LoginResult>),
+  devServerLogs: (id: string, lines: number) => fetch(`/api/dev-servers/servers/${id}/logs?lines=${lines}`).then(jsonOrError<DevServerLogs>),
 };

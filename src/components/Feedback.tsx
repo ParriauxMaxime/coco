@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
 
-export default function Feedback({ node, title, verdicts = ['accurate', 'partly', 'wrong', 'missing'], placeholder }) {
+type Props = { node: string; title: string; verdicts?: string[]; placeholder?: string };
+
+export default function Feedback({ node, title, verdicts = ['accurate', 'partly', 'wrong', 'missing'], placeholder }: Props) {
   const [verdict, setVerdict] = useState('');
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
@@ -14,7 +16,7 @@ export default function Feedback({ node, title, verdicts = ['accurate', 'partly'
       setText('');
       setVerdict('');
     } catch (e) {
-      setStatus(`failed: ${e.message}`);
+      setStatus(`failed: ${errorMessage(e)}`);
     }
   };
 

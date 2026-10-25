@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useWork } from '../use-work.ts';
+import type { StackRow, WorkDetail } from '../../types.ts';
 
-function StackEditor({ work, onSave }) {
+function StackEditor({ work, onSave }: { work: WorkDetail; onSave: (stack: StackRow[]) => void }) {
   const [text, setText] = useState((work.stack || []).map((s) => s.number || `(${s.planned?.title || 'planned'})`).join(' '));
   const save = () => {
     const numbers = text.split(/[\s,→>-]+/).filter(Boolean).map((n) => Number(n.replace('#', ''))).filter(Boolean);
-    const stack = numbers.map((number) => work.stack.find((s) => s.number === number) || { number, personas: [] });
+    const stack = numbers.map((number) => (work.stack || []).find((s) => s.number === number) || { number, personas: [] });
     onSave(stack);
   };
   return (

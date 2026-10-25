@@ -6,12 +6,12 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createPack, mergeConfig, teamConfig, zipProblems } from './pack.ts';
 
-const tmp = (prefix) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-const write = (file, text) => {
+const tmp = (prefix: string) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+const write = (file: string, text: string) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
 };
-const read = (file) => fs.readFileSync(file, 'utf8');
+const read = (file: string) => fs.readFileSync(file, 'utf8');
 
 test('team config drops personal keys and points the provider inside the pack', () => {
   const raw = {
@@ -25,7 +25,7 @@ test('team config drops personal keys and points the provider inside the pack', 
   };
   const team = teamConfig(raw, { provider: 'widgets-flags.mjs' });
   assert.deepEqual(team, { repo: { github: 'acme/widgets' }, skillPrefix: 'coco-', featureFlags: { provider: 'providers/widgets-flags.mjs' } });
-  assert.equal(teamConfig(raw).featureFlags.provider, undefined);
+  assert.deepEqual(teamConfig(raw).featureFlags, {});
 });
 
 test('zip entries with an absolute path, a .. segment or a symlink are refused', async () => {
@@ -49,7 +49,7 @@ test('merge keeps the user owner and repo path and takes the team gate skills', 
   const merged = mergeConfig(user, team);
   assert.deepEqual(merged.owner, user.owner);
   assert.deepEqual(merged.repo, { path: '/src/widgets', github: 'acme/widgets', defaultBranch: 'main' });
-  assert.deepEqual(merged.gateSkills['self-review'], ['coco-review']);
+  assert.deepEqual(merged.gateSkills, { 'self-review': ['coco-review'] });
 });
 
 test('export then import reproduces the files, keeps local extras and backs up a changed one', async () => {
@@ -104,7 +104,8 @@ test('export then import reproduces the files, keeps local extras and backs up a
   assert.equal(read(path.join(bobSkills, 'coco-work/notes.md')), 'team notes\n');
   assert.equal(read(path.join(bobSkills, 'coco-work/extra.md')), 'mine\n');
   assert.equal(read(path.join(bob, 'personas/alice.md')), '# Alice\n');
-  assert.equal(read(path.join(done.backup, 'skills/coco-work/notes.md')), 'my old notes\n');
+  assert.ok(done.backup);
+  assert.equal(read(path.join(done.backup,'skills/coco-work/notes.md')), 'my old notes\n');
   const merged = JSON.parse(read(bobFile));
   assert.deepEqual(merged.owner, { name: 'Bob', login: 'bob' });
   assert.deepEqual(merged.repo, { path: '/src/widgets', github: 'acme/widgets' });

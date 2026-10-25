@@ -1,8 +1,17 @@
 // An agent's activity grouped the way Paseo's timeline groups it: consecutive tool calls between two other items fold into one row,
 // thinking is its own row, anything else (text, blocks, user messages, notes) passes through untouched.
-const NAME_KIND = { bash: 'shell', read: 'read', edit: 'edit', multiedit: 'edit', notebookedit: 'edit', write: 'write', grep: 'search', glob: 'search', websearch: 'search', webfetch: 'fetch' };
+import type { ActivityEvent } from '../types.ts';
+
+export type CallCounts = { editedFiles: number; commands: number; readFiles: number; searches: number; otherTools: number; paseoCalls: number };
+export type ActivityItem =
+  | { kind: 'tools'; calls: ActivityEvent[]; counts: CallCounts; label: string; running: boolean }
+  | { kind: 'think'; text: string; running: boolean }
+  | { kind: 'live'; text: string }
+  | { kind: 'event'; event: ActivityEvent };
+
+const NAME_KIND: Record<string, string> = { bash: 'shell', read: 'read', edit: 'edit', multiedit: 'edit', notebookedit: 'edit', write: 'write', grep: 'search', glob: 'search', websearch: 'search', webfetch: 'fetch' };
 const SEARCH_NAME = /(?:^|[_.:/])(?:web_search|llm_context)$/;
-const PHRASES = [
+const PHRASES: [keyof CallCounts, string, string, string][] = [
   ['editedFiles', 'edited', 'file', 'files'],
   ['commands', 'ran', 'command', 'commands'],
   ['readFiles', 'read', 'file', 'files'],
@@ -12,18 +21,18 @@ const PHRASES = [
 ];
 
 // stored calls name their detail kind; older logs only their tool name
-export const kindOf = (call) => (call.kind && call.kind !== 'unknown' ? call.kind : NAME_KIND[String(call.name || '').toLowerCase()] || 'unknown');
+export const kindOf = (call: ActivityEvent) => (call.kind && call.kind !== 'unknown' ? call.kind : NAME_KIND[String(call.name || '').toLowerCase()] || 'unknown');
 
-const isPaseoTool = (name) => {
+const isPaseoTool = (name: string) => {
   const parts = name.split('__').filter(Boolean);
   if (parts.length >= 3 && parts[0] === 'mcp') return parts[1] === 'paseo' || parts[1].startsWith('paseo_');
   return name.startsWith('paseo_') || /^paseo(_\w+)?\./.test(name);
 };
 
-export function countCalls(calls) {
-  const edited = new Set();
-  const read = new Set();
-  const counts = { editedFiles: 0, commands: 0, readFiles: 0, searches: 0, otherTools: 0, paseoCalls: 0 };
+export function countCalls(calls: ActivityEvent[]): CallCounts {
+  const edited = new Set<string | undefined>();
+  const read = new Set<string | undefined>();
+  const counts: CallCounts = { editedFiles: 0, commands: 0, readFiles: 0, searches: 0, otherTools: 0, paseoCalls: 0 };
   for (const c of calls) {
     const kind = kindOf(c);
     const name = String(c.name || '').trim().toLowerCase();
@@ -38,7 +47,7 @@ export function countCalls(calls) {
 }
 
 // "Ran 1 command and used 1 other tool", "Edited 2 files, ran 1 command, and read 3 files"
-export function callsLabel(counts) {
+export function callsLabel(counts: CallCounts) {
   const parts = PHRASES.filter(([k]) => counts[k] > 0).map(([k, verb, one, many]) => `${verb} ${counts[k]} ${counts[k] === 1 ? one : many}`);
   const text = parts.length < 3 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')}, and ${parts.at(-1)}`;
   return text ? text[0].toUpperCase() + text.slice(1) : '';
@@ -47,11 +56,12 @@ export function callsLabel(counts) {
 // events: a conversation's stored and live events in order; a tool event repeating an id updates that call in place, a legacy tool_result fills the call before it.
 // Text and thinking deltas stream until their finished event replaces them. active: the agent is mid-turn, so running calls and streamed thinking show as running.
 // Items: { kind: 'tools', calls, counts, label, running } · { kind: 'think', text, running } · { kind: 'live', text } · { kind: 'event', event }
-export function groupActivity(events, { active = false } = {}) {
-  const calls = new Map();
-  const merged = [];
+export function groupActivity(events: ActivityEvent[] | null | undefined, { active = false } = {}): ActivityItem[] {
+  const calls = new Map<string, ActivityEvent>();
+  const merged: ActivityEvent[] = [];
   for (const ev of events || []) {
-    if (ev.type === 'tool' && ev.id && calls.has(ev.id)) Object.assign(calls.get(ev.id), ev);
+    const known = ev.id ? calls.get(ev.id) : undefined;
+    if (ev.type === 'tool' && known) Object.assign(known, ev);
     else if (ev.type === 'tool') {
       const call = { ...ev };
       if (ev.id) calls.set(ev.id, call);
@@ -61,7 +71,7 @@ export function groupActivity(events, { active = false } = {}) {
       if (last?.type === 'tool') last.output ||= ev.text;
     } else merged.push(ev);
   }
-  const items = [];
+  const items: ActivityItem[] = [];
   let text = '';
   let think = '';
   for (const ev of merged) {
@@ -71,19 +81,20 @@ export function groupActivity(events, { active = false } = {}) {
     else if (ev.type === 'tool') {
       const last = items.at(-1);
       if (last?.kind === 'tools') last.calls.push(ev);
-      else items.push({ kind: 'tools', calls: [ev] });
+      else items.push({ kind: 'tools', calls: [ev], counts: countCalls([ev]), label: '', running: false });
     } else if (ev.type === 'think') {
       think = '';
       const last = items.at(-1);
       if (last?.kind === 'think') last.text += `\n\n${ev.text}`;
-      else items.push({ kind: 'think', text: ev.text, running: false });
+      else items.push({ kind: 'think', text: ev.text ?? '', running: false });
     } else {
       if (ev.type === 'text') text = '';
       if (ev.type === 'end' || ev.type === 'closed') text = think = '';
       items.push({ kind: 'event', event: ev });
     }
   }
-  for (const it of items.filter((x) => x.kind === 'tools')) {
+  for (const it of items) {
+    if (it.kind !== 'tools') continue;
     it.counts = countCalls(it.calls);
     it.label = callsLabel(it.counts);
     it.running = active && it.calls.some((c) => c.status === 'running');

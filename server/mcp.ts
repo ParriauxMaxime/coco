@@ -19,13 +19,13 @@ const SKILLS = config.skillsDir;
 const GITHUB = config.repo.github;
 const personaFiles = () => (fs.existsSync(PERSONAS) ? fs.readdirSync(PERSONAS).filter((x) => x.endsWith('.md')) : []);
 const noRepo = { error: 'no GitHub repo configured (repo.github in coco.config.json)' };
-const run = (cmd, args) => new Promise((resolve) => execFile(cmd, args, { maxBuffer: 20e6 }, (err, out, errout) => resolve({ ok: !err, out: String(out || ''), err: String(errout || err?.message || '') })));
-const text = (v) => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 1) }] });
+const run = (cmd: string, args: string[]) => new Promise<{ ok: boolean; out: string; err: string }>((resolve) => execFile(cmd, args, { maxBuffer: 20e6 }, (err, out, errout) => resolve({ ok: !err, out: String(out || ''), err: String(errout || err?.message || '') })));
+const text = (v: unknown) => ({ content: [{ type: 'text' as const, text: typeof v === 'string' ? v : JSON.stringify(v, null, 1) }] });
 const listWorks = () => (fs.existsSync(WORKS) ? fs.readdirSync(WORKS).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(WORKS, f), 'utf8'))) : []);
 
 const server = new McpServer({ name: 'cocopilot', version: '0.1.0' });
 
-server.tool('list_works', 'Works = long-term context per PR stack (slug, title, Paseo project, stack, personas, links).', {}, async () => text(listWorks().map((w) => ({ slug: w.slug, title: w.title, projectName: w.projectName, stack: (w.stack || []).map((s) => ({ number: s.number, personas: s.personas })), personas: w.personas, links: w.links, updatedAt: w.updatedAt }))));
+server.tool('list_works', 'Works = long-term context per PR stack (slug, title, Paseo project, stack, personas, links).', {}, async () => text(listWorks().map((w) => ({ slug: w.slug, title: w.title, projectName: w.projectName, stack: (w.stack || []).map((s: { number?: number; personas?: string[] }) => ({ number: s.number, personas: s.personas })), personas: w.personas, links: w.links, updatedAt: w.updatedAt }))));
 server.tool('get_work', 'Full work JSON: notes, timeline, stack, links, artifacts list.', { slug: z.string() }, async ({ slug }) => {
   const f = path.join(WORKS, `${slug}.json`);
   if (!fs.existsSync(f)) return text({ error: 'no such work' });
@@ -66,7 +66,7 @@ server.tool('read_skill', `Read a skill file: a skill name returns its SKILL.md,
 });
 server.tool('list_paseo', 'Paseo projects, workspaces and agents (CLI --json).', {}, async () => {
   const [p, w, a] = await Promise.all([run('paseo', ['project', 'ls', '--json']), run('paseo', ['workspace', 'ls', '--json']), run('paseo', ['ls', '--json'])]);
-  const j = (r) => { try { return JSON.parse(r.out); } catch { return r.err; } };
+  const j = (r: { out: string; err: string }) => { try { return JSON.parse(r.out); } catch { return r.err; } };
   return text({ projects: j(p), workspaces: j(w), agents: j(a) });
 });
 server.tool('github_pr', 'PR summary via gh (state, draft, base/head, files, reviewers, body).', { number: z.number() }, async ({ number }) => {

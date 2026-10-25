@@ -5,43 +5,68 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, createPaseoAgents, expandHome, launcherEnv, sameDir, worktreeFor as worktreeOf } from './paseo-agent.ts';
+import { HttpError, errorMessage, errorStatus } from './core-types.ts';
+import type { Config } from './config.ts';
+import type { Comment, CommentsApi, Exec, LaunchInput, PaseoAgentInfo, ReadBody, Req, Res, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
 
 const MAX_COMMENTS = 30;
 const SETTLE_MS = 15000;
 const AGENT_ID = new RegExp(`^${UUID.source}$`);
 
-class HttpError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
+type Run = {
+  runId: string;
+  number: RowKey;
+  slug: string;
+  startedAt: string;
+  agentId: string;
+  mode: string;
+  cwd: string | null;
+  commentIds: string[];
+  commits: 'one' | 'squash';
+  provider: string;
+  status: string;
+  remoteHeadBefore: string | null;
+  prSha: string;
+  briefPath: string;
+  resultPath: string;
+  finishedAt?: string;
+  pushWarned?: boolean;
+  pushedByUser?: boolean;
+};
+type StackPr = { number?: RowKey | null; state?: string; isDraft?: boolean };
+type BriefPr = Partial<ReviewPr> & Pick<ReviewPr, 'number' | 'head' | 'base'>;
+type BriefOptions = { commits?: string; resultPath?: string; runId?: string };
+type ResultEntry = { id?: string; status?: string; commit?: string | null; note?: unknown };
+type LaunchAgents = { start(opts: Record<string, unknown>): Promise<{ agentId: string; createdWorkspace?: string | null }> };
+type Outcome = { status: 'fixed' | 'declined'; resolution: { commit?: string | null; note?: string } };
+type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; requestedBy?: unknown };
+type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents };
 
-const defaultExec = (cmd, args, opts = {}) =>
+const defaultExec: Exec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
     execFile(cmd, args, { maxBuffer: 20 * 1024 * 1024, timeout: 120000, ...opts }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
     });
   });
 
-const fenceFor = (text) => '`'.repeat(Math.max(3, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length + 1)));
-export const fenced = (text, lang = '') => {
+const fenceFor = (text: unknown) => '`'.repeat(Math.max(3, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length + 1)));
+export const fenced = (text: string, lang = '') => {
   const f = fenceFor(text);
   return `${f}${lang}\n${text}\n${f}`;
 };
-const parseJson = (text, fallback) => {
+const parseJson = <T>(text: string, fallback: T): T => {
   try {
     return JSON.parse(text);
   } catch {
     return fallback;
   }
 };
-export const capitalize = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
-export const byFileThenLine = (a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine || a.endLine - b.endLine;
-export const listText = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] || '');
+export const capitalize = (s: unknown) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+export const byFileThenLine = (a: Pick<Comment, 'path' | 'startLine' | 'endLine'>, b: Pick<Comment, 'path' | 'startLine' | 'endLine'>) => a.path.localeCompare(b.path) || a.startLine - b.startLine || a.endLine - b.endLine;
+export const listText = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] || '');
 // a bare name is a skill ("the `x` skill"), anything else is quoted as written
-export const commitConventionText = (cc) => (!cc ? '' : /^[\w-]+$/.test(cc) ? `the \`${cc}\` skill` : cc);
-export const sharedRules = (config) => {
+export const commitConventionText = (cc: string | undefined) => (!cc ? '' : /^[\w-]+$/.test(cc) ? `the \`${cc}\` skill` : cc);
+export const sharedRules = (config: { repo: { rules?: string[]; commitConvention?: string } }) => {
   const rules = listText((config.repo.rules || []).map((r) => `\`${r}\``));
   const commits = commitConventionText(config.repo.commitConvention);
   return [
@@ -51,30 +76,30 @@ export const sharedRules = (config) => {
     '- Touch only what a comment asks for. A comment you disagree with or cannot satisfy is declined with a one-line reason, not worked around.',
   ];
 };
-export const commentSection = (c, level = '###') => {
+export const commentSection = (c: Pick<Comment, 'id' | 'path' | 'startLine' | 'endLine' | 'body'> & Partial<Pick<Comment, 'side' | 'snippet' | 'ctxBefore' | 'ctxAfter'>>, level = '###') => {
   const code = [...(c.ctxBefore || []).map((l) => `  ${l}`), ...String(c.snippet || '').split('\n').map((l) => `> ${l}`), ...(c.ctxAfter || []).map((l) => `  ${l}`)].join('\n');
   return [`${level} ${c.id} · ${c.path}:${c.startLine}-${c.endLine} (${c.side || 'head'})`, '', fenced(code), '', c.body, ''];
 };
 
-export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents() }) {
+export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents() }: Deps) {
   const GH = config.repo.github;
   const SHARED_RULES = sharedRules(config);
-  const reviewsDir = (slug) => path.join(DATA, 'works', slug, 'reviews');
-  const runFile = (slug, n, runId) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}.json`);
-  const briefFile = (slug, n, runId) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}.md`);
-  const resultFile = (slug, n, runId) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}-result.json`);
+  const reviewsDir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
+  const runFile = (slug: string, n: RowKey | null, runId: string) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}.json`);
+  const briefFile = (slug: string, n: RowKey | null, runId: string) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}.md`);
+  const resultFile = (slug: string, n: RowKey | null, runId: string) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}-result.json`);
 
-  const checkSlug = (slug) => {
+  const checkSlug = (slug: string) => {
     if (!/^[\w.-]+$/.test(String(slug)) || String(slug).startsWith('.')) throw new HttpError(400, 'bad slug');
   };
-  const checkNumber = (n) => {
+  const checkNumber = (n: unknown): RowKey => {
     const key = parseKey(n);
     if (!key) throw new HttpError(400, 'bad pr number or branch key');
     return key;
   };
 
-  const locks = new Map();
-  function withLock(key, fn) {
+  const locks = new Map<string, Promise<unknown>>();
+  function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const prev = locks.get(key) || Promise.resolve();
     const next = prev.then(fn, fn);
     const tail = next.catch(() => {});
@@ -85,7 +110,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return next;
   }
 
-  const writeRun = (run) => {
+  const writeRun = (run: Run) => {
     fs.mkdirSync(reviewsDir(run.slug), { recursive: true });
     const target = runFile(run.slug, run.number, run.runId);
     const tmp = `${target}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
@@ -93,21 +118,23 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     fs.renameSync(tmp, target);
   };
 
-  function list(slug, n) {
+  function list(slug: string, key: unknown): Run[] {
     checkSlug(slug);
-    n = checkNumber(n);
+    const n = checkNumber(key);
     const dir = reviewsDir(slug);
     if (!fs.existsSync(dir)) return [];
     const prefix = `pr-${fileKey(n)}-run-`;
     return fs
       .readdirSync(dir)
       .filter((f) => f.startsWith(prefix) && /^[0-9a-f]+\.json$/.test(f.slice(prefix.length)))
-      .map((f) => parseJson(fs.readFileSync(path.join(dir, f), 'utf8'), null))
-      .filter(Boolean)
+      .flatMap((f) => {
+        const run = parseJson<Run | null>(fs.readFileSync(path.join(dir, f), 'utf8'), null);
+        return run ? [run] : [];
+      })
       .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
   }
 
-  function timeline(slug, kind, text) {
+  function timeline(slug: string, kind: string, text: string) {
     const work = works.get(slug);
     if (!work) return;
     work.timeline = work.timeline || [];
@@ -115,7 +142,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     works.save(work);
   }
 
-  function personaExcerpt(login) {
+  function personaExcerpt(login: string) {
     if (!/^[\w.-]+$/.test(String(login))) return null;
     const file = path.join(PERSONAS, `${login}.md`);
     if (!fs.existsSync(file)) return null;
@@ -129,7 +156,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return { heading: lines[start].replace(/^##\s+/, ''), text: section.slice(0, 20).join('\n').trimEnd() };
   }
 
-  function stackLine(stackPrs, index, n) {
+  function stackLine(stackPrs: StackPr[], index: number, n: RowKey | null) {
     const total = stackPrs.length;
     const parts = stackPrs.map((p, i) => {
       if (i === index) return `**${keyLabel(n)}**`;
@@ -141,13 +168,13 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return `PR ${index + 1} of ${total}: ${parts.join(' → ')}`;
   }
 
-  function buildBrief({ work, pr, index = 0, stackPrs = [], comments: cs = [], personas = [], options = {} }) {
+  function buildBrief({ work, pr, index = 0, stackPrs = [], comments: cs = [], personas = [], options = {} }: { work: Pick<Work, 'slug' | 'notes'>; pr: BriefPr; index?: number; stackPrs?: StackPr[]; comments?: Comment[]; personas?: string[]; options?: BriefOptions }) {
     if (cs.length > MAX_COMMENTS) throw new HttpError(400, `at most ${MAX_COMMENTS} comments per run (got ${cs.length})`);
     if (!cs.length) throw new HttpError(400, 'no comments to address');
     const commits = options.commits === 'squash' ? 'squash' : 'one';
     const result = options.resultPath || resultFile(work.slug, pr.number, options.runId || 'RUN');
     const sorted = [...cs].sort(byFileThenLine);
-    const out = [];
+    const out: string[] = [];
 
     const local = isLocal(pr.number);
     out.push(`# Fix review comments — ${local ? `local branch ${pr.head}` : `PR #${pr.number}`}: ${pr.title || ''}`.trimEnd(), '');
@@ -166,7 +193,10 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     out.push(work.notes && work.notes.trim() ? fenced(work.notes, 'markdown') : '(none)', '');
 
     out.push('## Owner personas', '');
-    const excerpts = personas.map((login) => ({ login, ex: personaExcerpt(login) })).filter((x) => x.ex);
+    const excerpts = personas.flatMap((login) => {
+      const ex = personaExcerpt(login);
+      return ex ? [{ login, ex }] : [];
+    });
     if (!excerpts.length) out.push('(none)', '');
     for (const { login, ex } of excerpts) out.push(`### ${login} — ${ex.heading}`, '', ex.text, '');
 
@@ -189,15 +219,15 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return out.join('\n');
   }
 
-  const worktreeFor = (head) => worktreeOf(REPO, head, exec);
+  const worktreeFor = (head: string) => worktreeOf(REPO, head, exec);
 
-  const agentsList = async () => {
+  const agentsList = async (): Promise<PaseoAgentInfo[]> => {
     const r = await exec('paseo', ['ls', '--json']);
-    const list = r.ok ? parseJson(r.stdout, []) : [];
+    const list = r.ok ? parseJson<unknown>(r.stdout, []) : [];
     return Array.isArray(list) ? list : [];
   };
 
-  async function pickRunner(pr) {
+  async function pickRunner(pr: Pick<ReviewPr, 'head' | 'number'>): Promise<Runner> {
     const cwd = await worktreeFor(pr.head);
     if (!cwd) return { mode: isLocal(pr.number) ? 'checkout-branch' : 'checkout-pr' };
     const agent = (await agentsList()).find((a) => a.cwd && a.status !== 'closed' && a.status !== 'error' && sameDir(a.cwd, cwd));
@@ -206,65 +236,68 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
   }
 
   // starts the brief on the runner, returns the agent id; labels tell the Paseo plugin which cocopilot run the agent is on
-  async function launch(runner, { title, provider, prompt, labels, requestedBy, n, branch }) {
-    const all = { source: 'cocopilot', ...labels };
-    if (runner.mode === 'send') {
+  async function launch(runner: Runner, { title, provider, prompt, labels, requestedBy, n, branch }: LaunchInput) {
+    const all: Record<string, unknown> = { source: 'cocopilot', ...labels };
+    if (runner.mode === 'send' && runner.agentId) {
       const opts = { env: launcherEnv() };
       await exec('paseo', ['agent', 'update', runner.agentId, ...Object.entries(all).flatMap(([k, v]) => ['--label', `${k}=${v}`])], opts);
       const r = await exec('paseo', ['send', runner.agentId, prompt, '--behavior', 'steer', '--no-wait'], opts);
       if (!r.ok) throw new HttpError(500, `paseo send failed: ${(r.stderr || r.stdout).slice(0, 300)}`);
       return runner.agentId;
     }
-    const worktree = { 'branch-off': { mode: 'branch-off', newBranch: runner.newBranch, base: runner.base, slug: runner.slug }, 'checkout-branch': { mode: 'checkout-branch', branch }, 'checkout-pr': { mode: 'checkout-pr', prNumber: n } }[runner.mode] || null;
+    const worktrees: Record<string, Record<string, unknown>> = { 'branch-off': { mode: 'branch-off', newBranch: runner.newBranch, base: runner.base, slug: runner.slug }, 'checkout-branch': { mode: 'checkout-branch', branch }, 'checkout-pr': { mode: 'checkout-pr', prNumber: n } };
+    const worktree = worktrees[runner.mode] || null;
     if (AGENT_ID.test(String(requestedBy || ''))) all['paseo.parent-agent-id'] = requestedBy;
-    let started;
+    let started: Awaited<ReturnType<LaunchAgents['start']>>;
     try {
       started = await agents.start({ title, provider, thinking: 'high', prompt, labels: all, cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree });
     } catch (e) {
-      throw new HttpError(500, `paseo agent start failed: ${e.message.slice(0, 300)}`);
+      throw new HttpError(500, `paseo agent start failed: ${errorMessage(e).slice(0, 300)}`);
     }
-    if (started.createdWorkspace && labels?.work) timeline(labels.work, 'agent', `${worktree ? `new ${runner.mode} worktree` : `no Paseo workspace was open on ${runner.cwd}`}: created workspace ${started.createdWorkspace}`);
+    const workSlug = labels?.work;
+    if (started.createdWorkspace && typeof workSlug === 'string' && workSlug) timeline(workSlug, 'agent', `${worktree ? `new ${runner.mode} worktree` : `no Paseo workspace was open on ${runner.cwd}`}: created workspace ${started.createdWorkspace}`);
     return started.agentId;
   }
 
-  const remoteHead = async (n) => {
+  const remoteHead = async (n: RowKey) => {
     const r = await exec('git', ['-C', REPO, 'ls-remote', 'origin', isLocal(n) ? `refs/heads/${branchOf(n)}` : `refs/pull/${n}/head`]);
     if (!r.ok) return null;
     return r.stdout.trim().split(/\s+/)[0] || null;
   };
 
-  async function fetchPr(n) {
+  async function fetchPr(n: unknown): Promise<ReviewPr> {
     const r = await exec('gh', ['pr', 'view', String(n), '--repo', GH, '--json', 'number,title,url,state,isDraft,headRefName,baseRefName,headRefOid,body']);
-    const d = r.ok ? parseJson(r.stdout, null) : null;
+    const d = r.ok ? parseJson<{ number: number; title: string; url: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid?: string; body?: string } | null>(r.stdout, null) : null;
     if (!d) throw new HttpError(404, `cannot read PR #${n}: ${r.stderr.slice(0, 200)}`);
     return { number: d.number, title: d.title, url: d.url, state: d.state, isDraft: d.isDraft, head: d.headRefName, base: d.baseRefName, sha: d.headRefOid || '', body: d.body || '' };
   }
-  const branchSha = async (branch) => {
+  const branchSha = async (branch: string) => {
     const r = await exec('git', ['-C', REPO, 'rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`]);
     return r.ok ? r.stdout.trim() || null : null;
   };
   // the PR fields of a stack row; a local row reads them from its plan and its branch
-  async function rowPr(work, index) {
+  async function rowPr(work: Work, index: number): Promise<ReviewPr> {
     const row = work.stack[index];
     const key = rowKey(row);
     if (!isLocal(key)) return fetchPr(key);
-    const head = row.planned.branch;
+    const planned = row.planned ?? {};
+    const head = planned.branch ?? '';
     const sha = await branchSha(head);
     if (!sha) throw new HttpError(404, `branch ${head} not found locally`);
     const parent = work.stack[index - 1];
     const base = !parent ? config.repo.defaultBranch : parent.planned?.branch || (await fetchPr(parent.number)).head;
-    return { number: key, title: row.planned.title || head, url: '', state: 'LOCAL', isDraft: true, head, base, sha, body: row.planned.scope || '' };
+    return { number: key, title: planned.title || head, url: '', state: 'LOCAL', isDraft: true, head, base, sha, body: planned.scope || '' };
   }
-  async function fetchStackState(number) {
+  async function fetchStackState(number: RowKey | null | undefined): Promise<StackPr> {
     if (!number) return { number: null };
     const r = await exec('gh', ['pr', 'view', String(number), '--repo', GH, '--json', 'number,state,isDraft']);
-    const d = r.ok ? parseJson(r.stdout, null) : null;
+    const d = r.ok ? parseJson<{ number: number; state: string; isDraft: boolean } | null>(r.stdout, null) : null;
     return d ? { number: d.number, state: d.state, isDraft: d.isDraft } : { number };
   }
 
-  async function start(slug, n, input = {}) {
+  async function start(slug: string, key: unknown, input: StartInput = {}) {
     checkSlug(slug);
-    n = checkNumber(n);
+    const n = checkNumber(key);
     return withLock(`${slug}:${n}`, async () => {
       const work = works.get(slug);
       if (!work) throw new HttpError(404, 'no such work');
@@ -274,12 +307,13 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       if (commits !== 'one' && commits !== 'squash') throw new HttpError(400, "commits must be 'one' or 'squash'");
       const ids = input.commentIds;
       if (!Array.isArray(ids) || !ids.length || ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'commentIds required');
-      if (new Set(ids).size > MAX_COMMENTS) throw new HttpError(400, `at most ${MAX_COMMENTS} comments per run (got ${new Set(ids).size})`);
+      const wanted = new Set(ids.filter((x): x is string => typeof x === 'string'));
+      if (wanted.size > MAX_COMMENTS) throw new HttpError(400, `at most ${MAX_COMMENTS} comments per run (got ${wanted.size})`);
 
       const stored = comments.list(slug, n).comments || [];
       const runs = list(slug, n);
-      const picked = [];
-      for (const id of new Set(ids)) {
+      const picked: Comment[] = [];
+      for (const id of wanted) {
         const c = stored.find((x) => x.id === id);
         if (!c) throw new HttpError(400, `no such comment ${id}`);
         if (c.status === 'outdated') continue;
@@ -304,7 +338,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       const prompt = `Read ${brief} and follow it end to end.`;
       const agentId = await launch(runner, { title: `Fix review ${keyLabel(n)} (${picked.length})`, provider, prompt, labels: { kind: 'review', run: runId, work: slug, pr: fileKey(n), comments: picked.length }, requestedBy: input.requestedBy, n, branch: pr.head });
 
-      const run = {
+      const run: Run = {
         runId,
         number: n,
         slug,
@@ -328,21 +362,21 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     });
   }
 
-  async function applyOutcome(slug, n, run, id, outcome) {
+  async function applyOutcome(slug: string, n: RowKey, run: Run, id: string, outcome: Outcome) {
     const current = (comments.list(slug, n).comments || []).find((c) => c.id === id);
     if (!current || current.status !== 'sent' || current.runId !== run.runId) return false;
     await comments.update(slug, n, id, { status: outcome.status, runId: run.runId, resolution: outcome.resolution });
     return true;
   }
 
-  async function trailerFixes(run) {
+  async function trailerFixes(run: Run) {
     if (!run.cwd || !run.prSha) return [];
     return trailersBetween(run.cwd, run.prSha, 'HEAD');
   }
-  async function trailersBetween(cwd, from, to) {
+  async function trailersBetween(cwd: string, from: string, to: string) {
     const r = await exec('git', ['-C', cwd, 'log', `${from}..${to}`, '--format=%H%n%B%x00']);
     if (!r.ok) return [];
-    const found = [];
+    const found: { id: string; commit: string }[] = [];
     for (const rec of r.stdout.split('\0')) {
       const [hash, ...rest] = rec.replace(/^\n+/, '').split('\n');
       if (!/^[0-9a-f]{40}$/.test(hash || '')) continue;
@@ -351,30 +385,30 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return found;
   }
 
-  async function ingestRun(slug, n, run, agents) {
-    const changed = { done: false };
-    const agent = run.agentId ? agents.find((a) => a.id === run.agentId) : null;
+  async function ingestRun(slug: string, n: RowKey, run: Run, running: PaseoAgentInfo[]) {
+    let runChanged = false;
+    const agent = run.agentId ? running.find((a) => a.id === run.agentId) : null;
     if (!run.cwd && agent?.cwd) {
       run.cwd = expandHome(agent.cwd);
-      changed.run = true;
+      runChanged = true;
     }
 
     if (!run.pushWarned && !run.pushedByUser && run.remoteHeadBefore) {
       const now = await remoteHead(n);
       if (now && now !== run.remoteHeadBefore) {
         run.pushWarned = true;
-        changed.run = true;
+        runChanged = true;
         timeline(slug, 'warning', `review ${keyLabel(n)}: remote head moved during run ${run.runId.slice(0, 8)}`);
       }
     }
 
     if (fs.existsSync(run.resultPath)) {
-      const entries = parseJson(fs.readFileSync(run.resultPath, 'utf8'), null);
+      const entries = parseJson<(ResultEntry | null)[] | null>(fs.readFileSync(run.resultPath, 'utf8'), null);
       if (Array.isArray(entries)) {
         let fixed = 0;
         let declined = 0;
         for (const e of entries) {
-          if (!e || !run.commentIds.includes(e.id)) continue;
+          if (!e?.id || !run.commentIds.includes(e.id)) continue;
           const note = typeof e.note === 'string' ? e.note : '';
           if (e.status === 'fixed' && (await applyOutcome(slug, n, run, e.id, { status: 'fixed', resolution: { commit: e.commit || null, note } }))) fixed++;
           else if (e.status === 'declined' && (await applyOutcome(slug, n, run, e.id, { status: 'declined', resolution: { note } }))) declined++;
@@ -397,25 +431,25 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     if (settled && (!agent || agent.status !== 'running')) {
       run.status = 'done';
       run.finishedAt = new Date().toISOString();
-      changed.run = true;
+      runChanged = true;
     }
-    if (changed.run || fixed) writeRun(run);
+    if (runChanged || fixed) writeRun(run);
   }
 
-  async function ingest(slug, n) {
+  async function ingest(slug: string, key: unknown) {
     checkSlug(slug);
-    n = checkNumber(n);
+    const n = checkNumber(key);
     return withLock(`${slug}:${n}`, async () => {
       const running = list(slug, n).filter((r) => r.status === 'running');
       if (running.length) {
-        const agents = await agentsList();
-        for (const run of running) await ingestRun(slug, n, run, agents);
+        const live = await agentsList();
+        for (const run of running) await ingestRun(slug, n, run, live);
       }
       return { runs: list(slug, n) };
     });
   }
 
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const [, slug, , n, , runId, action] = parts;
       checkSlug(slug);
@@ -448,6 +482,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       if (action === 'pushed' && req.method === 'POST') {
         const updated = await withLock(`${slug}:${n}`, async () => {
           const fresh = list(slug, n).find((r) => r.runId === runId);
+          if (!fresh) throw new HttpError(404, 'no such run');
           fresh.pushedByUser = true;
           writeRun(fresh);
           return fresh;
@@ -457,7 +492,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       if (!action && req.method === 'GET') return send(res, 200, run);
       return send(res, 400, { error: `unsupported ${req.method} ${action || ''}`.trim() });
     } catch (e) {
-      return send(res, e instanceof HttpError ? e.status : 500, { error: e.message });
+      return send(res, e instanceof HttpError ? e.status : 500, { error: errorMessage(e) });
     }
   }
 

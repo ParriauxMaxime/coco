@@ -1,15 +1,25 @@
 // Opportunity inbox: a Notion page, a GitHub PR or issue, or a Slack permalink becomes a work scaffold proposal.
 // Coco reads the link with read-only tools and ends with propose_work_scaffold; the work exists only once the user presses Create work.
 
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+import type { Config } from './config.ts';
+import type { ReadBody, Req, Res, Send } from './core-types.ts';
 
-const sources = (github) => [
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const sources = (github: string) => [
   { kind: 'notion', re: /^https:\/\/(www\.)?notion\.(so|site)\//, read: 'Read the page with notion-fetch (and notion-search for linked specs if needed).' },
   ...(github ? [{ kind: 'github', re: new RegExp(`^https://github\\.com/${escape(github)}/(pull|issues)/(\\d+)`), read: `Read it with github_pr for a PR or \`gh issue view <n> --repo ${github} --comments\` for an issue.` }] : []),
   { kind: 'slack', re: /^https:\/\/[\w-]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)/, read: 'Read the thread with slack_read_thread (channel id and message ts from the permalink: p1712345678123456 is ts 1712345678.123456). Slack is read-only: never send, reply or react.' },
 ];
 
-export function inboxPrompt(url, note = '', { github = '', owner = 'the user', methodSkill = '', methodNotes = '' } = {}) {
+interface InboxOptions {
+  github?: string;
+  owner?: string;
+  methodSkill?: string;
+  methodNotes?: string;
+}
+
+export function inboxPrompt(url: unknown, note = '', { github = '', owner = 'the user', methodSkill = '', methodNotes = '' }: InboxOptions = {}) {
   const u = String(url || '').trim();
   const source = sources(github).find((s) => s.re.test(u));
   if (!source) return null;
@@ -27,9 +37,9 @@ export function inboxPrompt(url, note = '', { github = '', owner = 'the user', m
   };
 }
 
-export function createInbox({ ask, config }) {
+export function createInbox({ ask, config }: { ask: { start: (input: { prompt: string; kind: string }) => { id: string } }; config: Config }) {
   const opts = { github: config.repo.github, owner: config.owner.name, methodSkill: config.methodSkill, methodNotes: config.methodNotes };
-  async function handle(req, res, parts, readBody, send) {
+  async function handle(req: Req, res: Res, _parts: string[], readBody: ReadBody, send: Send) {
     if (req.method !== 'POST') return send(res, 404, { error: 'no route' });
     const { url, note = '' } = JSON.parse((await readBody(req)) || '{}');
     const p = inboxPrompt(url, note, opts);

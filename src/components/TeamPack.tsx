@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
+import type { PackApplied, PackContents, PackFile, PackPreview } from '../types.ts';
 
-const STATUS = { new: 'c-green', changed: 'c-orange', same: 'c-grey' };
-const size = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
-const counts = (files) => Object.entries(files.reduce((o, f) => ({ ...o, [f.status]: (o[f.status] || 0) + 1 }), {}));
-const Counts = ({ files }) => counts(files).map(([s, n]) => <span key={s} className={`chip ${STATUS[s]}`}>{n} {s}</span>);
-const toggle = (set, v) => {
+const STATUS: Record<string, string> = { new: 'c-green', changed: 'c-orange', same: 'c-grey' };
+const size = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+const counts = (files: PackFile[]) => Object.entries(files.reduce<Record<string, number>>((o, f) => ({ ...o, [f.status]: (o[f.status] || 0) + 1 }), {}));
+const Counts = ({ files }: { files: PackFile[] }) => counts(files).map(([s, n]) => <span key={s} className={`chip ${STATUS[s]}`}>{n} {s}</span>);
+const toggle = <T,>(set: Set<T>, v: T) => {
   const next = new Set(set);
   if (next.has(v)) next.delete(v);
   else next.add(v);
@@ -13,9 +14,9 @@ const toggle = (set, v) => {
 };
 
 function ExportPanel() {
-  const [contents, setContents] = useState(null);
-  const [personas, setPersonas] = useState(new Set());
-  const [skills, setSkills] = useState(new Set());
+  const [contents, setContents] = useState<PackContents | null>(null);
+  const [personas, setPersonas] = useState(new Set<string | null>());
+  const [skills, setSkills] = useState(new Set<string>());
   const [withConfig, setWithConfig] = useState(true);
   const [withProvider, setWithProvider] = useState(true);
   const [status, setStatus] = useState('Loading…');
@@ -25,7 +26,7 @@ function ExportPanel() {
       setPersonas(new Set(c.personas.map((p) => p.login)));
       setSkills(new Set(c.skills.map((s) => s.name)));
       setStatus('');
-    }, (e) => setStatus(e.message));
+    }, (e) => setStatus(errorMessage(e)));
   }, []);
   if (!contents) return <div className="status">{status}</div>;
   const allPersonas = personas.size === contents.personas.length;
@@ -39,7 +40,7 @@ function ExportPanel() {
       URL.revokeObjectURL(url);
       setStatus(`${name} · ${size(blob.size)}`);
     } catch (e) {
-      setStatus(e.message);
+      setStatus(errorMessage(e));
     }
   };
   return (
@@ -76,10 +77,10 @@ function ExportPanel() {
 }
 
 function ImportPanel() {
-  const [preview, setPreview] = useState(null);
-  const [done, setDone] = useState(null);
+  const [preview, setPreview] = useState<PackPreview | null>(null);
+  const [done, setDone] = useState<PackApplied | null>(null);
   const [status, setStatus] = useState('');
-  const upload = async (file) => {
+  const upload = async (file: File | undefined) => {
     if (!file) return;
     setStatus('Reading the pack…');
     setDone(null);
@@ -87,20 +88,22 @@ function ImportPanel() {
       setPreview(await api.importPack(file));
       setStatus('');
     } catch (e) {
-      setStatus(e.message);
+      setStatus(errorMessage(e));
     }
   };
   const apply = async () => {
+    if (!preview) return;
     setStatus('Applying…');
     try {
       setDone(await api.applyPack(preview.id));
       setPreview(null);
       setStatus('');
     } catch (e) {
-      setStatus(e.message);
+      setStatus(errorMessage(e));
     }
   };
   const discard = async () => {
+    if (!preview) return;
     await api.discardPack(preview.id).catch(() => {});
     setPreview(null);
     setStatus('Discarded.');
@@ -108,7 +111,7 @@ function ImportPanel() {
   const cfg = preview?.config;
   return (
     <div style={{ marginTop: 10 }}>
-      {!preview && <input type="file" accept=".zip,application/zip" onChange={(e) => upload(e.target.files[0])} />}
+      {!preview && <input type="file" accept=".zip,application/zip" onChange={(e) => upload(e.target.files?.[0])} />}
       {preview && (
         <>
           <div className="sub">From <code>{preview.by || 'unknown'}</code>{preview.createdAt ? `, ${preview.createdAt.slice(0, 16).replace('T', ' ')}` : ''}</div>
@@ -171,8 +174,8 @@ function ImportPanel() {
 }
 
 export default function TeamPack() {
-  const [mode, setMode] = useState(null);
-  const pick = (m) => setMode(mode === m ? null : m);
+  const [mode, setMode] = useState<'export' | 'import' | null>(null);
+  const pick = (m: 'export' | 'import') => setMode(mode === m ? null : m);
   return (
     <div className="card">
       <div className="sub">Share personas, skills, the team config and the feature-flag provider with teammates as a zip. Personal keys (owner, paths) never leave; on import they stay yours.</div>
