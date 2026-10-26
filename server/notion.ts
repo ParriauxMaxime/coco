@@ -33,7 +33,7 @@ interface AgentRun {
 }
 
 export interface NotionAgents {
-  run(opts: { title: string; prompt: string; provider: string; cwd: string; labels: Record<string, string>; timeoutMs: number }): Promise<AgentRun>;
+  run(opts: { title: string; prompt: string; provider: string; cwd: string; workspaceId?: string | null; labels: Record<string, string>; timeoutMs: number }): Promise<AgentRun>;
 }
 
 interface NotionWorks {
@@ -42,6 +42,8 @@ interface NotionWorks {
   listArtifacts(slug: string): Artifact[];
   detailPrs(slug: string): Promise<PrInfo[]>;
   prInfo(number: number | null): Promise<PrInfo>;
+  // the work's root workspace, when placement is wired
+  place?(slug: string): Promise<{ workspaceId: string; cwd: string }> | null;
 }
 
 // the agent ends on one line of JSON; the last such line wins, then any object in the text
@@ -236,8 +238,8 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
         works.save(w);
         fs.appendFileSync(runsFile(slug), JSON.stringify({ ts: run.startedAt, mode, force, parentPageId, agentId, workspaceId, createdWorkspace, status, cost, result, err: err.slice(0, 500) }) + '\n');
       };
-      (REPO ? workCwd({ repo: REPO, work, prInfo: works.prInfo }) : Promise.resolve(DATA))
-        .then((cwd) => agents.run({ title: `Notion ${preview ? 'preview' : 'sync'}: ${work.title}`, prompt: brief, provider: config.models.fast || config.models.default, cwd, labels: { source: 'cocopilot', kind: `notion-${mode}`, work: slug }, timeoutMs: TIMEOUT_MS }))
+      (works.place?.(slug) || (REPO ? workCwd({ repo: REPO, work, prInfo: works.prInfo }) : Promise.resolve(DATA)).then((cwd) => ({ cwd, workspaceId: null })))
+        .then((where) => agents.run({ title: `Notion ${preview ? 'preview' : 'sync'}: ${work.title}`, prompt: brief, provider: config.models.fast || config.models.default, ...where, labels: { source: 'cocopilot', kind: `notion-${mode}`, work: slug }, timeoutMs: TIMEOUT_MS }))
         .then(
           (r) => finish({ status: r.status, result: lastJson(r.finalText) || lastJson(r.text), cost: r.cost, agentId: r.agentId, workspaceId: r.workspaceId, createdWorkspace: r.createdWorkspace, err: r.error || '' }),
           (e: unknown) => finish({ err: errorMessage(e) }),

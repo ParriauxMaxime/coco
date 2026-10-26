@@ -67,6 +67,7 @@ repos
   .then(() => placement.syncProjectNames(works.list()))
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
+works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (slug) => placement.place(slug ? { kind: 'work', slug } : { kind: 'repo', repoId: config.repos[0].id }) });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
@@ -75,7 +76,7 @@ works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
 const comments = createComments({ DATA, REPO, config, works });
 const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement });
 const lang = createLang({ REPO, config });
-const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents });
+const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement });

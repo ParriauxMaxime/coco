@@ -27,7 +27,7 @@ type PlanRun = { status: string; startedAt: string; finishedAt: string | null; h
 type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined> };
 type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
-type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: CodeApi; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents };
+type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: CodeApi; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
 const MAX_PROMPT_DIFF = 160 * 1024;
 const MAX_STEPS = 8;
 const MAX_WATCH = 8;
@@ -232,7 +232,7 @@ export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, gu
   ].join('\n');
 }
 
-export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }) }: Deps) {
+export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }), place }: Deps) {
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   const OWNER = config.owner.name;
   const SYSTEM = systemPrompt(OWNER, REPO);
@@ -362,8 +362,8 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       note(`created Paseo workspace ${createdWorkspace}`);
       log('say', `No Paseo workspace was open for this PR: created ${createdWorkspace}.`);
     };
-    (work ? workCwd({ repo: REPO, work, key: n, prInfo: works.prInfo }) : Promise.resolve(REPO))
-      .then((cwd) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: SYSTEM, provider: config.models.default, cwd, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, mcp: true, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
+    (work && place ? place(slug) : (work ? workCwd({ repo: REPO, work, key: n, prInfo: works.prInfo }) : Promise.resolve(REPO)).then((cwd) => ({ cwd, workspaceId: null })))
+      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: SYSTEM, provider: config.models.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, mcp: true, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
       .then((r) => finish(r), (e) => finish(null, e));
     return { ok: true };
   }
