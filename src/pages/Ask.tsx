@@ -76,6 +76,28 @@ function AgentProposal({ run }: { run: Run }) {
   );
 }
 
+function DispatchProposal({ run }: { run: Run }) {
+  const p = run.dispatchProposal;
+  const [status, setStatus] = useState('');
+  if (!p) return null;
+  const confirm = async () => {
+    setStatus('dispatching…');
+    const r = await api.askDispatch(run.id).catch((e) => ({ ok: false, error: errorMessage(e), out: '' }));
+    setStatus(r.ok ? r.out || 'started' : r.error ?? '');
+  };
+  const pr = p.pr == null ? 'the whole work' : /^\d+$/.test(String(p.pr)) ? `#${p.pr}` : String(p.pr).slice(2).replaceAll(':', '/');
+  return (
+    <div className="card" style={{ borderColor: 'var(--brand)', boxShadow: '0 0 0 3px var(--brand-100)' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span><span className="chip c-purple">dispatch</span> <b>{p.entry}</b> on {pr}{p.persona ? <> as <code>{p.persona}</code></> : null}{p.edits ? <span className="chip c-grey">on the branch</span> : null}</span>
+        <span className="row"><button className="primary" onClick={confirm} disabled={status === 'dispatching…' || status.startsWith('started')}>Confirm</button><span className="status">{status}</span></span>
+      </div>
+      {p.why && <p style={{ marginTop: 8 }}>{p.why}</p>}
+      {p.prompt && <details style={{ marginTop: 6 }}><summary>Prompt</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{p.prompt}</pre></details>}
+    </div>
+  );
+}
+
 // conversation states (older one-shot runs read done or error)
 export const ASK_STATE: Record<string, [string, string]> = {
   running: ['c-blue', 'working'],
@@ -168,7 +190,7 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
       setEvents((prev) => [...prev, ev]);
       if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
       if (ev.type === 'end' || ev.type === 'closed') {
-        setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, agentId: ev.agentId || r.agentId });
+        setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, dispatchProposal: ev.dispatchProposal || r.dispatchProposal, agentId: ev.agentId || r.agentId });
         loadHistory();
       }
     };
@@ -302,6 +324,7 @@ export default function Ask({ workSlug, repoId, repoName }: { workSlug?: string;
         <>
           <Proposal run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
           <AgentProposal run={run} />
+          <DispatchProposal run={run} />
         </>
       )}
       <AskHistory title={workSlug ? 'Earlier conversations on this work' : repoId ? `Earlier conversations on ${repo}` : 'Previous conversations'} history={convo.history} onOpen={open} />

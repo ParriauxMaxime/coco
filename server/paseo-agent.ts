@@ -11,9 +11,9 @@ const TITLE_MAX = 60;
 const DEFAULT_LISTEN = '127.0.0.1:6767';
 const TIMEOUT_MS = 15 * 60 * 1000;
 const HOME = os.homedir();
-const COCO_TOOL = /^mcp__cocopilot__(propose_\w+)$/;
+const COCO_TOOL = /^mcp__cocopilot__(propose_\w+|dispatch)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
-export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan'];
+export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'dispatch'];
 
 type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[], opts?: Record<string, unknown>) => Promise<ExecResult>;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cocopilot MCP server (stdio): read tools over works, personas, Paseo, plus one proposal tool.
+// cocopilot MCP server (stdio): read tools over works, personas, Paseo, plus proposal tools.
 // Any agent (Claude Code headless, a Paseo agent, Codex) can mount it. Writes stay in the app: the user applies.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { loadConfig, personaLogins } from './config.ts';
+import { catalog } from './dispatch.ts';
 
 const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const config = loadConfig({ APP });
@@ -105,6 +106,17 @@ server.tool('propose_paseo_agent', `Propose starting a Paseo agent (local, in an
   thinking: z.enum(['low', 'medium', 'high', 'auto']).default('high'),
   mode: z.enum(['auto', 'default', 'plan', 'bypass']).default('auto'),
   workSlug: z.string().optional().describe('work this agent belongs to, for its timeline'),
+  why: z.string().describe('one sentence: what the agent will do and why'),
+}, async (p) => text({ recorded: true, proposal: p }));
+
+const dispatchable = catalog(config).map((e) => `${e.id} (${e.label}${e.kind === 'prompt' ? ', read-only unless edits' : e.edits ? ', works on the PR branch' : ', read-only'}${e.needsPrompt ? ', needs prompt' : ''}${e.needsPersona ? ', needs persona' : ''})`).join('; ');
+server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of its PRs. Nothing starts: ${OWNER} confirms on the card, then coco adds the work brief and picks the Paseo workspace (read-only kinds in the work's Plan workspace, the others in the PR's own). Call it once, at the end. Entries: ${dispatchable}.`, {
+  entry: z.string().describe('catalog entry id, e.g. "ask", "persona-review", "fix-findings", "gate:self-review:<skill>", "prompt"'),
+  pr: z.union([z.number(), z.string()]).optional().describe('PR number, or "b:<branch>" for a stack row with no PR yet; omit only for a free prompt on the whole work'),
+  prompt: z.string().optional().describe('the question (ask) or the task (prompt); extra instructions for a gate run'),
+  persona: z.string().optional().describe('persona login, for persona-review'),
+  edits: z.boolean().optional().describe('free prompt only: true when the agent must work on the PR branch'),
+  workSlug: z.string().optional().describe('the work, when the conversation has none'),
   why: z.string().describe('one sentence: what the agent will do and why'),
 }, async (p) => text({ recorded: true, proposal: p }));
 

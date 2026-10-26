@@ -16,6 +16,7 @@ import { openCodeAt, useLocal } from './Code.tsx';
 import { findingsKeyOfTab, keyLabel } from '../code/ids.ts';
 import { CHIP } from '../code/ReviewSidebar.tsx';
 import { FixDialog, StackRunLink, openStackRun, useStackFix } from '../code/StackFix.tsx';
+import DispatchMenu from '../../components/DispatchMenu.tsx';
 import '../code/code.css';
 
 type PendingState = { action: FindingAction; keys: Set<string>; bulk: boolean };
@@ -219,8 +220,9 @@ function Spot({ i, g, picked, onPick, ...rest }: SpotProps) {
 
 // every remark on a PR (or the whole stack) in one list: what is left to fix, grouped by spot by default, worst first
 export default function Findings({ tabId }: { tabId: string }) {
-  const { slug } = useWork();
+  const { slug, w, prs } = useWork();
   const n = findingsKeyOfTab(tabId);
+  const [dispatching, setDispatching] = useState(false);
   const [data, setData] = useState<FindingsResponse | null>(null);
   // the toast's Undo calls act() from an older render: read the rows through a ref
   const latest = useRef(data);
@@ -327,10 +329,23 @@ export default function Findings({ tabId }: { tabId: string }) {
           <span className="cc-spacer" />
           {lastRun && <StackRunLink run={lastRun} onOpen={openRun} />}
           <button type="button" className="sm primary" disabled={!toFix || lastRun?.status === 'running'} title="One agent fixes every accepted, still open finding of the stack, with your notes and threads" onClick={() => setFixing(true)}>Fix accepted ({toFix})</button>
+          <button type="button" className={`sm${dispatching ? ' on' : ''}`} title="Start an agent on a PR: ask, persona review, fix findings (the picked ones), a gate run or a free prompt" onClick={() => setDispatching(!dispatching)}>dispatch ▾</button>
           <span className="rv-seg">{GROUP_BY.map((v) => <button key={v} type="button" className={groupBy === v ? 'on' : ''} onClick={() => setGroupBy(v)}>{v}</button>)}</span>
           <span className="rv-seg">{VIEWS.map((v) => <button key={v} type="button" className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v}</button>)}</span>
           <button type="button" className="sm" disabled={busy} onClick={() => load(true)}>↻</button>
         </div>
+        {dispatching && (
+          <DispatchMenu
+            slug={slug}
+            prKey={n}
+            rows={prs.flatMap((p, idx) => (p.key ? [{ key: p.key, label: `${p.number ? `#${p.number} ` : ''}${p.title || p.planned?.title || `PR ${idx + 1}`}` }] : []))}
+            personas={(n == null ? null : w.stack?.[prs.findIndex((p) => String(p.key) === String(n))]?.personas) || w.personas || []}
+            initial={chosen.length ? 'fix-findings' : 'ask'}
+            commentIdsFor={(k) => chosen.flatMap((r) => (String(r.n) === String(k) && r.commentId ? [r.commentId] : []))}
+            onClose={() => setDispatching(false)}
+            onStarted={(r) => r.runId && load(true)}
+          />
+        )}
         {fixing && <FixDialog slug={slug} open={stackFix.open} select="accepted" onClose={() => setFixing(false)} onSent={(run) => { setFixing(false); stackFix.reload(); load(true); openRun(run.id); }} />}
         <ReviewerStrip rows={inView} hidden={hidden} setHidden={setHidden} />
         <div className="fd-bar">

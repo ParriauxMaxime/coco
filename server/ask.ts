@@ -36,7 +36,8 @@ type Scaffold = {
   betaFlags?: { code: string; why: string; prs?: number[] }[];
 };
 type AgentProposal = { title: string; prompt: string; workspaceId?: string; cwd?: string; provider?: string; thinking?: string; mode?: string; workSlug?: string };
-type Submitted = { propose_work_scaffold?: Scaffold; propose_paseo_agent?: AgentProposal; propose_rules?: { rules: { text: string; source: string }[] } };
+type DispatchProposal = { entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
+type Submitted = { propose_work_scaffold?: Scaffold; propose_paseo_agent?: AgentProposal; propose_rules?: { rules: { text: string; source: string }[] }; dispatch?: DispatchProposal };
 // the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan, stack and findings)
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export const scopeKey = (s: AskScope) => (s.kind === 'global' ? 'global' : s.kind === 'repo' ? `repo:${s.repoId}` : `work:${s.slug}`);
@@ -56,6 +57,7 @@ type Conv = {
   proposal: Scaffold | null;
   agentProposal: AgentProposal | null;
   rulesProposal: Submitted['propose_rules'] | null;
+  dispatchProposal: DispatchProposal | null;
   text: string;
   agentId: string | null;
   cost: number | null;
@@ -68,7 +70,7 @@ type Conv = {
   onEnd?: (conv: Conv) => void;
   once?: boolean;
 };
-const META = ['id', 'prompt', 'scope', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
+const META = ['id', 'prompt', 'scope', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'dispatchProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; submitted?: Record<string, unknown>; text?: string; cost?: number | null };
 type AskWork = Work & { stack?: StackRow[]; timeline?: TimelineEntry[] };
@@ -82,9 +84,11 @@ type AskOptions = {
   idleMs?: number;
   // the Paseo workspace of a scope's agents; without it, the folder decides as before
   place?: (scope: AskScope) => Promise<{ workspaceId: string; cwd: string }>;
+  // starts what a dispatch call proposed, once the owner confirms it
+  dispatch?: (slug: string, input: { entry: string; key?: number | string; prompt?: string; persona?: string; edits?: boolean }) => Promise<{ title: string; agentId: string | null }>;
 };
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place }: AskOptions) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch }: AskOptions) {
   const repos = config.repos || [];
   const where = async (scope: AskScope) => {
     if (place) return place(scope);
@@ -110,7 +114,7 @@ For a new work, end with exactly one propose_work_scaffold call carrying the ful
 - Diagrams: ${diagramSkill ? `read_skill ${diagramSkill} for the house style (init line, new/same/rm classDef, shapes, quoted labels, under ~15 nodes)${notes ? `, with the overrides from ${notes}` : ''}: ` :'Mermaid, under ~15 nodes, quoted labels; '}no legend box; lanes (subgraphs) group what colour would have to explain, the heading above each diagram states the point plus the one colour rule that matters, emoji are decoration only. At most a Before/After and, for a stack, a merge-order diagram.
 - Links: product spec and decision log first, then the precedent PR or stack; four at most.
 - Feature flags: find the flags checked around the entry points of every surface the work touches; each flag that gates one goes in betaFlags with the PRs it applies to, so testers and PR bodies name it.
-To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it. For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.
+To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it.${dispatch ? ` To run a catalog agent on the current work or one of its PRs (ask on a PR, persona review, fix findings, a gate run, a free prompt), prefer one dispatch call: coco adds the work brief and picks the workspace, ${OWNER} confirms on the card.` : ''} For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.
 This is a conversation: ${OWNER} follows up in the same session, sometimes while you are still working; answer the latest message and keep what was already settled.`;
 
   // the inbox is global too but scaffolds works: only the global Ask page gets the global tier's line
@@ -214,7 +218,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const said = events.slice(0, events.findLastIndex((e) => e.type === 'user')).filter((e) => e.type === 'user' || e.type === 'text');
     if (!said.length) return text;
     const all = said.map((e) => `**${e.type === 'user' ? OWNER : 'coco'}:** ${e.text}`).join('\n\n');
-    const proposed = [conv.proposal && `a work scaffold for \`${conv.proposal.slug}\``, conv.agentProposal && `a Paseo agent "${conv.agentProposal.title}"`].filter(Boolean);
+    const proposed = [conv.proposal && `a work scaffold for \`${conv.proposal.slug}\``, conv.agentProposal && `a Paseo agent "${conv.agentProposal.title}"`, conv.dispatchProposal && `a dispatch of ${conv.dispatchProposal.entry}`].filter(Boolean);
     return [
       `This continues an Ask conversation whose previous agent is gone. The conversation so far${all.length > HISTORY_MAX ? ' (oldest part cut)' : ''}:`,
       '',
@@ -236,11 +240,12 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     conv.proposal = sub.propose_work_scaffold || conv.proposal || null;
     conv.agentProposal = sub.propose_paseo_agent || conv.agentProposal || null;
     conv.rulesProposal = sub.propose_rules || conv.rulesProposal || null;
+    conv.dispatchProposal = sub.dispatch || conv.dispatchProposal || null;
     if (r.text) conv.text = r.text;
     if (r.cost != null) conv.cost = (conv.costBase || 0) + r.cost;
     conv.turns = (conv.turns || 0) + 1;
     if (open) conv.status = conv.session ? 'idle' : 'parked';
-    push(conv, { type: 'end', status: open ? r.status : 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, cost: conv.cost, conversation: conv.status, agentId: conv.agentId });
+    push(conv, { type: 'end', status: open ? r.status : 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, dispatchProposal: conv.dispatchProposal, cost: conv.cost, conversation: conv.status, agentId: conv.agentId });
     save(conv);
     conv.onEnd?.(conv);
     if (conv.once) close(conv.id).catch(() => {});
@@ -284,7 +289,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   // the scope: the work's when there is one, else the repo's, else global
   function start({ prompt, workSlug = null, repoId = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
     const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
-    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
+    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, dispatchProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
     Object.assign(conv, { onEnd, once });
     save(conv);
     say(conv, prompt, { nonce });
@@ -327,7 +332,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         if (s) track(conv, s.resume({ timeoutMs: TIMEOUT_MS }));
         else {
           conv.status = 'parked';
-          push(conv, { type: 'end', status: 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, cost: conv.cost, conversation: conv.status });
+          push(conv, { type: 'end', status: 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, dispatchProposal: conv.dispatchProposal, cost: conv.cost, conversation: conv.status });
           save(conv);
         }
       } catch {
@@ -391,6 +396,20 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     return error ? { error: error.slice(0, 500) } : { ok: true, agentId, out: `started ${agentId}${createdWorkspace ? ` in new workspace ${createdWorkspace}` : ''}` };
   }
 
+  async function startDispatch(id: string) {
+    const conv = load(id);
+    if (!conv?.dispatchProposal) return { error: 'no dispatch proposal on this run' };
+    const p = conv.dispatchProposal;
+    const slug = conv.workSlug || p.workSlug;
+    if (!dispatch || !slug) return { error: 'a dispatch needs a work' };
+    try {
+      const r = await dispatch(slug, { entry: p.entry, key: p.pr, prompt: p.prompt, persona: p.persona, edits: p.edits });
+      return { ok: true, agentId: r.agentId, out: `started ${r.title}` };
+    } catch (e) {
+      return { error: (e instanceof Error ? e.message : String(e)).slice(0, 500) };
+    }
+  }
+
   // the latest conversations, of one scope (its scopeKey) when given
   function list(scope?: string | null) {
     return metas().map((m) => meta(convs.get(m.id) ?? m)).filter((m) => !scope || scopeKey(m.scope) === scope).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30);
@@ -430,6 +449,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (action === 'close' && req.method === 'POST') return send(res, 200, await close(id));
     if (action === 'apply' && req.method === 'POST') return send(res, 200, apply(id, await body()));
     if (action === 'start-agent' && req.method === 'POST') return send(res, 200, await startAgent(id));
+    if (action === 'dispatch' && req.method === 'POST') return send(res, 200, await startDispatch(id));
     return send(res, 200, meta(conv));
   }
 

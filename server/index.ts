@@ -23,6 +23,7 @@ import { createMedia } from './media.ts';
 import { createBriefs, renderBrief } from './briefs.ts';
 import { createRules } from './rules.ts';
 import { createGates } from './gates.ts';
+import { createDispatch } from './dispatch.ts';
 import { createStackKeeper, needsKeeping } from './stack-keeper.ts';
 import { createInbox } from './inbox.ts';
 import { createKit } from './kit.ts';
@@ -69,7 +70,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope) => placement.place(scope) });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope) => placement.place(scope), dispatch: (slug, input) => dispatch.start(slug, input) });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -87,6 +88,7 @@ const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan });
+const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, repoOf: repos.repoFor });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
@@ -361,6 +363,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'kit') return kit.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'stack-keeper') return stackKeeper.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
+    if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
     if (root === 'repos' && a) {

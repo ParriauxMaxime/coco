@@ -13,6 +13,7 @@ import { StackFixCard } from '../code/StackFix.tsx';
 import GateRail from './Gates.tsx';
 import StackKeeper from './StackKeeper.tsx';
 import KitLine from './KitLine.tsx';
+import DispatchMenu from '../../components/DispatchMenu.tsx';
 import { DevServerRow, DevServersSummary, useDevServers } from './DevServers.tsx';
 import type { DevServerRowData, DevServersResponse, PersonaSuggestion, StackRow, WorkDetail } from '../../types.ts';
 import type { NotionState, PrKey, WhatsNextData, WorkPr } from '../types.ts';
@@ -93,6 +94,7 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChang
   const { key, number } = pr;
   const title = prTitle(work, pr, index);
   const what = userFacing(pr.body) || planned?.scope || '';
+  const [dispatching, setDispatching] = useState(false);
   return (
     <section id={`pr-${pr.number || index}`} className={`card pr-card plan-pr st-${stateKey(pr)}${open ? '' : ' folded'}`}>
       <div className="headline" onClick={onToggle}>
@@ -113,7 +115,8 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChang
         {key && <KitLine slug={work.slug} n={key} />}
         {dev && <DevServerRow slug={work.slug} row={dev} onChange={onDevChange} />}
         {key && <GateRail slug={work.slug} n={key} onOpen={(kind) => onReview(key, kind)} />}
-        <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{key && <span className="row open-side"><button className="sm" onClick={() => onReview(key)}>review ▸</button><button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(key, 'brief')}>agent ▸</button>{number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}</span>}</div>
+        <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{key && <span className="row open-side"><button className="sm" onClick={() => onReview(key)}>review ▸</button><button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(key, 'brief')}>agent ▸</button>{number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}<button className={`sm${dispatching ? ' on' : ''}`} onClick={() => setDispatching(!dispatching)}>dispatch ▾</button></span>}</div>
+        {key && dispatching && <DispatchMenu slug={work.slug} prKey={key} personas={work.stack?.[index]?.personas || []} onClose={() => setDispatching(false)} />}
       </>}
     </section>
   );
@@ -174,8 +177,9 @@ type PrActions = { onJump: (index: number) => void; onDetails: (n: number) => vo
 
 function ProgressDot({ w, pr, index, alignEnd, onJump, onDetails, onReview }: PrActions & { w: WorkDetail; pr: WorkPr; index: number; alignEnd: boolean }) {
   const { key, number } = pr;
+  const [dispatching, setDispatching] = useState(false);
   return (
-    <span className={`dot st-${stateKey(pr)}`} tabIndex={0}>
+    <span className={`dot st-${stateKey(pr)}${dispatching ? ' pinned' : ''}`} tabIndex={0}>
       <i />
       <span className={`dot-pop card${alignEnd ? ' end' : ''}`}>
         <span className="row">
@@ -189,7 +193,9 @@ function ProgressDot({ w, pr, index, alignEnd, onJump, onDetails, onReview }: Pr
           {key && <button className="sm" onClick={() => onReview(key)}>review ▸</button>}
           {key && <button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button>}
           {number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}
+          {key && <button className={`sm${dispatching ? ' on' : ''}`} onClick={() => setDispatching(!dispatching)}>dispatch ▾</button>}
         </span>
+        {key && dispatching && <DispatchMenu slug={w.slug} prKey={key} personas={w.stack?.[index]?.personas || []} onClose={() => setDispatching(false)} />}
       </span>
     </span>
   );

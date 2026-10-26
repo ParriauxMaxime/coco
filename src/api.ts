@@ -1,6 +1,6 @@
 import type {
   AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
-  DevServersResponse, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
+  DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
@@ -92,6 +92,8 @@ export const api = {
   proposeRules: (slug: string | null | undefined, body: Partial<RuleScope> & { text?: string; threadKey?: string }) => post<RulesResponse>(`${rulesBase(slug)}/propose`, body),
   gates: (slug: string, n: string | number) => get<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}`),
   gateAction: (slug: string, n: string | number, id: string, body: GateActionBody) => post<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}/${id}`, body),
+  dispatchCatalog: (slug: string) => get<{ catalog: DispatchEntry[] }>(`${works(slug)}/dispatch`),
+  dispatch: (slug: string, body: DispatchBody) => postJson(`${works(slug)}/dispatch`, body).then(jsonOrError<DispatchResult>),
   stackKeeper: (slug: string) => get<KeepPlan>(`${works(slug)}/stack-keeper`),
   stackKeeperAction: (slug: string, action: string) => postEmpty<KeepApplied & KeepPlan>(`${works(slug)}/stack-keeper/${action}`),
   inbox: (body: { url: string; note: string }) => post<{ id: string; kind: string }>('/api/inbox', body),
@@ -105,6 +107,7 @@ export const api = {
   askSay: (id: string, body: { text: string; nonce: string }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
   startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
+  askDispatch: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/dispatch`),
   applyAsk: (id: string, body?: { replaceStack: boolean }) => post<AskApplyResult>(`/api/ask/${id}/apply`, body || {}),
   packContents: () => get<PackContents>('/api/pack/contents'),
   exportPack: async (body: PackExportBody) => {

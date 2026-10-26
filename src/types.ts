@@ -285,6 +285,7 @@ export type ActivityEvent = {
   steer?: boolean;
   proposal?: AskProposal | null;
   agentProposal?: AgentProposal | null;
+  dispatchProposal?: DispatchProposal | null;
   agentId?: string;
 };
 
@@ -445,6 +446,10 @@ export type AgentProposal = {
 };
 // the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan)
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
+export type DispatchEntry = { id: string; kind: string; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
+export type DispatchBody = { entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] };
+export type DispatchResult = { kind: string; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string };
+export type DispatchProposal = { entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
 export type AskRun = {
   id: string;
   prompt: string;
@@ -458,6 +463,7 @@ export type AskRun = {
   turns?: number;
   proposal?: AskProposal | null;
   agentProposal?: AgentProposal | null;
+  dispatchProposal?: DispatchProposal | null;
   agentId?: string | null;
   cost?: number | null;
 };

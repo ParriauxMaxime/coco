@@ -39,7 +39,8 @@ type BriefOptions = { commits?: string; resultPath?: string; runId?: string };
 type ResultEntry = { id?: string; status?: string; commit?: string | null; note?: unknown };
 type LaunchAgents = { start(opts: Record<string, unknown>): Promise<{ agentId: string; createdWorkspace?: string | null }> };
 type Outcome = { status: 'fixed' | 'declined'; resolution: { commit?: string | null; note?: string } };
-type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; requestedBy?: unknown };
+// wrap: a dispatch puts its own first message around the brief pointer
+type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; requestedBy?: unknown; wrap?: (prompt: string) => string };
 // the row's own workspace for an agent that works on the PR's branch
 type RowPlacement = { place(scope: { kind: 'row'; slug: string; key: RowKey; edits: true }): Promise<{ workspaceId: string; cwd: string }> };
 type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents; placement?: RowPlacement };
@@ -339,7 +340,8 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       fs.writeFileSync(brief, text);
       const remoteHeadBefore = await remoteHead(n);
 
-      const prompt = `Read ${brief} and follow it end to end.`;
+      const task = `Read ${brief} and follow it end to end.`;
+      const prompt = typeof input.wrap === 'function' ? input.wrap(task) : task;
       const agentId = await launch(runner, { title: `Fix review ${keyLabel(n)} (${picked.length})`, provider, prompt, labels: { kind: 'review', run: runId, work: slug, pr: fileKey(n), comments: picked.length }, requestedBy: input.requestedBy, n, branch: pr.head });
 
       const run: Run = {
