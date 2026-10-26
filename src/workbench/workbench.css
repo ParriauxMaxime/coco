@@ -6,6 +6,7 @@
 .wb-strip { flex: none; display: flex; align-items: stretch; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
 .wb-tabs { flex: 1; display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .wb-tabs::-webkit-scrollbar { display: none; }
+.wb-new { flex: none; align-self: center; margin: 0 4px; }
 .wb-tab-h { flex: none; display: flex; align-items: center; gap: 6px; max-width: 240px; height: 36px; padding: 0 6px 0 12px; font-size: 13px; font-weight: 500; color: var(--mute); border-right: 1px solid var(--line-2); border-bottom: 2px solid transparent; cursor: pointer; user-select: none; white-space: nowrap; }
 .wb-tab-h:hover { background: var(--line-2); color: var(--ink-2); }
 .wb-tab-h.active { color: var(--ink); border-bottom-color: var(--line); }

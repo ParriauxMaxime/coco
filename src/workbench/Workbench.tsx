@@ -17,6 +17,7 @@ type Zone = Edge | 'center';
 
 const GLYPHS = {
   close: ['M18 6 6 18', 'M6 6l12 12'],
+  plus: ['M12 5v14', 'M5 12h14'],
   split: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M12 3v18'],
   maximize: ['M15 3h6v6', 'M9 21H3v-6', 'M21 3l-7 7', 'M3 21l7-7'],
   restore: ['M4 14h6v6', 'M20 10h-6V4', 'M14 10l7-7', 'M3 21l7-7'],
@@ -67,7 +68,7 @@ const zoneAt = (e: React.DragEvent, el: HTMLElement): Zone => {
 };
 
 function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: GroupData[]; ctx: WorkData; merged: boolean; max: boolean; drag: string | null }) {
-  const { activate, close, pin, toggleMax, splitWith, moveTab, setDrag } = useWorkbench.getState();
+  const { activate, open, close, pin, toggleMax, splitWith, moveTab, setDrag } = useWorkbench.getState();
   const tabDef = useTabDef();
   const [closing, setClosing] = useState<string | null>(null);
   const closeSoft = (id: string) => {
@@ -112,6 +113,7 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
             {!(id === 'plan' && total === 1) && <button className="wb-x" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); closeSoft(id); }}><Glyph d={GLYPHS.close} /></button>}
           </div>
         ))}
+        <button className="wb-act wb-new" title="New agent" aria-label="New agent" onClick={() => open('ask', { group: g.id })}><Glyph d={GLYPHS.plus} /></button>
       </div>
       <div className="wb-acts">
         {!merged && g.tabs.length > 1 && <button className="wb-act" title="Split right (Cmd+\), Alt-click splits down" aria-label="Split" onClick={(e) => splitWith(g.active ?? '', g.id, e.altKey ? 'bottom' : 'right')}><Glyph d={GLYPHS.split} /></button>}
