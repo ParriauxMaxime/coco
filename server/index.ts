@@ -67,7 +67,7 @@ repos
   .then(() => placement.syncProjectNames(works.list()))
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (slug) => placement.place(slug ? { kind: 'work', slug } : { kind: 'repo', repoId: config.repos[0].id }) });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });

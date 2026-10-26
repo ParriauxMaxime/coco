@@ -89,9 +89,24 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return createWorkspace(['--isolation', 'local', '--path', dir, '--project', projectId, '--title', title], title);
   }
 
+  // the clone usually has workspaces of its own already: coco keeps one of its own there, remembered by id
+  const ownFile = path.join(DATA, 'placement.json');
+  const readOwn = (): Record<string, string> => {
+    try {
+      return JSON.parse(fs.readFileSync(ownFile, 'utf8'));
+    } catch {
+      return {};
+    }
+  };
   async function repoPlace(repo: RepoConfig) {
+    const own = readOwn();
+    const kept = own[`repo:${repo.id}`] && (await live()).find((w) => w.id === own[`repo:${repo.id}`]);
+    if (kept) return { workspaceId: kept.id, cwd: kept.workspaceDirectory || repo.path };
     const p = await projectAt(repo.path);
-    return workspaceOn(p.projectId, repo.path, REPO_WORKSPACE_TITLE);
+    const placed = await createWorkspace(['--isolation', 'local', '--path', repo.path, '--project', p.projectId, '--title', REPO_WORKSPACE_TITLE], REPO_WORKSPACE_TITLE);
+    fs.mkdirSync(DATA, { recursive: true });
+    fs.writeFileSync(ownFile, JSON.stringify({ ...readOwn(), [`repo:${repo.id}`]: placed.workspaceId }, null, 1));
+    return placed;
   }
 
   // a work without a project gets one, rooted at a detached plan worktree off the repo's default branch, named after the work

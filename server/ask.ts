@@ -74,9 +74,12 @@ type AskOptions = {
   works: { get(slug: string): AskWork | null | undefined; save(work: AskWork): unknown; prInfo(n: number): Promise<PrInfo | null> };
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
+  // the Paseo workspace for a work's agents, or (no slug) for the repo-level Ask; without it, the folder decides as before
+  place?: (slug: string | null) => Promise<{ workspaceId: string; cwd: string }>;
 };
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS }: AskOptions) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place }: AskOptions) {
+  const where = async (work: AskWork | null | undefined) => (place ? place(work?.slug || null) : { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO });
   const DIR = path.join(DATA, 'asks');
   fs.mkdirSync(DIR, { recursive: true });
   const convs = new Map<string, Conv>();
@@ -158,13 +161,14 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       }
       if (!create) return null;
       const work = conv.workSlug ? works.get(conv.workSlug) : null;
-      const cwd = work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO;
+      const { workspaceId, cwd } = await where(work);
       const s = await agents.session({
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: SYSTEM + (conv.workSlug ? `\nCurrent work: ${conv.workSlug} (use get_work first).` : ''),
         provider: providerFor(conv.model),
         mode: 'auto',
         cwd,
+        workspaceId,
         labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug },
         mcp: true,
         ...stream,
@@ -350,8 +354,8 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     let error = '';
     const work = p.workSlug ? works.get(p.workSlug) : null;
     try {
-      const cwd = p.workspaceId ? null : p.cwd || (work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO);
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, mode: p.mode === 'bypass' ? 'bypassPermissions' : p.mode, workspaceId: p.workspaceId || null, cwd, labels: { source: 'cocopilot', ask: id.slice(0, 8) } });
+      const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work);
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, mode: p.mode === 'bypass' ? 'bypassPermissions' : p.mode, ...placed, labels: { source: 'cocopilot', ask: id.slice(0, 8) } });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }

@@ -55,8 +55,8 @@ test('project names follow work titles; the repo project and matching names are 
   assert.equal(w.calls.filter((a) => a[2] === 'rename').length, 1);
 });
 
-test('global runs in the coco repo project, in a workspace titled cocopilot, made once', async () => {
-  const w = world();
+test('global runs in the coco repo project, in a workspace titled cocopilot, made once even when the clone has others', async () => {
+  const w = world({ workspaces: [{ id: 'wks_other', projectId: 'prj_x', workspaceDirectory: '/apps/coco' }] });
   const p = createPlacement({ repos: REPOS, APP: '/apps/coco', DATA: DATA(), exec: w.exec, listWorkspaces: w.listWorkspaces });
   const first = await p.place({ kind: 'global' });
   assert.equal(first.cwd, '/apps/coco');
