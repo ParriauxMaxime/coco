@@ -7,6 +7,7 @@ import type { ExecFileOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createWorks } from './works.ts';
 import { createRepos } from './repos.ts';
+import { createPlacement } from './placement.ts';
 import { createAsk } from './ask.ts';
 import { createCode } from './code.ts';
 import { createComments } from './comments.ts';
@@ -58,7 +59,14 @@ fs.mkdirSync(DATA, { recursive: true });
 const paseoAgents = createPaseoAgents({ APP });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
 const repos = createRepos({ DATA, repos: config.repos });
-repos.assign(works.list(), (w) => works.save(w, { touch: false })).then((moved) => moved.forEach((m) => console.log(`work ${m.slug} → repo ${m.repo}`)), () => {});
+const placement = createPlacement({ repos: config.repos });
+const logRenames = (renames: Awaited<ReturnType<typeof placement.syncProjectNames>>) => renames.forEach((r) => console.log(`Paseo project ${r.from} → ${r.to}${r.skipped ? ` skipped: ${r.skipped}` : ''}`));
+repos
+  .assign(works.list(), (w) => works.save(w, { touch: false }))
+  .then((moved) => moved.forEach((m) => console.log(`work ${m.slug} → repo ${m.repo}`)))
+  .then(() => placement.syncProjectNames(works.list()))
+  .then(logRenames, () => {});
+works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });

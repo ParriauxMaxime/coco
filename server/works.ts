@@ -115,7 +115,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents }) {
-  const hooks: { onArchived?: (number: number) => unknown } = {};
+  const hooks: { onArchived?: (number: number) => unknown; onRetitled?: (work: Work) => unknown } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
@@ -135,6 +135,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   const get = (slug: string): Work | null => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
   const save = (work: Work, { touch = true } = {}) => {
     if (touch) work.updatedAt = new Date().toISOString();
+    const before = get(work.slug);
+    if (before && before.title !== work.title) Promise.resolve(hooks.onRetitled?.(work)).catch(() => {});
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
     return work;
   };
