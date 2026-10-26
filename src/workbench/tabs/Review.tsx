@@ -70,12 +70,14 @@ export default function Review({ tabId }: { tabId: string }) {
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const pr = prs.find((p) => p.key === n);
   const files = rv.refs?.files || [];
-  const [mode, setMode] = useLocal(`cc.rv.order.${n}`, 'suggested');
+  const [view, setView] = useLocal(`cc.rv.view.${n}`, 'plan');
+  const plan = rv.plan?.plan;
+  const mode = plan ? view : 'tree';
   const [hidden, setHidden] = useLocal<string[]>(`cc.rv.hide.${n}`, []);
   const [folded, setFolded] = useLocal<string[]>(`cc.rv.fold.${n}`, []);
   const cats = rv.plan?.categories;
   const shown = useMemo(() => files.filter((f) => !hidden.includes(cats?.[f.filename]?.category ?? '')), [files, hidden, cats]);
-  const groups = useMemo(() => (mode === 'suggested' && rv.plan ? orderGroups(shown, rv.plan) : null), [mode, shown, rv.plan]);
+  const groups = useMemo(() => (mode === 'plan' && plan ? orderGroups(shown, plan, rv.plan?.placed) : null), [mode, shown, plan, rv.plan?.placed]);
   const order = useMemo(() => (groups ? groups.filter((g) => !folded.includes(g.key)).flatMap((g) => g.files) : treeOrder(shown)), [groups, folded, shown]);
   const ticks = useMemo(() => new Set<string>(rv.plan?.ticks || []), [rv.plan?.ticks]);
   const notes = useMemo(() => planNotes(rv.plan?.plan), [rv.plan?.plan]);
@@ -332,7 +334,7 @@ export default function Review({ tabId }: { tabId: string }) {
   const showSide = desktop && room - width - 6 - (showAct ? fitAct + 6 : 0) >= MAIN_MIN;
   const mainW = room - (showSide ? width + 6 : 0) - (showAct ? fitAct + 6 : 0);
   const columns = [showSide && `${width}px 6px`, 'minmax(0, 1fr)', showAct && `6px ${fitAct}px`].filter(Boolean).join(' ');
-  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, folded, onFold, watch, fresh, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
+  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode: setView, groups, folded, onFold, watch, fresh, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
   const activity = <ReviewActivity slug={slug} n={n} rv={rv} onJump={jump} />;
   const sbsOn = sbs && mainW >= SBS_MIN;
   const card = (f: RefFile) => (

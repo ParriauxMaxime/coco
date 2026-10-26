@@ -198,8 +198,8 @@ JSON
 ## Code review
 
 Open it from a PR card ("review ▸") or the `review-<n>` tab, laid out like
-an editor in three resizable panes. Left: the changed files in suggested
-review order (or as a tree), category chips, ticks and comment counts, the
+an editor in three resizable panes. Left: the changed files in coco's
+plan order (or as a tree), category chips, ticks and comment counts, the
 scrolled file highlighted. Center: every file stacked as a lazy Monaco diff
 card in hunk view; `j`/`k` step files. Right: the review plan, then one
 activity feed of coco's watch points, the PR's comments and the work's
@@ -275,20 +275,26 @@ It ends with one `propose_review_plan` call (cocopilot MCP) that returns:
 
 The server normalizes the plan: each changed file appears once, and files the
 plan leaves out go to skim. It is stored with its head sha in
-`data/works/<slug>/reviews/pr-<n>-plan.json`. When the head moves, the plan
-is flagged "head moved" and "Re-plan" redoes it in full. "💬 ask or re-plan"
+`data/works/<slug>/reviews/pr-<n>-plan.json`. When the head moves, each file
+the plan does not know goes, tagged `new`, into the first step holding its old
+path (a rename), then its folder, then its feature; "Not in the plan" keeps
+only what no step can take. The "head moved · N new · re-plan" chip and
+"Re-plan" redo the plan in full. "💬 ask or re-plan"
 opens the plan's thread (`p.<row key>`): **Start agent** asks a scoped agent
 about the plan (read-only, through git at the plan's head), **↻ Re-plan with
 this** re-runs the plan with the text as guidance (`POST
 …/review-plan { guidance }`).
 
-The `plan | tree` toggle reorders the tree and the cards together. In plan
-order the tree is flat and grouped by step, then Skim; `j`/`k` follow it.
-Before any plan exists, the same mode groups files by category in a
-deterministic order: core grouped by feature, in the order of the
-`fileLayers.layers` list (by default controller, use-case, service, domain,
-repository, client). The focus note of a file shows
-under its card header. Watch points appear as dashed "coco suggests" zones in
+Once a plan exists the Review tab opens in plan mode; the Plan / Tree
+toggle (kept per PR) reorders the list and the cards together. Before any
+plan, files show as a tree with the category chips. In plan mode the list is
+grouped by step, then Skim: each file shows its folder (longer where two
+files share a name), each step its why, reviewed count and watch point
+count. A click on a step folds it in the list and the cards (kept per PR);
+`j`/`k` skip folded steps and a jump into one unfolds it. The cards sit under
+a header per step. The focus note of a file and its watch points (lines,
+severity, a click jumps to the line) show under its card header, folded
+cards included. Watch points also appear as dashed "coco suggests" zones in
 the diff and in the activity feed, worst and surest first, with their
 severity and confidence chips, ↗ jump, ✓ accept (becomes a real open
 comment, keeping severity and confidence), ✕ dismiss and "💬 discuss or

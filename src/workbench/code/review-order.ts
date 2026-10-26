@@ -1,20 +1,17 @@
-import type { FileGroup, PlanBody, Proposal, RefFile, ReviewPlanState } from '../types.ts';
+import type { FileGroup, PlanBody, Proposal, RefFile } from '../types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
 
-// Reading groups: coco's plan steps (with the files pushed since, placed by the server) then Skim, or the deterministic categories before any plan
-export function orderGroups(files: RefFile[], st: ReviewPlanState): FileGroup[] {
+// Reading groups: coco's plan steps (with the files pushed since, placed by the server) then Skim
+export function orderGroups(files: RefFile[], plan: PlanBody, placedAt: Record<string, number> = {}): FileGroup[] {
   const byPath = new Map(files.map((f) => [f.filename, f]));
   const used = new Set<string>();
   const pick = (paths: string[]) => paths.filter((p) => byPath.has(p) && !used.has(p) && used.add(p)).flatMap((p) => byPath.get(p) ?? []);
-  const plan = st.plan;
-  const placed = Object.entries(st.placed || {});
-  const groups: FileGroup[] = plan
-    ? [
-      ...plan.steps.map((s, i) => ({ key: `step:${s.title}`, title: `${i + 1}. ${s.title}`, why: s.why, files: pick([...s.files.map((x) => x.path), ...placed.filter(([, at]) => at === i).map(([p]) => p)]) })),
-      { key: 'skim', title: 'Skim', why: 'coco says a glance is enough', files: pick(plan.skim.map((x) => x.path)) },
-    ]
-    : CATEGORIES.map((c) => ({ key: c, title: c, files: pick(st.suggested.filter((p) => st.categories[p]?.category === c)) }));
+  const placed = Object.entries(placedAt);
+  const groups: FileGroup[] = [
+    ...plan.steps.map((s, i) => ({ key: `step:${s.title}`, title: `${i + 1}. ${s.title}`, why: s.why, files: pick([...s.files.map((x) => x.path), ...placed.filter(([, at]) => at === i).map(([p]) => p)]) })),
+    { key: 'skim', title: 'Skim', why: 'coco says a glance is enough', files: pick(plan.skim.map((x) => x.path)) },
+  ];
   const rest = files.filter((f) => !used.has(f.filename));
   if (rest.length) groups.push({ key: 'rest', title: 'Not in the plan', files: rest });
   return groups.filter((g) => g.files.length);

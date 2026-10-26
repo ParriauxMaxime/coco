@@ -25,10 +25,11 @@ export const TONE: Record<string, string> = { open: 'dp-info', sent: 'dp-warn', 
 function OrderBar({ planned, mode, setMode, catCounts, hidden, onToggleCat }: OrderState & { planned: boolean }) {
   return (
     <div className="rv-order">
-      <span className="dp-seg" role="group" aria-label="File order">
-        <button type="button" className={mode === 'suggested' ? 'dp-on' : 'dp-off'} onClick={() => setMode('suggested')}>{planned ? 'Plan' : 'Suggested'}</button>
-        <button type="button" className={mode === 'tree' ? 'dp-on' : 'dp-off'} onClick={() => setMode('tree')}>Tree</button>
-      </span>
+      {planned && (
+        <span className="dp-seg" role="group" aria-label="File order">
+          {['plan', 'tree'].map((m) => <button key={m} type="button" className={mode === m ? 'dp-on' : 'dp-off'} onClick={() => setMode(m)}>{m === 'plan' ? 'Plan' : 'Tree'}</button>)}
+        </span>
+      )}
       <div className="dp-filters rv-cats">
         {CATEGORIES.filter((c) => catCounts[c]).map((c) => {
           const off = hidden.includes(c);
@@ -43,7 +44,7 @@ function OrderBar({ planned, mode, setMode, catCounts, hidden, onToggleCat }: Or
   );
 }
 
-// left pane of the Review tab: the changed files in suggested review order (or as a tree), ticks and comment counts; folded on phone
+// left pane of the Review tab: the changed files in coco's plan order (or as a tree), ticks and comment counts; folded on phone
 type Props = {
   files: RefFile[];
   shown: RefFile[];
