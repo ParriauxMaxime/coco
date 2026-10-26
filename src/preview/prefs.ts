@@ -22,18 +22,25 @@ export const CHOICES: { key: PrefKey; label: string; options: { value: string; l
 ];
 
 const KEY = 'cc.design-preview';
-const DEFAULTS: Prefs = { workbench: 'off', shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', preset: 'last', narrow: 'drop' };
+const WORKBENCH_KEY = 'cc.beta.workbench';
+const DEFAULTS: Prefs = { workbench: 'on', shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', preset: 'last', narrow: 'drop' };
 
 const read = (): Prefs => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return DEFAULTS; }
+  try {
+    const workbench = localStorage.getItem(WORKBENCH_KEY) === 'off' ? 'off' : 'on';
+    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}'), workbench };
+  } catch { return DEFAULTS; }
 };
 
 export const usePrefs = create<Prefs & { set: (key: PrefKey, value: string) => void }>()((set, get) => ({
   ...read(),
   set: (key, value) => {
     set({ [key]: value });
-    const { set: _, ...prefs } = get();
-    try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {}
+    const { set: _, workbench, ...prefs } = get();
+    try {
+      localStorage.setItem(KEY, JSON.stringify(prefs));
+      localStorage.setItem(WORKBENCH_KEY, workbench);
+    } catch {}
   },
 }));
 
