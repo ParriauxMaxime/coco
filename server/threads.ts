@@ -64,6 +64,11 @@ type ThreadsOptions = {
   reviewPlan: { planOf(slug: string, n: RowKey): unknown };
   exec?: Exec;
   agents?: ReturnType<typeof createPaseoAgents>;
+  // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
+  placement?: {
+    place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
+    sideWorkspace(slug: string, opts: { branch: string; base: string; title: string }): Promise<{ workspaceId: string; cwd: string }>;
+  };
 };
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -104,7 +109,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents() }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -329,7 +334,13 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const worktree = group.kind === 'code' ? { mode: 'branch-off', newBranch: group.branch, base: pr?.sha || pr?.head, slug: `cc-${group.id}` } : null;
     let s;
     try {
-      s = await agents.session({ title, provider: MODELS[group.model], thinking: 'high', cwd: REPO, worktree, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
+      const fileName = group.files?.[0]?.split('/').pop() || 'the PR';
+      const where = !placement
+        ? { cwd: REPO, worktree }
+        : worktree
+          ? await placement.sideWorkspace(slug, { branch: worktree.newBranch, base: String(worktree.base || ''), title: `Finding fixes on ${fileName}` })
+          : await placement.place({ kind: 'work', slug });
+      s = await agents.session({ title, provider: MODELS[group.model], thinking: 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
     }

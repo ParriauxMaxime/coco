@@ -178,6 +178,14 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     works?.save({ ...w, stack: (w.stack || []).map((s) => (rowKey(s) === key ? { ...s, workspaceId } : s)) }, { touch: false });
   };
 
+  // a scratch branch for an agent that proposes commits without touching the PR's branch (finding fixes), in the work's project
+  async function sideWorkspace(slug: string, { branch, base, title }: { branch: string; base: string; title: string }) {
+    const work = works?.get(slug);
+    if (!work) throw new Error(`unknown work ${slug}`);
+    const p = await ensureWorkProject(work);
+    return createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', base, '--title', title], title);
+  }
+
   // the Paseo workspace an agent of this scope runs in; read-only row agents share the work's
   async function place(scope: Scope): Promise<Placed> {
     if (scope.kind === 'global') return repoPlace(appRepo());
@@ -188,5 +196,5 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return workPlace(work);
   }
 
-  return { projects, isRepoProject, syncProjectNames, place };
+  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace };
 }
