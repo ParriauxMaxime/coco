@@ -82,7 +82,7 @@ outlive the scratch folders. Stored under `data/works/<slug>.json` and
 
 A work can carry `next`: the owner's to-do as of now, written by the
 orchestrating agent at the end of each cycle and shown as the first card
-under the Plan hero. `PUT /api/works/<slug>` with
+under the Plan hero. The cocopilot MCP `set_next`, or `PUT /api/works/<slug>` with
 `{ next: { summary, blocks, by } }`: `summary` is one plain sentence,
 `blocks` the typed blocks of findings and decision cards (a `steps` block
 for the actions in order, a `callout` for a blocker, a `table` for PRs to
@@ -143,7 +143,8 @@ PLAN.md. `{ id, archived: true }` archives a card overtaken by later work:
 it leaves the counts, the briefs and the review feed, and stays listed under
 "archived" (`archived: false` brings it back).
 
-Agents write cards with `PUT /api/works/<slug>/decisions/<id>`: the body is
+Agents write cards with the cocopilot MCP `upsert_decision` (coco agents) or
+`PUT /api/works/<slug>/decisions/<id>`: the body is
 merged into the card with that id, or appended as a new `pending` card. Leave
 `status`, `choice`, `rationale` and `decidedAt` out so a decision the user
 already took stays. `PUT /api/works/<slug>` with the whole `decisions` array
@@ -350,6 +351,9 @@ release), and each step leaves a system note in the thread.
 
 Review agents report through the `coco-findings` skill
 (`skills/coco-findings/` in this repo, installed into your skills folder):
+coco agents call the cocopilot MCP `upsert_finding` (work, PR and head sha
+from the agent's labels; same author, path and title updates) and
+`attach_media`, other sessions curl the routes below;
 one comment per finding with `title`,
 `severity`, `confidence`; author `as-<login>` shows as a persona. Comments
 without a title get their claim from the body, skipping `Class:` /
@@ -433,7 +437,8 @@ the row does not expect (`stack[i].kit`, no Notion page) is hidden. Hover
 shows where it comes from, the head it was made for and the current head.
 
 - An artifact imported with `{ pr, kind: <one of kitKinds> }`
-  (`POST /api/works/<slug>/artifacts`, or the PR and kind pickers in
+  (`POST /api/works/<slug>/artifacts` or the cocopilot MCP
+  `import_artifact`, or the PR and kind pickers in
   Artifacts) records the PR head at import in `artifacts/.meta.json`; the
   latest one of a kind wins and is compared by sha. Briefs ask agents to
   hand their kit files over that way.
@@ -757,6 +762,11 @@ waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
 `data/cards/`; routes, shapes and delivery are in
 [agent-io.md](agent-io.md).
 
+The same MCP carries the agents' writes to the work, in place of curl:
+`upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact` and
+`set_next`, each defaulting to the agent's work and row; the HTTP routes stay
+for you, scripts and sessions without the MCP.
+
 ## Attachments (images and files to an agent)
 
 Every agent composer (agent tabs, Ask conversations, new-agent tabs, the
@@ -771,7 +781,8 @@ on a follow-up or the message that starts an agent. Paseo's timeline keeps
 only the text, so the transcript shows the files from coco's own record: an
 Ask conversation's log, or `data/uploads/sent/<agent>.jsonl` for any other
 agent, paired by message id or text. `GET /api/uploads/<id>` serves a file
-back.
+back. At boot and daily, uploads older than 24 h that neither record names
+(dropped from the composer, never sent) are deleted; sent ones stay.
 
 ## Team pack (share with teammates)
 

@@ -17,7 +17,7 @@ const TIMEOUT_MS = 15 * 60 * 1000;
 const HOME = os.homedir();
 const COCO_TOOL = /^mcp__cocopilot__(propose_\w+|dispatch)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
-export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks'];
+export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks', 'upsert_finding', 'upsert_decision', 'attach_media', 'import_artifact', 'set_next'];
 // every coco agent's one line on cards (docs/agent-io.md); Claude agents also lose AskUserQuestion
 export const CARDS_LINE = 'Ask the user only with the cocopilot ask tool, never AskUserQuestion: it returns at once and the answer comes back later as a new user message, so end your turn or keep working. Show rich results (tables, diagrams, code) with cocopilot post_blocks.';
 

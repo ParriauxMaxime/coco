@@ -34,7 +34,7 @@ import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
 import { createWorktrees } from './worktrees.ts';
 import { createPurge } from './purge.ts';
-import { createUploads } from './uploads.ts';
+import { SWEEP_AGE, createUploads } from './uploads.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
@@ -136,6 +136,16 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
+const sweepUploads = () => {
+  try {
+    const gone = uploads.sweep();
+    if (gone.length) console.log(`uploads: ${gone.length} never sent, removed`);
+  } catch (e) {
+    console.error(`uploads sweep: ${errorMessage(e)}`);
+  }
+};
+sweepUploads();
+setInterval(sweepUploads, SWEEP_AGE);
 ask.boot();
 permissions.boot();
 briefWriter.boot();

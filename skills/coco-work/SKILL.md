@@ -2,7 +2,7 @@
 name: coco-work
 description: "Work inside a cocopilot work: find the work and PR row the current worktree belongs to, read its brief, decisions and rules, build on the PR branch, report findings and decisions back to cocopilot. Use when a task mentions a cocopilot work, when a brief was written by cocopilot, or when the worktree's branch is a row of a work."
 argument-hint: "[PR number or branch]"
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, mcp__cocopilot__get_work, mcp__cocopilot__upsert_finding, mcp__cocopilot__upsert_decision, mcp__cocopilot__attach_media, mcp__cocopilot__import_artifact
 ---
 
 # coco-work
@@ -12,9 +12,15 @@ of a feature shipped as one PR or a stack of PRs: the stack plan, decisions,
 rules, review comments and findings. You are one agent on one row of that
 stack. The user decides; you build and report.
 
-All commands below use `COCO=${COCO_URL:-http://127.0.0.1:8777}`.
+Inside a coco agent the `cocopilot` MCP is mounted: read with `get_work`,
+write with `upsert_finding`, `upsert_decision`, `attach_media` and
+`import_artifact`, which default to your agent's work and row. The curl
+below is the fallback for a session without that MCP, with
+`COCO=${COCO_URL:-http://127.0.0.1:8777}`.
 
 ## 1. Find your work and row
+
+Inside a coco agent your launch prompt names them: skip this.
 
 ```bash
 COCO=${COCO_URL:-http://127.0.0.1:8777}
@@ -32,7 +38,7 @@ curl -s -X POST "$COCO/api/paseo-link/resolve" -H 'Content-Type: application/jso
 1. Your brief. When the launch prompt names a file, that file is your full
    task: read it end to end. Otherwise fetch the rendered one:
    `curl -s "$COCO/api/works/<slug>/briefs/<n>"`.
-2. The work: `curl -s "$COCO/api/works/<slug>"` gives the stack, links,
+2. The work: `cocopilot.get_work` (or `curl -s "$COCO/api/works/<slug>"`) gives the stack, links,
    notes and decisions. In the notes, `## Decisions taken`, `## Do not
    revisit` and `## Rules` are settled: follow them, never reopen them.
 3. The repo's own instructions (`AGENTS.md`, `CLAUDE.md`, any rules folder
@@ -70,7 +76,9 @@ curl -s -X POST "$COCO/api/paseo-link/resolve" -H 'Content-Type: application/jso
   asking in chat, so the user answers it on the Decisions tab. Its evidence
   goes in `summary` + `blocks` + `sources`, the same typed blocks as a
   finding (see "Blocks" in the `coco-findings` skill), never a markdown
-  `details` wall.
+  `details` wall. Inside a coco agent call `cocopilot.upsert_decision` with
+  `id` plus the body below (work and `pr` default to your agent's); without
+  that MCP, curl it:
 
   ```bash
   curl -s -X PUT "$COCO/api/works/<slug>/decisions/<id>" \
@@ -96,6 +104,7 @@ curl -s -X POST "$COCO/api/paseo-link/resolve" -H 'Content-Type: application/jso
 - Kit files (PR body draft, diagram, demo clip): import them as artifacts
   so the kit line turns fresh (the file must sit under one of the
   configured `importRoots`, a worktree or `/tmp` by default):
+  `cocopilot.import_artifact` with `{ path, pr, kind }`, or
   `curl -s -X POST "$COCO/api/works/<slug>/artifacts" -H 'Content-Type: application/json' -d '{"path": "<abs path>", "pr": <n>, "kind": "body"}'`.
 - A run brief that asks for a result file
   (`reviews/pr-<n>-run-<id>-result.json`): write

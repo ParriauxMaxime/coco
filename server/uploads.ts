@@ -10,6 +10,7 @@ export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'
 export const IMAGE_MAX = 5 * 1024 * 1024;
 export const FILE_MAX = 20 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 8;
+export const SWEEP_AGE = 24 * 60 * 60 * 1000;
 // the text of a message that only carries files
 export const FILES_ONLY = 'See the attached files.';
 const ID = /^[a-f0-9]{16}$/;
@@ -114,6 +115,32 @@ export function createUploads({ DATA }: { DATA: string }) {
   // a user message arriving live: the latest one sent with its id or text
   const latest = (agentId: string, item: UserItem) => sent(agentId).findLast((m) => (item.messageId && m.messageId === item.messageId) || m.text.trim() === String(item.text || '').trim())?.attachments;
 
+  // ids any sent message or Ask log carries
+  function sentIds() {
+    const ids = new Set<string>();
+    const scan = (dir: string, ext: RegExp) => {
+      if (!fs.existsSync(dir)) return;
+      for (const f of fs.readdirSync(dir).filter((x) => ext.test(x))) for (const m of fs.readFileSync(path.join(dir, f), 'utf8').matchAll(/"id":\s*"([a-f0-9]{16})"/g)) ids.add(m[1]);
+    };
+    scan(SENT, /\.jsonl$/);
+    scan(path.join(DATA, 'asks'), /\.jsonl?$/);
+    return ids;
+  }
+
+  // uploads never sent (dropped from the composer, a message that never went) once older than maxAgeMs
+  function sweep(now = Date.now(), maxAgeMs = SWEEP_AGE) {
+    if (!fs.existsSync(DIR)) return [];
+    const used = sentIds();
+    const ids = new Set(fs.readdirSync(DIR).map((f) => f.replace(/\.json$/, '')).filter((id) => ID.test(id) && !used.has(id)));
+    const mtime = (f: string) => (fs.existsSync(f) ? fs.statSync(f).mtimeMs : 0);
+    const old = [...ids].filter((id) => now - Math.max(mtime(metaFile(id)), mtime(path.join(DIR, id))) > maxAgeMs);
+    for (const id of old) {
+      fs.rmSync(path.join(DIR, id), { recursive: true, force: true });
+      fs.rmSync(metaFile(id), { force: true });
+    }
+    return old;
+  }
+
   // POST /api/uploads?name=<file name> (raw body, Content-Type the file's) → UploadRef & { path } · GET|DELETE /api/uploads/<id>
   async function handle(req: Req, res: Res, parts: string[], send: Send) {
     const [, id] = parts;
@@ -149,6 +176,6 @@ export function createUploads({ DATA }: { DATA: string }) {
     }
   }
 
-  return { handle, store, get, resolve, record, pairer, latest };
+  return { handle, store, get, resolve, record, pairer, latest, sweep };
 }
 export type Uploads = ReturnType<typeof createUploads>;

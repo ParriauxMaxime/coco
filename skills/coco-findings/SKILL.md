@@ -2,7 +2,7 @@
 name: coco-findings
 description: "Report code-review findings to cocopilot's Findings board, one structured finding per issue (title, severity, confidence, location, body). Use at the end of any review of a PR that belongs to a cocopilot work: a persona review, a local review, an audit, a second opinion, a stack review."
 argument-hint: "[PR number] [reviewer id]"
-allowed-tools: Bash, Read
+allowed-tools: Bash, Read, mcp__cocopilot__upsert_finding, mcp__cocopilot__upsert_decision, mcp__cocopilot__attach_media
 ---
 
 # coco-findings
@@ -12,9 +12,15 @@ one board. A finding posted here lands there with its claim, severity and
 confidence, and the user triages it: accept, dismiss with a reason, or
 dispatch to an agent.
 
-All commands below use `COCO=${COCO_URL:-http://127.0.0.1:8777}`.
+Inside a coco agent (the `cocopilot` MCP is mounted), call
+`cocopilot.upsert_finding` once per finding with the fields of section 2:
+work, PR and head sha default to your agent's, pass `pr` for another row of
+the stack. The same author, path and title updates the finding instead of
+adding one. `cocopilot.attach_media` uploads a screenshot and returns its
+`media` block. Skip the curl of sections 1 and 3: they are the fallback for
+a session without that MCP, with `COCO=${COCO_URL:-http://127.0.0.1:8777}`.
 
-## 1. Resolve the work and the head
+## 1. Resolve the work and the head (no MCP)
 
 ```bash
 COCO=${COCO_URL:-http://127.0.0.1:8777}
@@ -73,8 +79,9 @@ Anything else (a ticket, a doc, a log) goes in `sources` with its `url`.
 | `callout` | One thing the reader must not miss: a decision already taken, a counter-argument, a scope note. | `{ "type": "callout", "tone": "warn", "title": "Settled", "text": "…" }` |
 | `media` | A UI finding: screenshot or short clip of the local app. Upload first (below). | `{ "type": "media", "kind": "image", "src": "/api/works/<slug>/media/<file>", "caption": "…" }` |
 
-Media upload (raw bytes; `image/png|jpeg|webp|gif`, `video/mp4|webm`, max
-50 MB) returns the `src` to use:
+Media upload (`cocopilot.attach_media` with the file's absolute path, or raw
+bytes; `image/png|jpeg|webp|gif`, `video/mp4|webm`, max 50 MB) returns the
+`src` to use:
 
 ```bash
 curl -s -X POST "$COCO/api/works/<slug>/media" -H 'Content-Type: image/png' --data-binary @shot.png
@@ -85,7 +92,7 @@ Two reviewers on the same lines is fine: the board folds findings on the same
 spot into one row. Never merge two defects into one finding to save rows.
 Never post praise, a summary or a verdict as a finding.
 
-## 3. Post
+## 3. Post (no MCP)
 
 ```bash
 curl -s -X POST "$COCO/api/works/<slug>/prs/<n>/comments" \
@@ -130,20 +137,21 @@ curl -s -X POST "$COCO/api/works/<slug>/prs/<n>/comments" \
 }
 ```
 
-A 400 names the bad field (`blocks[2].rows[1] must hold 3 cells`, a line
-range outside the file at that sha): fix it and post again. Do not post the
-same finding twice; check `GET …/prs/<n>/comments` first when re-running a
-review, and update an existing one with `PUT …/prs/<n>/comments/<id>` (any of
-`title`, `severity`, `confidence`, `category`, `recommendation`, `blocks`,
-`sources`).
+A refusal (tool error or 400) names the bad field (`blocks[2].rows[1] must
+hold 3 cells`, a line range outside the file at that sha): fix it and post
+again. Do not post the same finding twice: `upsert_finding` updates by id or
+by author, path and title; over curl, check `GET …/prs/<n>/comments` first
+when re-running a review, and update an existing one with
+`PUT …/prs/<n>/comments/<id>` (any of `title`, `severity`, `confidence`,
+`category`, `recommendation`, `blocks`, `sources`).
 
 ### Finding or decision?
 
 A defect at a line of the diff is a finding. A product or tech choice with
 options (scope, behavior, rollout, convention) is a decision card: same
-`summary`, `blocks` and `sources`, posted with
-`PUT …/api/works/<slug>/decisions/<id>` (shape in the `coco-work` skill),
-plus `sha` when it holds a `suggestion`. Never both for one issue.
+`summary`, `blocks` and `sources`, written with `cocopilot.upsert_decision`
+(or `PUT …/api/works/<slug>/decisions/<id>`; shape in the `coco-work`
+skill), plus `sha` when it holds a `suggestion`. Never both for one issue.
 
 ## 4. Review page (optional)
 

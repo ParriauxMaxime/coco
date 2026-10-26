@@ -28,6 +28,10 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 2. Fold the old paths: `propose_*` become `confirm` cards whose approval runs
    the side effect; thread `choices` become `choice` cards; MCP
    `upsert_finding`, `upsert_decision`, `attach_media` replace curl in skills.
+   - [x] Part C: MCP work writes (`upsert_finding`, `upsert_decision`,
+     `attach_media`, `import_artifact`, `set_next`, below), skills and briefs
+     lead with them and keep curl for sessions without the MCP; uploads never
+     sent are swept after 24 h.
 3. [x] Multimodal input in the composer: paste, drop or pick images and
    files; `POST /api/uploads`, ids on the message, Paseo `images` and
    `uploaded_file` attachments, files shown on the user message.
@@ -131,6 +135,18 @@ on any follow-up); any other agent through the agent chat's send
   `{ id, status: 'open', note }`, the note saying the answer arrives as a new
   user message and the agent should not wait or poll.
 - `post_blocks({ title, blocks })`: a `post` card.
+
+Work writes mirror the HTTP routes. `work` and `pr` default to the calling
+agent's labels (`GET /api/agent-chat/<agentId>/place`; its row only on its
+own work); a refusal comes back as a tool error naming the field.
+
+| Tool | Route |
+| --- | --- |
+| `upsert_finding` | `POST /api/works/<slug>/prs/<n>/comments`, or `PUT …/comments/<id>` for an id or the same author, path and title; `sha` defaults to the PR head (`GET /api/code/pr/<n>/refs?fresh=1`) |
+| `upsert_decision` | `PUT /api/works/<slug>/decisions/<id>`; no `status`, `choice`, `rationale` or `decidedAt` in its schema |
+| `attach_media` | `POST /api/works/<slug>/media` with a file on disk; returns `src` and a `media` block |
+| `import_artifact` | `POST /api/works/<slug>/artifacts` |
+| `set_next` | `PUT /api/works/<slug>` with `{ next }`, `clear` sends `null` |
 
 The MCP server learns its agent from `PASEO_AGENT_ID` in its environment
 (Paseo sets it on the Claude process, and Claude's stdio MCP children inherit

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FILES_ONLY, IMAGE_MAX, agentInput, createUploads, safeName } from './uploads.ts';
+import { FILES_ONLY, IMAGE_MAX, SWEEP_AGE, agentInput, createUploads, safeName } from './uploads.ts';
 import { createPaseoAgents } from './paseo-agent.ts';
 import type { DaemonAgent, DaemonClient } from './paseo-agent.ts';
 import { createAsk } from './ask.ts';
@@ -104,4 +104,23 @@ test("a message to any agent carries its files, and the agent's chat replays the
   assert.deepEqual(pair({ text: 'something else' }), undefined);
   assert.deepEqual(pair({ text: FILES_ONLY }), [{ id: png.id, fileName: 'shot.png', mimeType: 'image/png', size: PNG.length }]);
   assert.equal(pair({ text: FILES_ONLY }), undefined);
+});
+
+test('the sweep removes uploads never sent once older than a day, and keeps sent, Ask-logged and fresh ones', () => {
+  const DATA = tmpDir();
+  const uploads = createUploads({ DATA });
+  const [sent, asked, stale, fresh] = ['a.png', 'b.png', 'c.png', 'd.png'].map((n) => uploads.store(n, 'image/png', PNG));
+  uploads.record(AGENT, { messageId: 'm1', text: 'see', at: '', attachments: [sent] });
+  fs.mkdirSync(path.join(DATA, 'asks'), { recursive: true });
+  fs.writeFileSync(path.join(DATA, 'asks', 'conv.jsonl'), JSON.stringify({ type: 'user', text: 'see', attachments: [{ id: asked.id }] }) + '\n');
+  const old = new Date(Date.now() - 2 * SWEEP_AGE);
+  for (const up of [sent, asked, stale]) {
+    fs.utimesSync(path.dirname(up.path), old, old);
+    fs.utimesSync(path.join(DATA, 'uploads', `${up.id}.json`), old, old);
+  }
+
+  assert.deepEqual(uploads.sweep(), [stale.id]);
+  assert.equal(uploads.get(stale.id), null);
+  assert.equal(fs.existsSync(path.dirname(stale.path)), false);
+  for (const up of [sent, asked, fresh]) assert.ok(uploads.get(up.id));
 });

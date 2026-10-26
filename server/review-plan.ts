@@ -334,7 +334,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       log('say', `No Paseo workspace was open for this PR: created ${createdWorkspace}.`);
     };
     (work && place ? place(slug) : (work ? workCwd({ repo: REPO, work, key: n, prInfo: works.prInfo }) : Promise.resolve(REPO)).then((cwd) => ({ cwd, workspaceId: null })))
-      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: SYSTEM, provider: config.models.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, mcp: true, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
+      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: SYSTEM, provider: config.models.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
       .then((r) => finish(r), (e) => finish(null, e));
     return { ok: true };
   }

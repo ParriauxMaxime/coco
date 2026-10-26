@@ -114,7 +114,7 @@ export const kitOf = (work: Pick<Work, 'links' | 'slug'>, row: StackRow, config:
     kit.diagram && `Mermaid diagram in the body${skill('kit-diagram') ? `, \`${skill('kit-diagram')}\` house style` : ''}.`,
     kinds.includes('video') && (kit.video ? `Demo video${skill('kit-video') ? ` (\`${skill('kit-video')}\`)` : ''} when a user sees the change.` : 'No demo video for this PR.'),
     ...kinds.filter((k) => !CORE_KIT.includes(k) && kit[k]).map((k) => `${capitalize(k)} companion PR updated for the surface this PR changes.`),
-    `Hand each kit file to cocopilot so it keeps the head it was made for: \`curl -s -X POST ${config.baseUrl}/api/works/${work.slug}/artifacts -H 'Content-Type: application/json' -d '{"path":"<file>","pr":"${rowKey(row)}","kind":"${kinds.join('|')}"}'\`.`,
+    `Hand each kit file to cocopilot so it keeps the head it was made for: \`cocopilot.import_artifact\` with \`{ path, pr: "${rowKey(row)}", kind: "${kinds.join('|')}" }\`, or without that MCP \`curl -s -X POST ${config.baseUrl}/api/works/${work.slug}/artifacts -H 'Content-Type: application/json' -d '{"path":"<file>","pr":"${rowKey(row)}","kind":"${kinds.join('|')}"}'\`.`,
   ].filter((line): line is string => Boolean(line));
 };
 
@@ -137,7 +137,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   section('Context', [
     `- Worktree: ${worktree ? `\`${worktree}\`` : 'none yet'}; branch \`${pr.head}\`; base \`${pr.base}\` (head \`${pr.sha || '?'}\`).`,
     merged.length ? `- Already merged: ${merged.join(', ')}.` : '',
-    siblings.length ? `- Siblings: ${siblings.join(', ')}${more ? `; ${more} more in the stack: \`curl -s ${config.baseUrl}/api/works/${work.slug}\`, its \`stack\`` : ''}.` : '',
+    siblings.length ? `- Siblings: ${siblings.join(', ')}${more ? `; ${more} more in the stack: \`cocopilot.get_work ${work.slug}\` (or \`curl -s ${config.baseUrl}/api/works/${work.slug}\`), its \`stack\`` : ''}.` : '',
     ...(work.links || []).map((l) => `- ${l.label}: ${l.url}`),
   ].filter(Boolean));
   if (work.description) section('What the work changes', [work.description.trim()]);

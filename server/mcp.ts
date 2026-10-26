@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// cocopilot MCP server (stdio): read tools over works, personas, Paseo, plus proposal tools and cards (ask, post_blocks: docs/agent-io.md).
-// Any agent (Claude Code headless, a Paseo agent, Codex) can mount it. Writes stay in the app: the user applies.
+// cocopilot MCP server (stdio): read tools over works, personas, Paseo, plus proposal tools, cards (ask, post_blocks) and work writes (findings, decisions, media, artifacts, next): docs/agent-io.md.
+// Any agent (Claude Code headless, a Paseo agent, Codex) can mount it. Proposals stay in the app: the user applies.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -184,6 +184,159 @@ server.tool('post_blocks', `Show ${OWNER} a rich result in coco (tables, diagram
 }, async ({ title, blocks }) => {
   const r = await postCard({ kind: 'post', title, blocks });
   return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, shown: true });
+});
+
+type Reply = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
+async function coco(method: string, route: string, body?: unknown, type = 'application/json'): Promise<Reply> {
+  try {
+    const payload = body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body);
+    const r = await fetch(new URL(route, config.baseUrl), { method, ...(payload === undefined ? {} : { headers: { 'Content-Type': type }, body: payload }) });
+    const data = await r.json().catch(() => ({}));
+    return r.ok ? { ok: true, data } : { ok: false, error: String(data.error || `coco answered ${r.status}`) };
+  } catch (e) {
+    return { ok: false, error: `cannot reach coco at ${config.baseUrl}: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+type Place = { work: string | null; pr: string | null };
+let labelled: Place | null = null;
+async function myPlace(): Promise<Place> {
+  if (labelled || !AGENT_ID) return labelled || { work: null, pr: null };
+  const r = await coco('GET', `/api/agent-chat/${encodeURIComponent(AGENT_ID)}/place`);
+  if (r.ok) labelled = { work: typeof r.data.work === 'string' ? r.data.work : null, pr: typeof r.data.pr === 'string' ? r.data.pr : null };
+  return labelled || { work: null, pr: null };
+}
+const rowParam = (pr: string | number) => (String(pr).startsWith('b:') ? `b:${String(pr).slice(2).replaceAll('/', ':')}` : String(pr).replace(/^#/, ''));
+// the work and row a write goes to: given ones, else the calling agent's labels (its row only on its own work)
+async function target(work?: string, pr?: string | number | null) {
+  const here = await myPlace();
+  const slug = work || here.work;
+  return { slug: slug ? encodeURIComponent(slug) : null, pr: pr != null ? rowParam(pr) : slug === here.work ? here.pr : null };
+}
+const NO_WORK = 'no work: pass work (the work slug); this agent carries no work label';
+const NO_PR = 'no pr: pass pr (the PR number, or "b:<branch>" for a row with no PR yet); this agent carries no PR label';
+const heads = new Map<string, { headSha?: string; mergeBase?: string }>();
+async function refsOf(pr: string) {
+  if (heads.has(pr)) return heads.get(pr) ?? {};
+  const r = await coco('GET', `/api/code/pr/${pr}/refs?fresh=1`);
+  if (!r.ok) return {};
+  const refs = { headSha: String(r.data.headSha || '') || undefined, mergeBase: String(r.data.mergeBase || '') || undefined };
+  heads.set(pr, refs);
+  return refs;
+}
+
+const workArg = z.string().optional().describe("work slug; omit to use this agent's work");
+const rowArg = z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet');
+const richBlocks = z.array(z.looseObject({ type: z.string() })).describe('the evidence as typed blocks, 16 at most, usually 2-4: text {text}, callout {tone, title?, text}, steps {title?, items[], outcome?}, table {columns[], rows: cell[][], caption?}, suggestion {path, startLine, endLine, lang?, after} (before is read at the sha), code {path?, line?, lang?, code, caption?}, diagram {mermaid, caption?}, media {kind: image|video, src (from attach_media), caption?}. Inline text takes **bold**, *italic*, `code`, path/file.ts:12 refs, #101 and <risk|warn|ok|note|mute>…</…> marks');
+const sourcesArg = z.array(z.object({ label: z.string().max(120), path: z.string().optional(), url: z.string().optional().describe('https link') })).max(8).describe('where the evidence comes from: a review page path or an https url');
+
+server.tool('upsert_finding', `Post one code-review finding to ${OWNER}'s Findings board in coco (coco-findings skill: one finding per defect, at the line that holds it). Work, PR and head sha default to this agent's. The same author, path and title on that PR, or an id, updates the existing finding instead of adding one. A refused finding names the bad field: fix it and call again.`, {
+  work: workArg,
+  pr: rowArg.optional().describe('PR whose diff holds the file (in a stack, the highest one touching it); omit for this agent\'s PR'),
+  id: z.string().optional().describe('an existing finding id to update'),
+  path: z.string().describe('repo-relative file'),
+  startLine: z.number().int().min(1).describe('line at the sha'),
+  endLine: z.number().int().min(1),
+  side: z.enum(['head', 'base']).optional().describe('default head'),
+  sha: z.string().optional().describe("commit the lines refer to; default the PR's head (merge base for side base)"),
+  author: z.string().regex(/^[\w.-]{1,40}$/).describe('reviewer id: as-<login> for a persona review, else the agent name (opus-review, review-local)'),
+  title: z.string().max(100).describe('row label, ~70 chars: subject + what breaks; not the category, not the fix'),
+  severity: z.enum(['blocking', 'major', 'minor', 'nit']).describe('blocking: security, data loss, broken prod path · major: wrong behaviour a user hits · minor: edge case, test gap · nit: naming, copy, docs'),
+  confidence: z.number().int().min(0).max(100).describe('how sure the defect is real: 90+ reproduced or traced, 70-89 full path read, 50-69 one link unchecked'),
+  summary: z.string().max(400).optional().describe('the one-sentence claim the title shortens: what breaks, for whom, through which call'),
+  category: z.string().max(80).optional().describe('e.g. "In-stack bug", "Existing bug on main (security)", "Test gap", "Product call"'),
+  recommendation: z.string().max(600).optional().describe('the fix in one sentence'),
+  blocks: richBlocks.optional(),
+  sources: sourcesArg.optional(),
+}, async ({ work: slugIn, pr: prIn, id, path: file, startLine, endLine, side = 'head', sha, ...fields }) => {
+  const t = await target(slugIn, prIn);
+  if (!t.slug) return refused(NO_WORK);
+  if (!t.pr) return refused(NO_PR);
+  const base = `/api/works/${t.slug}/prs/${t.pr}/comments`;
+  const board = `${config.baseUrl}/#/work/${t.slug}/findings-${t.pr}`;
+  let existing = id;
+  if (!existing) {
+    const list = await coco('GET', base);
+    if (!list.ok) return refused(`finding refused: ${list.error}`);
+    const comments = Array.isArray(list.data.comments) ? (list.data.comments as { id: string; author?: string; path?: string; title?: string }[]) : [];
+    existing = comments.find((c) => c.author === fields.author && c.path === file && c.title?.trim() === fields.title.trim())?.id;
+  }
+  if (existing) {
+    const { author: _author, ...patch } = fields;
+    const r = await coco('PUT', `${base}/${encodeURIComponent(existing)}`, patch);
+    return r.ok ? text({ id: existing, updated: true, board }) : refused(`finding refused: ${r.error}`);
+  }
+  const refs = sha ? {} : await refsOf(t.pr);
+  const at = sha || (side === 'base' ? refs.mergeBase : refs.headSha);
+  if (!at) return refused(`no sha: cannot read the refs of ${t.pr}; pass sha`);
+  const r = await coco('POST', base, { path: file, side, sha: at, startLine, endLine, ...fields });
+  return r.ok ? text({ id: r.data.id, created: true, sha: r.data.sha, board }) : refused(`finding refused: ${r.error}`);
+});
+
+server.tool('upsert_decision', `Write a decision card on a work: an open product or tech choice with options that ${OWNER} takes on the Decisions tab, instead of asking in chat. Merged into the card with that id, or added as a new pending card; a choice ${OWNER} already took stays. Evidence goes in summary, blocks and sources like a finding. A refused card names the bad field.`, {
+  work: workArg,
+  id: z.string().regex(/^[\w.:~-]{1,60}$/).describe('short id, e.g. "d3-export-denied"; the same id updates the card'),
+  title: z.string().max(120).optional().describe('required on a new card: "D1 · Export CSV · Scope", short plain text'),
+  question: z.string().max(500).optional().describe('the question, plain text'),
+  summary: z.string().max(400).optional().describe('one-sentence lede'),
+  blocks: richBlocks.optional(),
+  sources: sourcesArg.optional(),
+  options: z.array(z.object({ key: z.string(), label: z.string().max(120), details: z.string().optional().describe('one or two plain sentences: what it means, its tradeoff'), confidence: z.number().int().min(0).max(100).optional() })).optional().describe('required on a new card: 2 or more options'),
+  rows: z.array(z.object({ key: z.string(), label: z.string().max(120), details: z.string().optional(), recommended: z.string().optional().describe('option key') })).optional().describe('a table of sub-decisions, one pick per row, options as columns'),
+  recommended: z.string().optional().describe('recommended option key'),
+  confidence: z.number().int().min(0).max(100).optional().describe('how sure you are of the recommendation'),
+  positions: z.record(z.string(), z.string()).optional().describe('reviewer → markdown position'),
+  source: z.string().optional().describe('who raised it'),
+  pr: rowArg.optional().describe("stack row the card belongs to; omit for this agent's row"),
+  sha: z.string().optional().describe('commit a suggestion block is read at'),
+}, async ({ work: slugIn, id, pr: prIn, ...card }) => {
+  const t = await target(slugIn, prIn);
+  if (!t.slug) return refused(NO_WORK);
+  const r = await coco('PUT', `/api/works/${t.slug}/decisions/${encodeURIComponent(id)}`, { ...card, ...(t.pr ? { pr: t.pr } : {}) });
+  if (!r.ok) return refused(`decision refused: ${r.error}`);
+  const saved = (Array.isArray(r.data.decisions) ? (r.data.decisions as { id: string; status?: string; title?: string }[]) : []).find((d) => d.id === id);
+  return text({ id, status: saved?.status ?? 'pending', title: saved?.title });
+});
+
+const MEDIA_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.mp4': 'video/mp4', '.webm': 'video/webm' };
+server.tool('attach_media', 'Upload a screenshot or short clip from disk to the work, for a media block in a finding, a decision or post_blocks. Returns the src and a ready media block.', {
+  work: workArg,
+  path: z.string().describe('absolute path of a png, jpg, webp, gif, mp4 or webm file, 50 MB at most'),
+  caption: z.string().max(200).optional(),
+}, async ({ work: slugIn, path: file, caption }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  const type = MEDIA_TYPES[path.extname(file).toLowerCase()];
+  if (!type) return refused(`path must end in ${Object.keys(MEDIA_TYPES).join(', ')}`);
+  if (!path.isAbsolute(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return refused(`path: no file at ${file} (absolute path expected)`);
+  const r = await coco('POST', `/api/works/${t.slug}/media`, new Blob([new Uint8Array(fs.readFileSync(file))]), type);
+  if (!r.ok) return refused(`media refused: ${r.error}`);
+  return text({ src: r.data.src, block: { type: 'media', kind: type.startsWith('video/') ? 'video' : 'image', src: r.data.src, ...(caption ? { caption } : {}) } });
+});
+
+server.tool('import_artifact', `Copy a file or folder (PR body draft, diagram, demo clip, review page) into the work's artifacts; with a PR and a kit kind (${config.kitKinds.join(', ')}) it records the head it was made for, so the kit line turns fresh. The path must sit under an allowed import root (a worktree or /tmp by default).`, {
+  work: workArg,
+  path: z.string().describe('absolute path'),
+  label: z.string().optional().describe('artifact name; default the file name'),
+  pr: rowArg.optional().describe("default this agent's row"),
+  kind: z.string().optional().describe(`kit piece: ${config.kitKinds.join(', ')}`),
+}, async ({ work: slugIn, pr: prIn, ...body }) => {
+  const t = await target(slugIn, prIn);
+  if (!t.slug) return refused(NO_WORK);
+  const r = await coco('POST', `/api/works/${t.slug}/artifacts`, { ...body, ...(t.pr ? { pr: t.pr } : {}) });
+  return r.ok ? text(r.data) : refused(`artifact refused: ${r.error}`);
+});
+
+server.tool('set_next', `Write the work's "What's next": ${OWNER}'s to-do as of now (review, merge, answer, push), shown first on the Plan tab. Not what agents are doing. clear: true removes it.`, {
+  work: workArg,
+  summary: z.string().max(400).optional().describe('one plain sentence'),
+  blocks: richBlocks.optional().describe('a steps block for the actions in order, a callout for a blocker, a table for PRs to review'),
+  by: z.string().max(80).optional().describe('who wrote it'),
+  clear: z.boolean().optional(),
+}, async ({ work: slugIn, clear, ...next }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  const r = await coco('PUT', `/api/works/${t.slug}`, { next: clear ? null : next });
+  return r.ok ? text({ next: r.data.next ?? null }) : refused(`next refused: ${r.error}`);
 });
 
 await server.connect(new StdioServerTransport());

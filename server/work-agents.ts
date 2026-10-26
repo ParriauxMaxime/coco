@@ -166,13 +166,14 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     return { work: labels?.work || null, pr: labels?.pr ? labels.pr.replaceAll('~', ':') : null };
   }
 
-  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>/events · POST /api/agent-chat/<agentId>/messages
+  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>/events|place · POST /api/agent-chat/<agentId>/messages
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
       if (root === 'works' && b === 'agents' && c === 'events') return watchList(req, res, a);
       if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
       if (root === 'agent-chat' && a && b === 'events') return await watchChat(req, res, a);
+      if (root === 'agent-chat' && a && b === 'place' && req.method === 'GET') return send(res, 200, await placeOf(a));
       if (root === 'agent-chat' && a && b === 'messages' && req.method === 'POST') {
         const { text, attachments } = JSON.parse((await readBody(req)) || '{}');
         const files = uploads?.resolve(attachments) ?? [];

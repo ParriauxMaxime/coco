@@ -204,7 +204,6 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         cwd,
         workspaceId,
         labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, pr: conv.pr == null ? null : fileKey(conv.pr), repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
-        mcp: true,
         ...stream,
       });
       Object.assign(conv, { agentId: s.agentId, costBase: conv.cost || 0, fresh: true });
