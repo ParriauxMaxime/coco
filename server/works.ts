@@ -12,7 +12,7 @@ import { decisionBullet, decisionSummary, validChoice } from './decisions.ts';
 import type { Decision } from './decisions.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { validateNext } from './next.ts';
-import { batcher, swrCache } from './swr.ts';
+import { batcher, cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Send, Work } from './core-types.ts';
@@ -121,7 +121,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug: string) => path.join(ROOT, `${slug}.json`);
   const artDir = (slug: string) => path.join(ROOT, slug, 'artifacts');
-  const prCache = swrCache<GhPrNode>(60000);
+  const prCache = swrCache<GhPrNode>(60000, cacheFile(DATA, 'pr'));
 
   const list = (): Work[] =>
     fs
@@ -252,7 +252,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   }
   const matchGlob = (glob: string, p: string) => globToRegExp(glob).test(p);
 
-  const filesCache = swrCache<PrFile[]>(120000);
+  const filesCache = swrCache<PrFile[]>(120000, cacheFile(DATA, 'pr-files'));
   const prFiles = (number: number): Promise<PrFile[]> =>
     filesCache(String(number), async () => {
       const r = await gh(['api', '--paginate', `repos/${GITHUB}/pulls/${number}/files?per_page=100`, '--jq', '.[] | {filename,additions,deletions,status}']);

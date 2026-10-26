@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { parseFindings } from './review-import.ts';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
-import { swrCache } from './swr.ts';
+import { cacheFile, swrCache } from './swr.ts';
 import type { Block, Source } from './blocks.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
 
@@ -209,7 +209,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     fs.writeFileSync(ledgerFile(slug), JSON.stringify(ledger, null, 1));
   };
 
-  const ghCache = swrCache<unknown>(GH_TTL_MS);
+  const ghCache = swrCache<unknown>(GH_TTL_MS, cacheFile(DATA, 'findings-gh'));
   const gh = <T>(args: string[], lines = true): Promise<T> =>
     ghCache(args.join(' '), () =>
       exec('gh', args).then((r) => {

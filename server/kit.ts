@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { kitFlags } from './briefs.ts';
-import { swrCache } from './swr.ts';
+import { cacheFile, swrCache } from './swr.ts';
 import { branchOf, isLocal, parseKey, rowKey } from './stack.ts';
 import { httpStatus, errorMessage } from './core-types.ts';
 import type { ArtifactMeta, ReadBody, Req, Res, Send, StackRow, Work } from './core-types.ts';
@@ -135,9 +135,9 @@ export function kitPieces({ kinds = ['body', 'diagram', 'video'], flags, artifac
 export function createKit({ REPO, DATA, config, works, betaFlags, exec = defaultExec }: { REPO: string; DATA: string; config: KitConfig; works: KitWorks; betaFlags?: FeatureFlags | null; exec?: Exec }) {
   const [owner, name] = (config.repo.github || '/').split('/');
   const extraKinds = config.kitKinds.filter((k) => !IN_BODY[k]);
-  const cachedPatchId = swrCache<string | null>(TTL_MS);
-  const cachedFacts = swrCache<Facts>(TTL_MS);
-  const cachedLink = swrCache<Piece | null>(TTL_MS);
+  const cachedPatchId = swrCache<string | null>(TTL_MS, cacheFile(DATA, 'kit-patch-ids'));
+  const cachedFacts = swrCache<Facts>(TTL_MS, cacheFile(DATA, 'kit-facts'));
+  const cachedLink = swrCache<Piece | null>(TTL_MS, cacheFile(DATA, 'kit-links'));
   const json = <T>(r: { stdout: string }): T | null => {
     try {
       return JSON.parse(r.stdout);

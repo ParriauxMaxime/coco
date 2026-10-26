@@ -32,6 +32,7 @@ import { loadConfig, personaLogins } from './config.ts';
 import { createPaseoAgents } from './paseo-agent.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
+import { cacheFile, swrCache } from './swr.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -72,7 +73,7 @@ threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
-const gates = createGates({ config, works, reviewAgent, reviewPlan });
+const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
@@ -191,8 +192,11 @@ function readFeedback() {
     .map((l): FeedbackItem => JSON.parse(l));
 }
 
-async function agents() {
-  const [a, w] = await Promise.all([run('paseo', ['ls', '--json']), run('paseo', ['workspace', 'ls', '--json'])]);
+const paseoCache = swrCache<RunResult>(5000, cacheFile(DATA, 'paseo'));
+const paseo = (args: string[], cached: boolean) => (cached ? paseoCache(args.join(' '), () => run('paseo', args)) : run('paseo', args));
+
+async function agents(cached = false) {
+  const [a, w] = await Promise.all([paseo(['ls', '--json'], cached), paseo(['workspace', 'ls', '--json'], cached)]);
   const parse = <T>(r: RunResult): T[] => {
     try {
       return JSON.parse(r.stdout);
@@ -297,8 +301,7 @@ async function api(req: Req, res: Res, url: URL) {
       const personas = listPersonas();
       const skills = listSkills().filter((s) => !PREFIX || mine(s.name));
       const feedback = readFeedback();
-      const ag = await agents();
-      const pj = await run('paseo', ['project', 'ls', '--json']);
+      const [ag, pj] = await Promise.all([agents(true), paseo(['project', 'ls', '--json'], true)]);
       let projectCount = 0;
       try { projectCount = JSON.parse(pj.stdout).length; } catch {}
       const read = (n: string) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');

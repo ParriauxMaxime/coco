@@ -1,11 +1,43 @@
-// stale-while-revalidate: an expired entry is served at once and refreshed in the background
-export function swrCache<T>(ttlMs: number) {
-  const cache = new Map<string, { at: number; value: Promise<T> }>();
+import fs from 'node:fs';
+import path from 'node:path';
+
+const PERSIST_MAX_AGE_MS = 24 * 3600 * 1000;
+export const cacheFile = (DATA: string | undefined, name: string) => (DATA ? path.join(DATA, 'cache', `${name}.json`) : undefined);
+
+function persisted<T>(file: string | undefined) {
+  const values = new Map<string, { at: number; value: T }>();
+  if (!file) return { values, save: () => {} };
+  try {
+    const raw: Record<string, { at: number; value: T }> = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const [k, e] of Object.entries(raw)) if (Date.now() - e.at < PERSIST_MAX_AGE_MS) values.set(k, e);
+  } catch {}
+  let timer: NodeJS.Timeout | null = null;
+  const save = () => {
+    timer ??= setTimeout(() => {
+      timer = null;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(`${file}.tmp`, JSON.stringify(Object.fromEntries(values)));
+      fs.renameSync(`${file}.tmp`, file);
+    }, 1000);
+    timer.unref();
+  };
+  return { values, save };
+}
+
+// stale-while-revalidate: an expired entry is served at once and refreshed in the background; with a file, entries outlive a restart
+export function swrCache<T>(ttlMs: number, file?: string) {
+  const store = persisted<T>(file);
+  const cache = new Map<string, { at: number; value: Promise<T> }>([...store.values].map(([k, e]) => [k, { at: e.at, value: Promise.resolve(e.value) }]));
+  const remember = (key: string, at: number, value: T) => {
+    if (!file) return;
+    store.values.set(key, { at, value });
+    store.save();
+  };
   const refreshing = new Set<string>();
   const refresh = (key: string, fn: () => Promise<T>) => {
     refreshing.add(key);
     const next = fn();
-    next.then(() => cache.set(key, { at: Date.now(), value: next }), () => {}).finally(() => refreshing.delete(key));
+    next.then((v) => { cache.set(key, { at: Date.now(), value: next }); remember(key, Date.now(), v); }, () => {}).finally(() => refreshing.delete(key));
     return next;
   };
   return (key: string, fn: () => Promise<T>, fresh = false): Promise<T> => {
@@ -17,8 +49,9 @@ export function swrCache<T>(ttlMs: number) {
       return hit.value;
     }
     const value = fn();
-    cache.set(key, { at: Date.now(), value });
-    value.catch(() => cache.get(key)?.value === value && cache.delete(key));
+    const at = Date.now();
+    cache.set(key, { at, value });
+    value.then((v) => remember(key, at, v), () => cache.get(key)?.value === value && cache.delete(key));
     return value;
   };
 }

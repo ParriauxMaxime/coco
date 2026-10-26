@@ -2,7 +2,7 @@
 // Push and ready for review have no button: cocopilot never pushes, it shows the command.
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { skillFor } from './config.ts';
-import { swrCache } from './swr.ts';
+import { cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { GateRecord, PrInfo, ReadBody, Req, Res, ReviewAgentApi, Send, StackRow, Work } from './core-types.ts';
@@ -90,9 +90,9 @@ export function gateState(stored: Partial<GateRecord> | null | undefined, derive
   return derived ? 'done' : 'todo';
 }
 
-export function createGates({ config, works, reviewAgent, reviewPlan }: { config: Config; works: GatesWorks; reviewAgent: ReviewAgentApi; reviewPlan: { planOf(slug: string, n: number | string): GateFacts['plan'] } }) {
+export function createGates({ DATA, config, works, reviewAgent, reviewPlan }: { DATA?: string; config: Config; works: GatesWorks; reviewAgent: ReviewAgentApi; reviewPlan: { planOf(slug: string, n: number | string): GateFacts['plan'] } }) {
   const GATES = gatesFor(config);
-  const remotes = swrCache<string | null>(REMOTE_TTL_MS);
+  const remotes = swrCache<string | null>(REMOTE_TTL_MS, cacheFile(DATA, 'remote-heads'));
   const remoteOf = (n: number | string) => remotes(String(n), () => reviewAgent.remoteHead(n));
 
   function rowOf(slug: string, raw: string) {
