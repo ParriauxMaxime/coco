@@ -9,7 +9,8 @@ import KitLine from '../workbench/tabs/KitLine.tsx';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { Avatar, num, stateLabel } from './parts.tsx';
-import { agentsOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
+import { DevServerPanel } from './widgets/DevServer.tsx';
+import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { ago, sevClass } from './format.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
@@ -57,6 +58,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
   const agents = agentsOf(d, pr);
   const waiting = pendingOf(d, pr);
   const findings = findingsOf(d, pr);
+  const dev = devOf(d, pr);
   const reviewers = pr.reviewers || [];
   const owners = pr.personas || [];
   const agentStatus = (id: string) => d.overview?.agents.find((a) => a.id === id)?.status;
@@ -94,6 +96,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
         )}
         {numbered && <Sec title="Review kit"><div className="dp-kit-box"><KitLine slug={d.slug} n={key} /></div></Sec>}
         {numbered && <Sec title="Gates"><div className="dp-gates-box"><GateRail slug={d.slug} n={key} onOpen={openTab} /></div></Sec>}
+        {dev && <Sec title="Dev server"><DevServerPanel key={key} slug={d.slug} row={dev} onChange={d.dev.reload} /></Sec>}
         <Sec title="Owners" aside={owners.length + reviewers.length ? undefined : <span className="dp-t4" style={{ fontWeight: 400 }}>nobody yet</span>}>
           {owners.length > 0 && <div className="dp-row" style={{ flexWrap: 'wrap', marginBottom: reviewers.length ? 6 : 0 }}>{owners.map((p) => <PersonaChip key={p} login={p} href={null} />)}</div>}
           {reviewers.map((r) => (

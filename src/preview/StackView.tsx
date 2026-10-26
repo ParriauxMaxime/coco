@@ -5,7 +5,8 @@ import type { WorkPr } from '../workbench/types.ts';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { Avatar, diffText, num } from './parts.tsx';
-import { agentsOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
+import { DevServerCell } from './widgets/DevServer.tsx';
+import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { usePrefs } from './prefs.ts';
 import './stack.css';
@@ -65,6 +66,7 @@ function Row({ d, pr, index, selected, narrow, dispatching, onSelect, onOpen, on
       <span className={`dp-c-th${threads ? ' dp-has' : ''}`} title="Unresolved threads">{pr.number && !isDone(state) ? (threads ? <><Icon name="message-square" size={12} />{threads}</> : <span className="dp-t4">–</span>) : null}</span>
       <span className={`dp-c-f${findings ? ' dp-has' : ''}`} title="Open findings">{findings ? <><Icon name="flag" size={12} />{findings}</> : null}</span>
       {!narrow && <span className="dp-c-ag"><AgentsCell d={d} pr={pr} /></span>}
+      {!narrow && <span className="dp-c-dev">{d.dev.data?.on && <DevServerCell slug={d.slug} row={devOf(d, pr)} onChange={d.dev.reload} />}</span>}
       <span className="dp-c-go" ref={pop} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className="dp-ibtn" title={state === 'planned' ? 'Open with an agent' : 'Dispatch an agent'} onClick={onDispatch}><Icon name="play" size={14} /></button>
         {dispatching && (
@@ -159,6 +161,7 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
         {!narrow && <span className="dp-c-diff">Diff</span>}
         <span title="CI">CI</span><span title="Unresolved threads"><Icon name="message-square" size={12} /></span><span title="Open findings"><Icon name="flag" size={12} /></span>
         {!narrow && <span className="dp-c-ag">Agents</span>}
+        {!narrow && <span className="dp-c-dev" title={d.dev.data?.on === false ? d.dev.data.reason : 'Dev server'}>Dev</span>}
         <span />
       </div>
       {base && <div className="dp-sdiv">On {base}<span className="dp-t4">·</span><span style={{ fontWeight: 400 }}>stack order, base first</span></div>}

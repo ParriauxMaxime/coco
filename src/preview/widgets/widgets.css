@@ -1,3 +1,16 @@
+.dp-dev { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dp-dev-acts { flex-wrap: wrap; }
+.dp-dev-acts:empty { display: none; }
+.dp-dev-head a.dp-chip { text-decoration: none; }
+.dp-dev-login { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-subtle); }
+.dp-dev-pre { margin: 0; width: 100%; box-sizing: border-box; padding: 8px; max-height: 220px; overflow: auto; border: 1px solid var(--dp-line); border-radius: var(--dp-r1); background: var(--dp-subtle); font: 11px/16px var(--dp-mono); white-space: pre-wrap; word-break: break-all; color: var(--dp-t2); }
+.dp-dev-logs { max-height: 280px; }
+.dp-dev-st { display: inline-flex; align-items: center; gap: 4px; font: 11px/1 var(--dp-mono); color: var(--dp-st, var(--dp-t3)); text-decoration: none; }
+.dp-dev-st i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.dp-dev-st.dp-ok { --dp-st: var(--dp-ok); } .dp-dev-st.dp-warn { --dp-st: var(--dp-warn); } .dp-dev-st.dp-bad { --dp-st: var(--dp-bad); } .dp-dev-st.dp-info { --dp-st: var(--dp-info); }
+.dp-dev-st:hover { text-decoration: underline; }
+.dp-btn.dp-dev-go { height: 20px; padding: 0 6px; font-size: 11px; }
+
 .dp-wt { display: flex; flex-direction: column; gap: 10px; }
 .dp-wt-load { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dp-t3); }
 .dp-wt-row { align-items: flex-start; cursor: pointer; }

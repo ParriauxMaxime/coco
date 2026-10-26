@@ -6,6 +6,7 @@ import Icon from './Icon.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prState, prTitle } from './data.ts';
+import { DevServersLine } from './widgets/DevServer.tsx';
 import type { PreviewData } from './data.ts';
 import type { WhatsNextData, WorkPr } from '../workbench/types.ts';
 import './overview.css';
@@ -205,6 +206,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                 <dt>PRs</dt><dd>{prs.length}</dd>
                 <dt>Decisions</dt><dd>{(w.decisions || []).length - decisions.length} taken{decisions.length > 0 && `, ${decisions.length} open`}</dd>
                 <dt>Agents</dt><dd>{d.agents.length ? `${d.agents.length} linked` : 'none linked'}</dd>
+                <dt>Dev servers</dt><dd><DevServersLine data={d.dev.data} /></dd>
               </dl>
             </div>
           </aside>
