@@ -13,7 +13,7 @@ import { threadKey } from '../../components/Thread.tsx';
 import Fold from '../code/Fold.tsx';
 import { useInspector } from '../../preview/inspector-state.ts';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
-import { orderGroups, planNotes } from '../code/review-order.ts';
+import { orderGroups, planNotes, watchByPath, watchCount } from '../code/review-order.ts';
 import { openCodeAt, useLangProviders, useLangStatus, useLocal } from './Code.tsx';
 import PrChip from '../../preview/PrChip.tsx';
 import Icon from '../../preview/Icon.tsx';
@@ -79,6 +79,7 @@ export default function Review({ tabId }: { tabId: string }) {
   const order = useMemo(() => (groups ? groups.filter((g) => !folded.includes(g.key)).flatMap((g) => g.files) : treeOrder(shown)), [groups, folded, shown]);
   const ticks = useMemo(() => new Set<string>(rv.plan?.ticks || []), [rv.plan?.ticks]);
   const notes = useMemo(() => planNotes(rv.plan?.plan), [rv.plan?.plan]);
+  const watch = useMemo(() => watchByPath(rv.proposals), [rv.proposals]);
   const catCounts = useMemo(() => files.reduce<Record<string, number>>((acc, f) => {
     const c = cats?.[f.filename]?.category;
     if (c) acc[c] = (acc[c] || 0) + 1;
@@ -330,7 +331,7 @@ export default function Review({ tabId }: { tabId: string }) {
   const showSide = desktop && room - width - 6 - (showAct ? fitAct + 6 : 0) >= MAIN_MIN;
   const mainW = room - (showSide ? width + 6 : 0) - (showAct ? fitAct + 6 : 0);
   const columns = [showSide && `${width}px 6px`, 'minmax(0, 1fr)', showAct && `6px ${fitAct}px`].filter(Boolean).join(' ');
-  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, folded, onFold, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
+  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, folded, onFold, watch, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
   const activity = <ReviewActivity slug={slug} n={n} rv={rv} onJump={jump} />;
   const sbsOn = sbs && mainW >= SBS_MIN;
   const card = (f: RefFile) => (
@@ -345,6 +346,7 @@ export default function Review({ tabId }: { tabId: string }) {
       reveal={reveal?.path === f.filename ? reveal : null}
       category={cats?.[f.filename]}
       note={notes[f.filename]}
+      watch={watch[f.filename]}
       reviewed={ticks.has(f.filename)}
       onTick={rv.plan ? onTick : null}
       sbs={sbsOn}
@@ -354,6 +356,7 @@ export default function Review({ tabId }: { tabId: string }) {
       onOpenTab={onOpenTab}
       onReveal={onReveal}
       onHeight={onHeight}
+      onJump={jump}
     />
   );
   return (
@@ -383,7 +386,7 @@ export default function Review({ tabId }: { tabId: string }) {
           {!rv.refs && <div className="rv-note">{rv.error ? '' : 'Loading files…'}</div>}
           {opened && (groups ? groups.map((g) => (
             <React.Fragment key={g.key}>
-              <StepHeader group={g} done={g.files.filter((f) => ticks.has(f.filename)).length} folded={folded.includes(g.key)} onFold={onFold} />
+              <StepHeader group={g} done={g.files.filter((f) => ticks.has(f.filename)).length} watch={watchCount(g, watch)} folded={folded.includes(g.key)} onFold={onFold} />
               {!folded.includes(g.key) && g.files.map(card)}
             </React.Fragment>
           )) : order.map(card))}

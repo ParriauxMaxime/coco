@@ -1,4 +1,4 @@
-import type { FileGroup, PlanBody, RefFile, ReviewPlanState } from '../types.ts';
+import type { FileGroup, PlanBody, Proposal, RefFile, ReviewPlanState } from '../types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
 
@@ -27,6 +27,14 @@ export function planNotes(plan: PlanBody | null | undefined) {
   for (const f of plan.skim) if (f.reason) out[f.path] = `skim: ${f.reason}`;
   return out;
 }
+
+export function watchByPath(points: Proposal[]) {
+  const out: Record<string, Proposal[]> = {};
+  for (const w of points) (out[w.path] ||= []).push(w);
+  return out;
+}
+
+export const watchCount = (group: FileGroup, byPath: Record<string, Proposal[]>) => group.files.reduce((n, f) => n + (byPath[f.filename]?.length || 0), 0);
 
 // path → its folder, longer where another file in the list has the same name
 export function dirHints(paths: string[]) {
