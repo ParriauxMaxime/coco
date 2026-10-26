@@ -74,12 +74,12 @@ type AskOptions = {
   works: { get(slug: string): AskWork | null | undefined; save(work: AskWork): unknown; prInfo(n: number): Promise<PrInfo | null> };
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
-  // the Paseo workspace for a work's agents, or (no slug) for the repo-level Ask; without it, the folder decides as before
-  place?: (slug: string | null) => Promise<{ workspaceId: string; cwd: string }>;
+  // the Paseo workspace for a work's agents, else by the conversation's kind (the inbox is global, an Ask without a work is the repo's); without it, the folder decides as before
+  place?: (slug: string | null, kind: string) => Promise<{ workspaceId: string; cwd: string }>;
 };
 
 export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place }: AskOptions) {
-  const where = async (work: AskWork | null | undefined) => (place ? place(work?.slug || null) : { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO });
+  const where = async (work: AskWork | null | undefined, kind = 'ask') => (place ? place(work?.slug || null, kind) : { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO });
   const DIR = path.join(DATA, 'asks');
   fs.mkdirSync(DIR, { recursive: true });
   const convs = new Map<string, Conv>();
@@ -161,7 +161,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       }
       if (!create) return null;
       const work = conv.workSlug ? works.get(conv.workSlug) : null;
-      const { workspaceId, cwd } = await where(work);
+      const { workspaceId, cwd } = await where(work, conv.kind);
       const s = await agents.session({
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: SYSTEM + (conv.workSlug ? `\nCurrent work: ${conv.workSlug} (use get_work first).` : ''),

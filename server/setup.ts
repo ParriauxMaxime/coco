@@ -35,7 +35,7 @@ interface SetupStep {
 type SetupExec = (cmd: string, args: string[], opts?: ExecFileOptions) => Promise<RunResult>;
 
 interface SetupAgents {
-  start(opts: { title: string; provider: string; thinking: string; cwd: string; labels: Record<string, string>; prompt: string }): Promise<{ agentId: string; createdWorkspace: string | null }>;
+  start(opts: { title: string; provider: string; thinking: string; cwd: string; workspaceId?: string | null; labels: Record<string, string>; prompt: string }): Promise<{ agentId: string; createdWorkspace: string | null }>;
 }
 
 const STARTED = Date.now();
@@ -86,7 +86,7 @@ export function setupSteps(f: SetupFacts, { APP, skillsDir }: { APP: string; ski
   ];
 }
 
-export function createSetup({ APP, config, works, personaCount, exec = defaultExec, agents = createPaseoAgents() }: { APP: string; config: Config; works: { list(): unknown[] }; personaCount: () => number; exec?: SetupExec; agents?: SetupAgents }) {
+export function createSetup({ APP, config, works, personaCount, exec = defaultExec, agents = createPaseoAgents(), place }: { APP: string; config: Config; works: { list(): unknown[] }; personaCount: () => number; exec?: SetupExec; agents?: SetupAgents; place?: () => Promise<{ workspaceId: string; cwd: string }> }) {
   const configFile = config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json');
   const shipped = () => (fs.existsSync(path.join(APP, 'skills')) ? fs.readdirSync(path.join(APP, 'skills')).filter((d) => fs.existsSync(path.join(APP, 'skills', d, 'SKILL.md'))) : []);
   const installed = (s: string) => fs.existsSync(path.join(config.skillsDir, s, 'SKILL.md'));
@@ -133,7 +133,8 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
     const { steps, guide } = await status();
     const todo = steps.filter((s) => !s.done && s.id !== 'work').map((s) => `- ${s.label}${s.hint ? `: ${s.hint}` : ''}`);
     const prompt = [`Finish setting up cocopilot by following ${guide}. cocopilot is already cloned in ${APP} and its server runs: treat it as an existing install.`, todo.length ? `Still open:\n${todo.join('\n')}` : 'Every step is ticked: only check the result.'].join('\n\n');
-    const { agentId, createdWorkspace } = await agents.start({ title: 'Set up cocopilot', provider: config.models.default, thinking: 'high', cwd: APP, labels: { source: 'cocopilot', kind: 'setup' }, prompt });
+    const where = place ? await place() : { cwd: APP };
+    const { agentId, createdWorkspace } = await agents.start({ title: 'Set up cocopilot', provider: config.models.default, thinking: 'high', ...where, labels: { source: 'cocopilot', kind: 'setup' }, prompt });
     return { agentId, createdWorkspace };
   }
 

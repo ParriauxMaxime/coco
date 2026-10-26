@@ -15,6 +15,8 @@ export interface Ritual {
   fields?: string[];
   title?: string;
   prompt: string;
+  // 'repo' (default): runs in the repo's coco workspace; 'global': not about one repo, runs in the global coco workspace
+  scope?: 'repo' | 'global';
 }
 
 export interface FileLayers {

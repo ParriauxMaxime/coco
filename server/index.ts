@@ -68,7 +68,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (slug) => placement.place(slug ? { kind: 'work', slug } : { kind: 'repo', repoId: config.repos[0].id }) });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (slug, kind) => placement.place(slug ? { kind: 'work', slug } : kind === 'inbox' ? { kind: 'global' } : { kind: 'repo', repoId: config.repos[0].id }) });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -89,7 +89,7 @@ const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
-const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents });
+const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
 const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads });
 const devServers = createDevServers({ REPO, config, works });
 works.sweepArchive().catch(() => {});
@@ -265,7 +265,8 @@ async function launchRitual(body: { kind: string; provider?: string; [key: strin
   let started: { agentId?: string | null; createdWorkspace?: string | null } = {};
   let error = '';
   try {
-    started = await paseoAgents.start({ title, provider: body.provider || config.models.default, thinking: 'high', cwd: REPO || os.homedir(), labels: { source: 'cockpit', ritual: body.kind }, prompt });
+    const where = await placement.place(spec.scope === 'global' ? { kind: 'global' } : { kind: 'repo', repoId: typeof body.repo === 'string' ? body.repo : config.repos[0].id });
+    started = await paseoAgents.start({ title, provider: body.provider || config.models.default, thinking: 'high', ...where, labels: { source: 'cockpit', ritual: body.kind }, prompt });
   } catch (e) {
     error = errorMessage(e);
   }
