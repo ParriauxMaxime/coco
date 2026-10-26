@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { catalog, createDispatch, firstMessage } from './dispatch.ts';
 import { DEFAULTS } from './config.ts';
+import type { BriefDispatch } from './brief-writer.ts';
 import type { Config } from './config.ts';
 import type { Work } from './core-types.ts';
 
@@ -14,16 +15,22 @@ const config: Config = {
   rituals: [{ kind: 'review-as', label: 'Review as', prompt: '/review-as {login} {pr}' }],
 };
 
-function setup({ contextFails = false } = {}) {
-  let work: Work = { slug: 'csv', title: 'CSV export', timeline: [], stack: [{ number: 101, personas: ['bob'] }, { number: 102 }] };
+function setup({ contextFails = false, writerFails = false } = {}) {
+  let work: Work = { slug: 'csv', title: 'CSV export', repo: 'widgets', timeline: [], stack: [{ number: 101, personas: ['bob'] }, { number: 102 }] };
   const works = { get: (s: string) => (s === 'csv' ? structuredClone(work) : null), save: (w: Work) => ((work = structuredClone(w)), w) };
   const placed: unknown[] = [];
   const started: Record<string, unknown>[] = [];
   const fixes: { key: unknown; commentIds: string[]; prompt: string }[] = [];
   const timeline: string[] = [];
+  const writes: { d: BriefDispatch; facts: string | null }[] = [];
+  const tracked: { agentId: string | null | undefined; repoId: string | null; message: string }[] = [];
   const dispatch = createDispatch({
     config,
     works,
+    writer: {
+      write: async (d, facts) => (writes.push({ d, facts }), writerFails ? { brief: null, error: 'timed out' } : { brief: `Written brief for ${d.label}` }),
+      track: (run) => tracked.push(run),
+    },
     placement: { place: async (scope) => (placed.push(scope), { workspaceId: 'kind' in scope && scope.kind === 'row' && scope.edits ? 'wks_row' : 'wks_plan', cwd: '/tmp/x' }) },
     agents: { start: async (opts) => (started.push(opts), { agentId: AGENT, workspaceId: String(opts.workspaceId) }) },
     briefs: {
@@ -38,7 +45,7 @@ function setup({ contextFails = false } = {}) {
     },
     comments: { list: () => ({ comments: [{ id: 'c1', status: 'open' }, { id: 'c2', status: 'fixed' }, { id: 'c3', status: 'open' }] }) },
   });
-  return { dispatch, placed, started, fixes, timeline, work: () => work };
+  return { dispatch, placed, started, fixes, timeline, writes, tracked, work: () => work };
 }
 
 test('the catalog lists the fixed kinds, one gate run per gate skill, and manual test', () => {
@@ -51,16 +58,36 @@ test('the catalog lists the fixed kinds, one gate run per gate skill, and manual
   assert.equal(byId['gate:self-review:code-review'].edits, true);
 });
 
-test('a read-only ask runs in the Plan workspace with its question first and the PR brief after', async () => {
-  const { dispatch, placed, started } = setup();
+test('a read-only ask runs in the Plan workspace with its question first and the written brief after', async () => {
+  const { dispatch, placed, started, writes, tracked } = setup();
   const r = await dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why a new index?' });
   assert.deepEqual(placed, [{ kind: 'row', slug: 'csv', key: 102, edits: false }]);
   assert.equal(r.workspaceId, 'wks_plan');
+  assert.equal(r.brief, 'written');
   const prompt = String(started[0].prompt);
-  assert.ok(prompt.indexOf('Why a new index?') < prompt.indexOf('# CSV export — PR 2'));
+  assert.ok(prompt.indexOf('Why a new index?') < prompt.indexOf('Written brief for Ask on this PR'));
+  assert.doesNotMatch(prompt, /# CSV export — PR 2/);
   assert.match(prompt, /Read-only: do not edit files/);
   assert.match(prompt, /git diff feat\/csv-1\.\.\.feat\/csv-2/);
   assert.equal(started[0].title, 'Ask · Why a new index? · #102');
+  assert.deepEqual({ ...writes[0].d }, { slug: 'csv', repoId: 'widgets', title: 'Ask · Why a new index? · #102', label: 'Ask on this PR', pr: '#102', edits: false, task: 'Why a new index?' });
+  assert.match(String(writes[0].facts), /^# CSV export — PR 2/);
+  assert.deepEqual(tracked, [{ agentId: AGENT, slug: 'csv', repoId: 'widgets', title: 'Ask · Why a new index? · #102', message: prompt }]);
+});
+
+test('the template brief goes when the brief writer fails, and the work timeline says so', async () => {
+  const { dispatch, started, timeline } = setup({ writerFails: true });
+  const r = await dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why?' });
+  assert.equal(r.brief, 'template');
+  assert.match(String(started[0].prompt), /# CSV export — PR 2/);
+  assert.ok(timeline.some((t) => /brief writer failed \(timed out\)/.test(t)));
+});
+
+test('a dispatch on the whole work gives the writer the work facts', async () => {
+  const { dispatch, writes } = setup();
+  await dispatch.start('csv', { entry: 'prompt', prompt: 'Summarise the stack' });
+  assert.equal(writes[0].d.pr, null);
+  assert.match(String(writes[0].facts), /its PRs in merge order: #101, #102/);
 });
 
 test('a gate run works on the PR row, sends the skill and marks the gate running', async () => {
@@ -74,19 +101,21 @@ test('a gate run works on the PR row, sends the skill and marks the gate running
 });
 
 test('a persona review fills the review-as ritual and stays read-only', async () => {
-  const { dispatch, placed, started } = setup();
+  const { dispatch, placed, started, writes } = setup();
   await dispatch.start('csv', { entry: 'persona-review', key: 101, persona: 'bob' });
   assert.deepEqual(placed, [{ kind: 'row', slug: 'csv', key: 101, edits: false }]);
   assert.match(String(started[0].prompt), /\n\/review-as bob 101\n/);
+  assert.equal(writes[0].d.persona, 'bob');
 });
 
 test('fix findings hands the open comments to the review agent with the dispatch message around its brief', async () => {
-  const { dispatch, fixes, started } = setup();
+  const { dispatch, fixes, started, tracked } = setup();
   const r = await dispatch.start('csv', { entry: 'fix-findings', key: 102 });
   assert.equal(started.length, 0);
   assert.deepEqual(fixes[0].commentIds, ['c1', 'c3']);
-  assert.match(fixes[0].prompt, /^# Fix findings\n\nRead brief\.md\n\n---/);
+  assert.match(fixes[0].prompt, /^# Fix findings\n\nRead brief\.md\n\n---[\s\S]*Written brief for Fix findings$/);
   assert.equal(r.runId, 'r1');
+  assert.equal(tracked[0].message, fixes[0].prompt);
 });
 
 test('a free prompt without a PR runs on the work; one with edits on a PR gets the row', async () => {
@@ -97,9 +126,10 @@ test('a free prompt without a PR runs on the work; one with edits on a PR gets t
 });
 
 test('a dispatch still starts when the PR brief cannot be rendered', async () => {
-  const { dispatch, started } = setup({ contextFails: true });
+  const { dispatch, started, writes } = setup({ contextFails: true });
   await dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why?' });
-  assert.match(String(started[0].prompt), /could not be rendered: gh down/);
+  assert.match(String(writes[0].facts), /could not be rendered: gh down/);
+  assert.equal(started.length, 1);
 });
 
 test('bad dispatches are refused before anything starts', async () => {

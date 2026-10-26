@@ -1,17 +1,19 @@
 // Dispatch: start a catalog agent (ask, persona review, fix findings, a gate run) or a free prompt on a work or one of its PRs.
 // Placement decides where: read-only kinds in the work's Plan workspace, editing kinds in the PR row's own workspace.
+// Its first message is its task, then the brief the brief writer wrote for it (the template brief when the writer fails).
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { gatesFor, skillName } from './gates.ts';
 import { repoSetting } from './config.ts';
 import { renderBrief } from './briefs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
+import type { BriefDispatch, Written } from './brief-writer.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'gate' | 'prompt';
 export type CatalogEntry = { id: string; kind: DispatchKind; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
 export type DispatchInput = { entry?: unknown; key?: unknown; prompt?: unknown; persona?: unknown; args?: unknown; edits?: unknown; commentIds?: unknown };
-export type Dispatched = { kind: DispatchKind; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string };
+export type Dispatched = { kind: DispatchKind; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
 
 type Placed = { workspaceId: string; cwd: string };
 type Scope = { kind: 'work'; slug: string } | { kind: 'row'; slug: string; key: RowKey; edits: boolean };
@@ -24,6 +26,7 @@ type Deps = {
   briefs: { context(slug: string, raw: string): Promise<BriefContext> };
   reviewAgent: { start(slug: string, key: unknown, input: { commentIds: string[]; wrap?: (prompt: string) => string }): Promise<{ runId: string; agentId: string }>; timeline(slug: string, kind: string, text: string): void };
   comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string }[] } };
+  writer: { write(d: BriefDispatch, facts: string | null): Promise<Written>; track(run: { agentId: string | null | undefined; slug: string; repoId: string | null; title: string; message: string }): void };
   repoOf?: (work: Work) => RepoConfig | null | undefined;
 };
 
@@ -51,7 +54,13 @@ export function catalog(config: Config, repo?: RepoConfig | null): CatalogEntry[
 
 const fill = (template: string, vars: Record<string, string>) => template.replace(/\{([\w|]+)\}/g, (_, keys: string) => keys.split('|').map((k) => vars[k]?.trim()).find(Boolean) || '');
 
-// the dispatched agent's first message: its task, then the template brief of the PR as context (slice 7 replaces this with the brief writer)
+// what the brief writer knows of a work when the dispatch names no PR
+export const workFacts = (work: Work) => {
+  const prs = (work.stack || []).map(rowKey).filter((k): k is RowKey => k !== null).map(keyLabel);
+  return [`# ${work.title}`, '', ...(work.description ? [work.description.trim(), ''] : []), `Work \`${work.slug}\`; its PRs in merge order: ${prs.join(', ') || 'none yet'}. The cocopilot MCP get_work ${work.slug} has the rest.`].join('\n');
+};
+
+// the dispatched agent's first message: its task, then its brief as context
 export function firstMessage({ title, task, edits, brief, read }: { title: string; task: string; edits: boolean; brief: string | null; read?: { head: string; base: string; n: RowKey } | null }) {
   const readOnly = !edits && read
     ? [`Read-only: do not edit files, commit or push. The PR's branch is not checked out here: \`git fetch origin\`, then read the change with \`git diff ${read.base}...${read.head}\`${isLocal(read.n) ? '' : ` or \`gh pr diff ${read.n}\``}.`, '']
@@ -59,8 +68,9 @@ export function firstMessage({ title, task, edits, brief, read }: { title: strin
   return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
-export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, repoOf }: Deps) {
+export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf }: Deps) {
   const repoFor = (work: Work) => repoOf?.(work) || null;
+  const repoIdOf = (work: Work) => repoFor(work)?.id || work.repo || null;
   const entriesFor = (work: Work) => catalog(config, repoFor(work));
 
   function resolve(slug: string, input: DispatchInput) {
@@ -100,14 +110,25 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     return [entry.label.replace(/ on this PR$/, ''), detail, key === null || edits ? '' : keyLabel(key)].filter(Boolean).join(' · ');
   };
 
-  async function briefOf(slug: string, key: RowKey | null) {
-    if (key === null) return { brief: null, read: null };
+  // the template brief is the writer's facts and the fallback; a dispatch on the whole work has only the work's facts and no fallback
+  async function factsOf(work: Work, key: RowKey | null) {
+    if (key === null) return { template: null, facts: workFacts(work), read: null };
     try {
-      const ctx = await briefs.context(slug, String(key));
-      return { brief: renderBrief(ctx), read: { head: ctx.pr.head, base: ctx.pr.base, n: key } };
+      const ctx = await briefs.context(work.slug, String(key));
+      const template = renderBrief(ctx);
+      return { template, facts: template, read: { head: ctx.pr.head, base: ctx.pr.base, n: key } };
     } catch (e) {
-      return { brief: `(The PR brief could not be rendered: ${errorMessage(e).slice(0, 200)}. Use the cocopilot MCP get_work ${slug}.)`, read: null };
+      const template = `(The PR brief could not be rendered: ${errorMessage(e).slice(0, 200)}. Use the cocopilot MCP get_work ${work.slug}.)`;
+      return { template, facts: `${workFacts(work)}\n\n${template}`, read: null };
     }
+  }
+
+  async function briefOf(work: Work, d: Omit<BriefDispatch, 'slug' | 'repoId' | 'pr'> & { key: RowKey | null }) {
+    const { template, facts, read } = await factsOf(work, d.key);
+    const { key, ...rest } = d;
+    const written = await writer.write({ ...rest, slug: work.slug, repoId: repoIdOf(work), pr: key === null ? null : keyLabel(key) }, facts);
+    if (!written.brief) reviewAgent.timeline(work.slug, 'agent', `dispatch ${d.title}: the brief writer failed (${written.error || 'no brief'}), the template brief went instead`);
+    return { brief: written.brief ?? template, read, written: Boolean(written.brief) };
   }
 
   const markGate = (slug: string, key: RowKey, gate: string, record: { state: string; at: string; skill: string; agentId: string | null }) => {
@@ -121,25 +142,31 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const { work, entry, key, prompt, persona, edits } = resolve(slug, input);
     const args = typeof input.args === 'string' ? input.args.trim() : '';
     const title = titleOf(entry, key, edits, { prompt, persona });
+    const repoId = repoIdOf(work);
 
     if (entry.kind === 'fix-findings' && key !== null) {
       const given = Array.isArray(input.commentIds) ? input.commentIds.filter((x): x is string => typeof x === 'string') : [];
       const commentIds = given.length ? given : (comments.list(slug, key).comments || []).filter((c) => c.status === 'open').map((c) => c.id);
       if (!commentIds.length) throw new HttpError(400, `no open finding to fix on ${keyLabel(key)}`);
-      const { brief } = await briefOf(slug, key);
-      const run = await reviewAgent.start(slug, key, { commentIds, wrap: (task) => firstMessage({ title, task, edits: true, brief }) });
-      return { kind: entry.kind, title, agentId: run.agentId, edits: true, runId: run.runId };
+      const task = `Fix the review findings ${commentIds.join(', ')} of ${keyLabel(key)}; their text comes with the task.`;
+      const { brief, written } = await briefOf(work, { key, title, label: entry.label, edits: true, task });
+      let message = '';
+      const run = await reviewAgent.start(slug, key, { commentIds, wrap: (task) => (message = firstMessage({ title, task, edits: true, brief })) });
+      writer.track({ agentId: run.agentId, slug, repoId, title, message });
+      return { kind: entry.kind, title, agentId: run.agentId, edits: true, runId: run.runId, brief: written ? 'written' : 'template' };
     }
 
     const scope: Scope = key === null ? { kind: 'work', slug } : { kind: 'row', slug, key, edits };
     const placed = await placement.place(scope);
-    const { brief, read } = await briefOf(slug, key);
     const task = taskOf(entry, key, { prompt, persona, args });
+    const { brief, read, written } = await briefOf(work, { key, title, label: entry.label, edits, task, ...(entry.kind === 'persona-review' ? { persona } : {}) });
+    const message = firstMessage({ title, task, edits, brief, read });
     const labels: Record<string, unknown> = { source: 'cocopilot', kind: 'dispatch', dispatch: entry.id, work: slug, ...(key === null ? {} : { pr: fileKey(key) }) };
-    const started = await agents.start({ title, provider: config.models.default, thinking: 'high', prompt: firstMessage({ title, task, edits, brief, read }), labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    const started = await agents.start({ title, provider: config.models.default, thinking: 'high', prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    writer.track({ agentId: started.agentId, slug, repoId, title, message });
     if (entry.kind === 'gate' && entry.gate && key !== null) markGate(slug, key, entry.gate, { state: 'running', at: new Date().toISOString(), skill: entry.skill || entry.gate, agentId: started.agentId });
-    reviewAgent.timeline(work.slug, 'agent', `dispatch ${title}: started agent ${String(started.agentId || '').slice(0, 8)} in the ${edits ? 'PR' : 'Plan'} workspace ${placed.workspaceId}`);
-    return { kind: entry.kind, title, agentId: started.agentId, workspaceId: placed.workspaceId, edits };
+    reviewAgent.timeline(work.slug, 'agent', `dispatch ${title}: started agent ${String(started.agentId || '').slice(0, 8)} in the ${edits ? 'PR' : 'Plan'} workspace ${placed.workspaceId} with a ${written ? 'written' : 'template'} brief`);
+    return { kind: entry.kind, title, agentId: started.agentId, workspaceId: placed.workspaceId, edits, brief: written ? 'written' : 'template' };
   }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {

@@ -30,15 +30,17 @@ export type ActivityEvent = { type: string; id?: string | null; name?: string; k
 export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text: string, kind?: 'text' | 'think') => void; onToolStart?: (e: ToolStart) => void; onPermission?: (what: string) => void };
 export type WaitResult = { status: string; error?: string | null; lastMessage?: string | null; final?: { lastUsage?: { totalCostUsd?: number } | null } | null };
 type Unsubscribe = (() => void) & { ready?: Promise<unknown> };
+type Cursor = { epoch: string; seq: number };
+type TimelinePage = { entries: { item?: { type: string; text?: string }; timestamp?: string }[]; startCursor?: Cursor | null; hasOlder?: boolean };
 export type DaemonAgent = {
   id: string;
   workspaceId?: string | null;
   cwd?: string | null;
   status?: string | null;
-  timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe };
+  timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string }): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null } | null } | null>;
   archive(): Promise<unknown>;
 };
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown };
@@ -249,6 +251,9 @@ export function activityEvents({ keep, live, deltaMs = 100 }: { keep: (ev: Activ
   };
 }
 
+const HISTORY_PAGE = 200;
+const HISTORY_PAGES = 20;
+export type AgentHistory = { status: string | null; archived: boolean; updatedAt: string | null; userMessages: { text: string; at: string | null }[] };
 export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
 type AgentConfig = { provider?: string; mode?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
@@ -333,6 +338,22 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     const agent = await attach(agentId);
     if (agent) await agent.archive();
     return Boolean(agent);
+  }
+
+  // what the user sent an agent, oldest first (its first prompt included), archived agents too; null once the daemon no longer knows it
+  async function history(agentId: string): Promise<AgentHistory | null> {
+    const agent = (await client()).agents.ref(agentId);
+    const found = (await agent.refresh())?.agent;
+    if (!found || !agent.timeline.refetch) return null;
+    const pages: TimelinePage[] = [];
+    let page = await agent.timeline.refetch({ direction: 'tail', limit: HISTORY_PAGE, projection: 'projected' });
+    pages.unshift(page);
+    while (page.hasOlder && page.startCursor && pages.length < HISTORY_PAGES) {
+      page = await agent.timeline.refetch({ direction: 'before', cursor: page.startCursor, limit: HISTORY_PAGE, projection: 'projected' });
+      pages.unshift(page);
+    }
+    const userMessages = pages.flatMap((p) => p.entries).flatMap((e) => (e.item?.type === 'user_message' && e.item.text ? [{ text: e.item.text, at: e.timestamp || null }] : []));
+    return { status: found.status || null, archived: Boolean(found.archivedAt) || found.status === 'closed', updatedAt: found.updatedAt || null, userMessages };
   }
 
   const outcome = (result: WaitResult, follow: Follower, timeoutMs: number): Outcome => {
@@ -440,5 +461,5 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     }
   }
 
-  return { start, run, session, attach, archive, workspaceFor, listWorkspaces, client };
+  return { start, run, session, attach, archive, history, workspaceFor, listWorkspaces, client };
 }

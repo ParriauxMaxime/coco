@@ -51,7 +51,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const missing = (entry.needsPr && !onPr) || (entry.needsPrompt && !prompt.trim()) || (entry.needsPersona && !persona.trim()) || Boolean(entry.ask && !answer.trim());
   const go = () => run('dispatch', async () => {
     const r = await api.dispatch(slug, { entry: entry.id, key: onPr ? key : null, prompt, persona, edits, ...(entry.ask ? { args: `${answer.trim()} ${key}` } : {}), ...(picked.length ? { commentIds: picked } : {}) });
-    toast.success(`Started ${r.title} in the ${r.edits ? 'PR' : 'Plan'} workspace`);
+    toast.success(`Started ${r.title} in the ${r.edits ? 'PR' : 'Plan'} workspace${r.brief === 'template' ? ', with the template brief: the brief writer failed' : ''}`);
     onStarted?.(r);
     onClose();
   });
@@ -87,7 +87,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
         <span className="status">{entry.kind === 'fix-findings' ? `${picked.length ? `${picked.length} picked finding${picked.length > 1 ? 's' : ''}` : 'every open finding of the PR'} · ` : ''}{writesBranch ? 'runs in the PR’s own workspace' : 'read-only, runs in the work’s Plan workspace'}</span>
         <span className="open-side row">
           <button type="button" className="sm" onClick={onClose}>Cancel</button>
-          <button type="button" className={`sm primary${pendingClass(busy)}`} disabled={busy || missing} onClick={go}>Dispatch</button>
+          <button type="button" className={`sm primary${pendingClass(busy)}`} disabled={busy || missing} onClick={go}>{busy ? 'Writing the brief…' : 'Dispatch'}</button>
         </span>
       </div>
     </div>

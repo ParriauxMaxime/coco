@@ -92,7 +92,7 @@ export type RepoPage = {
   works: (WorkSummary & { next: string | null })[];
   archivedCount: number;
   loose: { prs: LoosePr[]; error: string | null };
-  lessons: { text: string; at?: string }[];
+  lessons: { text: string; at?: string; work?: string }[];
   ruleFiles: string[];
 };
 export type RitualRun = { ts: string; kind: string; title: string; prompt: string; agentId: string | null; ok: boolean; out: string };
@@ -451,11 +451,11 @@ export type AgentProposal = {
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export type DispatchEntry = { id: string; kind: string; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
 export type DispatchBody = { entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] };
-export type DispatchResult = { kind: string; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string };
+export type DispatchResult = { kind: string; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };
 export type WorktreesRemoved = { removed: string[]; kept: { path: string; why: string }[]; unarchived: { workspaceId: string; why: string }[] };
-export type DispatchProposal ={ entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
+export type DispatchProposal = { entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
 export type AskRun = {
   id: string;
   prompt: string;

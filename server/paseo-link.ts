@@ -29,6 +29,7 @@ type PaseoLinkOptions = {
   brief?: ((slug: string, key: RowKey) => Promise<string>) | null;
   file?: string | null;
   exec?: Exec;
+  onArchived?: (agentId: string) => void;
 };
 
 const defaultExec: Exec = (cmd, args) =>
@@ -51,7 +52,7 @@ const readLinks = (file?: string | null): Record<string, AgentLink> => {
   }
 };
 
-export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec }: PaseoLinkOptions) {
+export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec, onArchived }: PaseoLinkOptions) {
   const GITHUB = config?.repo?.github || '';
   const prByBranch = new Map<string, { at: number; number: number | null }>();
   const links = new Map(Object.entries(readLinks(file)));
@@ -270,7 +271,10 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
       if (action === 'turn-ended') return send(res, 200, await turnEnded(body));
       if (action === 'agent') return send(res, 200, { link: await linkAgent(body) });
       if (action === 'briefed') return send(res, 200, { link: briefed(agentId) });
-      if (action === 'unlink') return send(res, 200, { unlinked: unlink(agentId) });
+      if (action === 'unlink') {
+        onArchived?.(agentId);
+        return send(res, 200, { unlinked: unlink(agentId) });
+      }
       const out = await brief(body);
       return out ? send(res, 200, out) : send(res, 404, { error: 'this workspace is not the workspace of a PR in a cocopilot work' });
     } catch (e) {

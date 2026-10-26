@@ -24,6 +24,7 @@ import { createBriefs, renderBrief } from './briefs.ts';
 import { createRules } from './rules.ts';
 import { createGates } from './gates.ts';
 import { createDispatch } from './dispatch.ts';
+import { createBriefWriter } from './brief-writer.ts';
 import { createStackKeeper, needsKeeping } from './stack-keeper.ts';
 import { createInbox } from './inbox.ts';
 import { createKit } from './kit.ts';
@@ -89,19 +90,21 @@ const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan });
-const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, repoOf: repos.repoFor });
+const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
+const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
 const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
-const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json') });
+const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json'), onArchived: (agentId) => void briefWriter.ended(agentId).catch((e) => console.error(`brief lessons of ${agentId}: ${errorMessage(e)}`)) });
 const devServers = createDevServers({ REPO, config, works });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
+briefWriter.boot();
 fs.mkdirSync(BRIEFS, { recursive: true });
 
 const send: Send = (res, code, body, type = 'application/json', cache = 'no-store') => {
@@ -283,17 +286,6 @@ async function loosePrs(repo: RepoConfig, held: Set<number>, fresh: boolean) {
   }
 }
 
-// lessons the brief writer kept for this repo, oldest first; none until it has run
-function briefLessons(repoId: string): { text: string; at?: string }[] {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(DATA, 'repos', repoId, 'brief-lessons.json'), 'utf8'));
-    const list = Array.isArray(raw) ? raw : [];
-    return list.map((l) => (typeof l === 'string' ? { text: l } : { text: String(l?.text || ''), at: l?.at })).filter((l) => l.text);
-  } catch {
-    return [];
-  }
-}
-
 const nextSummary = (next: unknown) => (next && typeof next === 'object' && 'summary' in next && typeof next.summary === 'string' ? next.summary : null);
 async function repoPage(repo: RepoConfig, fresh: boolean) {
   const mine = works.list().filter((w) => repos.repoFor(w).id === repo.id);
@@ -309,7 +301,7 @@ async function repoPage(repo: RepoConfig, fresh: boolean) {
     works: live,
     archivedCount: order.length - live.length,
     loose: await loosePrs(repo, held, fresh),
-    lessons: briefLessons(repo.id),
+    lessons: briefWriter.lessons(repo.id).map(({ text, at, work }) => ({ text, at, work })),
     ruleFiles: repo.rules || [],
   };
 }

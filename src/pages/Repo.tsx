@@ -143,7 +143,7 @@ export default function Repo({ id }: { id: string }) {
       <h2>Lessons</h2>
       <p className="sub">What agent briefs in this repo learned from your mid-run corrections.</p>
       <div className="card">
-        {data.lessons.map((l, i) => <div key={i} className="list-item">{l.text}{l.at && <span className="status"> · {l.at.slice(0, 10)}</span>}</div>)}
+        {data.lessons.map((l, i) => <div key={i} className="list-item">{l.text}{(l.at || l.work) && <span className="status"> · {l.work && <a href={`#/work/${l.work}`}>{l.work}</a>}{l.work && l.at && ', '}{l.at?.slice(0, 10)}</span>}</div>)}
         {data.lessons.length === 0 && <span className="sub">No lesson yet.</span>}
       </div>
 
