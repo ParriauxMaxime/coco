@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { parseFindings } from './review-import.ts';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
+import { swrCache } from './swr.ts';
 import type { Block, Source } from './blocks.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
 
@@ -208,21 +209,17 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     fs.writeFileSync(ledgerFile(slug), JSON.stringify(ledger, null, 1));
   };
 
-  const ghCache = new Map<string, { at: number; promise: Promise<unknown> }>();
-  const gh = <T>(args: string[], lines = true): Promise<T> => {
-    const k = args.join(' ');
-    const hit = ghCache.get(k);
-    if (hit && Date.now() - hit.at < GH_TTL_MS) return hit.promise as Promise<T>;
-    const promise = exec('gh', args).then((r) => {
-      try {
-        return lines ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : JSON.parse(r.stdout);
-      } catch {
-        return lines ? [] : null;
-      }
-    });
-    ghCache.set(k, { at: Date.now(), promise });
-    return promise;
-  };
+  const ghCache = swrCache<unknown>(GH_TTL_MS);
+  const gh = <T>(args: string[], lines = true): Promise<T> =>
+    ghCache(args.join(' '), () =>
+      exec('gh', args).then((r) => {
+        try {
+          return lines ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : JSON.parse(r.stdout);
+        } catch {
+          return lines ? [] : null;
+        }
+      }),
+    ) as Promise<T>;
 
   // GitHub reviewers (inline comments and review bodies), bot groups and other bots, failed CI checks; the PR author's own remarks are not findings
   async function githubRows(n: number, headSha: string | null): Promise<Row[]> {
