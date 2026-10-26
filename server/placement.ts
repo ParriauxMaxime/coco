@@ -22,7 +22,7 @@ type Deps = {
 };
 
 const AMBIENT_PASEO = ['PASEO_AGENT_ID', 'PASEO_AGENT_CWD', 'PASEO_WORKSPACE_ID'];
-const defaultExec: Exec = (cmd, args) =>
+export const defaultExec: Exec = (cmd, args) =>
   new Promise((resolve) => {
     const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !AMBIENT_PASEO.includes(k)));
     execFile(cmd, args, { maxBuffer: 20 * 1024 * 1024, timeout: 180000, env }, (err, stdout, stderr) => resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') }));
@@ -178,7 +178,8 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     let placed: Placed;
     if (adopted) placed = await workspaceOn(p.projectId, adopted, title, entries);
     else if (row.number) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'checkout-pr', '--pr-number', String(row.number), '--title', title], title);
-    else if (branch) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', previousBranch(stack, i, repo) , '--title', title], title);
+    else if (branch && (await exec('git', ['-C', repo.path, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).ok) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'checkout-branch', '--branch', branch, '--title', title], title);
+    else if (branch) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', previousBranch(stack, i, repo), '--title', title], title);
     else throw new Error(`row ${key} of ${work.slug} has neither a PR nor a planned branch`);
     remember(fresh.slug, key, placed.workspaceId);
     return placed;

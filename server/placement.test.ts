@@ -13,7 +13,7 @@ const REPOS = [repo('widgets', '/src/widgets'), repo('cocopilot', '/apps/coco')]
 type Ws = { id: string; projectId?: string; workspaceDirectory?: string };
 
 // a pretend Paseo + git: projects, workspaces and worktrees the calls read and create
-function world({ projects = [] as { projectId: string; name: string; path: string }[], workspaces = [] as Ws[], worktrees = '', prs = {} as Record<string, { title: string; headRefName: string }> } = {}) {
+function world({ projects = [] as { projectId: string; name: string; path: string }[], workspaces = [] as Ws[], worktrees = '', branches = [] as string[], prs = {} as Record<string, { title: string; headRefName: string }> } = {}) {
   const calls: string[][] = [];
   let n = 0;
   const flag = (args: string[], f: string) => args[args.indexOf(f) + 1];
@@ -21,6 +21,8 @@ function world({ projects = [] as { projectId: string; name: string; path: strin
     calls.push([cmd, ...args]);
     const ok = (v: unknown) => ({ ok: true, stdout: typeof v === 'string' ? v : JSON.stringify(v), stderr: '' });
     if (cmd === 'git' && args.includes('worktree') && args.includes('list')) return ok(worktrees);
+    const ref = args.find((a) => a.startsWith('refs/heads/'));
+    if (cmd === 'git' && ref && !branches.includes(ref.slice('refs/heads/'.length))) return { ok: false, stdout: '', stderr: '' };
     if (cmd === 'git') return ok('');
     if (cmd === 'gh') return prs[args[2]] ? ok(prs[args[2]]) : { ok: false, stdout: '', stderr: 'no pull requests found' };
     if (args[0] === 'project' && args[1] === 'ls') return ok(projects);
@@ -108,6 +110,17 @@ test('an editing agent on a planned row branches off the previous row, in the wo
   const create = w.calls.find((a) => a[2] === 'create' && a[1] === 'workspace') || [];
   const at = (f: string) => create[create.indexOf(f) + 1];
   assert.deepEqual([at('--mode'), at('--new-branch'), at('--base'), at('--project'), at('--title')], ['branch-off', 'feat/email', 'feat/export', 'prj_w', 'Email the CSV']);
+});
+
+test('an editing agent on a planned row whose branch exists without a worktree checks that branch out instead of creating it', async () => {
+  const w = world({ projects: [{ projectId: 'prj_w', name: 'Invoices', path: '/wt/plan' }], branches: ['feat/email'] });
+  const works = store([{ slug: 'inv', title: 'Invoices', projectId: 'prj_w', stack: [{ number: null, planned: { title: 'Export', branch: 'feat/export' } }, { number: null, planned: { title: 'Email the CSV', branch: 'feat/email' } }] }]);
+  const p = createPlacement({ repos: REPOS, APP: '/apps/coco', DATA: DATA(), exec: w.exec, listWorkspaces: w.listWorkspaces, works });
+  await p.place({ kind: 'row', slug: 'inv', key: 'b:feat:email', edits: true });
+  const create = w.calls.find((a) => a[2] === 'create' && a[1] === 'workspace') || [];
+  const at = (f: string) => create[create.indexOf(f) + 1];
+  assert.deepEqual([at('--mode'), at('--branch'), at('--project'), at('--title')], ['checkout-branch', 'feat/email', 'prj_w', 'Email the CSV']);
+  assert.ok(!create.includes('--new-branch'));
 });
 
 const REPO_PROJECT = { projectId: 'prj_repo', name: 'widgets', path: '/src/widgets' };
