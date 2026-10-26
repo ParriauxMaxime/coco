@@ -1,5 +1,6 @@
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
-import { runUrl, workLinks, type CommentCounts, type RunView, type resolveRpc } from "../shared/contracts";
+import type { PluginHandlerContext, PluginHookAgent } from "@getpaseo/plugin/server";
+import { runUrl, workLinks, type CommentCounts, type RunView, type addBriefRpc, type resolveRpc } from "../shared/contracts";
 import type { LabeledRun } from "../shared/labels";
 
 // Node's global fetch; the plugin typechecks without DOM or Node libs.
@@ -18,8 +19,9 @@ async function post<T>(baseUrl: string, path: string, body: object, signal?: Abo
     body: JSON.stringify(body),
     signal,
   });
-  if (!response.ok) throw new Error(`cocopilot ${path} answered ${response.status}`);
-  return (await response.json()) as T;
+  const answer = await response.json().catch(() => null);
+  if (!response.ok) throw new Error((answer as { error?: string } | null)?.error || `cocopilot ${path} answered ${response.status}`);
+  return answer as T;
 }
 
 const withUrl = (baseUrl: string, run: ServerRun): RunView => ({ ...run, url: runUrl(baseUrl, run) });
@@ -28,6 +30,7 @@ export async function resolveWorkspace(baseUrl: string, input: RpcInput<typeof r
   const resolved = await post<Resolved>(baseUrl, "resolve", input);
   return {
     ...resolved,
+    row: resolved.row ?? null,
     runs: (resolved.runs ?? []).map((run) => withUrl(baseUrl, run)),
     home: baseUrl,
     links: resolved.work ? workLinks(baseUrl, resolved.work.slug, resolved.pr?.number ?? null) : null,
@@ -38,6 +41,21 @@ export async function resolveWorkspace(baseUrl: string, input: RpcInput<typeof r
 export async function settleTurn(baseUrl: string, agent: { id: string; cwd: string }, signal?: AbortSignal): Promise<RunView[]> {
   const { runs } = await post<{ runs: ServerRun[] }>(baseUrl, "turn-ended", { agentId: agent.id, cwd: agent.cwd }, signal);
   return runs.map((run) => withUrl(baseUrl, run));
+}
+
+export async function linkAgent(baseUrl: string, agent: PluginHookAgent, signal?: AbortSignal) {
+  await post(baseUrl, "agent", { agentId: agent.id, workspaceId: agent.workspaceId, cwd: agent.cwd, title: agent.title }, signal);
+}
+
+export async function unlinkAgent(baseUrl: string, agentId: string, signal?: AbortSignal) {
+  await post(baseUrl, "unlink", { agentId }, signal);
+}
+
+export async function sendBrief(baseUrl: string, paseo: PluginHandlerContext["paseo"], input: RpcInput<typeof addBriefRpc>): Promise<RpcOutput<typeof addBriefRpc>> {
+  const { text, label } = await post<{ text: string; label: string }>(baseUrl, "brief", input);
+  await paseo.agents.ref(input.agentId).send(text);
+  await post(baseUrl, "briefed", { agentId: input.agentId });
+  return { label };
 }
 
 // The run file is written right after launch, so a turn can start before cocopilot knows the run: describe it from its labels then.

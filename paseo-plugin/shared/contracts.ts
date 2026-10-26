@@ -40,15 +40,25 @@ export type RunView = z.output<typeof runViewSchema>;
 
 export const resolveRpc = defineRpc({
   name: "cocopilot.resolve",
-  input: z.object({ cwd: z.string(), projectId: z.string() }),
+  input: z.object({ cwd: z.string(), projectId: z.string(), workspaceId: z.string().optional() }),
   output: z.object({
     home: z.string(),
     branch: z.string().nullable(),
     work: z.object({ slug: z.string(), title: z.string(), stack: z.array(z.number()) }).nullable(),
     pr: z.object({ number: z.number(), comments: commentCounts }).nullable(),
+    row: z
+      .object({ key: z.union([z.number(), z.string()]), label: z.string(), briefed: z.array(z.string()).describe("agents the row's work brief was sent to") })
+      .nullable()
+      .describe("the stack row this workspace belongs to"),
     runs: z.array(runViewSchema),
     links: linksSchema.nullable(),
   }),
+});
+
+export const addBriefRpc = defineRpc({
+  name: "cocopilot.addBrief",
+  input: z.object({ agentId: z.string(), workspaceId: z.string(), cwd: z.string() }),
+  output: z.object({ label: z.string() }),
 });
 
 export const homeRpc = defineRpc({

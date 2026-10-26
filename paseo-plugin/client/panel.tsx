@@ -11,8 +11,8 @@ export function CocopilotPanel({ theme, layout, workspaceId, navigation }: Plugi
   const workspace = useWorkspace(workspaceId, ({ directory, projectId, name }) => ({ directory, projectId, name }));
   const resolve = useRpc(resolveRpc);
   const query = useQuery({
-    queryKey: ["resolve", workspace?.directory, workspace?.projectId],
-    queryFn: () => resolve({ cwd: workspace!.directory, projectId: workspace!.projectId }),
+    queryKey: ["resolve", workspace?.directory, workspace?.projectId, workspaceId],
+    queryFn: () => resolve({ cwd: workspace!.directory, projectId: workspace!.projectId, workspaceId }),
     enabled: !!workspace,
     refetchInterval: 30_000,
   });

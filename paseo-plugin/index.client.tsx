@@ -25,7 +25,7 @@ export default function contribute(client: PluginClientContext) {
     keywords: ["review", "comments"],
     context: "workspace",
     async onSelect({ rpc, workspace }) {
-      const { home, links } = await rpc(resolveRpc, { cwd: workspace.directory, projectId: workspace.projectId });
+      const { home, links } = await rpc(resolveRpc, { cwd: workspace.directory, projectId: workspace.projectId, workspaceId: workspace.id });
       await openExternalUrl(links?.review ?? links?.plan ?? home);
     },
   });

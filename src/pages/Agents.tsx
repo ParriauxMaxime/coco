@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.ts';
-import type { AgentsResponse } from '../types.ts';
+import { toHash } from '../workbench/hash.ts';
+import type { AgentsResponse, LinkedAgent } from '../types.ts';
 
 const statusChip = (s: string) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
 
@@ -8,7 +9,11 @@ export default function Agents() {
   const [data, setData] = useState<AgentsResponse | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [log, setLog] = useState('');
-  const refresh = () => api.agents().then(setData);
+  const [links, setLinks] = useState<Record<string, LinkedAgent>>({});
+  const refresh = () => {
+    api.linkedAgents().then((all) => setLinks(Object.fromEntries(all.map((l) => [l.agentId, l]))), () => setLinks({}));
+    return api.agents().then(setData);
+  };
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 15000);
@@ -31,13 +36,17 @@ export default function Agents() {
       <div className="card">
         {(data.agents || []).map((a) => {
           const ws = byWs[a.cwd];
+          const link = links[a.id];
           return (
             <div key={a.id} className="list-item">
               <div className="row" style={{ justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => show(a.id)}>
                 <span><span className={`chip ${statusChip(a.status)}`}>{a.status}</span> <b>{a.name}</b></span>
                 <span className="status">{a.provider} · {a.thinking} · {a.created}</span>
               </div>
-              <div className="status">{ws ? `${ws.project} / ${ws.name}` : a.cwd} · <code>{a.shortId}</code></div>
+              <div className="status">
+                {ws ? `${ws.project} / ${ws.name}` : a.cwd} · <code>{a.shortId}</code>
+                {link && <> · <a href={toHash(link.slug, `brief-${link.key}`, false)}>{link.workTitle} {link.label}</a>{link.briefAt ? ' · brief sent' : ''}</>}
+              </div>
               {open === a.id && <pre style={{ maxHeight: 400, overflow: 'auto', marginTop: 6 }}>{log}</pre>}
             </div>
           );

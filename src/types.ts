@@ -62,6 +62,8 @@ export type SkillDetail = Skill & { md: string };
 export type PaseoAgent = { id: string; shortId: string; name: string; status: string; provider: string; thinking: string; created: string; cwd: string };
 export type PaseoWorkspace = { workspaceId: string; project: string; name: string; cwd: string; isolation: string };
 export type AgentsResponse = { agents: PaseoAgent[]; workspaces: PaseoWorkspace[]; error: string | null };
+// an agent started by hand in a PR row workspace, linked to that row by the Paseo plugin
+export type LinkedAgent = { agentId: string; slug: string; workTitle: string; key: number | string; label: string; workspaceId: string | null; title: string | null; linkedAt: string; briefAt: string | null };
 export type AgentLog = { ok: boolean; out: string; err: string };
 
 export type PaseoProject = {

@@ -1,7 +1,7 @@
 import type {
   AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
-  KitResponse, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
+  KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
 } from './types.ts';
@@ -60,6 +60,7 @@ export const api = {
   saveSkillFile: (name: string, file: string, body: string) => putText<{ ok: boolean; bytes: number }>(`/api/skills/${name}/files/${encodeURIComponent(file)}`, body),
   agents: () => get<AgentsResponse>('/api/agents'),
   agentActivity: (id: string) => get<AgentLog>(`/api/agents-activity/${id}`),
+  linkedAgents: (slug?: string) => get<{ agents: LinkedAgent[] }>(`/api/paseo-link/agents${slug ? `?work=${encodeURIComponent(slug)}` : ''}`).then((r) => r.agents),
   reviews: () => get<{ name: string; dir: boolean; mtime: string; entries: string[] }[]>('/api/reviews'),
   feedback: () => get<FeedbackItem[]>('/api/feedback'),
   sendFeedback: (item: Omit<FeedbackItem, 'ts'>) => post<{ ok: boolean }>('/api/feedback', item),

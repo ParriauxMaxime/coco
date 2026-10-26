@@ -7,7 +7,7 @@ import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { keyLabel } from '../code/ids.ts';
 import { errorMessage } from '../../api.ts';
-import type { BriefResponse } from '../../types.ts';
+import type { BriefResponse, LinkedAgent } from '../../types.ts';
 import type { PrKey } from '../types.ts';
 
 const HANDOFF_VIEWS: [boolean, string][] = [[false, 'brief'], [true, 'handoff preview']];
@@ -26,7 +26,11 @@ export default function Brief({ tabId, group }: { tabId: string; group: number }
   const [error, setError] = useState('');
   const { pending, busy, run } = useAction();
   const [handoff, setHandoff] = useState(false);
-  const refresh = () => api.brief(slug, n, handoff).then((d) => { setData(d); setError(''); }, (e) => setError(errorMessage(e)));
+  const [linked, setLinked] = useState<LinkedAgent[]>([]);
+  const refresh = () => {
+    api.linkedAgents(slug).then((all) => setLinked(all.filter((l) => String(l.key) === String(n))), () => setLinked([]));
+    return api.brief(slug, n, handoff).then((d) => { setData(d); setError(''); }, (e) => setError(errorMessage(e)));
+  };
   useEffect(() => { refresh(); }, [slug, n, handoff]);
 
   const act = (action: string, ask?: string | null) => (!ask || confirm(ask)) && run(action, async () => {
@@ -56,6 +60,18 @@ export default function Brief({ tabId, group }: { tabId: string; group: number }
           {agent && <button className={`sm${pendingClass(pending === 'handoff')}`} disabled={busy || !data.worktree} title="Brief + branch state (heads, base, what landed, what is open, rebase commands) for a fresh agent in the same worktree" onClick={() => act('handoff', `Start a fresh agent in ${data.worktree} with a handoff from ${agent.shortId}? The old agent keeps running until you archive it.`)}>Handoff</button>}
         </div>
       </div>
+      {linked.length > 0 && (
+        <div className="card">
+          <div className="status">Started by hand in this PR's Paseo workspace. Their composer has an "add work brief" pill.</div>
+          {linked.map((l) => (
+            <div key={l.agentId} className="list-item row">
+              <span className={`chip ${l.briefAt ? 'c-green' : 'c-grey'}`}>{l.briefAt ? 'brief sent' : 'no brief'}</span>
+              <b>{l.title || l.agentId.slice(0, 8)}</b>
+              <span className="status">{l.agentId.slice(0, 8)} · linked {l.linkedAt.slice(0, 16).replace('T', ' ')}{l.briefAt ? ` · brief ${l.briefAt.slice(0, 16).replace('T', ' ')}` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {data.stored.length > 0 && (
         <Collapsible level="pm" title={`Stored briefs · ${data.stored.length}`}>
           {data.stored.map((name) => <div key={name} className="list-item row" style={{ justifyContent: 'space-between' }}><code>{name}</code><button className="sm" onClick={() => open(`artifact-${name}`, { preview: true, group })}>view ▸</button></div>)}

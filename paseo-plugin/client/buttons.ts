@@ -1,13 +1,19 @@
 import { openExternalUrl, type PluginButton, type PluginButtonMenuEntry, type PluginButtonRegistration, type PluginClientContext } from "@getpaseo/plugin/client";
 import type { RpcOutput } from "@getpaseo/plugin";
-import { describeRun, homeRpc, resolveRpc, runUrl } from "../shared/contracts";
+import { addBriefRpc, describeRun, homeRpc, resolveRpc, runUrl } from "../shared/contracts";
 import { runFromLabels } from "../shared/labels";
 import { ParrotIcon } from "./parrot";
 import { requestBrowserTab } from "./pending-browser";
 
 type Link = RpcOutput<typeof resolveRpc>;
 type WorkspaceState = { directory: string; projectId: string; link: Link | null; header: PluginButtonRegistration | null };
-type AgentState = { workspaceId: string; labels: Readonly<Record<string, string>>; pill: PluginButtonRegistration | null; runPill: PluginButtonRegistration | null };
+type AgentState = {
+  workspaceId: string;
+  labels: Readonly<Record<string, string>>;
+  pill: PluginButtonRegistration | null;
+  runPill: PluginButtonRegistration | null;
+  briefPill: PluginButtonRegistration | null;
+};
 
 const TICK_MS = 15_000;
 const LINKED_EVERY_N_TICKS = 4;
@@ -26,7 +32,7 @@ function describe(link: Link) {
 }
 
 // Shows a cocopilot button in the header of each workspace linked to a work, a pill in each of its agents' composers,
-// and a run pill on each agent cocopilot launched.
+// a run pill on each agent cocopilot launched, and an "add work brief" pill on agents started by hand in a PR row workspace.
 export function contributeButtons(client: PluginClientContext) {
   const workspaces = new Map<string, WorkspaceState>();
   const agents = new Map<string, AgentState>();
@@ -107,6 +113,33 @@ export function contributeButtons(client: PluginClientContext) {
     else agent.pill = client.addComposerPill({ id: "cocopilot", workspaceId: agent.workspaceId, agentId, button: next });
   };
 
+  const syncBriefPill = (agentId: string) => {
+    const agent = agents.get(agentId);
+    if (!agent || lifetime.signal.aborted) return;
+    const state = workspaces.get(agent.workspaceId);
+    const row = state?.link?.row ?? null;
+    if (!state || !row || agent.labels.source) {
+      agent.briefPill?.remove();
+      agent.briefPill = null;
+      return;
+    }
+    const { workspaceId } = agent;
+    const send = async () => {
+      await client.rpc(addBriefRpc, { agentId, workspaceId, cwd: state.directory });
+      await resolve(workspaceId);
+    };
+    const next: PluginButton = row.briefed.includes(agentId)
+      ? {
+          title: `The work brief for ${row.label} was sent to this agent`,
+          icon: "FileCheck",
+          label: "work brief sent",
+          behavior: { kind: "menu", items: [{ kind: "item", id: "brief-again", title: `Send the ${row.label} work brief again`, icon: "Send", behavior: { kind: "action", onPress: send } }] },
+        }
+      : { title: `Send the work brief for ${row.label} to this agent`, icon: "FileText", label: "add work brief", behavior: { kind: "action", onPress: send } };
+    if (agent.briefPill) agent.briefPill.update(next);
+    else agent.briefPill = client.addComposerPill({ id: "cocopilot-brief", workspaceId, agentId, button: next });
+  };
+
   const syncWorkspace = (workspaceId: string) => {
     const state = workspaces.get(workspaceId);
     if (!state || lifetime.signal.aborted) return;
@@ -118,7 +151,11 @@ export function contributeButtons(client: PluginClientContext) {
       if (state.header) state.header.update(next);
       else state.header = client.addHeaderButton({ id: "cocopilot", workspaceId, button: next });
     }
-    for (const [agentId, agent] of agents) if (agent.workspaceId === workspaceId) syncPill(agentId);
+    for (const [agentId, agent] of agents) {
+      if (agent.workspaceId !== workspaceId) continue;
+      syncPill(agentId);
+      syncBriefPill(agentId);
+    }
   };
 
   const resolve = async (workspaceId: string) => {
@@ -126,7 +163,7 @@ export function contributeButtons(client: PluginClientContext) {
     if (!state) return;
     const { directory, projectId } = state;
     try {
-      const link = await client.rpc(resolveRpc, { cwd: directory, projectId });
+      const link = await client.rpc(resolveRpc, { cwd: directory, projectId, workspaceId });
       const current = workspaces.get(workspaceId);
       if (!current || current.directory !== directory) return;
       current.link = link;
@@ -156,10 +193,11 @@ export function contributeButtons(client: PluginClientContext) {
     if (existing && existing.workspaceId !== agent.workspaceId) removeAgent(agent.id);
     const kept = agents.get(agent.id);
     const relabeled = !kept || JSON.stringify(runFromLabels(kept.labels)) !== JSON.stringify(runFromLabels(labels));
-    const state = kept ?? { workspaceId: agent.workspaceId, labels, pill: null, runPill: null };
+    const state = kept ?? { workspaceId: agent.workspaceId, labels, pill: null, runPill: null, briefPill: null };
     state.labels = labels;
     agents.set(agent.id, state);
     syncPill(agent.id);
+    syncBriefPill(agent.id);
     if (relabeled) void syncRunPill(agent.id);
   };
 
@@ -167,6 +205,7 @@ export function contributeButtons(client: PluginClientContext) {
     const agent = agents.get(agentId);
     agent?.pill?.remove();
     agent?.runPill?.remove();
+    agent?.briefPill?.remove();
     agents.delete(agentId);
   }
 

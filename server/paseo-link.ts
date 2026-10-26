@@ -1,10 +1,12 @@
-// Endpoints the Paseo plugins call: map a Paseo workspace to its work and PR, list a branch's stack in merge order, describe the cocopilot run an agent is on, and, when an agent turn ends, settle its runs, read back its thread replies and refresh the refs of its work.
+// Endpoints the Paseo plugins call: map a Paseo workspace to its work and PR, list a branch's stack in merge order, describe the cocopilot run an agent is on, link agents started by hand in a PR row workspace to that row and hand them its work brief on request, and, when an agent turn ends, settle its runs, read back its thread replies and refresh the refs of its work.
 import { execFile } from 'node:child_process';
-import { parseKey, rowKey } from './stack.ts';
+import fs from 'node:fs';
+import { keyLabel, parseKey, rowKey } from './stack.ts';
 import type { Exec, PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, Work } from './core-types.ts';
 
 const BRANCH_TTL_MS = 5 * 60 * 1000;
 const RECENT_RUNS = 5;
+const MAX_LINKS = 200;
 
 type RunBase = { runId?: string; id?: string; status: string; agentId?: string | null; startedAt?: string; finishedAt?: string | null };
 type Run = RunBase & { commentIds: string[] };
@@ -12,6 +14,9 @@ type StackRun = RunBase & { cwd?: string | null; rows: { key: RowKey; worktree?:
 type TrackedComment = { id: string; status: string };
 type Counts ={ total: number } & Record<string, number>;
 type LinkWork = Work & { stack?: StackRow[] };
+type RowRef = { work: LinkWork; key: RowKey };
+type AgentLink = { agentId: string; slug: string; key: RowKey; workspaceId: string | null; title: string | null; linkedAt: string; briefAt: string | null };
+type AgentInput = { agentId: string; workspaceId?: string | null; cwd?: string | null; title?: string | null };
 
 type PaseoLinkOptions = {
   config?: { repo?: { github?: string } } | null;
@@ -21,6 +26,8 @@ type PaseoLinkOptions = {
   reviewAgent: { sameDir(a: string, b: string): boolean; list(slug: string, key: RowKey): Run[]; ingest(slug: string, key: RowKey): Promise<{ runs: Run[] }> };
   stackFix: { list(slug: string): StackRun[]; ingest(slug: string): Promise<{ runs: StackRun[] }> };
   threads?: { turnEnded(agentId: string): Promise<unknown> } | null;
+  brief?: ((slug: string, key: RowKey) => Promise<string>) | null;
+  file?: string | null;
   exec?: Exec;
 };
 
@@ -35,11 +42,24 @@ const countBy = (items: { status: string }[]) => items.reduce<Record<string, num
 const tally = (mine: { status: string }[]): Counts => ({ total: mine.length, ...countBy(mine) });
 const pick = (stored: TrackedComment[] | undefined, ids: string[]) => (stored || []).filter((c) => ids.includes(c.id));
 
-export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, exec = defaultExec }: PaseoLinkOptions) {
+const readLinks = (file?: string | null): Record<string, AgentLink> => {
+  if (!file || !fs.existsSync(file)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+
+export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec }: PaseoLinkOptions) {
   const GITHUB = config?.repo?.github || '';
   const prByBranch = new Map<string, { at: number; number: number | null }>();
+  const links = new Map(Object.entries(readLinks(file)));
   const activeWorks = (): LinkWork[] => works.list().filter((w) => !w.archived);
   const stackKeys = (work: LinkWork) => (work.stack || []).map(rowKey).filter((k): k is RowKey => Boolean(k));
+  const persist = () => {
+    if (file) fs.writeFileSync(file, JSON.stringify(Object.fromEntries(links), null, 1));
+  };
 
   async function prForBranch(branch: string) {
     const cached = prByBranch.get(branch);
@@ -80,11 +100,32 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     return { branch, number, byPr, byBranch, localRow };
   }
 
-  async function resolve({ cwd, projectId }: { cwd?: string | null; projectId?: string | null }) {
-    const { branch, number, byPr, byBranch, localRow } = await rowAt(cwd);
-    const work = byPr || byBranch || (projectId ? activeWorks().find((w) => w.projectId === projectId) : null);
-    if (!work) return { branch, work: null, pr: null, runs: [] };
-    const key = byPr ? number : byBranch ? rowKey(localRow(byBranch)) : null;
+  // the row whose Paseo workspace this is (remembered by placement), else the row checked out there
+  const byWorkspace = (workspaceId?: string | null): RowRef | null => {
+    if (!workspaceId) return null;
+    for (const work of activeWorks()) {
+      const key = rowKey((work.stack || []).find((s) => s.workspaceId === workspaceId));
+      if (key) return { work, key };
+    }
+    return null;
+  };
+  const branchRow = ({ number, byPr, byBranch, localRow }: Awaited<ReturnType<typeof rowAt>>): RowRef | null => {
+    if (byPr && number) return { work: byPr, key: number };
+    const key = byBranch ? rowKey(localRow(byBranch)) : null;
+    return byBranch && key ? { work: byBranch, key } : null;
+  };
+  const rowFor = async ({ workspaceId, cwd }: { workspaceId?: string | null; cwd?: string | null }) => byWorkspace(workspaceId) || branchRow(await rowAt(cwd));
+
+  const linkView = (link: AgentLink) => ({ ...link, workTitle: works.list().find((w) => w.slug === link.slug)?.title || link.slug, label: keyLabel(link.key) });
+  const briefedAt = ({ work, key }: RowRef) => [...links.values()].filter((l) => l.slug === work.slug && l.key === key && l.briefAt).map((l) => l.agentId);
+
+  async function resolve({ cwd, projectId, workspaceId }: { cwd?: string | null; projectId?: string | null; workspaceId?: string | null }) {
+    const at = await rowAt(cwd);
+    const { branch, byPr, byBranch } = at;
+    const row = byWorkspace(workspaceId) || branchRow(at);
+    const work = row?.work || byPr || byBranch || (projectId ? activeWorks().find((w) => w.projectId === projectId) : null);
+    if (!work) return { branch, work: null, pr: null, row: null, runs: [] };
+    const key = row?.key ?? null;
     const runs = [
       ...(key ? reviewAgent.list(work.slug, key).slice(0, RECENT_RUNS).map((run) => reviewView(work, key, run)) : []),
       ...(cwd ? stackFix.list(work.slug).filter((run) => touches(run, cwd)).slice(0, RECENT_RUNS).map((run) => stackView(work, run)) : []),
@@ -92,10 +133,55 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     return {
       branch,
       work: { slug: work.slug, title: work.title, stack: (work.stack || []).map((s) => s.number).filter(Boolean) },
-      pr: byPr && number ? { number, comments: tally(comments.list(work.slug, number).comments || []) } : null,
+      pr: typeof key === 'number' ? { number: key, comments: tally(comments.list(work.slug, key).comments || []) } : null,
+      row: row ? { key: row.key, label: keyLabel(row.key), briefed: briefedAt(row) } : null,
       runs,
     };
   }
+
+  async function linkAgent({ agentId, workspaceId, cwd, title }: AgentInput) {
+    const row = await rowFor({ workspaceId, cwd });
+    if (!row) return null;
+    const kept = links.get(agentId);
+    const same = kept?.slug === row.work.slug && kept.key === row.key;
+    const link: AgentLink = {
+      agentId,
+      slug: row.work.slug,
+      key: row.key,
+      workspaceId: workspaceId || kept?.workspaceId || null,
+      title: title || kept?.title || null,
+      linkedAt: (same && kept?.linkedAt) || new Date().toISOString(),
+      briefAt: (same && kept?.briefAt) || null,
+    };
+    links.delete(agentId);
+    links.set(agentId, link);
+    for (const id of [...links.keys()].slice(0, Math.max(0, links.size - MAX_LINKS))) links.delete(id);
+    persist();
+    return linkView(link);
+  }
+
+  // the brief text for the agent's row; the plugin sends it, then reports it sent
+  async function brief(input: AgentInput) {
+    if (!briefFor) return null;
+    const link = await linkAgent(input);
+    return link ? { ...link, text: await briefFor(link.slug, link.key) } : null;
+  }
+
+  function briefed(agentId: string) {
+    const link = links.get(agentId);
+    if (!link) return null;
+    link.briefAt = new Date().toISOString();
+    persist();
+    return linkView(link);
+  }
+
+  function unlink(agentId: string) {
+    if (!links.delete(agentId)) return false;
+    persist();
+    return true;
+  }
+
+  const linked = (slug?: string | null) => [...links.values()].filter((l) => !slug || l.slug === slug).reverse().map(linkView);
 
   // the rows of the work holding this branch, in merge order, each with its branch: the PR head, else the planned branch
   async function stack({ branch }: { branch: string }) {
@@ -176,15 +262,21 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
         return send(res, 200, await stack({ branch }));
       }
       if (action === 'run' && req.method === 'POST') return send(res, 200, { run: run(body) });
-      if (action === 'turn-ended' && req.method === 'POST') {
-        if (typeof body.agentId !== 'string' || !body.agentId) return send(res, 400, { error: 'agentId required' });
-        return send(res, 200, await turnEnded(body));
-      }
-      return send(res, 404, { error: 'no route' });
+      if (action === 'agents' && req.method === 'GET') return send(res, 200, { agents: linked(new URL(req.url || '/', 'http://local').searchParams.get('work')) });
+      const agentId = typeof body.agentId === 'string' && body.agentId ? body.agentId : null;
+      const byAgent = ['turn-ended', 'agent', 'brief', 'briefed', 'unlink'];
+      if (req.method !== 'POST' || !byAgent.includes(action)) return send(res, 404, { error: 'no route' });
+      if (!agentId) return send(res, 400, { error: 'agentId required' });
+      if (action === 'turn-ended') return send(res, 200, await turnEnded(body));
+      if (action === 'agent') return send(res, 200, { link: await linkAgent(body) });
+      if (action === 'briefed') return send(res, 200, { link: briefed(agentId) });
+      if (action === 'unlink') return send(res, 200, { unlinked: unlink(agentId) });
+      const out = await brief(body);
+      return out ? send(res, 200, out) : send(res, 404, { error: 'this workspace is not the workspace of a PR in a cocopilot work' });
     } catch (e) {
       return send(res, 500, { error: String(e instanceof Error ? e.message || e : e) });
     }
   }
 
-  return { handle, resolve, stack, run, turnEnded, refreshWork };
+  return { handle, resolve, stack, run, turnEnded, refreshWork, linkAgent, brief, briefed, unlink, linked };
 }

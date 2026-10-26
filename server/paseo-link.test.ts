@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createPaseoLink } from './paseo-link.ts';
 import type { Req, Res, RowKey, Work } from './core-types.ts';
 
@@ -7,11 +10,11 @@ type ReviewRunFixture = { slug: string; number: RowKey; runId: string; agentId: 
 type StackRunFixture = { id: string; slug: string; status: string; agentId: string; startedAt: string; cwd: string; rows: { key: RowKey; worktree: string; commentIds: string[] }[] };
 
 const WORKS: Work[] = [
-  { slug: 'invoices', title: 'Invoices', projectId: 'prj_a', stack: [{ number: 100 }, { number: 101 }] },
+  { slug: 'invoices', title: 'Invoices', projectId: 'prj_a', stack: [{ number: 100, workspaceId: 'ws-100' }, { number: 101 }] },
   { slug: 'old', title: 'Old', projectId: 'prj_b', archived: { at: '2026-01-01', reason: 'done' }, stack: [{ number: 200 }] },
 ];
 
-function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], stored = [], heads = {} }: { branch?: string; prNumber?: number | null; runs?: ReviewRunFixture[]; stackRuns?: StackRunFixture[]; stored?: { id: string; status: string }[]; heads?: Record<number, string> } = {}) {
+function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], stored = [], heads = {}, file = null }: { branch?: string; prNumber?: number | null; runs?: ReviewRunFixture[]; stackRuns?: StackRunFixture[]; stored?: { id: string; status: string }[]; heads?: Record<number, string>; file?: string | null } = {}) {
   const calls: string[][] = [];
   const ingested: (string | number)[][] = [];
   const exec = async (cmd: string, args: string[]) => {
@@ -37,7 +40,8 @@ function setup({ branch = 'feat/x', prNumber = 101, runs = [], stackRuns = [], s
       return { runs: stackRuns.filter((r) => r.slug === slug).map((r) => ({ ...r, status: 'done' })) };
     },
   };
-  return { link: createPaseoLink({ config: { repo: { github: 'acme/widgets' } }, works, comments, code, reviewAgent, stackFix, exec }), calls, ingested };
+  const brief = async (slug: string, key: RowKey) => `brief ${slug} ${key}`;
+  return { link: createPaseoLink({ config: { repo: { github: 'acme/widgets' } }, works, comments, code, reviewAgent, stackFix, brief, file, exec }), calls, ingested };
 }
 
 const stackRun = (over: Partial<StackRunFixture> = {}): StackRunFixture => ({
@@ -196,4 +200,37 @@ test('GET /api/paseo-link/stack needs a branch', async () => {
     (body as { rows: { branch: string }[] }).rows.map((r) => r.branch),
     ['feat/base', 'feat/x'],
   );
+});
+
+test('resolve prefers the row whose workspace placement remembered over the branch checked out', async () => {
+  const { link } = setup({ prNumber: 101 });
+  const out = await link.resolve({ cwd: '/wt', workspaceId: 'ws-100' });
+  assert.equal(out.pr?.number, 100);
+  assert.deepEqual(out.row, { key: 100, label: '#100', briefed: [] });
+});
+
+test('an agent started in a row workspace is linked to that row, gets its brief on request, and shows as briefed', async () => {
+  const { link } = setup({ prNumber: null });
+  assert.equal(await link.linkAgent({ agentId: 'ag-out', workspaceId: 'ws-plan', cwd: '/plan' }), null);
+  const linked = await link.linkAgent({ agentId: 'ag1', workspaceId: 'ws-100', cwd: '/wt-100', title: 'Fix the totals' });
+  assert.deepEqual([linked?.slug, linked?.key, linked?.label, linked?.workTitle, linked?.briefAt], ['invoices', 100, '#100', 'Invoices', null]);
+  assert.equal((await link.brief({ agentId: 'ag1', workspaceId: 'ws-100' }))?.text, 'brief invoices 100');
+  assert.ok(link.briefed('ag1')?.briefAt);
+  assert.deepEqual((await link.resolve({ cwd: '/wt-100', workspaceId: 'ws-100' })).row?.briefed, ['ag1']);
+  assert.deepEqual(link.linked('invoices').map((l) => [l.agentId, l.title]), [['ag1', 'Fix the totals']]);
+  assert.equal(await link.brief({ agentId: 'ag2', workspaceId: 'ws-plan', cwd: '/plan' }), null);
+});
+
+test('agent links survive a restart through their file and leave it on unlink', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'paseo-link-'));
+  try {
+    const file = path.join(dir, 'paseo-links.json');
+    await setup({ file }).link.linkAgent({ agentId: 'ag1', workspaceId: 'ws-100' });
+    const again = setup({ file }).link;
+    assert.deepEqual(again.linked().map((l) => l.agentId), ['ag1']);
+    assert.equal(again.unlink('ag1'), true);
+    assert.deepEqual(setup({ file }).link.linked(), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
