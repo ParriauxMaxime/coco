@@ -13,14 +13,17 @@ import { keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, commentSection, fenced, sharedRules } from './review-agent.ts';
 import { blocksToMarkdown, validateBlocks } from './blocks.ts';
 import { activityEvents, createPaseoAgents } from './paseo-agent.ts';
+import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
+import { HttpError, errorMessage as errText, httpStatus } from './core-types.ts';
 import type { ActivityEvent, AgentSession, Outcome } from './paseo-agent.ts';
 import type { Block } from './blocks.ts';
+import type { ActionContext, Card, CardBody, CardEffect, ThreadHook } from './cards.ts';
+import type { Upload, UploadRef, Uploads } from './uploads.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const SETTLE_MS = 15000;
 const TURN_MS = 45 * 60 * 1000;
 const MAX_DIFF = 20000;
-const MAX_CHOICES = 6;
 const STATE_FIELDS = ['id', 'status', 'choice', 'rationale', 'decidedAt'];
 const OPEN_SUGGESTION = ['pending', 'queued', 'conflict'];
 
@@ -32,9 +35,10 @@ type ThreadPr = { head: string; sha: string; url?: string };
 type CardSuggestion = { kind: 'card'; fields: Record<string, unknown>; state: string; error?: string };
 type CommitSuggestion = { kind: 'commit'; commit: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string };
 type Suggestion = CardSuggestion | CommitSuggestion;
-// change: false when picking it leaves the code as is · option: on a decision thread, the card option key picking it takes
+// choices and picked: replies written before the agents asked through cards, shown read-only
 type Choice = { label: string; text: string; change: boolean; option?: string };
-type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion; choices?: Choice[]; picked?: number };
+// card: the card whose answer (a user message) or effect (a system note) it records
+type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion; choices?: Choice[]; picked?: number; card?: string; files?: UploadRef[] };
 type Asked = { msgId: string; replyPath: string; cardPath: string };
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
 type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean };
@@ -44,7 +48,7 @@ type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; 
 type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined };
 type Group = DecisionGroup | PlanGroup | CodeGroup;
 type Finding = { action?: string; reason?: string; patch?: Record<string, unknown> };
-type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; choices?: Choice[]; error?: string };
+type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string };
 type SessionPromise = Promise<AgentSession | null> & { agentId?: string | null };
 type ThreadEvent = { type: string; [key: string]: unknown };
 type FindingActor = (slug: string, n: RowKey, id: string, action: { action: string; reason: string }) => Promise<unknown>;
@@ -72,6 +76,8 @@ type ThreadsOptions = {
   reviewPlan: { planOf(slug: string, n: RowKey): unknown };
   exec?: Exec;
   agents?: ReturnType<typeof createPaseoAgents>;
+  uploads?: Pick<Uploads, 'resolve' | 'record'>;
+  cardsOf?: (slug: string, key: string) => Card[];
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
   placement?: {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
@@ -79,7 +85,6 @@ type ThreadsOptions = {
   };
 };
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const isOpenSuggestion = (s?: Suggestion) => (s ? OPEN_SUGGESTION.includes(s.state) : false);
 // d.<decision id> · c.<row file key>.<comment id> · p.<row file key> (the review plan)
 const KEY = /^(d\.[\w-]+|c\.[\w.~-]+\.[0-9a-f]+|p\.[\w.~-]+)$/;
@@ -88,14 +93,6 @@ const expandHome = (p: string) => p.replace(/^~(?=\/|$)/, os.homedir());
 const hex = (n: number) => crypto.randomBytes(n).toString('hex');
 const APP_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BLOCKS_DOC = path.join(APP_ROOT, 'skills/coco-findings/SKILL.md');
-
-class HttpError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 export function parseThreadKey(key: string): Ref | null {
   if (!KEY.test(String(key))) return null;
@@ -117,7 +114,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [] }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -181,6 +178,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       lastTs: t.messages.at(-1)?.ts || null,
       groupId: t.groupId,
       open: t.messages.filter((m) => isOpenSuggestion(m.suggestion)).length,
+      asks: cardsOf(slug, t.key).filter((c) => c.status === 'open').length,
     }]));
   }
 
@@ -211,18 +209,18 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     '(each part optional; dismiss needs a reason). cocopilot applies it after your turn; accept or dismiss may end your session. Never on your own initiative,',
     `except one case: when ${OWNER} picks an option that leaves the code unchanged, dismiss the finding in that same reply with the option as reason, without asking.`,
   ].join(' ');
-  const choicesRule = (kind: string) => [
-    `When you ask ${OWNER} to pick between options, also add \`"choices": [{ "label": "A", "text": "what picking it does, one line", "change": true | false${kind === 'decision' ? ', "option": "<card option key>"' : ''} }]\` to the reply JSON`,
-    '(change: false when picking it leaves the code as is). cocopilot shows them as buttons; never end with "tell me which" or "say dismiss" without them.',
-    ...(kind === 'decision' ? [`A choice with \`option\` takes the decision on that card option when ${OWNER} clicks it: set it only when the card has that option key.`] : []),
+  const askRule = (key: string, kind: string) => [
+    `To have ${OWNER} pick between options, call cocopilot \`ask\` (a choice card) with \`thread: "${key}"\`, never a list to answer in text; the pick comes back as a new message.`,
+    ...(kind === 'decision' ? ['An option with `effect: { "type": "take_decision", "option": "<card option key>" }` takes the decision on that card option when picked, without a new turn: only keys the card has.'] : []),
+    ...(kind === 'comment' ? ['An option that leaves the code as is gets `effect: { "type": "dismiss_finding" }`: picking it dismisses the finding, without a new turn.'] : []),
   ].join(' ');
-  const replyRule = (replyPath: string, kind: string) => [
+  const replyRule = (replyPath: string, kind: string, key: string) => [
     `Last step of your turn: write your reply to \`${replyPath}\` as JSON \`{ "blocks": [...] }\`, never markdown.`,
     `Blocks (full reference: "Blocks" in \`${BLOCKS_DOC}\`): \`text\` (1-3 sentences), \`steps\` ({ title, items, outcome }), \`table\` ({ caption, columns, rows; a cell may be { text, tone } }),`,
     '`suggestion` ({ path, startLine, endLine, lang, after }: the code you propose at those lines; cocopilot shows it as a diff), `code` ({ path, line, lang, code }), `diagram` ({ mermaid, caption }), `callout` ({ tone, title, text }).',
     'Inline text: **bold**, `code`, path/file.ts:12 refs and <risk>…</risk> <warn> <ok> <note> marks. Lead with the answer; short.',
     'Link what the reader may open: files as repo-relative path:line (never a bare name), PRs as #123, commits as their sha in `code`, anything else in sources with its url.',
-    choicesRule(kind),
+    askRule(key, kind),
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
@@ -263,7 +261,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       '',
       '## How to answer',
       '',
-      `- ${replyRule(replyPath, ref.kind)} Only that file shows in cocopilot.`,
+      `- ${replyRule(replyPath, ref.kind, thread.key)} Only that file and your cards show in cocopilot.`,
       ...rules,
       '',
     ].join('\n');
@@ -287,7 +285,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       text,
       '',
       ...(steer ? ['Take it into account in the work in flight. A reply you already wrote for the previous message stays; this message gets its own reply file below.', ''] : []),
-      `Same rules as before${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}. ${replyRule(replyPath, ref.kind)}`,
+      `Same rules as before${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}. ${replyRule(replyPath, ref.kind, thread.key)}`,
       '',
     ].join('\n');
   }
@@ -397,55 +395,31 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (s && !following.has(s.agentId)) track(slug, group.id, s, s.resume({ timeoutMs: TURN_MS }));
   }
 
-  function post(slug: string, key: string, { text, model, groupId, choice }: { text?: string; model?: string | null; groupId?: string | null; choice?: { msgId?: string; index?: number } } = {}) {
+  function post(slug: string, key: string, { text, model, groupId, attachments }: { text?: string; model?: string | null; groupId?: string | null; attachments?: unknown } = {}) {
     const { work, ref } = check(slug, key);
-    if (choice) return withLock(`${slug}:${key}`, () => pick(slug, work, ref, key, choice));
-    if (!text || !String(text).trim()) throw new HttpError(400, 'text required');
+    const files = uploads?.resolve(attachments) ?? [];
+    const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
+    if (!said) throw new HttpError(400, 'text required');
     if (model && !MODELS[model]) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
-    return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: text.trim(), model, groupId, role: 'user' }));
+    return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model, groupId, role: 'user', files }));
   }
 
-  // an option of an agent reply, clicked: one that keeps the code as is closes a finding right away, any other goes to the agent as the owner's answer
-  async function pick(slug: string, work: Work, ref: Ref, key: string, { msgId, index }: { msgId?: string; index?: number }): Promise<Thread> {
-    const thread = read(slug, key);
-    const asked = thread.messages.find((m) => m.id === msgId);
-    const c = typeof index === 'number' ? asked?.choices?.[index] : undefined;
-    if (!asked || !c) throw new HttpError(404, 'no such choice');
-    if (asked.picked !== undefined) throw new HttpError(409, 'already answered');
-    if (thread.waiting) throw new HttpError(409, 'the agent is still working');
-    asked.picked = index;
-    const text = `${c.label}${c.text ? `: ${c.text}` : ''}`;
-    if (ref.kind === 'decision' && c.option && works.decide) {
-      if (!works.decide(slug, { id: ref.id, choice: c.option, rationale: `Picked ${text}`.slice(0, 300) })) throw new HttpError(400, `the card has no option "${c.option}"`);
-      thread.messages.push(message('user', text), message('system', `Decision taken: ${c.option}.`));
-      return write(slug, thread);
-    }
-    if (c.change || ref.kind !== 'comment' || !findingActor) {
-      write(slug, thread);
-      return dispatch(slug, work, ref, key, { text, role: 'user' });
-    }
-    const reason = `Picked ${text}`.slice(0, 300);
-    thread.messages.push(message('user', text), message('system', `No code change: finding dismissed (${reason}).`));
-    write(slug, thread);
-    const actor = findingActor;
-    // after this lock: dismiss releases the thread, which waits on the same lock
-    setImmediate(() => actor(slug, ref.n, ref.id, { action: 'dismiss', reason }).catch((e) => addNote(slug, key, `Dismiss failed: ${errText(e)}`)));
-    return thread;
-  }
-
-  // a message (the owner's, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight
-  async function dispatch(slug: string, work: Work, ref: Ref, key: string, { text, model, groupId, role }: { text: string; model?: string | null; groupId?: string | null; role: string }): Promise<Thread> {
+  // a message (the owner's, a card answer, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight;
+  // a card answer only reaches the agent that asked it, never a new one
+  type Sending = { text: string; model?: string | null; groupId?: string | null; role: string; files?: Upload[]; card?: Card };
+  async function dispatch(slug: string, work: Work, ref: Ref, key: string, { text, model, groupId, role, files = [], card }: Sending): Promise<Thread> {
     const thread = read(slug, key);
     const item = itemOf(slug, work, ref);
     if (!item) throw new HttpError(404, `no such ${ref.kind}`);
     const prior = thread.waiting;
     const held = prior && readGroup(slug, prior.groupId);
     const group = held?.status === 'active' ? held : pickGroup(slug, ref, item, thread, { groupId, model });
+    const live = await groupSession(slug, group);
+    if (card && live?.agentId !== card.agentId) throw new Error('the agent that asked is gone');
     const pr = ref.kind === 'comment' ? await prOf(work, ref.n) : null;
-    const msg = message(role, text, model && !held ? { model } : {});
+    const msg = message(role, text, { ...(model && !held ? { model } : {}), ...(card ? { card: card.id } : {}), ...(files.length ? { files: files.map(uploadRef) } : {}) });
     const replyPath = path.join(dir(slug), `${key}-${msg.id}-reply.json`);
     const cardPath = path.join(dir(slug), `${key}-${msg.id}-card.json`);
-    const live = await groupSession(slug, group);
     const busy = live && prior?.agentId === live.agentId ? prior : null;
     const seen = live && thread.messages.some((m) => m.agentId === live.agentId && m.role !== 'system');
     const prompt = seen ? followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId: live.agentId, steer: Boolean(busy) }) : buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr });
@@ -463,8 +437,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     write(slug, thread);
     if (prior && prior.groupId !== group.id) route(slug, prior.groupId, key, null);
     route(slug, group.id, key, msg.id);
+    const messageId = files.length ? crypto.randomUUID() : null;
+    if (messageId) uploads?.record(s.agentId, { messageId, text: prompt, at: msg.ts, attachments: files.map(uploadRef) });
     const steering = s.busy();
-    const sent = s.say(prompt, { timeoutMs: TURN_MS });
+    const sent = s.say(prompt, { timeoutMs: TURN_MS, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}) });
     if (steering) sent.catch((e) => addNote(slug, key, `Could not reach the agent: ${errText(e)}`.slice(0, 500)));
     else track(slug, group.id, s, sent);
     return thread;
@@ -500,12 +476,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (file.endsWith('.md')) return { text: raw };
     let blocks: Block[];
     let finding: Finding | null;
-    let choices: Choice[];
     try {
       const json = JSON.parse(raw);
       blocks = validateBlocks(json.blocks);
       finding = json.finding && typeof json.finding === 'object' ? json.finding : null;
-      choices = choicesOf(json.choices);
     } catch (e) {
       return { text: raw, error: errText(e) };
     }
@@ -515,18 +489,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const lines = r.ok ? r.stdout.split('\n') : null;
       b.before = lines && b.endLine <= lines.length ? lines.slice(b.startLine - 1, b.endLine).join('\n') : undefined;
     }
-    return { blocks, text: blocksToMarkdown({ blocks }), finding, ...(choices.length ? { choices } : {}) };
-  }
-
-  // malformed choices are dropped, not the reply
-  function choicesOf(raw: unknown): Choice[] {
-    if (!Array.isArray(raw)) return [];
-    return raw.slice(0, MAX_CHOICES).flatMap((c) => {
-      if (!c || typeof c !== 'object') return [];
-      const { label, text, change, option } = c as Record<string, unknown>;
-      if (typeof label !== 'string' || !label.trim() || typeof text !== 'string') return [];
-      return [{ label: label.trim().slice(0, 40), text: text.trim().slice(0, 300), change: change !== false, ...(typeof option === 'string' && option ? { option } : {}) }];
-    });
+    return { blocks, text: blocksToMarkdown({ blocks }), finding };
   }
 
   // what an agent asked to do to its own finding (only on the owner's request, per its prompt): edit it now, accept or dismiss once the thread lock is free
@@ -561,6 +524,64 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return notes;
   }
 
+  // a card of a group agent asks in the thread it names, else in the one thread waiting on it; its effects must fit that thread's subject
+  function cardThread(body: CardBody, { agentId, work: slug }: ActionContext) {
+    const work = slug ? works.get(slug) : null;
+    if (!slug || !work) return null;
+    const waiting = listThreads(slug).filter((t) => t.waiting?.agentId === agentId);
+    const key = body.thread ?? (waiting.length === 1 ? waiting[0].key : null);
+    if (!key) return null;
+    const ref = parseThreadKey(key);
+    if (!ref) throw new Error(`thread: "${key}" is not a thread key`);
+    const thread = read(slug, key);
+    if (readGroup(slug, thread.groupId)?.agentId !== agentId) throw new Error(`thread: ${key} is not a thread of this agent`);
+    (body.options || []).forEach(({ effect }, i) => {
+      const at = `options[${i}].effect`;
+      if (effect?.type === 'dismiss_finding' && ref.kind !== 'comment') throw new Error(`${at}: dismiss_finding is only for a finding thread`);
+      if (effect?.type !== 'take_decision') return;
+      const decision = ref.kind === 'decision' ? (work.decisions || []).find((d) => d.id === ref.id) : null;
+      if (!decision) throw new Error(`${at}: take_decision is only for a decision thread`);
+      if (decision.rows?.length) throw new Error(`${at}: the decision is a table of rows, it takes no single option`);
+      if (!decision.options.some((x) => x.key === effect.option)) throw new Error(`${at}.option: the decision has no option "${effect.option}"`);
+    });
+    return key;
+  }
+
+  const inThread = (card: Card) => {
+    if (!card.work || !card.thread) throw new Error('the card is not in a thread');
+    return { slug: card.work, key: card.thread, ...check(card.work, card.thread) };
+  };
+
+  // a picked option's effect: the decision taken or the finding dismissed, noted in the thread, with no turn of the agent
+  function cardEffect(card: Card, effect: CardEffect, label: string) {
+    const { slug, key, ref } = inThread(card);
+    return withLock(`${slug}:${key}`, async () => {
+      const thread = read(slug, key);
+      const reason = `Picked ${label}`.slice(0, 300);
+      if (effect.type === 'take_decision') {
+        if (ref.kind !== 'decision' || !works.decide) throw new Error('only a decision thread takes a decision');
+        if (!works.decide(slug, { id: ref.id, choice: effect.option, rationale: reason })) throw new Error(`the decision has no option "${effect.option}"`);
+        thread.messages.push(message('system', `Decision taken: ${effect.option}.`, { card: card.id }));
+        write(slug, thread);
+        return { ok: true, detail: `Decision taken: ${effect.option}` };
+      }
+      if (ref.kind !== 'comment' || !findingActor) throw new Error('only a finding thread dismisses a finding');
+      thread.messages.push(message('system', `No code change: finding dismissed (${reason}).`, { card: card.id }));
+      write(slug, thread);
+      const actor = findingActor;
+      // after this lock: dismiss releases the thread, which waits on the same lock
+      setImmediate(() => actor(slug, ref.n, ref.id, { action: 'dismiss', reason }).catch((e) => addNote(slug, key, `Dismiss failed: ${errText(e)}`)));
+      return { ok: true, detail: 'Finding dismissed' };
+    });
+  }
+
+  // a card answer is a message of the thread, so its log records it and the reply it gets
+  function cardAnswer(card: Card, text: string) {
+    const { slug, key, work, ref } = inThread(card);
+    return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text, role: 'user', card }));
+  }
+  const cardHook: ThreadHook = { resolve: cardThread, effect: cardEffect, deliver: cardAnswer };
+
   // replies land as the agent writes them, one per message (a steered thread waits on several); the thread stops waiting once its latest
   // message has its reply or the agent's turn ended (ended: coco followed it; otherwise idle in `paseo ls` past the settle time)
   function ingest(slug: string, key: string, agentList?: PaseoAgentRow[] | null, { ended = false }: { ended?: boolean } = {}): Promise<Thread> {
@@ -583,7 +604,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const notes = [];
       for (const a of replied) {
         const reply = await readReply(a.replyPath, waiting.sha);
-        added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}), ...(reply.choices ? { choices: reply.choices } : {}) }));
+        added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
         if (reply.error) notes.push(message('system', `Reply not in blocks (${reply.error}): shown as text.`));
         if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) notes.push(message('system', note));
       }
@@ -811,11 +832,25 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       follow(slug, key).catch(() => {});
       const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
-      return send(res, 200, { ...thread, agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
+      return send(res, 200, { ...thread, cards: cardsOf(slug, key), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
     } catch (e) {
-      return send(res, e instanceof HttpError ? e.status : 500, { error: errText(e) });
+      return send(res, httpStatus(e), { error: errText(e) });
     }
   }
 
-  return { handle, post, ingest, turnEnded, summaries, decideSuggestion, drainQueue, regroup, release, setFindingActor, groupKind: (slug: string, id: string) => readGroup(slug, id)?.kind ?? null };
+  return {
+    handle,
+    post,
+    ingest,
+    turnEnded,
+    summaries,
+    decideSuggestion,
+    drainQueue,
+    regroup,
+    release,
+    setFindingActor,
+    cardHook,
+    cardChanged: (slug: string, key: string) => notify(slug, key, { type: 'thread' }),
+    groupKind: (slug: string, id: string) => readGroup(slug, id)?.kind ?? null,
+  };
 }

@@ -86,6 +86,7 @@ function Option({ o, on, multi, name, ro, onPick }: { o: CardOption; on: boolean
         <span className="dp-ol"><Inline text={o.label} /></span>
         {o.recommended && <Rec />}
         <Sure value={o.confidence} />
+        {o.effect && <span className="dp-chip dp-info dp-cd-eff" title="Picking it acts in coco at once, without a new turn of the agent">{o.effect.type === 'take_decision' ? 'takes the decision' : 'dismisses the finding'}</span>}
         {o.details && (
           <button type="button" className={`dp-btn dp-ghost dp-sm dp-cd-more${open ? ' dp-open' : ''}`} aria-expanded={open} onClick={(e) => { e.preventDefault(); setOpen(!open); }}>
             <Icon name="chevron-right" size={12} />details
@@ -214,7 +215,7 @@ function Form({ c, d, set, ro, tried }: Part & { tried: boolean }) {
 const delivered = (c: Card) => {
   const del = c.delivery;
   if (!del) return 'delivering…';
-  if (del.skipped) return 'nothing to deliver: its run had ended';
+  if (del.skipped) return c.result?.ok ? 'done in coco: no new turn for the agent' : 'nothing to deliver: its run had ended';
   return del.ok ? 'delivered to the agent' : `agent gone: not delivered${del.error ? ` (${del.error})` : ''}`;
 };
 
@@ -230,11 +231,11 @@ function Status({ c }: { c: Card }) {
   );
 }
 
-// what approving a proposal did: running, done with a link to what it made, or failed
+// what approving a proposal or picking an option with an effect did: running, done with a link to what it made, or failed
 function Result({ c }: { c: Card }) {
   const r = c.result;
-  if (!c.action || c.status !== 'answered' || (c.kind === 'confirm' && !c.answer?.approved)) return null;
-  if (!r) return c.kind === 'confirm' ? <div className="dp-cd-res"><span className="dp-ag-dot dp-ag-running" aria-label="in progress" />Running…</div> : null;
+  if (c.status !== 'answered') return null;
+  if (!r) return c.action && c.kind === 'confirm' && c.answer?.approved ? <div className="dp-cd-res"><span className="dp-ag-dot dp-ag-running" aria-label="in progress" />Running…</div> : null;
   return (
     <div className={`dp-cd-res${r.ok ? ' dp-cd-res-ok' : ' dp-cd-bad'}`} role={r.ok ? undefined : 'alert'}>
       <Icon name={r.ok ? 'check' : 'alert-triangle'} size={12} />
@@ -260,6 +261,7 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
   const [tried, setTried] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  const [details, setDetails] = useState(false);
   const busy = pending !== null;
   const run = async (key: string, fn: () => Promise<Card>) => {
     setPending(key);
@@ -320,7 +322,12 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
       </div>
       <div className="dp-cq-b dp-cd-b">
         {c.question && <Inline as="div" className="dp-cd-q" text={c.question} />}
-        {c.blocks && c.blocks.length > 0 && <div className="dp-cd-blocks"><Blocks blocks={c.blocks} /></div>}
+        {c.blocks && c.blocks.length > 0 && !open && !post && (
+          <button type="button" className={`dp-btn dp-ghost dp-sm dp-cd-more dp-cd-fold${details ? ' dp-open' : ''}`} aria-expanded={details} onClick={() => setDetails(!details)}>
+            <Icon name="chevron-right" size={12} />{details ? 'Hide details' : 'Show details'}
+          </button>
+        )}
+        {c.blocks && c.blocks.length > 0 && (open || post || details) && <div className="dp-cd-blocks"><Blocks blocks={c.blocks} /></div>}
         {Kind && <Kind c={c} d={d} set={set} ro={ro} />}
         {(c.kind === 'form' || (c.kind === 'confirm' && (c.fields?.length ?? 0) > 0)) && <Form c={c} d={d} set={set} ro={ro} tried={tried} />}
         {c.kind === 'confirm' && hasOther(c) && (open ? <textarea className="dp-inp dp-cd-ta dp-cd-note" rows={2} value={d.other} disabled={ro} placeholder="Optional note for the agent" aria-label="Note for the agent" onChange={(e) => set({ other: e.target.value })} /> : d.other && <div className="dp-cd-said"><span className="dp-t3">Note:</span> {d.other}</div>)}

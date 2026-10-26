@@ -36,7 +36,14 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
      `Proposals` cards, their `/api/ask/<id>/apply|start-agent|dispatch|add-repo`
      routes and the captured `submitted` calls go; the Ask stream carries
      the conversation's cards.
-   - [ ] Part B: thread `choices` become `choice` cards.
+   - [x] Part B: thread agents ask with `ask` and the thread's key instead
+     of the reply `choices`; the old click semantics are option `effect`s
+     (below); answers go through the thread; the thread view draws its
+     cards and its composer takes attachments. The reply JSON keeps
+     `blocks` and `finding`: it is the turn's answer, tied to the message it
+     answers and read at turn end, so moving it to `post_blocks` would lose
+     that pairing for no gain. Replies stored with `choices` show them
+     read-only.
    - [x] Part C: MCP work writes (`upsert_finding`, `upsert_decision`,
      `attach_media`, `import_artifact`, `set_next`, below), skills and briefs
      lead with them and keep curl for sessions without the MCP; uploads never
@@ -49,7 +56,8 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 
 ```ts
 type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
-type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number };
+type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
+type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };  // thread cards, single choice only
 type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
 
@@ -77,10 +85,11 @@ type Card = {
   rejectLabel?: string;           // default "Reject"
   other?: boolean;                // free-text "Other…" box, default true for choice/rows/confirm, false for form; stored resolved
   action?: CardAction;            // a proposal card: what answering it runs
+  thread?: string;                // the thread key it asks in (a thread agent's card)
   status: 'open' | 'answered' | 'cancelled';   // post cards are 'answered' at birth
   createdAt: string;
   answer?: CardAnswer;
-  result?: CardResult;            // what the action did, before delivery
+  result?: CardResult;            // what the action or the picked option's effect did, before delivery
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };  // skipped: nobody waits (a one-shot run)
 };
 
@@ -114,6 +123,31 @@ card when a row is picked; the outcome becomes `result` (a throw is
 | `repo` (`propose_repo`) | confirm "Add repo <source>"; what adding does | adds the repo (clone, config, Paseo project, setup run); link to its page |
 | `rules` (`propose_rules`) | rows, one per candidate, `rowOptions` Keep (recommended) / Drop, target scope taken from the Propose rules run; an empty list is a `post` card "No new rule" | writes the kept rules as `kept` |
 
+### Thread cards
+
+A thread agent (decision, plan or finding thread, `server/threads.ts`) asks
+with `ask` and `thread: "<key>"`, the key its prompt names (a card without
+one goes to the one thread waiting on the agent, if exactly one). coco
+refuses a key that is not a thread of the posting agent's group. The card
+shows in the thread, and its answer or dismissal goes through the thread
+(`dispatch` with the delivery text, the message tagged `card: <id>`), so the
+log records it and the agent's next reply; it only reaches the agent that
+asked, `delivery.ok: false` once that agent is gone, never a new one.
+
+A choice option may carry an `effect`, checked against the thread's subject
+when posted (a refusal names `options[i].effect`):
+
+| `effect.type` | Allowed on | Picking it |
+| --- | --- | --- |
+| `take_decision` | a decision thread, `option` a key of that decision (one without rows) | takes the decision on that option, rationale `Picked <label>` |
+| `dismiss_finding` | a finding (comment) thread | dismisses the finding, reason `Picked <label>` |
+
+Effects need a single choice card. On answer the effect runs, leaves a
+system note in the thread (tagged with the card) and its outcome as
+`result`; when it succeeds and the answer carries no `other` text, nothing
+is sent: `delivery: { ok: true, skipped: true }`. Otherwise the answer goes
+to the agent as usual, with `Done:` or `Failed:`.
+
 Conversations saved before cards keep `proposal`, `agentProposal`,
 `dispatchProposal`, `repoProposal` in their JSON: read as `proposed: { kind,
 title }` for the lists, and the transcript shows the old tool call
@@ -143,6 +177,9 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
 - Ask SSE `/api/ask/<id>/events` emits `event: cards` with every card of the
   conversation's agents (past ones included, `agentIds` on the conversation)
   after the log replay and on every change.
+- `GET /api/works/<slug>/threads/<key>` carries the thread's `cards`; its
+  SSE sends a `thread` ping when one changes, and the summaries count the
+  open ones as `asks`.
 - Work agents SSE marks an agent with an open card as waiting on you (same
   orange state as a pending permission): every `WorkAgent` carries
   `openCards: number`, and the list is resent when a card of a listed agent
@@ -168,15 +205,17 @@ rules run) is not delivered: `delivery.skipped`. A dismissal sends
 Running agent: steer; idle: new turn; archived or unreachable: stored with
 `delivery.ok: false` and shown on the card. An Ask coco agent gets it through
 its conversation (so the turn is logged there; a gone agent is replaced like
-on any follow-up); any other agent through the agent chat's send
-(`activeTurnBehavior: 'steer'`).
+on any follow-up); a card with a `thread` through that thread (above); any
+other agent through the agent chat's send (`activeTurnBehavior: 'steer'`).
+A picked option whose effect did the work is not delivered.
 
 ## MCP tools
 
 - `ask(card)`: kinds `choice | rows | form | confirm`; returns
   `{ id, status: 'open', note }`, the note saying the answer arrives as a new
-  user message and the agent should not wait or poll.
-- `post_blocks({ title, blocks })`: a `post` card.
+  user message and the agent should not wait or poll. `thread` and option
+  `effect` for thread agents.
+- `post_blocks({ title, blocks, thread? })`: a `post` card.
 - `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
   `propose_rules`: same names and inputs as before, now posting a proposal
   card (`action`) and returning `{ id, status: 'open', note }`.

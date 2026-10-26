@@ -13,7 +13,10 @@ export const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'toggle'] as
 export type CardKind = (typeof CARD_KINDS)[number];
 export type FieldType = (typeof FIELD_TYPES)[number];
 export type CardValue = string | number | boolean;
-export type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number };
+export const EFFECT_TYPES = ['take_decision', 'dismiss_finding'] as const;
+// what picking a choice option asked in a thread does in coco instead of a new turn
+export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
+export type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
 export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string };
@@ -32,6 +35,7 @@ export type CardBody = {
   confirmLabel?: string;
   rejectLabel?: string;
   other?: boolean;
+  thread?: string;
 };
 export type CardAction = { type: string; input: Raw };
 export type CardResult = { at: string; ok: boolean; detail: string; link?: string };
@@ -54,6 +58,13 @@ export type ActionDef = {
   card(input: Raw, ctx: ActionContext): Promise<{ input: Raw; card: Raw }> | { input: Raw; card: Raw };
   run(card: Card): Promise<Omit<CardResult, 'at'> | null>;
   posted?(card: Card): void;
+};
+// cards asked from a thread (docs/agent-io.md): resolve() names the thread a card asks in and checks its effects against the thread's subject,
+// effect() runs a picked option's effect, deliver() sends an answer through the thread so its log records it
+export type ThreadHook = {
+  resolve(body: CardBody, ctx: ActionContext): Promise<string | null> | string | null;
+  effect(card: Card, effect: CardEffect, label: string): Promise<Omit<CardResult, 'at'>>;
+  deliver(card: Card, text: string): Promise<unknown>;
 };
 export const SKIPPED = 'skipped';
 
@@ -93,12 +104,18 @@ const oneOf = <T extends string>(v: unknown, values: readonly T[], field: string
   return found;
 };
 
-const option = (o: Raw, at: string): CardOption => {
-  if (o?.confidence != null && (typeof o.confidence !== 'number' || o.confidence < 0 || o.confidence > 100)) throw new Error(`${at}.confidence must be 0-100`);
-  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence });
+const effectOf = (e: Raw, at: string): CardEffect | undefined => {
+  if (e == null) return undefined;
+  const type = oneOf(e?.type, EFFECT_TYPES, `${at}.type`);
+  return type === 'take_decision' ? { type, option: key(e.option, `${at}.option`) } : { type };
 };
-const options = (v: unknown, min: number, max: number, field: string) => {
-  const out = list(v, min, max, field).map((o, i) => option(o, `${field}[${i}]`));
+const option = (o: Raw, at: string, effects: boolean): CardOption => {
+  if (o?.confidence != null && (typeof o.confidence !== 'number' || o.confidence < 0 || o.confidence > 100)) throw new Error(`${at}.confidence must be 0-100`);
+  if (o?.effect != null && !effects) throw new Error(`${at}.effect is only for the options of a single choice card`);
+  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`) });
+};
+const options = (v: unknown, min: number, max: number, field: string, effects = false) => {
+  const out = list(v, min, max, field).map((o, i) => option(o, `${field}[${i}]`, effects));
   unique(out.map((o) => o.key), field);
   return out;
 };
@@ -146,13 +163,13 @@ const rowsOf = (c: Raw, columns: string[], rowOptions: CardOption[] | undefined)
 // what an agent may post: throws on the first bad field, naming it
 export function validateCard(c: Raw): CardBody {
   const kind = oneOf(c?.kind, CARD_KINDS, 'kind');
-  const head = { kind, title: str(c.title, 120, 'title'), question: opt(c.question, 500, 'question'), blocks: c.blocks == null ? undefined : validateBlocks(c.blocks) };
+  const head = { kind, title: str(c.title, 120, 'title'), question: opt(c.question, 500, 'question'), blocks: c.blocks == null ? undefined : validateBlocks(c.blocks), thread: opt(c.thread, 80, 'thread') };
   if (kind === 'post') {
     if (!head.blocks) throw new Error('blocks required on a post card');
     return strip(head);
   }
   const other = bool(c.other, 'other') ?? kind !== 'form';
-  if (kind === 'choice') return strip({ ...head, options: options(c.options, 2, 8, 'options'), multi: bool(c.multi, 'multi'), other });
+  if (kind === 'choice') return strip({ ...head, options: options(c.options, 2, 8, 'options', c.multi !== true), multi: bool(c.multi, 'multi'), other });
   if (kind === 'rows') {
     const columns = list(c.columns, 1, 8, 'columns').map((x, i) => str(String(x ?? ''), 60, `columns[${i}]`));
     const rowOptions = c.rowOptions == null ? undefined : options(c.rowOptions, 2, 4, 'rowOptions');
@@ -252,9 +269,9 @@ export function deliveryText(card: Card) {
 }
 
 // deliver resolves to SKIPPED when nobody waits for the answer (a one-shot run that ended)
-type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef> };
+type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef>; threads?: ThreadHook };
 
-export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {} }: Options) {
+export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {}, threads }: Options) {
   const DIR = path.join(DATA, 'cards');
   fs.mkdirSync(DIR, { recursive: true });
   const cards = new Map<string, Card>();
@@ -264,7 +281,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
       cards.set(c.id, c);
     } catch {}
   }
-  const listeners = new Set<(agentId: string) => void>();
+  const listeners = new Set<(agentId: string, card: Card) => void>();
   const now = () => new Date().toISOString();
 
   const save = (c: Card) => {
@@ -273,7 +290,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     const tmp = `${file}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(c, null, 1));
     fs.renameSync(tmp, file);
-    listeners.forEach((l) => l(c.agentId));
+    listeners.forEach((l) => l(c.agentId, c));
     return c;
   };
   const checked = <T>(make: () => T) => {
@@ -308,19 +325,33 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     }
   }
 
+  // the thread a card asks in: the one it names, else the one waiting on its agent; an effect needs one
+  async function threadOf(body: CardBody, ctx: ActionContext) {
+    const thread = threads ? await threads.resolve(body, ctx) : null;
+    if (body.thread && !thread) throw new Error('thread: no such thread for this agent');
+    const at = (body.options || []).findIndex((o) => o.effect);
+    if (at >= 0 && !thread) throw new Error(`options[${at}].effect needs a thread: pass thread, the key of the thread you answer in`);
+    return thread;
+  }
+
   async function create(input: Raw) {
     if (typeof input?.agentId !== 'string' || !ID.test(input.agentId)) throw new HttpError(400, 'agentId required');
     const where = await place(input.agentId).catch(() => ({ work: null, pr: null }));
-    const made = input.action == null ? null : await proposal(input.action, { agentId: input.agentId, ...where });
+    const ctx = { agentId: input.agentId, ...where };
+    const made = input.action == null ? null : await proposal(input.action, ctx);
     const body = made ? made.body : checked(() => validateCard(input));
-    const c = save({ id: crypto.randomBytes(6).toString('hex'), agentId: input.agentId, work: where.work, pr: where.pr, ...body, ...(made ? { action: made.action } : {}), status: body.kind === 'post' ? 'answered' : 'open', createdAt: now() });
+    const thread = await threadOf(body, ctx).catch((e) => {
+      throw new HttpError(400, errorMessage(e));
+    });
+    const c = save(strip({ id: crypto.randomBytes(6).toString('hex'), agentId: input.agentId, work: where.work, pr: where.pr, ...body, thread: thread ?? undefined, action: made?.action, status: body.kind === 'post' ? 'answered' : 'open', createdAt: now() }));
     made?.def.posted?.(c);
     return c;
   }
 
   async function tell(c: Card) {
     try {
-      const r = await deliver(c.agentId, deliveryText(c));
+      const text = deliveryText(c);
+      const r = c.thread && threads ? await threads.deliver(c, text) : await deliver(c.agentId, text);
       c.delivery = { at: now(), ok: true, ...(r === SKIPPED ? { skipped: true } : {}) };
     } catch (e) {
       c.delivery = { at: now(), ok: false, error: errorMessage(e).slice(0, 300) };
@@ -341,6 +372,19 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     if (c.result) save(c);
   }
 
+  // a picked option with an effect runs it in its thread; done and with no free text, the answer needs no turn of the agent
+  async function affect(c: Card) {
+    const o = c.options?.find((x) => x.effect && c.answer?.picked?.includes(x.key));
+    if (!o?.effect || !c.thread || !threads) return false;
+    try {
+      c.result = { at: now(), ...(await threads.effect(c, o.effect, o.label)) };
+    } catch (e) {
+      c.result = { at: now(), ok: false, detail: errorMessage(e).slice(0, 500) };
+    }
+    save(c);
+    return c.result.ok && !c.answer?.other;
+  }
+
   async function answer(id: string, input: Raw) {
     const c = open(id);
     const given = checked(() => validateAnswer(c, input));
@@ -348,6 +392,10 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     c.answer = { at: now(), ...given };
     save(c);
     await act(c);
+    if (await affect(c)) {
+      c.delivery = { at: now(), ok: true, skipped: true };
+      return save(c);
+    }
     return tell(c);
   }
 
@@ -386,8 +434,9 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     answer,
     cancel,
     ofAgent,
+    ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,
     handle,
-    onChange: (l: (agentId: string) => void) => (listeners.add(l), () => listeners.delete(l)),
+    onChange: (l: (agentId: string, card: Card) => void) => (listeners.add(l), () => listeners.delete(l)),
   };
 }

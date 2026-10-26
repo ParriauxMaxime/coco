@@ -6,7 +6,12 @@ import AgentActivity from './AgentActivity.tsx';
 import { api, errorMessage } from '../api.ts';
 import { toast } from './Toast.tsx';
 import { pendingClass } from './action.ts';
-import type { ActivityEvent, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary } from '../types.ts';
+import CardView from '../preview/chat/Card.tsx';
+import { mergeCards } from '../preview/chat/cards.ts';
+import { Composer } from '../preview/chat/Composer.tsx';
+import { SentFiles } from '../preview/chat/Attachments.tsx';
+import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
+import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef } from '../types.ts';
 
 const POLL_MS = 10000;
 const MODELS: [string, string][] = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
@@ -38,55 +43,33 @@ const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model}${g.files ? ` · ${
 type ToggleProps = { slug: string; threadKey: string; open?: boolean; onClick: () => void; label?: string };
 export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'discuss or dispatch' }: ToggleProps) {
   const s = useThreadSummary(slug, key);
-  const label = s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle;
-  return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
+  const label = s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle;
+  return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 
-// options the agent asked to pick from: one click answers (takes the decision for a card option); an option that keeps the code as is closes a finding without a new turn; Other answers in free text
-function Choices({ m, open, pending, onPick, onOther }: { m: ThreadMessage; open: boolean; pending: number | null; onPick: (index: number) => void; onOther: (text: string) => void }) {
-  const [other, setOther] = useState<string | null>(null);
-  const sendOther = () => {
-    if (!other?.trim()) return;
-    onOther(other.trim());
-    setOther(null);
-  };
+// options of a reply written before agents asked through cards: shown as they were, read-only
+function OldChoices({ m }: { m: ThreadMessage }) {
   return (
-    <div className="thread-choices">
+    <ul className="thread-choices thread-choices-ro">
       {(m.choices || []).map((c, i) => (
-        <button
-          key={i}
-          type="button"
-          className={`thread-choice${m.picked === i ? ' on' : ''}${pendingClass(pending === i)}`}
-          disabled={!open || pending !== null}
-          title={c.option ? `Take the decision: ${c.option}` : c.change ? 'Send this answer to the agent' : 'No code change: closes the finding'}
-          onClick={() => onPick(i)}
-        >
-          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{c.option ? <span className="chip c-blue">decides</span> : !c.change && <span className="chip c-grey">no change</span>}
-        </button>
+        <li key={i} className={`thread-choice${m.picked === i ? ' on' : ''}`}>
+          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{m.picked === i && <span className="chip c-blue">picked</span>}
+        </li>
       ))}
-      {open && other === null && <button type="button" className="thread-choice thread-choice-other" disabled={pending !== null} onClick={() => setOther('')}><b>Other…</b><span>answer in your own words</span></button>}
-      {open && other !== null && (
-        <div className="thread-choice-free">
-          <textarea
-            className="cc-textarea"
-            rows={2}
-            autoFocus
-            value={other}
-            placeholder="Your answer to the agent (markdown, ⌘↵)"
-            onChange={(e) => setOther(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendOther(); }
-              if (e.key === 'Escape') setOther(null);
-            }}
-          />
-          <div className="row" style={{ gap: 6 }}>
-            <button type="button" className="sm primary" disabled={!other.trim()} onClick={sendOther}>Send</button>
-            <button type="button" className="sm" onClick={() => setOther(null)}>Cancel</button>
-          </div>
-        </div>
-      )}
-    </div>
+    </ul>
   );
+}
+
+// where a card sits: before the message recording its answer or effect, else before your first message after it, else at the end
+function cardSlots(messages: ThreadMessage[], cards: Card[]) {
+  const at = new Map<number, Card[]>();
+  for (const c of cards) {
+    let i = messages.findIndex((m) => m.card === c.id);
+    if (i < 0) i = messages.findIndex((m) => m.role === 'user' && (m.ts ?? '') > c.createdAt);
+    if (i < 0) i = messages.length;
+    at.set(i, [...(at.get(i) ?? []), c]);
+  }
+  return at;
 }
 
 // pending: 'approve' | 'dismiss' while that decision is in flight
@@ -118,6 +101,8 @@ function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
 }
 
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
+// a POST answers the thread without its agent or cards: keep the ones already shown
+const keep = (prev: ThreadData | null, next: ThreadData): ThreadData => ({ ...next, agent: next.agent ?? prev?.agent ?? null, cards: next.cards ?? prev?.cards });
 
 // each message's share of the agent's activity; a call that settles after a steer stays with the message it started under
 function activityByMessage(events: ActivityEvent[]) {
@@ -165,7 +150,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
   // messages sent and not confirmed yet
-  const [sending, setSending] = useState<{ nonce: string; text: string }[]>([]);
+  const [sending, setSending] = useState<{ nonce: string; text: string; files: UploadRef[] }[]>([]);
   const [note, setNote] = useState('');
   const waiting = Boolean(thread?.waiting);
   const settled = useRef(onSettled);
@@ -205,7 +190,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     setPending(what);
     try {
       const next = await fn();
-      setThread((prev) => ({ ...next, agent: next.agent ?? prev?.agent ?? null }));
+      setThread((prev) => keep(prev, next));
       refreshThreads(slug);
       settled.current?.();
     } catch (e) {
@@ -217,13 +202,13 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   };
   const group = groups.find((g) => g.id === thread?.groupId);
   // shown at once, confirmed by the server; while the agent works the message steers its turn
-  const send = (text: string, model?: string) => {
+  const send = (text: string, model?: string, files: UploadRef[] = []) => {
     const nonce = nonceOf();
-    setSending((s) => [...s, { nonce, text }]);
-    api.postThread(slug, key, { text, ...(model ? { model } : {}) })
+    setSending((s) => [...s, { nonce, text, files }]);
+    api.postThread(slug, key, { text, ...(model ? { model } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) })
       .then((next) => {
         wasWaiting.current = Boolean(next.waiting);
-        setThread((prev) => ({ ...next, agent: next.agent ?? prev?.agent ?? null }));
+        setThread((prev) => keep(prev, next));
         refreshThreads(slug);
         settled.current?.();
       }, (e) => toast.error(errorMessage(e)))
@@ -234,7 +219,12 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   if (!thread) return <div className="thread status">{error || 'Loading thread…'}</div>;
   const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
-  const lastAgentId = thread.messages.findLast((m) => m.role !== 'system')?.id;
+  const cards = thread.cards ?? [];
+  const slots = cardSlots(thread.messages, cards);
+  const titles = new Map(cards.map((c) => [c.id, c.title]));
+  const newest = cards.findLast((c) => c.status === 'open' && c.kind !== 'post')?.id;
+  const onCard = (c: Card) => setThread((prev) => prev && { ...prev, cards: mergeCards(prev.cards ?? [], [c]) });
+  const cardsAt = (i: number) => slots.get(i)?.map((c) => <CardView key={c.id} card={c} onCard={onCard} focus={c.id === newest} />);
   const others = groups.filter((g) => g.status === 'active' && g.id !== thread.groupId && g.kind === kind && (decision || String(g.n).replaceAll(':', '~') === prPart));
   return (
     <div className="thread">
@@ -255,30 +245,30 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         {thread.messages.length > 1 && <button type="button" className={`sm${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}>🦜 rules</button>}
         {!waiting && group?.status === 'active' && <button type="button" className={`sm${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}>prune agent</button>}
       </div>
-      {thread.messages.map((m) => (
-        <React.Fragment key={m.id}>
-          <div className={`thread-msg ${m.role}`}>
-            {m.role === 'system' && !m.agentId ? <span className="status">{m.text}</span> : (
-              <>
-                <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.steer ? ' · while it worked' : m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
-                {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
-                {m.choices && (
-                  <Choices
-                    m={m}
-                    open={!waiting && m.picked === undefined && m.id === lastAgentId}
-                    pending={pending?.startsWith(`${m.id}#`) ? Number(pending.split('#')[1]) : null}
-                    onPick={(index) => act(`${m.id}#${index}`, () => api.postThread(slug, key, { choice: { msgId: m.id, index } }))}
-                    onOther={send}
-                  />
+      {thread.messages.map((m, i) => {
+        const answered = m.card && m.role === 'user' ? CARD_MSG.exec(m.text ?? '') : null;
+        return (
+          <React.Fragment key={m.id}>
+            {cardsAt(i)}
+            {answered ? <CardMessage verb={answered[2]} title={titles.get(answered[1])} /> : (
+              <div className={`thread-msg ${m.role}`}>
+                {m.role === 'system' && !m.agentId ? <span className="status">{m.text}</span> : (
+                  <>
+                    <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.steer ? ' · while it worked' : m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
+                    {m.files?.length ? <SentFiles files={m.files} /> : null}
+                    {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+                    {m.choices && <OldChoices m={m} />}
+                    {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
+                  </>
                 )}
-                {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
-              </>
+              </div>
             )}
-          </div>
-          {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="thread-activity"><AgentActivity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} /></div>}
-        </React.Fragment>
-      ))}
-      {sending.map((p) => <div key={p.nonce} className="thread-msg user" style={{ opacity: 0.6 }}><b>You · sending…</b><Markdown text={p.text} /></div>)}
+            {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="thread-activity"><AgentActivity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} /></div>}
+          </React.Fragment>
+        );
+      })}
+      {cardsAt(thread.messages.length)}
+      {sending.map((p) => <div key={p.nonce} className="thread-msg user" style={{ opacity: 0.6 }}><b>You · sending…</b>{p.files.length > 0 && <SentFiles files={p.files} />}<Markdown text={p.text} /></div>)}
       <ThreadComposer
         busy={false}
         pending={pending}
@@ -304,38 +294,28 @@ type ComposerProps = {
   sendLabel?: string;
   verdicts?: Verdict[];
   placeholder?: string;
-  onSend: (text: string, model?: string) => SendResult | Promise<SendResult>;
+  onSend: (text: string, model?: string, files?: UploadRef[]) => SendResult | Promise<SendResult>;
   autoFocus?: boolean;
-  rows?: number;
 };
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder, onSend, autoFocus = false, rows = 2 }: ComposerProps) {
-  const [text, setText] = useState('');
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder = '', onSend, autoFocus = false }: ComposerProps) {
   const [model, setModel] = useState('sonnet');
-  const send = async () => {
-    if (!text.trim()) return;
-    if ((await onSend(text.trim(), withModel ? model : undefined)) !== false) setText('');
-  };
   return (
-    <>
-      <textarea
-        className="cc-textarea"
-        rows={rows}
-        autoFocus={autoFocus}
-        value={text}
-        placeholder={placeholder}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
-      />
-      <div className="row" style={{ gap: 6 }}>
-        <button type="button" className={`sm primary${pendingClass(busy && (pending ?? 'send') === 'send')}`} disabled={busy || !text.trim()} onClick={send}>{sendLabel}</button>
-        {withModel && (
-          <span className="rv-seg">
-            {MODELS.map(([k, label]) => <button key={k} type="button" className={model === k ? 'on' : ''} onClick={() => setModel(k)}>{label}</button>)}
-          </span>
-        )}
-        {verdicts.length > 0 && <span className="cc-spacer" />}
-        {verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text.trim())} onClick={() => { v.on(text.trim()); setText(''); }}>{v.label}</button>)}
-      </div>
-    </>
+    <Composer
+      className="dp-tcomp"
+      placeholder={placeholder}
+      sendLabel={sendLabel}
+      autoFocus={autoFocus}
+      busy={busy}
+      sending={busy && (pending ?? 'send') === 'send'}
+      tools={withModel && (
+        <span className="dp-seg" role="group" aria-label="Model">
+          {MODELS.map(([k, label]) => <button key={k} type="button" className={model === k ? 'dp-on' : 'dp-off'} onClick={() => setModel(k)}>{label}</button>)}
+        </span>
+      )}
+      actions={(text, clear) => verdicts.map((v) => (
+        <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text)} onClick={() => { v.on(text); clear(); }}>{v.label}</button>
+      ))}
+      onSend={async (text, files) => (await onSend(text, withModel ? model : undefined, files)) !== false}
+    />
   );
 }

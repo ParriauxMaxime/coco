@@ -181,17 +181,15 @@ img.ava { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(-
 .thread-msg .md { font-size: 13px; }
 .thread-msg .md > :first-child { margin-top: 0; }
 .thread-msg .md > :last-child { margin-bottom: 0; }
-.thread-choices { margin-top: 6px; display: grid; gap: 4px; }
-.thread-choice { display: flex; align-items: baseline; gap: 8px; text-align: left; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink-2); font: inherit; cursor: pointer; }
-.thread-choice:hover:not([disabled]) { border-color: var(--brand); background: var(--brand-50); }
-.thread-choice b { flex: none; color: var(--brand-700); }
+.thread-choices { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.thread-choice { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--mute); }
+.thread-choice b { flex: none; color: var(--ink-2); }
 .thread-choice > span:not(.chip) { flex: 1; }
 .thread-choice .chip { flex: none; }
 .thread-choice.on { border-color: var(--brand); background: var(--brand-50); color: var(--ink); }
-.thread-choice[disabled]:not(.on) { opacity: .55; cursor: default; }
-.thread-choice-other { border-style: dashed; }
-.thread-choice-other b { color: var(--mute); }
-.thread-choice-free { display: grid; gap: 6px; }
+.thread .dp-composer.dp-tcomp { padding: 0; }
+.thread .dp-tcomp .dp-composer-in { max-width: none; }
+.thread .dp-cd-sent { justify-self: end; }
 
 /* an agent's activity, Paseo style: one muted row per run of tool calls or thinking, expandable; its text renders as usual */
 .act-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
@@ -251,14 +249,6 @@ button.danger { color: var(--red); }
 .thread-sugg { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); display: grid; gap: 6px; }
 .thread-sugg details pre { max-height: 360px; overflow: auto; font-size: 11px; }
 .thread-sugg summary { cursor: pointer; }
-.thread-choices { margin-top: 6px; display: grid; gap: 4px; }
-.thread-choice { display: flex; align-items: baseline; gap: 8px; text-align: left; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink-2); font: inherit; cursor: pointer; }
-.thread-choice:hover:not([disabled]) { border-color: var(--brand); background: var(--brand-50); }
-.thread-choice b { flex: none; color: var(--brand-700); }
-.thread-choice > span:not(.chip) { flex: 1; }
-.thread-choice .chip { flex: none; }
-.thread-choice.on { border-color: var(--brand); background: var(--brand-50); color: var(--ink); }
-.thread-choice[disabled]:not(.on) { opacity: .55; cursor: default; }
 .decision-rationale { margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--line); }
 .decision.taken { opacity: .92; }
 

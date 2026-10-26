@@ -20,6 +20,10 @@ test('a card is refused with the field that broke, and gets its kind defaults', 
   assert.equal(validateCard(rows).select, 'many');
   assert.equal(validateCard({ ...rows, rowOptions: [{ key: 'fix', label: 'Fix' }, { key: 'skip', label: 'Skip' }] }).select, undefined);
   assert.equal(validateCard({ kind: 'form', title: 'Name it', fields: [{ key: 'n', label: 'Name', type: 'text' }] }).other, false);
+  const decides = { ...choice.options[0], effect: { type: 'take_decision', option: 'csv' } };
+  assert.throws(() => validateCard({ ...choice, multi: true, options: [decides, choice.options[1]] }), /options\[0\]\.effect is only for the options of a single choice card/);
+  assert.throws(() => validateCard({ ...choice, options: [{ ...decides, effect: { type: 'merge' } }, choice.options[1]] }), /options\[0\]\.effect\.type must be one of take_decision, dismiss_finding/);
+  assert.deepEqual(validateCard({ ...choice, options: [decides, choice.options[1]] }).options?.[0].effect, { type: 'take_decision', option: 'csv' });
 });
 
 test('an answer must fit its card', () => {

@@ -7,14 +7,17 @@ import { createPaseoAgents } from './paseo-agent.ts';
 import type { Req, Res } from './core-types.ts';
 import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
 import { createThreads } from './threads.ts';
+import { createCards } from './cards.ts';
+import { createUploads } from './uploads.ts';
+import type { Uploads } from './uploads.ts';
 import { DEFAULTS } from './config.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
 type TimelineItem = NonNullable<TimelineEvent['item']>;
 type FakeAgent = { id: string; workspaceId: string; status: string; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[] };
 type Created = { id: string; [key: string]: unknown };
-type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean };
-type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; blocks?: unknown; steer?: boolean; choices?: unknown }[]; groupId?: string };
+type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean; images?: unknown[]; attachments?: { fileName: string }[] };
+type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[] }[]; groupId?: string };
 type Activity = { type: string; status?: string; msgId?: string; text?: string };
 
 const APP = '/opt/coco';
@@ -59,7 +62,7 @@ function fakeDaemon() {
       },
     },
     send: async (text, opts = {}) => {
-      calls.sent.push({ agentId: a.id, text, behavior: opts.activeTurnBehavior || null, busy: a.status === 'running' });
+      calls.sent.push({ agentId: a.id, text, behavior: opts.activeTurnBehavior || null, busy: a.status === 'running', images: opts.images, attachments: opts.attachments });
       a.status = 'running';
     },
     waitForFinish: () => (a.status === 'running' ? new Promise<WaitResult>((resolve) => a.waiters.push(resolve)) : Promise.resolve({ status: 'idle', lastMessage: null, final: null, error: null })),
@@ -99,7 +102,7 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup() {
+function setup(uploads?: Uploads) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
   const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [{ id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] }] };
@@ -116,6 +119,7 @@ function setup() {
     reviewPlan: { planOf: () => null },
     exec: async () => ({ ok: false, stdout: '', stderr: '' }),
     agents: createPaseoAgents({ APP, connect: daemon.connect }),
+    uploads,
   });
   const file = (key: string) => path.join(DATA, 'works', SLUG, 'threads', `${key}.json`);
   const read = (key: string): ThreadFile => JSON.parse(fs.readFileSync(file(key), 'utf8'));
@@ -235,54 +239,80 @@ test('the thread stream replays the stored activity, then live deltas and a ping
   assert.equal(activity(A)[1].text, 'Adding it.');
 });
 
-test('a clicked option that keeps the code dismisses the finding without a new turn; one that changes it goes to the agent', async () => {
-  const { threads, post, daemon, read } = setup();
+const cardsFor = (threads: ReturnType<typeof setup>['threads']) => createCards({ DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'thread-cards-')), place: async () => ({ work: SLUG, pr: '7' }), deliver: async () => assert.fail('a thread card goes through its thread'), threads: threads.cardHook });
+const choiceCard = (agentId: string, options: Record<string, unknown>[], thread?: string) => ({ agentId, kind: 'choice', title: 'Which way?', options, ...(thread ? { thread } : {}) });
+
+test('a thread card option that leaves the code dismisses the finding without a new turn; any other answer goes to the agent through the thread', async () => {
+  const { threads, post, daemon, read, reply } = setup();
   const acted: { id: string; action: string; reason: string }[] = [];
   threads.setFindingActor(async (_slug, _n, id, a) => void acted.push({ id, ...a }));
-  const choices = [{ label: 'A', text: 'Keep the read unscoped', change: false }, { label: 'B', text: 'Scope the read', change: true }];
-  const ask = async (key: string) => {
-    const before = daemon.calls.sent.length;
-    const t = await post(key, 'Which way?');
-    await until(() => daemon.calls.sent.length > before, 'dispatch');
-    fs.writeFileSync(t.waiting.replyPath, JSON.stringify({ blocks: [{ type: 'text', text: 'A or B?' }], choices }));
-    daemon.finish(daemon.calls.created[0].id);
-    await until(() => !read(key).waiting, 'reply');
-    const last = read(key).messages.at(-1);
-    assert.ok(last);
-    return last;
-  };
+  const cards = cardsFor(threads);
+  const a = await post(A, 'Which way?');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  const agent = daemon.calls.created[0].id;
+  assert.match(daemon.calls.sent[0].text, /thread: "c\.7\.aa11"/);
+  assert.match(daemon.calls.sent[0].text, /"dismiss_finding"/);
+  const keep = { key: 'keep', label: 'Keep the read unscoped', effect: { type: 'dismiss_finding' } };
+  const scope = { key: 'scope', label: 'Scope the read' };
 
-  const onA = await ask(A);
-  assert.deepEqual(onA.choices, choices);
-  const sent = daemon.calls.sent.length;
-  await threads.post(SLUG, A, { choice: { msgId: onA.id, index: 0 } });
+  await assert.rejects(cards.create(choiceCard(agent, [{ ...scope, effect: { type: 'take_decision', option: 'cache' } }, keep])), /options\[0\]\.effect: take_decision is only for a decision thread/);
+  await assert.rejects(cards.create(choiceCard('22222222-0000-4000-8000-000000000000', [keep, scope], A)), /not a thread of this agent/);
+  const onA = await cards.create(choiceCard(agent, [keep, scope]));
+  assert.equal(onA.thread, A, 'the one thread waiting on the agent');
+  reply(a.waiting.replyPath, 'Keep it or scope it?');
+  daemon.finish(agent);
+  await until(() => !read(A).waiting, 'reply');
+
+  const kept = await cards.answer(onA.id, { picked: ['keep'] });
   await until(() => acted.length === 1, 'dismiss');
-  assert.deepEqual(acted, [{ id: 'aa11', action: 'dismiss', reason: 'Picked A: Keep the read unscoped' }]);
-  assert.equal(daemon.calls.sent.length, sent);
-  await assert.rejects(threads.post(SLUG, A, { choice: { msgId: onA.id, index: 1 } }), /already answered/);
+  assert.deepEqual(acted, [{ id: 'aa11', action: 'dismiss', reason: 'Picked Keep the read unscoped' }]);
+  assert.deepEqual([kept.result?.ok, kept.delivery?.skipped], [true, true]);
+  assert.equal(daemon.calls.sent.length, 1);
+  const note = read(A).messages.at(-1);
+  assert.deepEqual([note?.role, note?.card], ['system', onA.id]);
 
-  const onB = await ask(B);
-  const picked = await threads.post(SLUG, B, { choice: { msgId: onB.id, index: 1 } });
-  assert.ok(picked.waiting);
-  assert.equal(read(B).messages.at(-1)?.text, 'B: Scope the read');
+  await post(B, 'And the helper?');
+  await until(() => daemon.calls.sent.length === 2, 'dispatch on B');
+  const onB = await cards.create(choiceCard(agent, [keep, scope], B));
+  const answered = await cards.answer(onB.id, { picked: ['scope'] });
+  assert.equal(answered.delivery?.ok, true);
+  assert.equal(answered.result, undefined);
+  await until(() => daemon.calls.sent.length === 3, 'the answer reaches the agent');
+  assert.match(daemon.calls.sent[2].text, /\[coco card \w+ answered\] Which way\?\nPicked: Scope the read/);
+  const last = read(B).messages.at(-1);
+  assert.deepEqual([last?.role, last?.card, last?.steer], ['user', onB.id, true]);
   assert.equal(acted.length, 1);
 });
 
-test('a clicked option carrying a card option takes the decision without a new turn', async () => {
+test('a thread card option taking a decision card option takes it without a new turn; an option the card lacks is refused', async () => {
   const { threads, post, daemon, read, decided } = setup();
+  const cards = cardsFor(threads);
   const D = 'd.d1';
-  const t = await post(D, 'Cache it?');
+  await post(D, 'Cache it?');
   await until(() => daemon.calls.sent.length === 1, 'dispatch');
-  assert.match(daemon.calls.sent[0].text, /"option": "<card option key>"/);
-  fs.writeFileSync(t.waiting.replyPath, JSON.stringify({ blocks: [{ type: 'text', text: 'Cache or not?' }], choices: [{ label: 'A', text: 'Cache for 5 min', change: true, option: 'cache' }, { label: 'B', text: 'Bogus', option: 'nope' }] }));
-  daemon.finish(daemon.calls.created[0].id);
-  await until(() => !read(D).waiting, 'reply');
-  const asked = read(D).messages.at(-1);
-  assert.ok(asked);
+  assert.match(daemon.calls.sent[0].text, /"take_decision", "option": "<card option key>"/);
+  const agent = daemon.calls.created[0].id;
+  const cache = { key: 'a', label: 'Cache for 5 min', effect: { type: 'take_decision', option: 'cache' } };
 
-  await assert.rejects(threads.post(SLUG, D, { choice: { msgId: asked.id, index: 1 } }), /no option "nope"/);
-  await threads.post(SLUG, D, { choice: { msgId: asked.id, index: 0 } });
-  assert.deepEqual(decided, [{ id: 'd1', choice: 'cache', rationale: 'Picked A: Cache for 5 min' }]);
+  await assert.rejects(cards.create(choiceCard(agent, [cache, { key: 'b', label: 'Bogus', effect: { type: 'take_decision', option: 'nope' } }], D)), /options\[1\]\.effect\.option: the decision has no option "nope"/);
+  await assert.rejects(cards.create(choiceCard(agent, [cache, { key: 'b', label: 'Drop it', effect: { type: 'dismiss_finding' } }], D)), /dismiss_finding is only for a finding thread/);
+  const card = await cards.create(choiceCard(agent, [cache, { key: 'b', label: 'Ask the team' }], D));
+  const answered = await cards.answer(card.id, { picked: ['a'] });
+  assert.deepEqual(decided, [{ id: 'd1', choice: 'cache', rationale: 'Picked Cache for 5 min' }]);
+  assert.deepEqual([answered.result?.detail, answered.delivery?.skipped], ['Decision taken: cache', true]);
   assert.equal(daemon.calls.sent.length, 1);
-  assert.deepEqual(read(D).messages.slice(-2).map((m) => [m.role, m.text]), [['user', 'A: Cache for 5 min'], ['system', 'Decision taken: cache.']]);
+  assert.deepEqual(read(D).messages.slice(-1).map((m) => [m.role, m.text]), [['system', 'Decision taken: cache.']]);
+});
+
+test('files sent on a thread go to the agent as images and attachments and stay on the message', async () => {
+  const uploads = createUploads({ DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'thread-uploads-')) });
+  const { threads, daemon, read } = setup(uploads);
+  const png = uploads.store('shot.png', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]));
+  const log = uploads.store('run.log', 'text/plain', Buffer.from('boom'));
+  const t = await threads.post(SLUG, A, { attachments: [png.id, log.id] });
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  const sent = daemon.calls.sent[0];
+  assert.deepEqual([sent.images?.length, sent.attachments?.map((x) => x.fileName)], [1, ['run.log']]);
+  assert.equal(t.messages[0].text, 'See the attached files.');
+  assert.deepEqual(read(A).messages[0].files?.map((f) => f.fileName), ['shot.png', 'run.log']);
 });

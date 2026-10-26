@@ -21,6 +21,7 @@
 .dp-btn.dp-cd-more { height: 20px; padding: 0 6px; color: var(--dp-t3); }
 .dp-btn.dp-cd-more svg.dp-i { transition: transform .16s ease; }
 .dp-btn.dp-cd-more.dp-open svg.dp-i { transform: rotate(90deg); }
+.dp-btn.dp-cd-fold { align-self: flex-start; margin-left: -6px; }
 .dp-cd-det { margin: 2px 0 6px 24px; padding: 6px 10px; border-left: 2px solid var(--dp-line-2); font-size: 12.5px; line-height: 19px; color: var(--dp-t2); }
 
 .dp-inp.dp-cd-other { width: 100%; margin-top: 4px; box-sizing: border-box; }

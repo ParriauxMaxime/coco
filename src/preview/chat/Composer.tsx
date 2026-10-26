@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import Icon from '../Icon.tsx';
+import { pendingClass } from '../../components/action.ts';
 import { FILES_ONLY, MAX_ATTACHMENTS, fileProblem, isImage, sizeOf } from './Attachments.tsx';
 import type { UploadRef } from '../../types.ts';
 
@@ -20,7 +21,21 @@ type Attached = { key: string; name: string; size: number; preview: string | nul
 let seq = 0;
 
 // images and files come by paste, drop or the paperclip; each uploads at once and leaves with the message as an attachment id
-export function Composer({ placeholder, note, disabled = false, sendLabel = 'Send', onSend }: { placeholder: string; note?: string; disabled?: boolean; sendLabel?: string; onSend: (text: string, files: UploadRef[]) => Promise<boolean> }) {
+// tools: controls after the paperclip · actions(text, clear): buttons before Send that use the text · busy: another action holds Send · sending: Send in flight
+type ComposerProps = {
+  placeholder: string;
+  note?: string;
+  disabled?: boolean;
+  busy?: boolean;
+  sending?: boolean;
+  sendLabel?: string;
+  autoFocus?: boolean;
+  className?: string;
+  tools?: React.ReactNode;
+  actions?: (text: string, clear: () => void) => React.ReactNode;
+  onSend: (text: string, files: UploadRef[]) => Promise<boolean>;
+};
+export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend }: ComposerProps) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<Attached[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
@@ -66,7 +81,7 @@ export function Composer({ placeholder, note, disabled = false, sendLabel = 'Sen
   const uploading = files.some((f) => !f.ref);
   const empty = !text.trim() && !files.length;
   const send = async () => {
-    if (empty || disabled || uploading) return;
+    if (empty || disabled || busy || sending || uploading) return;
     if (await onSend(text.trim() || FILES_ONLY, files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
       files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
       setText('');
@@ -76,7 +91,7 @@ export function Composer({ placeholder, note, disabled = false, sendLabel = 'Sen
   };
   const dragging = (e: React.DragEvent) => !disabled && e.dataTransfer.types.includes('Files');
   return (
-    <div className="dp-composer">
+    <div className={`dp-composer${className ? ` ${className}` : ''}`}>
       <div
         className={`dp-composer-in${drag ? ' dp-upl-drag' : ''}`}
         onDragOver={(e) => { if (dragging(e)) { e.preventDefault(); setDrag(true); } }}
@@ -98,6 +113,7 @@ export function Composer({ placeholder, note, disabled = false, sendLabel = 'Sen
           rows={2}
           value={text}
           disabled={disabled}
+          autoFocus={autoFocus}
           placeholder={placeholder}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => { const pasted = [...e.clipboardData.files]; if (pasted.length) { e.preventDefault(); add(pasted); } }}
@@ -106,8 +122,10 @@ export function Composer({ placeholder, note, disabled = false, sendLabel = 'Sen
         <div className="dp-comp-f">
           <input ref={picker} type="file" multiple hidden onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
           <button type="button" className="dp-btn dp-ghost dp-sm dp-upl-clip" disabled={disabled} title="Attach images or files (or paste or drop them)" aria-label="Attach files" onClick={() => picker.current?.click()}><Icon name="paperclip" size={14} /></button>
+          {tools}
           <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
-          <button type="button" className="dp-btn dp-primary dp-sm" disabled={disabled || empty || uploading} title={uploading ? 'Waiting for the files to upload' : undefined} onClick={() => void send()}>{sendLabel}<kbd>⌘</kbd><kbd>↵</kbd></button>
+          {actions?.(text.trim(), () => setText(''))}
+          <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading} title={uploading ? 'Waiting for the files to upload' : undefined} onClick={() => void send()}>{sendLabel}<kbd>⌘</kbd><kbd>↵</kbd></button>
         </div>
       </div>
     </div>

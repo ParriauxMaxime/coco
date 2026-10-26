@@ -4,6 +4,7 @@ import Markdown from '../../components/Markdown.tsx';
 import { FindingBody } from '../../components/Blocks.tsx';
 import Thread, { ThreadComposer, ThreadToggle, refreshThreads, threadKey } from '../../components/Thread.tsx';
 import type { Verdict } from '../../components/Thread.tsx';
+import type { UploadRef } from '../../types.ts';
 import { Confidence, Severity } from '../../components/Signals.tsx';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
@@ -75,13 +76,13 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
   const [talking, setTalking] = useState(false);
   const [busy, setBusy] = useState(false);
   const { accept, dismiss } = proposalActions(rv);
-  const dispatch = async (text: string, model?: string) => {
+  const dispatch = async (text: string, model?: string, files: UploadRef[] = []) => {
     setBusy(true);
     try {
       const c = await accept(wp);
       const key = threadKey.comment(rv.n, c.id);
       openThreads.add(key);
-      await api.postThread(rv.slug, key, { text, model });
+      await api.postThread(rv.slug, key, { text, model, ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
       refreshThreads(rv.slug);
       onDispatched?.(key);
     } catch (e) {

@@ -91,7 +91,7 @@ const lang = createLang({ REPO, config });
 const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, place: (slug) => placement.place({ kind: 'work', slug }) });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
-const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement });
+const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key) });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads });
 threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, works });
@@ -128,12 +128,13 @@ const permissions = createPermissions({
 permissions.onAgent((a) => {
   if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
 });
-// an Ask agent's answer goes through its conversation, so the turn it opens is logged there; a one-shot run is not reopened for it
-const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction }, deliver: async (agentId, text) => {
+// an Ask agent's answer goes through its conversation and a thread agent's through its thread, so the turn it opens is logged there; a one-shot run is not reopened for it
+const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction }, threads: threads.cardHook, deliver: async (agentId, text) => {
   const conv = ask.convOf(agentId);
   if (conv?.once) return SKIPPED;
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
 } });
+cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);

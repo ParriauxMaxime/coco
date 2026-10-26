@@ -462,13 +462,16 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     return { slug: work.slug, created: !existing, stackKept };
   }
 
-  async function startAgent(p: AgentProposal, conv: Conv | null, agentId: string) {
-    const work = p.workSlug ? works.get(p.workSlug) : null;
+  // labelled with its work and row, so it lists among the work's agents
+  async function startAgent(p: AgentProposal, conv: Conv | null, agentId: string, at: { work: string | null; pr: string | null } = { work: null, pr: null }) {
+    const slug = p.workSlug || conv?.workSlug || at.work;
+    const work = slug ? works.get(slug) : null;
+    const row = work?.slug === conv?.workSlug && conv?.pr != null ? fileKey(conv.pr) : work?.slug === at.work && at.pr ? fileKey(at.pr) : null;
     let started: { agentId?: string; createdWorkspace?: string | null } = {};
     let error = '';
     try {
       const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv?.scope ?? { kind: 'global' });
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, ...placed, labels: { source: 'cocopilot', ask: (conv?.id ?? agentId).slice(0, 8) } });
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, ...placed, labels: { source: 'cocopilot', ask: (conv?.id ?? agentId).slice(0, 8), work: work?.slug, pr: row } });
     } catch (e) {
       error = errorMessage(e);
     }
@@ -515,7 +518,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       run: async (card) => {
         const p = agentOf(card.action?.input ?? {});
         const conv = convOf(card.agentId);
-        const r = await startAgent(p, conv, card.agentId);
+        const r = await startAgent(p, conv, card.agentId, card);
         const slug = p.workSlug || conv?.workSlug || card.work;
         return { ok: true, detail: `started agent ${r.agentId?.slice(0, 8) ?? ''}${r.createdWorkspace ? ` in new workspace ${r.createdWorkspace}` : ''}`, link: slug && r.agentId ? `#/work/${slug}/ag-${r.agentId}` : undefined };
       },

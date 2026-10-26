@@ -606,12 +606,25 @@ orchestration layer (`server/threads.ts`):
   (see the Findings board above); cocopilot reads it on the thread poll (3 s while waiting) and when the
   Paseo plugin reports the agent's turn ended. One message at a time per
   thread.
+- Questions. To have you pick, the agent asks with `cocopilot.ask` and the
+  thread's key: the card shows in the thread, after the reply of its turn,
+  and your answer goes through the thread like a message (one line "Answer
+  sent" in the log, then the agent's reply). On a decision thread an option
+  may take the decision on a card option, on a finding thread an option that
+  leaves the code as is may dismiss the finding: picking it does that at
+  once, with a note in the thread and no new turn of the agent. The thread
+  button says when a question waits on you. Replies from before cards keep
+  their options, shown read-only.
+- Attachments. The thread composer is the agent composer: paste, drop or
+  pick images and files; they go with the message to the group agent and
+  stay on it in the thread.
 - Storage: threads in `data/works/<slug>/threads/<key>.json` (`d.<decision
   id>`, `c.<row key>.<comment id>`), groups in `data/works/<slug>/groups/`.
   Routes: `GET /api/works/<slug>/threads` (summaries: count, waiting,
-  lastTs, groupId, open suggestions; retries queued approvals), `GET|POST
-  …/threads/<key>` (`{ text, model?: sonnet|opus, groupId? }`, mapped to
-  `models.fast` and `models.default`), `PUT
+  lastTs, groupId, open suggestions, open questions as `asks`; retries
+  queued approvals), `GET|POST …/threads/<key>` (GET carries the thread's
+  `cards`; POST `{ text, model?: sonnet|opus, groupId?, attachments?:
+  upload ids }`, models mapped to `models.fast` and `models.default`), `PUT
   …/threads/<key>` (`{ groupId | 'new' }`), `POST
   …/threads/<key>/suggestions/<msg id>` (`{ action: approve|dismiss }`),
   `GET …/groups`, `POST …/groups/<id>/close` (archives the group's Paseo
@@ -764,7 +777,9 @@ your answer, or your dismissal, reaches the agent as a new message, steered
 into its turn when it is working. An agent with an open card shows as
 waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
 `data/cards/`; routes, shapes and delivery are in
-[agent-io.md](agent-io.md).
+[agent-io.md](agent-io.md). An answered or dismissed card folds its
+context behind **Show details**; open ones stay unfolded. A thread agent's
+cards show in its thread (see Agent threads).
 
 Proposals are cards too. `propose_work_scaffold`, `propose_paseo_agent`,
 `dispatch` and `propose_repo` post a confirm card that coco builds from the
@@ -775,7 +790,9 @@ there. An update of a work that already has a stack asks, with a toggle,
 whether the planned stack replaces it. The card then shows the outcome with
 an **Open** link to the work, the agent's tab or the repo, and the agent
 gets your answer with that outcome (`Done:` or `Failed:`). Reject or a note
-runs nothing. `propose_rules` is a rows card (see Rules ledger);
+runs nothing. An agent started from **Start agent** carries the work's
+label (and its row when the conversation has one), so it lists among the
+work's agents. `propose_rules` is a rows card (see Rules ledger);
 `propose_review_plan` stays the review plan's result, not a card.
 Conversations saved before cards keep their proposals in the transcript as
 the tool call, read-only.
@@ -788,7 +805,7 @@ for you, scripts and sessions without the MCP.
 ## Attachments (images and files to an agent)
 
 Every agent composer (agent tabs, Ask conversations, new-agent tabs, the
-repo and Inbox panels) takes images and files: paste a screenshot, drop
+repo and Inbox panels, agent threads) takes images and files: paste a screenshot, drop
 files on the composer, or pick them with the paperclip. Each uploads at once
 (`POST /api/uploads?name=…`, raw body, `Content-Type` the file's) to
 `data/uploads/<id>/<name>` and shows as a removable chip; images png, jpeg,

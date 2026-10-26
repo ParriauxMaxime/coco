@@ -163,6 +163,7 @@ async function postCard(card: Record<string, unknown>) {
 }
 const typedBlocks = z.array(z.looseObject({ type: z.string() })).describe('typed blocks, 16 at most: text {text}, callout {tone: risk|warn|ok|note, title?, text}, steps {title?, items[], outcome?}, diagram {mermaid, caption?}, code {path?, line?, lang?, code, caption?}, table {columns[], rows: cell[][], caption?}, media {kind: image|video, src: /api/works/<slug>/media/<file>, caption?}. Inline text takes **bold**, *italic*, `code`, path/file.ts:12 refs and <risk|warn|ok|note>…</…> marks');
 const cardOption = z.object({ key: z.string().describe('short id returned in the answer'), label: z.string().max(120), details: z.string().max(500).optional(), recommended: z.boolean().optional(), confidence: z.number().min(0).max(100).optional() });
+const choiceOption = cardOption.extend({ effect: z.union([z.object({ type: z.literal('take_decision'), option: z.string().describe('the decision card option key') }), z.object({ type: z.literal('dismiss_finding') })]).optional().describe('thread cards only, single choice: what picking it does in coco instead of a new turn: take_decision on a decision thread, dismiss_finding (leave the code as is) on a finding thread') });
 const tableCell = z.union([z.string(), z.object({ text: z.string(), tone: z.enum(['risk', 'warn', 'ok', 'note', 'mute']).optional() })]);
 
 server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to ask the user anything. Kinds: choice (2-8 options, multi for several picks), rows (a table of 1-40 rows to tick, select one or many; or rowOptions, one pick per row), form (1-8 fields), confirm (approve or reject). Every kind but form has a free-text "Other" box unless other is false. Returns at once with the card id: do not wait or poll, end your turn or keep working; the answer arrives later as a new user message starting "[coco card <id> answered]". A refused card names the bad field: fix it and call again.`, {
@@ -170,7 +171,7 @@ server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to as
   title: z.string().max(120).describe('short plain text: what is decided'),
   question: z.string().max(500).optional().describe('the question, inline markup'),
   blocks: typedBlocks.optional().describe('context shown above the question, same typed blocks as post_blocks'),
-  options: z.array(cardOption).optional().describe('choice: 2-8 options'),
+  options: z.array(choiceOption).optional().describe('choice: 2-8 options'),
   multi: z.boolean().optional().describe('choice: several picks allowed'),
   columns: z.array(z.string()).optional().describe('rows: 1-8 column names'),
   rows: z.array(z.object({ key: z.string(), cells: z.array(tableCell).describe('one cell per column'), recommended: z.union([z.string(), z.boolean()]).optional().describe('true to pre-tick; with rowOptions, the recommended option key') })).optional().describe('rows: 1-40 rows'),
@@ -180,6 +181,7 @@ server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to as
   confirmLabel: z.string().max(40).optional().describe('confirm: default "Approve"'),
   rejectLabel: z.string().max(40).optional().describe('confirm: default "Reject"'),
   other: z.boolean().optional().describe('free-text "Other" box; default true except on forms'),
+  thread: z.string().optional().describe('a coco thread agent: the thread key your prompt names; the card shows in that thread and its answer comes through it'),
 }, async (card) => {
   const r = await postCard(card);
   return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, status: 'open', note: 'The answer arrives as a new user message starting "[coco card <id> answered]". Do not wait or poll: end your turn or keep working.' });
@@ -188,8 +190,9 @@ server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to as
 server.tool('post_blocks', `Show ${OWNER} a rich result in coco (tables, diagrams, code, callouts) as a card in your chat. Nothing is asked: use ask for that.`, {
   title: z.string().max(120),
   blocks: typedBlocks,
-}, async ({ title, blocks }) => {
-  const r = await postCard({ kind: 'post', title, blocks });
+  thread: z.string().optional().describe('a coco thread agent: the thread key your prompt names'),
+}, async ({ title, blocks, thread }) => {
+  const r = await postCard({ kind: 'post', title, blocks, thread });
   return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, shown: true });
 });
 

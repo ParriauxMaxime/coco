@@ -269,7 +269,9 @@ export type Block =
 export type Source = { label: string; url?: string; path?: string };
 
 export type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
-export type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number };
+// what picking an option of a thread card does in coco instead of a new turn of the agent
+export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
+export type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
 export type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: TableCell[]; recommended?: string | boolean };
 export type CardValue = string | number | boolean;
@@ -302,6 +304,8 @@ export type Card = {
   confirmLabel?: string;
   rejectLabel?: string;
   other?: boolean;
+  // the thread key it asks in: shown there, its answer goes through it
+  thread?: string;
   // a proposal card: approving it runs this action, and result is what it did
   action?: { type: string; input: Record<string, unknown> };
   status: 'open' | 'answered' | 'cancelled';
@@ -358,14 +362,19 @@ export type ThreadMessage = {
   id: string;
   role: 'user' | 'agent' | 'system';
   text?: string;
+  ts?: string;
   blocks?: Block[];
   agentId?: string;
   model?: string;
   steer?: boolean;
   turn?: string;
   suggestion?: Suggestion;
+  // replies from before cards: options shown read-only
   choices?: ThreadChoice[];
   picked?: number;
+  // the card whose answer or effect it records
+  card?: string;
+  files?: UploadRef[];
 };
 export type ThreadChoice = { label: string; text: string; change: boolean; option?: string };
 export type Thread = {
@@ -374,10 +383,11 @@ export type Thread = {
   groupId?: string | null;
   newGroup?: boolean;
   agent?: { live: boolean; status: string } | null;
+  cards?: Card[];
 };
-export type ThreadSummary = { count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number };
+export type ThreadSummary = { count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number };
 export type ThreadGroup = { id: string; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number };
-export type ThreadPostBody = { text: string; model?: string } | { choice: { msgId: string; index: number } };
+export type ThreadPostBody = { text: string; model?: string; attachments?: string[] };
 export type SuggestionAction = 'approve' | 'dismiss';
 
 export type FindingRow = {

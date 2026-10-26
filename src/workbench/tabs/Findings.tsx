@@ -8,7 +8,7 @@ import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { toast } from '../../components/Toast.tsx';
 import { pendingClass } from '../../components/action.ts';
 import { api, errorMessage } from '../../api.ts';
-import type { FindingAction, FindingRow, FindingsResponse } from '../../types.ts';
+import type { FindingAction, FindingRow, FindingsResponse, UploadRef } from '../../types.ts';
 import type { Verdict } from '../../components/Thread.tsx';
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
@@ -133,12 +133,12 @@ function Footer({ r, slug, verdicts, focus, onAct, pending }: { r: FindingRow; s
   const [sending, setSending] = useState(false);
   if (r.commentId) return <div className="fd-foot"><Thread slug={slug} threadKey={threadKey.comment(String(r.n), r.commentId)} verdicts={verdicts} autoFocus={focus} onSettled={() => refreshThreads(slug)} /></div>;
   // no comment yet: Dispatch accepts it as one, then opens its thread with the text
-  const dispatch = async (text: string, model?: string) => {
+  const dispatch = async (text: string, model?: string, files: UploadRef[] = []) => {
     setSending(true);
     try {
       const row = (await onAct('accept', [r.key]))?.rows.find((x) => x.key === r.key);
       if (!row?.commentId) return false;
-      await api.postThread(slug, threadKey.comment(String(row.n), row.commentId), { text, ...(model ? { model } : {}) });
+      await api.postThread(slug, threadKey.comment(String(row.n), row.commentId), { text, ...(model ? { model } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
       refreshThreads(slug);
     } catch (e) {
       toast.error(errorMessage(e));

@@ -38,9 +38,9 @@ function UserMessage({ e, sending }: { e: { text?: string; steer?: boolean; atta
   );
 }
 
-const CARD_MSG = /^\[coco card (\S+) (\w+)\]/;
+export const CARD_MSG = /^\[coco card (\S+) (\w+)\]/;
 
-function CardMessage({ verb, title }: { verb: string; title?: string }) {
+export function CardMessage({ verb, title }: { verb: string; title?: string }) {
   return <div className="dp-cd-sent"><Icon name="send" size={12} />{verb === 'answered' ? 'Answer sent' : `Card ${verb}`}{title ? `: ${title}` : ''}</div>;
 }
 
