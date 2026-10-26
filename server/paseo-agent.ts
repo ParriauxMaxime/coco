@@ -285,7 +285,9 @@ export async function timelineOf(agent: Pick<DaemonAgent, 'timeline'>, maxPages 
 export type AgentHistory = { status: string | null; archived: boolean; updatedAt: string | null; userMessages: { text: string; at: string | null }[] };
 export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
-type AgentConfig = { provider?: string; mode?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
+type AgentConfig = { provider?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
+// every coco agent works on its own; a brief saying not to touch code is what keeps one read-only
+const AGENT_MODE = 'auto';
 type StartOptions = AgentConfig & { title: string; prompt?: string; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
 export type SessionOptions = Omit<StartOptions, 'prompt' | 'title'> & { title?: string } & FollowerCallbacks & { agentId?: string | null; flush?: () => void };
 export type AgentSession = Started & {
@@ -335,9 +337,9 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     return { workspace, created: true };
   }
 
-  const configFor = ({ provider, mode, thinking, systemPrompt, mcp }: AgentConfig) => ({
+  const configFor = ({ provider, thinking, systemPrompt, mcp }: AgentConfig) => ({
     provider,
-    ...(mode ? { modeId: mode } : {}),
+    modeId: AGENT_MODE,
     ...(thinking ? { thinkingOptionId: thinking } : {}),
     ...(systemPrompt ? { systemPrompt } : {}),
     ...(mcp

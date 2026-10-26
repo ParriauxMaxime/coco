@@ -3,6 +3,7 @@ import { api } from '../api.ts';
 import { usePendingPermissions } from '../components/PermissionCard.tsx';
 import { stateKey } from '../components/PrBadge.tsx';
 import { useWorkData } from '../workbench/use-work.ts';
+import { useOverview } from './overview.ts';
 import type { LoadedWork } from '../workbench/use-work.ts';
 import type { FindingsResponse, LinkedAgent, Overview, PendingPermission } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
@@ -33,12 +34,11 @@ export const pendingOf = (d: PreviewData, pr: WorkPr) => {
 export function usePreviewData(slug: string): PreviewData {
   const work = useWorkData(slug);
   const { pending } = usePendingPermissions();
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const { ov: overview } = useOverview();
   const [findings, setFindings] = useState<FindingsResponse | null>(null);
   const [agents, setAgents] = useState<LinkedAgent[]>([]);
   useEffect(() => {
     const load = () => {
-      api.overview().then(setOverview, () => {});
       api.findings(slug, null).then(setFindings, () => {});
       api.linkedAgents(slug).then(setAgents, () => {});
     };

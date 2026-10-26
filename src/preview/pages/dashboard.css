@@ -1,0 +1,13 @@
+.dp-dash-work .dp-work-bar { display: flex; align-items: center; gap: 8px; }
+.dp-dash-work .dp-segs { height: 5px; }
+.dp-dash-attn { color: var(--dp-warn); }
+.dp-dash-av { width: 28px; height: 28px; border-radius: 50%; background: var(--dp-subtle); flex: none; }
+.dp-dash-people .dp-card { gap: 6px; }
+.dp-dash-people .dp-card-t { font-weight: 500; }
+.dp-dash-stale { color: var(--dp-bad); }
+.dp-dash-arg { margin-left: 6px; font: 11.5px var(--dp-mono); color: var(--dp-t3); }
+.dp-dash-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dp-dash-notes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; border-top: 1px solid var(--dp-line); margin-top: 16px; }
+.dp-dash-notes .dp-psec { border-top: 0; margin-top: 0; }
+.dp-dash-md { padding: 4px 14px; max-height: 420px; overflow: auto; }
+@container (max-width: 760px) { .dp-dash-notes { grid-template-columns: minmax(0, 1fr); } }

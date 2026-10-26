@@ -39,9 +39,59 @@ export type IconName =
   | 'folder'
   | 'eye'
   | 'command'
-  | 'grip-vertical';
+  | 'grip-vertical'
+  | 'archive'
+  | 'user'
+  | 'book'
+  | 'trash'
+  | 'pencil'
+  | 'copy'
+  | 'download'
+  | 'upload'
+  | 'link'
+  | 'refresh'
+  | 'send'
+  | 'terminal'
+  | 'package'
+  | 'mail'
+  | 'activity';
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  archive: (
+    <>
+      <rect width="20" height="5" x="2" y="3" rx="1" />
+      <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
+    </>
+  ),
+  book: <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5" />,
+  trash: <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />,
+  pencil: <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z" />,
+  copy: (
+    <>
+      <rect width="14" height="14" x="8" y="8" rx="2" />
+      <path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2" />
+    </>
+  ),
+  download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />,
+  upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />,
+  link: <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
+  refresh: <path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M3 21v-5h5" />,
+  send: <path d="m22 2-7 20-4-9-9-4zM22 2 11 13" />,
+  terminal: <path d="m4 17 6-6-6-6M12 19h8" />,
+  package: <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM3.3 7 12 12l8.7-5M12 22V12" />,
+  mail: (
+    <>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-10 6L2 7" />
+    </>
+  ),
+  activity: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
   search: (
     <>
       <circle cx="11" cy="11" r="7" />

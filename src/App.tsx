@@ -18,6 +18,7 @@ import Sidebar from './components/Sidebar.tsx';
 import type { Nav } from './components/Sidebar.tsx';
 import Toasts from './components/Toast.tsx';
 import DesignPreview from './preview/DesignPreview.tsx';
+import Pages from './preview/Pages.tsx';
 import BetaPanel from './preview/BetaPanel.tsx';
 import { useBetaPanel, usePrefs } from './preview/prefs.ts';
 
@@ -83,6 +84,7 @@ export default function App() {
     return () => clearInterval(t);
   }, [route]);
   if (root === 'design-preview' || (root === 'work' && a && a !== 'new' && workbench === 'on')) return <><DesignPreview slug={a} /><Toasts /></>;
+  if (workbench === 'on') return <><Pages route={route} /><Toasts /></>;
   let page;
   if (!root) page = <Dashboard />;
   else if (root === 'persona' && a) page = <Persona login={decodeURIComponent(a)} tab={b} />;

@@ -36,7 +36,7 @@ type Scaffold = {
   nextSteps?: string[];
   betaFlags?: { code: string; why: string; prs?: number[] }[];
 };
-type AgentProposal = { title: string; prompt: string; workspaceId?: string; cwd?: string; provider?: string; thinking?: string; mode?: string; workSlug?: string };
+type AgentProposal = { title: string; prompt: string; workspaceId?: string; cwd?: string; provider?: string; thinking?: string; workSlug?: string };
 type DispatchProposal = { entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
 type RepoProposal = { source: string; why?: string };
 type Submitted = { propose_work_scaffold?: Scaffold; propose_paseo_agent?: AgentProposal; propose_rules?: { rules: { text: string; source: string }[] }; dispatch?: DispatchProposal; propose_repo?: RepoProposal };
@@ -197,7 +197,6 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: SYSTEM + tierOf(conv),
         provider: providerFor(conv.model),
-        mode: 'auto',
         cwd,
         workspaceId,
         labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, pr: conv.pr == null ? null : fileKey(conv.pr), repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
@@ -393,7 +392,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const work = p.workSlug ? works.get(p.workSlug) : null;
     try {
       const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv.scope);
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, mode: p.mode === 'bypass' ? 'bypassPermissions' : p.mode, ...placed, labels: { source: 'cocopilot', ask: id.slice(0, 8) } });
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, ...placed, labels: { source: 'cocopilot', ask: id.slice(0, 8) } });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }

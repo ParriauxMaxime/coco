@@ -104,7 +104,6 @@ server.tool('propose_paseo_agent', `Propose starting a Paseo agent (local, in an
   cwd: z.string().optional().describe('working directory when no workspace id; absolute path'),
   provider: z.string().default(config.models.default),
   thinking: z.enum(['low', 'medium', 'high', 'auto']).default('high'),
-  mode: z.enum(['auto', 'default', 'plan', 'bypass']).default('auto'),
   workSlug: z.string().optional().describe('work this agent belongs to, for its timeline'),
   why: z.string().describe('one sentence: what the agent will do and why'),
 }, async (p) => text({ recorded: true, proposal: p }));

@@ -450,7 +450,6 @@ export type AgentProposal = {
   title: string;
   provider: string;
   thinking: string;
-  mode: string;
   why: string;
   workspaceId?: string;
   cwd?: string;

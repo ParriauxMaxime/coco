@@ -70,7 +70,7 @@ export function AgentProposal({ run }: { run: Run }) {
   return (
     <div className="card" style={{ borderColor: 'var(--brand)', boxShadow: '0 0 0 3px var(--brand-100)' }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span><span className="chip c-purple">paseo agent</span> <b>{p.title}</b> <span className="chip c-grey">{p.provider} · {p.thinking} · {p.mode}</span></span>
+        <span><span className="chip c-purple">paseo agent</span> <b>{p.title}</b> <span className="chip c-grey">{p.provider} · {p.thinking}</span></span>
         <span className="row"><button className="primary" onClick={start} disabled={status.startsWith('start')}>Start agent</button><span className="status">{status}</span></span>
       </div>
       <p style={{ marginTop: 8 }}>{p.why}</p>
