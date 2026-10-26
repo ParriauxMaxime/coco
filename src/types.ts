@@ -80,11 +80,14 @@ export type WorkProgress = { merged: number; ready: number; draft: number; plann
 export type WorkSummary = { slug: string; title: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null };
 export type RitualRun = { ts: string; kind: string; title: string; prompt: string; agentId: string | null; ok: boolean; out: string };
 
+// a repo in sidebar order, its works' slugs in theirs
+export type RepoGroup = { id: string; name: string; github: string; works: string[] };
 export type Overview = {
   projectCount: number;
   personas: Persona[];
   skills: Skill[];
   works: WorkSummary[];
+  repos: RepoGroup[];
   feedback: FeedbackItem[];
   feedbackCount: number;
   agents: PaseoAgent[];

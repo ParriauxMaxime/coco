@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { cycleTheme, useTheme } from '../theme.ts';
 import type { ThemeMode } from '../theme.ts';
 import { useConfig } from '../config.ts';
-import type { Persona, Skill, WorkProgress, WorkSummary } from '../types.ts';
+import { api } from '../api.ts';
+import type { Persona, RepoGroup, Skill, WorkProgress, WorkSummary } from '../types.ts';
 
-export type Nav = { works: WorkSummary[]; personas: Persona[]; skills: Skill[]; projects: number; running: number };
+export type Nav = { works: WorkSummary[]; repos: RepoGroup[]; personas: Persona[]; skills: Skill[]; projects: number; running: number };
 
 const Icon = ({ d }: { d: string[] }) => (
   <svg className="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -25,12 +26,12 @@ const usePersisted = (key: string, initial: boolean): [boolean, () => void] => {
   return [v, () => { localStorage.setItem(key, v ? '0' : '1'); setV(!v); }];
 };
 
-type SectionProps = { id: string; title: string; count?: number; extra?: React.ReactNode; defaultOpen?: boolean; children?: React.ReactNode };
-function Section({ id, title, count, extra, defaultOpen = true, children }: SectionProps) {
+type SectionProps = { id: string; title: string; count?: number; extra?: React.ReactNode; defaultOpen?: boolean; handle?: React.HTMLAttributes<HTMLButtonElement> & { draggable?: boolean }; className?: string; children?: React.ReactNode };
+function Section({ id, title, count, extra, defaultOpen = true, handle, className = '', children }: SectionProps) {
   const [open, toggle] = usePersisted(`nav:${id}`, defaultOpen);
   return (
-    <div className="nav-section">
-      <button className="group" onClick={toggle} aria-expanded={open}>
+    <div className={`nav-section ${className}`}>
+      <button className="group" onClick={toggle} aria-expanded={open} {...handle}>
         <span className={`caret ${open ? 'open' : ''}`}>▸</span>{title}{count != null && <span className="gcount">{count}</span>}
         {extra}
       </button>
@@ -39,12 +40,22 @@ function Section({ id, title, count, extra, defaultOpen = true, children }: Sect
   );
 }
 
-function WorkLink({ w, on, onClose }: { w: WorkSummary; on: boolean; onClose: () => void }) {
+type Dragged = { kind: 'repo'; id: string } | { kind: 'work'; repo: string; slug: string };
+// `item` lands where `target` was: after it when moving down, before it when moving up
+const moveBefore = (list: string[], item: string, target: string) => {
+  const down = list.indexOf(item) < list.indexOf(target);
+  const out = list.filter((x) => x !== item);
+  out.splice(out.indexOf(target) + (down ? 1 : 0), 0, item);
+  return out;
+};
+type DragProps = Pick<React.HTMLAttributes<HTMLElement>, 'onDragStart' | 'onDragOver' | 'onDragLeave' | 'onDrop' | 'onDragEnd'>;
+
+function WorkLink({ w, on, onClose, drag, over }: { w: WorkSummary; on: boolean; onClose: () => void; drag: DragProps; over: boolean }) {
   const p: Partial<WorkProgress> = w.progress || {};
   const total = w.stack || 1;
   const seg = (n: number | undefined, st: string) => Array.from({ length: n || 0 }, (_, i) => <i key={`${st}-${i}`} className={`st-${st}`} style={{ flex: 1 }} title={`${n} ${st}`} />);
   return (
-    <a className={`nav work ${on ? 'on' : ''} ${w.archived ? 'archived' : ''}`} href={`#/work/${w.slug}`} onClick={onClose} title={w.title}>
+    <a className={`nav work ${on ? 'on' : ''} ${w.archived ? 'archived' : ''} ${over ? 'drop-over' : ''}`} href={`#/work/${w.slug}`} onClick={onClose} title={w.title} draggable {...drag}>
       <span className="work-title">{p.attention && <span className="attn" title="changes requested or CI failing" />}{w.title}{p.restack && <span className="chip c-orange" title="a parent PR merged: its children still sit on the old base">restack</span>}</span>
       <span className="work-meta">
         <span className="bar">{seg(p.merged, 'merged')}{seg(p.ready, 'ready')}{seg(p.draft, 'draft')}{seg(p.planned, 'planned')}{seg(p.closed, 'closed')}{!w.stack && <i className="st-planned" style={{ flex: 1 }} />}</span>
@@ -74,8 +85,38 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
   const Link = ({ href, on, icon, children }: { href: string; on: boolean; icon: React.ReactNode; children?: React.ReactNode }) => (
     <a className={`nav ${on ? 'on' : ''}`} href={href} onClick={onClose}>{icon}{children}</a>
   );
-  const works = nav.works.filter((w) => showArchived || !w.archived);
   const archivedCount = nav.works.filter((w) => w.archived).length;
+  const bySlug = new Map(nav.works.map((w) => [w.slug, w]));
+  // reorders show at once; the next overview poll brings the saved order back
+  const [moved, setMoved] = useState<{ from: RepoGroup[]; to: RepoGroup[] } | null>(null);
+  const groups = moved?.from === nav.repos ? moved.to : nav.repos;
+  const reorder = (to: RepoGroup[]) => setMoved({ from: nav.repos, to });
+  const dragging = useRef<Dragged | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const dragProps = (item: Dragged, key: string, drop: () => void): DragProps => ({
+    onDragStart: (e) => { e.stopPropagation(); dragging.current = item; e.dataTransfer.effectAllowed = 'move'; },
+    onDragOver: (e) => { if (dragging.current?.kind !== item.kind) return; e.preventDefault(); e.stopPropagation(); setOver(key); },
+    onDragLeave: () => setOver((o) => (o === key ? null : o)),
+    onDrop: (e) => { e.preventDefault(); e.stopPropagation(); setOver(null); drop(); },
+    onDragEnd: () => { dragging.current = null; setOver(null); },
+  });
+  const dropRepo = (target: string) => {
+    const d = dragging.current;
+    if (d?.kind !== 'repo' || d.id === target) return;
+    const ids = moveBefore(groups.map((g) => g.id), d.id, target);
+    reorder(ids.flatMap((id) => groups.filter((g) => g.id === id)));
+    api.saveLayout({ repos: ids }).catch(() => {});
+  };
+  // a work moves inside its repo only
+  const dropWork = (repo: string, target: string) => {
+    const d = dragging.current;
+    if (d?.kind !== 'work' || d.repo !== repo || d.slug === target) return;
+    const g = groups.find((x) => x.id === repo);
+    if (!g) return;
+    const slugs = moveBefore(g.works, d.slug, target);
+    reorder(groups.map((x) => (x.id === repo ? { ...x, works: slugs } : x)));
+    api.saveLayout({ repo, works: slugs }).catch(() => {});
+  };
   const meLogin = useConfig((s) => s.owner.login);
   const hasRituals = useConfig((s) => s.rituals.length > 0);
   const me = nav.personas.find((p) => p.login === meLogin) || nav.personas.find((p) => p.kind === 'writer');
@@ -94,10 +135,23 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
         <a className={`nav ask ${is('ask') ? 'on' : ''}`} href="#/ask" onClick={onClose}><span className="ico emoji">🦜</span>Ask coco</a>
       </nav>
 
-      <Section id="works" title="Works" count={works.length} extra={archivedCount > 0 && <span className="gtoggle" onClick={(e) => { e.stopPropagation(); toggleArchived(); }}>{showArchived ? 'hide archived' : `+${archivedCount} archived`}</span>}>
-        {works.map((w) => <WorkLink key={w.slug} w={w} on={is('work', w.slug)} onClose={onClose} />)}
-        {works.length === 0 && <div className="nav-empty">No work yet</div>}
-      </Section>
+      {groups.map((g, i) => {
+        const list = g.works.map((s) => bySlug.get(s)).filter((w): w is WorkSummary => Boolean(w) && (showArchived || !w?.archived));
+        return (
+          <Section
+            key={g.id}
+            id={`repo:${g.id}`}
+            title={g.name}
+            count={list.length}
+            className={over === `repo:${g.id}` ? 'drop-over' : ''}
+            handle={{ draggable: true, title: g.github || g.name, ...dragProps({ kind: 'repo', id: g.id }, `repo:${g.id}`, () => dropRepo(g.id)) }}
+            extra={i === 0 && archivedCount > 0 && <span className="gtoggle" onClick={(e) => { e.stopPropagation(); toggleArchived(); }}>{showArchived ? 'hide archived' : `+${archivedCount} archived`}</span>}
+          >
+            {list.map((w) => <WorkLink key={w.slug} w={w} on={is('work', w.slug)} onClose={onClose} over={over === `work:${w.slug}`} drag={dragProps({ kind: 'work', repo: g.id, slug: w.slug }, `work:${w.slug}`, () => dropWork(g.id, w.slug))} />)}
+            {list.length === 0 && <div className="nav-empty">No work yet</div>}
+          </Section>
+        );
+      })}
 
       <Section id="personas" title="Personas" count={reviewers.length}>
         <div className="people">

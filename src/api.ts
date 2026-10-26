@@ -47,6 +47,7 @@ const rulesBase = (slug: string | null | undefined) => (slug ? `${works(slug)}/r
 export const api = {
   config: () => get<Partial<Config>>('/api/config'),
   overview: () => get<Overview>('/api/overview'),
+  saveLayout: (body: { repos: string[] } | { repo: string; works: string[] }) => send<unknown>('PUT', '/api/layout', body),
   setup: () => get<SetupStatus>('/api/setup'),
   setupAgent: () => postEmpty<StartedAgent>('/api/setup/agent'),
   personas: () => get<Persona[]>('/api/personas'),

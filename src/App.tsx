@@ -61,9 +61,9 @@ export default function App() {
   const tabTitle = useWorkbench((s) => s.title);
   const [root, a, b, c] = route.split('/').filter(Boolean);
   const [open, setOpen] = useState(false);
-  const [nav, setNav] = useState<Nav>({ works: [], personas: [], skills: [], projects: 0, running: 0 });
+  const [nav, setNav] = useState<Nav>({ works: [], repos: [], personas: [], skills: [], projects: 0, running: 0 });
   useEffect(() => {
-    const load = () => api.overview().then((d) => setNav({ works: d.works || [], personas: d.personas, skills: d.skills, projects: d.projectCount || 0, running: d.agents.filter((x) => x.status === 'running').length })).catch(() => {});
+    const load = () => api.overview().then((d) => setNav({ works: d.works || [], repos: d.repos || [], personas: d.personas, skills: d.skills, projects: d.projectCount || 0, running: d.agents.filter((x) => x.status === 'running').length })).catch(() => {});
     load();
     const t = setInterval(load, 30000);
     return () => clearInterval(t);

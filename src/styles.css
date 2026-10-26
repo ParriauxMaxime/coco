@@ -58,6 +58,8 @@ a:hover { text-decoration: underline; }
 .sidebar .group .gtoggle { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11px; }
 .sidebar .group .gtoggle:hover { color: var(--brand-700); }
 .sidebar a.nav.work { display: block; padding: 7px 10px 8px; }
+.sidebar a.nav.work.drop-over, .sidebar .nav-section.drop-over > .group { box-shadow: inset 0 2px 0 var(--brand); }
+.sidebar .nav-section > .group[draggable="true"] { cursor: grab; }
 .sidebar a.nav.work.archived { opacity: .55; }
 .sidebar .work-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.35; }
 .sidebar .work-title .attn { display: inline-block; margin-right: 6px; vertical-align: 1px; }
