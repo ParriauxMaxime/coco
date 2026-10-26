@@ -54,7 +54,9 @@ export type IconName =
   | 'terminal'
   | 'package'
   | 'mail'
-  | 'activity';
+  | 'activity'
+  | 'wrench'
+  | 'brain';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   archive: (
@@ -92,6 +94,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   activity: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+  wrench: <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />,
+  brain: (
+    <>
+      <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+      <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+      <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="7" />
@@ -266,10 +276,10 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
 };
 
-export default function Icon({ name, size }: { name: IconName; size?: 12 | 14 | 16 }) {
+export default function Icon({ name, size, className }: { name: IconName; size?: 12 | 14 | 16; className?: string }) {
   return (
     <svg
-      className={`dp-i${size && size !== 16 ? ` dp-s${size}` : ''}`}
+      className={`dp-i${size && size !== 16 ? ` dp-s${size}` : ''}${className ? ` ${className}` : ''}`}
       viewBox="0 0 24 24"
       aria-hidden="true"
     >

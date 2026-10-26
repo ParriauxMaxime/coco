@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import Markdown from '../../components/Markdown.tsx';
 import Icon from '../Icon.tsx';
-import { ErrorNote, Legacy, Loading, Page, PageHead, Section } from './Page.tsx';
-import { FeedbackForm, FileEditor, FileList, SubTabs } from './PersonaPage.tsx';
+import { ErrorNote, Loading, Page, PageHead, Section } from './Page.tsx';
+import { FeedbackForm, FileEditor, FileList, SubTabs } from './parts.tsx';
 import type { SkillDetail } from '../../types.ts';
 import './skill.css';
 
@@ -42,17 +42,17 @@ export default function SkillPage({ name, tab = 'read' }: { name: string; tab?: 
           sub={<>{s.description}{s.argumentHint && <span className="dp-skill-arg"><span className="dp-t3">Argument</span><code>{s.argumentHint}</code></span>}</>}
         />
         <SubTabs base={`#/skill/${name}`} on={on} tabs={[{ id: 'read', label: 'Read' }, { id: 'edit', label: 'Edit' }]} />
-        <div className={`dp-skill-body${many ? ' dp-skill-many' : ''}`}>
+        <div className={`dp-skill-body${many ? ' dp-filegrid' : ''}`}>
           {many && <FileList files={s.files} on={file} pick={setFile} />}
           <div className="dp-skill-main">
             {on === 'read' && (
               <>
                 <div className="dp-box dp-skill-doc">
                   <div className="dp-skill-docbar"><Icon name="file" size={14} /><span className="dp-mono dp-ell">{file}</span></div>
-                  {fileErr ? <div className="dp-skill-pad"><ErrorNote>{fileErr}</ErrorNote></div> : text === null ? <div className="dp-skill-pad"><Loading what="Loading file…" /></div> : <div className="dp-skill-md"><Legacy><Markdown text={text.replace(/^---[\s\S]*?---\n/, '')} /></Legacy></div>}
+                  {fileErr ? <div className="dp-skill-pad"><ErrorNote>{fileErr}</ErrorNote></div> : text === null ? <div className="dp-skill-pad"><Loading what="Loading file…" /></div> : <div className="dp-skill-md"><Markdown text={text.replace(/^---[\s\S]*?---\n/, '')} /></div>}
                 </div>
                 <Section title="Feedback" meta={<span className="dp-mono">{file}</span>}>
-                  <div className="dp-box dp-skill-fb"><FeedbackForm key={file} node={`skill:${name}:${file}`} title={`${name} · ${file}`} verdicts={['keep', 'change', 'drop', 'question']} /></div>
+                  <div className="dp-box dp-fbbox"><FeedbackForm key={file} node={`skill:${name}:${file}`} title={`${name} · ${file}`} verdicts={['keep', 'change', 'drop', 'question']} /></div>
                 </Section>
               </>
             )}

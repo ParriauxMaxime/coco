@@ -2,30 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
+import { RuleRow } from '../widgets/Rules.tsx';
+import type { Patch } from '../widgets/Rules.tsx';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section } from './Page.tsx';
 import type { Rule, RulesResponse } from '../../types.ts';
 import './rules.css';
 
 const POLL_MS = 3000;
-const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '');
-type Patch = { status?: string; drop?: boolean };
-
-function RuleRow({ r, onSet }: { r: Rule; onSet: (r: Rule, patch: Patch) => void }) {
-  return (
-    <div className={`dp-rowi dp-rules-row dp-rules-${r.status}`}>
-      <span className="dp-rowi-b">
-        <span className="dp-rules-text">{r.text}</span>
-        {r.source && <span className="dp-t3 dp-ell" title={r.source}>{r.source}</span>}
-      </span>
-      <span className="dp-rowi-m">{day(r.addedAt)}</span>
-      <span className="dp-row dp-g4 dp-rules-acts">
-        {r.status !== 'kept' && <button type="button" className={`dp-btn dp-sm${r.status === 'proposed' ? ' dp-primary' : ''}`} onClick={() => onSet(r, { status: 'kept' })}><Icon name="check" size={12} />Keep</button>}
-        {r.status === 'kept' && <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => onSet(r, { status: 'retired' })}><Icon name="archive" size={12} />Retire</button>}
-        {r.status === 'proposed' && <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => onSet(r, { drop: true })}><Icon name="x" size={12} />Drop</button>}
-      </span>
-    </div>
-  );
-}
 
 export default function RulesPage() {
   const [data, setData] = useState<RulesResponse | null>(null);

@@ -80,7 +80,7 @@ export default function AgentsPage() {
       icon="bot"
       title="Agents"
       sub={<>From <code>paseo ls --json</code>, refreshed every 15 s. Open an agent for its recent log; questions it waits on show first.</>}
-      actions={<button type="button" className="dp-btn" disabled={busy} onClick={() => void refresh()}><span className={busy ? 'dp-agp-spin' : 'dp-agp-ic'}><Icon name="refresh" size={14} /></span>Refresh</button>}
+      actions={<button type="button" className="dp-btn" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} className={busy ? 'dp-spin' : undefined} />Refresh</button>}
     />
   );
   if (!data) return <Page>{head}{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Reading Paseo agents…" />}</Page>;

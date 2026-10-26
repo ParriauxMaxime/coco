@@ -3,16 +3,6 @@
 .dp-pers-wrap { flex-wrap: wrap; }
 .dp-pers .dp-psub .dp-chip .dp-i { color: currentColor; }
 
-.dp-pers-tabs { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 16px; border-bottom: 1px solid var(--dp-line); margin-bottom: 4px; }
-.dp-pers-tabl { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.dp-pers-tabx { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-left: auto; padding-bottom: 5px; }
-.dp-pers-tabx > .dp-t3 { margin-right: 4px; }
-.dp a.dp-pers-tab, .dp-pers-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; font-size: 13px; font-weight: 500; color: var(--dp-t3); white-space: nowrap; text-decoration: none; border-radius: var(--dp-r2) var(--dp-r2) 0 0; }
-.dp a.dp-pers-tab:hover { color: var(--dp-t1); background: var(--dp-hover); text-decoration: none; }
-.dp a.dp-pers-tab.dp-on { color: var(--dp-t1); }
-.dp-pers-tab.dp-on::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--dp-accent); }
-.dp-pers-tab:focus-visible { outline: 2px solid var(--dp-focus); outline-offset: -2px; }
-
 .dp-pers-portrait { margin: 0 0 10px; max-width: 760px; font-size: 13.5px; line-height: 22px; color: var(--dp-t1); }
 .dp-pers-note { margin: 8px 0 0; font-size: 12.5px; line-height: 19px; color: var(--dp-t3); max-width: 760px; }
 .dp-pers-lead { margin: -4px 0 10px; }
@@ -58,38 +48,17 @@ button.dp-pers-checkh[disabled]:hover { background: transparent; }
 .dp-pers-avoid { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0 0; max-width: 820px; font-size: 13px; line-height: 20px; }
 .dp-pers-avoid .dp-chip { flex: none; margin-top: 0; }
 
-.dp-pers-fb { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; max-width: 640px; }
-.dp-pers-fbbox .dp-pers-fb { padding: 12px 14px; max-width: none; }
-.dp-pers-fbt { height: auto; min-height: 56px; padding: 6px 8px; line-height: 19px; resize: vertical; width: 100%; box-sizing: border-box; }
 .dp-btn.dp-pers-fbon { background: var(--dp-active); color: var(--dp-t1); }
-.dp-pers-fb .dp-seg button:hover:not(.dp-on) { color: var(--dp-t1); background: var(--dp-hover); }
 
 .dp-pers-md { padding: 4px 20px 12px; }
-.dp-pers-md, .dp-pers-split, .dp-pers-tabs + .dp-psec, .dp-pers-tabs + .dp-tiles { margin-top: 16px; }
-
-.dp-pers-split { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
-.dp-pers-files { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 0; }
-.dp-pers-files-h { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; font-size: 11.5px; font-weight: 600; color: var(--dp-t3); }
-.dp-pers-file { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--dp-r2); font: 12.5px var(--dp-mono); color: var(--dp-t2); cursor: pointer; min-width: 0; }
-.dp-pers-file:hover { background: var(--dp-hover); color: var(--dp-t1); }
-.dp-pers-file.dp-on { background: var(--dp-accent-t); color: var(--dp-accent); }
-.dp-pers-file:focus-visible { outline: 2px solid var(--dp-focus); outline-offset: -2px; }
-.dp-pers-file .dp-i { flex: none; }
-
-.dp-pers-ed { display: flex; flex-direction: column; min-width: 0; }
-.dp-pers-edbar { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); color: var(--dp-t2); }
-.dp-pers-edbar .dp-mono { color: var(--dp-t1); }
-.dp-pers-edta { display: block; width: 100%; box-sizing: border-box; min-height: 560px; height: calc(100vh - 300px); padding: 12px 14px; border: 0; outline: none; resize: vertical; background: var(--dp-panel); color: var(--dp-t1); font: 12.5px/20px var(--dp-mono); tab-size: 2; }
-.dp-pers-ed:focus-within { border-color: var(--dp-accent); box-shadow: 0 0 0 3px var(--dp-focus); }
+.dp-pers-md, .dp-pers-split { margin-top: 16px; }
 
 @container (max-width: 760px) {
-  .dp-pers-split { grid-template-columns: minmax(0, 1fr); }
-  .dp-pers-files { position: static; }
   .dp-pers-scope { flex-direction: column; gap: 8px; }
   .dp-pers-touch { width: 100%; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .dp-pers-tab, .dp-pers-file, .dp-pers-checkh, .dp-pers-fb .dp-seg button { transition: background .12s, color .12s; }
+  .dp-pers-checkh { transition: background .12s, color .12s; }
   .dp-pers-chev { transition: transform .18s ease; }
   .dp-pers-bar i { transition: width .3s ease; }
 }

@@ -17,6 +17,13 @@
 .dp-rules-fold:hover { color: var(--dp-accent); }
 .dp-rules-fold:focus-visible { box-shadow: 0 0 0 3px var(--dp-focus); }
 .dp-rules-fold .dp-caret { margin-left: -2px; }
+.dp-rules-scope { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.dp-rules-ledger { display: flex; flex-direction: column; gap: 10px; }
+.dp-rules-lead { margin: -4px 0 0; font-size: 12.5px; color: var(--dp-t3); }
+.dp-rules-box { display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow: visible; }
+.dp-inp.dp-rules-sel { flex: none; max-width: 200px; padding-right: 4px; }
+.dp-rules-ledger .dp-rules-fold { font-size: 12.5px; font-weight: 600; color: var(--dp-t2); gap: 6px; }
+.dp-rules-retired-list { margin-top: 8px; }
 @media (hover: none) { .dp-rules-kept .dp-rules-acts { opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {
   .dp-rules-acts { transition: opacity .12s; }

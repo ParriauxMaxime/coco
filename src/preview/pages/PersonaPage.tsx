@@ -3,60 +3,15 @@ import { api, errorMessage } from '../../api.ts';
 import { ritualFields, useConfig } from '../../config.ts';
 import Markdown from '../../components/Markdown.tsx';
 import Icon from '../Icon.tsx';
-import { Empty, ErrorNote, Legacy, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
+import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
+import { FeedbackForm, FileEditor, FileList, SubTabs, inline } from './parts.tsx';
 import type { FeedbackItem, PersonaDetail, PersonaJson, Quote } from '../../types.ts';
 import './persona.css';
 
 type PersonaCheck = NonNullable<PersonaJson['checks']>[number];
 type Scope = NonNullable<PersonaJson['scope']>[number];
 
-export const inline = (s?: string) => (s || '').split(/`([^`]+)`/).map((x, i) => (i % 2 ? <code key={i}>{x}</code> : x));
 const personName = (p: PersonaDetail) => p.title.replace(/\s+[—-]\s+`[^`]*`\s*$/, '').replace(/ — .*$/, '');
-
-export function SubTabs({ tabs, on, base, extra }: { tabs: { id: string; label: string; count?: number }[]; on: string; base: string; extra?: React.ReactNode }) {
-  return (
-    <div className="dp-pers-tabs">
-      <nav className="dp-pers-tabl" role="tablist">
-        {tabs.map((t) => (
-          <a key={t.id} role="tab" aria-selected={on === t.id} className={`dp-pers-tab${on === t.id ? ' dp-on' : ''}`} href={`${base}/${t.id}`}>
-            {t.label}{t.count !== undefined && <span className="dp-count">{t.count}</span>}
-          </a>
-        ))}
-      </nav>
-      {extra && <div className="dp-pers-tabx">{extra}</div>}
-    </div>
-  );
-}
-
-export function FeedbackForm({ node, title, verdicts = ['accurate', 'partly', 'wrong', 'missing'], placeholder }: { node: string; title: string; verdicts?: string[]; placeholder?: string }) {
-  const [verdict, setVerdict] = useState('');
-  const [text, setText] = useState('');
-  const [status, setStatus] = useState('');
-  const send = async () => {
-    setStatus('Sending…');
-    try {
-      await api.sendFeedback({ node, title, verdict, text });
-      setStatus(`Sent ${new Date().toLocaleTimeString()}`);
-      setText('');
-      setVerdict('');
-    } catch (e) {
-      setStatus(`Failed: ${errorMessage(e)}`);
-    }
-  };
-  return (
-    <div className="dp-pers-fb">
-      <div className="dp-row dp-g8">
-        <span className="dp-t3 dp-sm">Verdict</span>
-        <span className="dp-seg">{verdicts.map((v) => <button key={v} type="button" className={verdict === v ? 'dp-on' : ''} onClick={() => setVerdict(verdict === v ? '' : v)}>{v}</button>)}</span>
-      </div>
-      <textarea className="dp-inp dp-pers-fbt" rows={2} placeholder={placeholder || 'What is off, what is missing?'} value={text} onChange={(e) => setText(e.target.value)} />
-      <div className="dp-row dp-g8">
-        <button type="button" className="dp-btn dp-primary dp-sm" disabled={!verdict && !text} onClick={send}><Icon name="send" size={12} />Send to host</button>
-        <span className="dp-t3 dp-sm">{status}</span>
-      </div>
-    </div>
-  );
-}
 
 function FbSection({ title, count, node, fbTitle, children }: { title: string; count?: number; node: string; fbTitle: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -65,61 +20,6 @@ function FbSection({ title, count, node, fbTitle, children }: { title: string; c
       {children}
       <div className={`dp-collapse${open ? ' dp-open' : ''}`}><div>{open && <FeedbackForm node={node} title={fbTitle} />}</div></div>
     </Section>
-  );
-}
-
-export function FileEditor({ load, save, label }: { load: () => Promise<string>; save: (text: string) => Promise<{ bytes: number }>; label: string }) {
-  const [text, setText] = useState('');
-  const [initial, setInitial] = useState('');
-  const [status, setStatus] = useState('Loading…');
-  useEffect(() => {
-    let alive = true;
-    setStatus('Loading…');
-    load().then((t) => {
-      if (!alive) return;
-      setText(t);
-      setInitial(t);
-      setStatus('');
-    }).catch((e) => alive && setStatus(`Load failed: ${errorMessage(e)}`));
-    return () => { alive = false; };
-  }, [load]);
-  const dirty = text !== initial;
-  const onSave = async () => {
-    setStatus('Saving…');
-    try {
-      const r = await save(text);
-      setInitial(text);
-      setStatus(`Saved ${r.bytes} bytes, .bak kept`);
-    } catch (e) {
-      setStatus(`Save failed: ${errorMessage(e)}`);
-    }
-  };
-  return (
-    <div className="dp-box dp-pers-ed">
-      <div className="dp-pers-edbar">
-        <Icon name="file" size={14} />
-        <span className="dp-mono dp-ell">{label}</span>
-        {dirty && <span className="dp-chip dp-warn">unsaved</span>}
-        <span className="dp-t3 dp-sm dp-ell">{status}</span>
-        <span className="dp-sp" />
-        <button type="button" className="dp-btn dp-sm" disabled={!dirty} onClick={() => setText(initial)}><Icon name="refresh" size={12} />Revert</button>
-        <button type="button" className="dp-btn dp-primary dp-sm" disabled={!dirty} onClick={onSave}><Icon name="check" size={12} />Save</button>
-      </div>
-      <textarea className="dp-pers-edta" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label={label} />
-    </div>
-  );
-}
-
-export function FileList({ files, on, pick }: { files: string[]; on: string; pick: (f: string) => void }) {
-  return (
-    <nav className="dp-pers-files" aria-label="Files">
-      <span className="dp-pers-files-h">Files<span className="dp-count">{files.length}</span></span>
-      {files.map((f) => (
-        <button key={f} type="button" className={`dp-pers-file${f === on ? ' dp-on' : ''}`} onClick={() => pick(f)} title={f}>
-          <Icon name="file" size={12} /><span className="dp-ell">{f}</span>
-        </button>
-      ))}
-    </nav>
   );
 }
 
@@ -178,7 +78,7 @@ function CheckRow({ i, c }: { i: number; c: PersonaCheck }) {
 function Overview({ p }: { p: PersonaDetail }) {
   const P = p.json;
   const l = p.login;
-  if (!P) return <div className="dp-box dp-pers-md"><Legacy><Markdown text={p.md} /></Legacy></div>;
+  if (!P) return <div className="dp-box dp-pers-md"><Markdown text={p.md} /></div>;
   const checks = P.checks || [];
   const blocking = checks.filter((c) => c.block).length;
   return (
@@ -231,7 +131,7 @@ function FeedbackTab({ login, items }: { login: string; items: FeedbackItem[] })
           </div>
         ) : <Empty icon="message-square">No feedback yet.</Empty>}
       </Section>
-      <Section title="General feedback"><div className="dp-box dp-pers-fbbox"><FeedbackForm node={`persona:${login}:general`} title={`${login} · general`} /></div></Section>
+      <Section title="General feedback"><div className="dp-box dp-fbbox"><FeedbackForm node={`persona:${login}:general`} title={`${login} · general`} /></div></Section>
     </>
   );
 }
@@ -276,9 +176,9 @@ export default function PersonaPage({ login, tab = 'overview' }: { login: string
           extra={personaRituals.length > 0 && <><span className="dp-t3 dp-sm">Rituals</span>{personaRituals.map((r) => <a key={r.kind} className="dp-btn dp-ghost dp-sm" href={`#/rituals/${r.kind}/${login}`}><Icon name="sparkles" size={12} />{r.label || r.kind}</a>)}</>}
           tabs={[{ id: 'overview', label: 'Overview' }, { id: 'file', label: 'Persona file' }, { id: 'edit', label: 'Edit' }, { id: 'feedback', label: 'Feedback', count: p.feedback.length }]} />
         {on === 'overview' && <Overview p={p} />}
-        {on === 'file' && <div className="dp-box dp-pers-md"><Legacy><Markdown text={p.md} /></Legacy></div>}
+        {on === 'file' && <div className="dp-box dp-pers-md"><Markdown text={p.md} /></div>}
         {on === 'edit' && (
-          <div className="dp-pers-split">
+          <div className="dp-filegrid dp-pers-split">
             <FileList files={files} on={file} pick={setFile} />
             <FileEditor key={file} load={load} save={save} label={file} />
           </div>

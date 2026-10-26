@@ -1,14 +1,14 @@
 import React from 'react';
 import Markdown from '../../components/Markdown.tsx';
-import TeamPack from '../../components/TeamPack.tsx';
-import Onboarding from '../../components/Onboarding.tsx';
-import { usePendingPermissions } from '../../components/PermissionCard.tsx';
 import { ritualFields, useConfig } from '../../config.ts';
+import { usePendingPermissions } from '../chat/Permission.tsx';
+import Onboarding from '../widgets/Onboarding.tsx';
+import TeamPack from '../widgets/TeamPack.tsx';
 import Icon from '../Icon.tsx';
 import { SegBar, workDot } from '../Shell.tsx';
 import { workHref } from '../prefs.ts';
 import { useOverview } from '../overview.ts';
-import { Empty, ErrorNote, Legacy, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
+import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { Persona, WorkSummary } from '../../types.ts';
 import './dashboard.css';
 
@@ -60,7 +60,7 @@ export default function DashboardPage() {
         sub="Copiloting the copilots: works, personas, skills and Paseo agents in one place. Runs on your machine; agents never push, post or send on their own."
         actions={<><a className="dp-btn" href="#/repos/new"><Icon name="plus" size={14} />New repo</a><a className="dp-btn dp-primary" href="#/ask"><Icon name="message-square" size={14} />Ask coco</a></>}
       />
-      <Legacy><Onboarding /></Legacy>
+      <Onboarding />
       <Tiles items={[
         { label: 'Works', value: live.length, hint: `${ov.repos.length} repo${ov.repos.length === 1 ? '' : 's'}`, href: '#/projects' },
         { label: 'Open PRs', value: openPrs, hint: attention ? `${attention} need attention` : 'all calm', tone: attention ? 'warn' : undefined },
@@ -131,7 +131,7 @@ export default function DashboardPage() {
         </div>
       </Section>
 
-      <Section title="Team pack"><Legacy><TeamPack /></Legacy></Section>
+      <Section title="Team pack"><TeamPack /></Section>
 
       {(rituals.length > 0 || ov.rituals.length > 0) && (
         <Section title="Recent rituals" count={ov.rituals.length} action={<a className="dp-lnk" href="#/rituals">Rituals<Icon name="chevron-right" size={12} /></a>}>
@@ -164,8 +164,8 @@ export default function DashboardPage() {
       </Section>
 
       <div className="dp-dash-notes">
-        <Section title="Backlog"><div className="dp-box dp-dash-md"><Legacy><Markdown text={ov.backlog.replace(/^# .*\n/, '')} /></Legacy></div></Section>
-        <Section title="Changelog"><div className="dp-box dp-dash-md"><Legacy><Markdown text={ov.changelog.replace(/^# .*\n/, '')} /></Legacy></div></Section>
+        <Section title="Backlog"><div className="dp-box dp-dash-md"><Markdown text={ov.backlog.replace(/^# .*\n/, '')} /></div></Section>
+        <Section title="Changelog"><div className="dp-box dp-dash-md"><Markdown text={ov.changelog.replace(/^# .*\n/, '')} /></div></Section>
       </div>
     </Page>
   );

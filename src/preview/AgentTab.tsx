@@ -1,8 +1,11 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
-import { AgentProposal, Conversation, DispatchProposal, Proposal, RepoProposal, useAskConversation } from '../pages/Ask.tsx';
-import { PendingPermissions, usePendingPermissions } from '../components/PermissionCard.tsx';
 import { toast } from '../components/Toast.tsx';
+import { Composer, Log } from './chat/Composer.tsx';
+import Conversation from './chat/Conversation.tsx';
+import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import { Proposals } from './chat/Proposals.tsx';
+import { nonceOf, useAskConversation } from './chat/conversation.ts';
 import { useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import Icon from './Icon.tsx';
@@ -13,38 +16,6 @@ import type { ActivityEvent } from '../types.ts';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
-
-const nonceOf = () => Math.random().toString(36).slice(2, 12);
-
-// follows the bottom while new steps arrive, unless the owner scrolled up to read
-export function Log({ size, children }: { size: number; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const pinned = useRef(true);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  }, [size]);
-  return <div ref={ref} className="dp-agent-log" onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>{children}</div>;
-}
-
-export function Composer({ placeholder, note, disabled = false, onSend }: { placeholder: string; note?: string; disabled?: boolean; onSend: (text: string) => Promise<boolean> }) {
-  const [text, setText] = useState('');
-  const send = async () => {
-    const t = text.trim();
-    if (t && !disabled && (await onSend(t))) setText('');
-  };
-  return (
-    <div className="dp-composer">
-      <div className="dp-composer-in">
-        <textarea rows={2} value={text} disabled={disabled} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }} />
-        <div className="dp-comp-f">
-          <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
-          <button type="button" className="dp-btn dp-primary dp-sm" disabled={disabled || !text.trim()} onClick={() => void send()}>Send<kbd>⌘</kbd><kbd>↵</kbd></button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function Header({ title, kind, pr, state, agentId }: { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null }) {
   const href = paseoLink(useServerId(useWork().slug), agentId);
@@ -108,14 +79,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
       <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} />
       <Log size={events.length + pending.length}>
         {run && <Conversation run={run} events={events} pending={pending} working={working} />}
-        {run && (
-          <div className="dp-ag-cards">
-            <Proposal run={run} onApplied={(s) => { location.hash = `#/work/${s}`; }} />
-            <AgentProposal run={run} />
-            <DispatchProposal run={run} />
-            <RepoProposal run={run} />
-          </div>
-        )}
+        {run && <Proposals run={run} onApplied={(s) => { location.hash = `#/work/${s}`; }} />}
       </Log>
       <Composer
         placeholder="Follow up, correct or narrow it down (⌘↵)"
@@ -168,7 +132,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
     <div className="dp-tabview dp-agtab">
       <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} />
       <Log size={events.length + pending.length}>
-        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running'} />
+        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running'} who={listed?.kind || 'agent'} />
         <PendingPermissions agentId={agentId} />
       </Log>
       <Composer

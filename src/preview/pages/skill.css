@@ -5,16 +5,10 @@
 .dp-skill-arg code { white-space: normal; overflow-wrap: anywhere; }
 
 .dp-skill-body { margin-top: 16px; }
-.dp-skill-body.dp-skill-many { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
 .dp-skill-main { min-width: 0; }
 .dp-skill-docbar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); color: var(--dp-t2); }
 .dp-skill-docbar .dp-mono { color: var(--dp-t1); }
 .dp-skill-md { padding: 4px 20px 12px; }
 .dp-skill-pad { padding: 12px; }
 .dp-skill-pad .dp-pempty { border: 0; }
-.dp-skill-fb .dp-pers-fb { padding: 12px 14px; max-width: none; }
 .dp-skill-main > .dp-psec { margin-top: 8px; }
-
-@container (max-width: 760px) {
-  .dp-skill-body.dp-skill-many { grid-template-columns: minmax(0, 1fr); }
-}

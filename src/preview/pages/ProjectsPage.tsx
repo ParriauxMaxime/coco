@@ -97,7 +97,7 @@ export default function ProjectsPage() {
       icon="folder"
       title="Projects"
       sub={<>Synced from your local Paseo (<code>paseo project ls</code>, <code>workspace ls</code>, <code>ls</code>). A project with a work carries long-term context: stack, artifacts, personas, notes.</>}
-      actions={<button type="button" className="dp-btn" onClick={reload} disabled={busy}><Icon name="refresh" size={14} />{busy ? 'Refreshing…' : 'Refresh'}</button>}
+      actions={<button type="button" className="dp-btn" onClick={reload} disabled={busy}><Icon name="refresh" size={14} className={busy ? 'dp-spin' : undefined} />{busy ? 'Refreshing…' : 'Refresh'}</button>}
     />
   );
   if (!data) return <Page>{head}{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Loading Paseo…" />}</Page>;

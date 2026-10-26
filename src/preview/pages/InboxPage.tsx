@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { useConfig } from '../../config.ts';
-import WorktreeChoice from '../../components/WorktreeChoice.tsx';
-import { ASK_STATE, AskConversation, Proposal, useAskConversation } from '../../pages/Ask.tsx';
+import { AskPanel } from '../chat/AskPanel.tsx';
+import { Proposal } from '../chat/Proposals.tsx';
+import { askState, useAskConversation } from '../chat/conversation.ts';
+import WorktreeChoice from '../widgets/WorktreeChoice.tsx';
 import Icon from '../Icon.tsx';
 import { workHref } from '../prefs.ts';
-import { Empty, Legacy, Page, PageHead, Section } from './Page.tsx';
+import { Empty, Page, PageHead, Section } from './Page.tsx';
 import type { AskRun, WorktreeNotice } from '../../types.ts';
 import './inbox.css';
 
-const TONE: Record<string, string> = { 'c-blue': ' dp-info', 'c-green': ' dp-ok', 'c-red': ' dp-bad' };
 const linkOf = (prompt: string) => (prompt.split('\n')[0].match(/https?:\/\/\S+/) || [prompt])[0];
 const sourceOf = (url: string) => (/notion\.(so|site)/.test(url) ? 'Notion' : /github\.com/.test(url) ? 'GitHub' : /slack\.com/.test(url) ? 'Slack' : 'link');
 const when = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -32,7 +33,7 @@ function Notices() {
               </span>
               <span className="dp-t3 dp-sm dp-num">{n.at.slice(0, 10)}</span>
             </div>
-            <div className="dp-inbox-notice-b"><Legacy><WorktreeChoice slug={n.slug} confirmLabel={(k) => `Remove ${k}`} secondary={{ label: 'Keep all', run: () => api.dismissNotice(n.id).then(load) }} onDone={() => void load()} /></Legacy></div>
+            <div className="dp-inbox-notice-b"><WorktreeChoice slug={n.slug} confirmLabel={(k) => `Remove ${k}`} secondary={{ label: 'Keep all', run: () => api.dismissNotice(n.id).then(load) }} onDone={() => void load()} /></div>
           </div>
         ))}
       </div>
@@ -107,10 +108,8 @@ export default function InboxPage() {
       {run && (
         <Section title="Proposal" meta={<span className="dp-ell dp-inbox-src">{linkOf(run.prompt || '')}</span>}>
           <div className="dp-inbox-run">
-            <Legacy>
-              <AskConversation convo={convo} placeholder="Reshape the proposal: smaller tier, split a PR, another precedent… (markdown, ⌘↵)" />
-              <Proposal run={run} label="Create work" onApplied={(slug) => { location.hash = workHref(slug); }} />
-            </Legacy>
+            <AskPanel convo={convo} placeholder="Reshape the proposal: smaller tier, split a PR, another precedent… (markdown, ⌘↵)" />
+            <Proposal run={run} label="Create work" onApplied={(slug) => { location.hash = workHref(slug); }} />
           </div>
         </Section>
       )}
@@ -119,7 +118,7 @@ export default function InboxPage() {
         {history.length ? (
           <div className="dp-rows">
             {history.map((h) => {
-              const [chip, text] = ASK_STATE[h.status] || ['c-grey', h.status];
+              const st = askState(h.status);
               const link = linkOf(h.prompt);
               return (
                 <div key={h.id} className={`dp-rowi dp-click dp-inbox-row${run?.id === h.id ? ' dp-on' : ''}`} role="button" tabIndex={0} onClick={() => pick(h)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(h); } }}>
@@ -128,7 +127,7 @@ export default function InboxPage() {
                     <span className="dp-ell">{h.proposal?.title || link}</span>
                     <span className="dp-t3 dp-ell">{h.proposal?.title ? link : sourceOf(link)}</span>
                   </span>
-                  <span className={`dp-chip${TONE[chip] || ''}`}>{text}</span>
+                  <span className={`dp-chip ${st.tone}`}>{st.label}</span>
                   <span className="dp-rowi-m dp-inbox-meta">{when(h.startedAt)}{(h.turns ?? 0) > 1 ? ` · ${h.turns} turns` : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span>
                 </div>
               );

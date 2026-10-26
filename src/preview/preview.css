@@ -1,4 +1,5 @@
 /* Design preview: dp- prefixed port of the coco mockup tokens and components */
+@import './content.css';
 
 .dp, body.dp-on .pr-peek, body.dp-on .code-peek {
   color-scheme: light;
@@ -569,7 +570,6 @@ body.dp-on .pr-peek { padding: 10px 12px; font-size: 12.5px; }
 .dp-tabview.dp-agtab { overflow: hidden; }
 .dp-agent-log { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px; }
 .dp-agent-log > * { max-width: 760px; margin-left: auto; margin-right: auto; }
-.dp-agtab .ask-conv { max-height: none; overflow: visible; border-top: 0; margin: 0 auto; padding-top: 0; }
 .dp-ag-cards { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .dp-ag-bar .dp-title { min-width: 0; }
 .dp-ag-start { display: flex; align-items: center; justify-content: center; }

@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
-import { AgentProposal, Conversation, DispatchProposal, Proposal, RepoProposal, useAskConversation } from '../../pages/Ask.tsx';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
-import { Composer, Log } from '../AgentTab.tsx';
-import { Empty, Legacy, Loading, PageHead } from './Page.tsx';
+import { Composer, Log } from '../chat/Composer.tsx';
+import Conversation from '../chat/Conversation.tsx';
+import { Proposals } from '../chat/Proposals.tsx';
+import { askState, useAskConversation } from '../chat/conversation.ts';
+import { Empty, Loading, PageHead } from './Page.tsx';
 import type { AskRun } from '../../types.ts';
 import './ask-page.css';
 
@@ -13,15 +15,7 @@ const EXAMPLES = [
   'Which repo does a CSV export of invoices belong in, and is there a precedent work for it?',
   'Add the acme/widgets repo to coco.',
 ];
-const STATE: Record<string, [string, string]> = {
-  running: ['dp-ag-running', 'working'],
-  idle: ['dp-ag-done', 'agent live'],
-  parked: ['dp-ag-archived', 'parked'],
-  closed: ['dp-ag-archived', 'closed'],
-  done: ['dp-ag-archived', 'done'],
-  error: ['dp-ag-failed', 'error'],
-};
-const toneOf = (s?: string | null) => STATE[s || ''] || ['dp-ag-archived', s || ''];
+const toneOf = (s?: string | null) => { const st = askState(s); return [st.dot, st.short]; };
 const firstLine = (s?: string) => (s || '').split('\n')[0];
 const when = (iso?: string) => {
   if (!iso) return '';
@@ -106,15 +100,8 @@ export default function AskPage({ convId }: { convId?: string }) {
                 {(state === 'idle' || state === 'running') && <button type="button" className="dp-btn dp-sm" disabled={closing} title="Archive coco's agent; a new message starts a new one with the conversation so far" onClick={() => void close()}><Icon name="archive" size={12} />Close</button>}
               </div>
               <Log size={events.length + pending.length}>
-                <Legacy>
-                  <Conversation run={run} events={events} pending={pending} working={working} />
-                  <div className="dp-ag-cards">
-                    <Proposal run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
-                    <AgentProposal run={run} />
-                    <DispatchProposal run={run} />
-                    <RepoProposal run={run} />
-                  </div>
-                </Legacy>
+                <Conversation run={run} events={events} pending={pending} working={working} />
+                <Proposals run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
               </Log>
               <Composer
                 placeholder="Follow up, correct or narrow it down (⌘↵)"

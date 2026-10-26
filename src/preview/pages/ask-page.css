@@ -17,8 +17,6 @@
 .dp-askp-bar { position: static; }
 .dp-askp-bar .dp-title { min-width: 0; }
 .dp-askp-bar code { flex: none; color: var(--dp-t3); }
-.dp-askp .ask-conv { max-height: none; overflow: visible; border-top: 0; margin: 0; padding-top: 0; }
-.dp-askp .dp-ag-cards:empty { display: none; }
 @container (max-width: 760px) {
   .dp-askp-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 200px) minmax(0, 1fr); }
   .dp-askp-side { border-right: 0; border-bottom: 1px solid var(--dp-line); }

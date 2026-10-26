@@ -156,7 +156,7 @@ export default function RepoPage({ id }: { id: string }) {
         <div className="dp-repop-ask"><Legacy><Ask repoId={data.id} repoName={data.name} /></Legacy></div>
       </Section>
 
-      <Section title="Loose PRs" count={data.loose.prs.length} action={<button type="button" className="dp-btn dp-sm" onClick={refresh} disabled={refreshing} title="Ask GitHub again"><span className={`dp-repop-ric${refreshing ? ' dp-on' : ''}`}><Icon name="refresh" size={12} /></span>{refreshing ? 'Asking GitHub…' : 'Refresh'}</button>}>
+      <Section title="Loose PRs" count={data.loose.prs.length} action={<button type="button" className="dp-btn dp-sm" onClick={refresh} disabled={refreshing} title="Ask GitHub again"><Icon name="refresh" size={12} className={refreshing ? 'dp-spin' : undefined} />{refreshing ? 'Asking GitHub…' : 'Refresh'}</button>}>
         <p className="dp-repop-lead">Your open PRs on {data.github || data.name} that no work holds.</p>
         {data.loose.error && <ErrorNote>{data.loose.error}</ErrorNote>}
         {data.loose.prs.length > 0 && (
