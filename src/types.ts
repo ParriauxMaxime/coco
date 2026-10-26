@@ -322,7 +322,10 @@ export type ThreadMessage = {
   steer?: boolean;
   turn?: string;
   suggestion?: Suggestion;
+  choices?: ThreadChoice[];
+  picked?: number;
 };
+export type ThreadChoice = { label: string; text: string; change: boolean };
 export type Thread = {
   messages: ThreadMessage[];
   waiting?: { msgId: string } | null;
@@ -332,7 +335,7 @@ export type Thread = {
 };
 export type ThreadSummary = { count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number };
 export type ThreadGroup = { id: string; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number };
-export type ThreadPostBody = { text: string; model?: string };
+export type ThreadPostBody = { text: string; model?: string } | { choice: { msgId: string; index: number } };
 export type SuggestionAction = 'approve' | 'dismiss';
 
 export type FindingRow = {

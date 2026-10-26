@@ -14,7 +14,7 @@ type TimelineItem = NonNullable<TimelineEvent['item']>;
 type FakeAgent = { id: string; workspaceId: string; status: string; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[] };
 type Created = { id: string; [key: string]: unknown };
 type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean };
-type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { role: string; text: string; blocks?: unknown; steer?: boolean }[]; groupId?: string };
+type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; blocks?: unknown; steer?: boolean; choices?: unknown }[]; groupId?: string };
 type Activity = { type: string; status?: string; msgId?: string; text?: string };
 
 const APP = '/opt/coco';
@@ -232,4 +232,37 @@ test('the thread stream replays the stored activity, then live deltas and a ping
   await until(() => seen.some((e) => e.type === 'thread'), 'thread ping');
   assert.deepEqual(activity(A).map((e) => e.type), ['tool', 'text', 'end']);
   assert.equal(activity(A)[1].text, 'Adding it.');
+});
+
+test('a clicked option that keeps the code dismisses the finding without a new turn; one that changes it goes to the agent', async () => {
+  const { threads, post, daemon, read } = setup();
+  const acted: { id: string; action: string; reason: string }[] = [];
+  threads.setFindingActor(async (_slug, _n, id, a) => void acted.push({ id, ...a }));
+  const choices = [{ label: 'A', text: 'Keep the read unscoped', change: false }, { label: 'B', text: 'Scope the read', change: true }];
+  const ask = async (key: string) => {
+    const before = daemon.calls.sent.length;
+    const t = await post(key, 'Which way?');
+    await until(() => daemon.calls.sent.length > before, 'dispatch');
+    fs.writeFileSync(t.waiting.replyPath, JSON.stringify({ blocks: [{ type: 'text', text: 'A or B?' }], choices }));
+    daemon.finish(daemon.calls.created[0].id);
+    await until(() => !read(key).waiting, 'reply');
+    const last = read(key).messages.at(-1);
+    assert.ok(last);
+    return last;
+  };
+
+  const onA = await ask(A);
+  assert.deepEqual(onA.choices, choices);
+  const sent = daemon.calls.sent.length;
+  await threads.post(SLUG, A, { choice: { msgId: onA.id, index: 0 } });
+  await until(() => acted.length === 1, 'dismiss');
+  assert.deepEqual(acted, [{ id: 'aa11', action: 'dismiss', reason: 'Picked A: Keep the read unscoped' }]);
+  assert.equal(daemon.calls.sent.length, sent);
+  await assert.rejects(threads.post(SLUG, A, { choice: { msgId: onA.id, index: 1 } }), /already answered/);
+
+  const onB = await ask(B);
+  const picked = await threads.post(SLUG, B, { choice: { msgId: onB.id, index: 1 } });
+  assert.ok(picked.waiting);
+  assert.equal(read(B).messages.at(-1)?.text, 'B: Scope the read');
+  assert.equal(acted.length, 1);
 });

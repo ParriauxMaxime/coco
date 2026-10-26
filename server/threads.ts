@@ -20,6 +20,7 @@ import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, W
 const SETTLE_MS = 15000;
 const TURN_MS = 45 * 60 * 1000;
 const MAX_DIFF = 20000;
+const MAX_CHOICES = 6;
 const STATE_FIELDS = ['id', 'status', 'choice', 'rationale', 'decidedAt'];
 const OPEN_SUGGESTION = ['pending', 'queued', 'conflict'];
 
@@ -31,7 +32,9 @@ type ThreadPr = { head: string; sha: string; url?: string };
 type CardSuggestion = { kind: 'card'; fields: Record<string, unknown>; state: string; error?: string };
 type CommitSuggestion = { kind: 'commit'; commit: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string };
 type Suggestion = CardSuggestion | CommitSuggestion;
-type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion };
+// change: false when picking it leaves the code as is
+type Choice = { label: string; text: string; change: boolean };
+type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion; choices?: Choice[]; picked?: number };
 type Asked = { msgId: string; replyPath: string; cardPath: string };
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
 type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean };
@@ -41,7 +44,7 @@ type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; 
 type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined };
 type Group = DecisionGroup | PlanGroup | CodeGroup;
 type Finding = { action?: string; reason?: string; patch?: Record<string, unknown> };
-type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string };
+type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; choices?: Choice[]; error?: string };
 type SessionPromise = Promise<AgentSession | null> & { agentId?: string | null };
 type ThreadEvent = { type: string; [key: string]: unknown };
 type FindingActor = (slug: string, n: RowKey, id: string, action: { action: string; reason: string }) => Promise<unknown>;
@@ -200,7 +203,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const findingRule = [
     `Only when ${OWNER} asks you to accept, dismiss or edit this finding, add to the reply JSON`,
     '`"finding": { "action": "accept" | "dismiss", "reason": "…", "patch": { "title", "severity", "confidence", "summary", "recommendation", "blocks" } }`',
-    '(each part optional; dismiss needs a reason). cocopilot applies it after your turn; accept or dismiss may end your session. Never on your own initiative.',
+    '(each part optional; dismiss needs a reason). cocopilot applies it after your turn; accept or dismiss may end your session. Never on your own initiative,',
+    `except one case: when ${OWNER} picks an option that leaves the code unchanged, dismiss the finding in that same reply with the option as reason, without asking.`,
+  ].join(' ');
+  const choicesRule = [
+    `When you ask ${OWNER} to pick between options, also add \`"choices": [{ "label": "A", "text": "what picking it does, one line", "change": true | false }]\` to the reply JSON`,
+    '(change: false when picking it leaves the code as is). cocopilot shows them as buttons; never end with "tell me which" or "say dismiss" without them.',
   ].join(' ');
   const replyRule = (replyPath: string, kind: string) => [
     `Last step of your turn: write your reply to \`${replyPath}\` as JSON \`{ "blocks": [...] }\`, never markdown.`,
@@ -208,6 +216,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     '`suggestion` ({ path, startLine, endLine, lang, after }: the code you propose at those lines; cocopilot shows it as a diff), `code` ({ path, line, lang, code }), `diagram` ({ mermaid, caption }), `callout` ({ tone, title, text }).',
     'Inline text: **bold**, `code`, path/file.ts:12 refs and <risk>…</risk> <warn> <ok> <note> marks. Lead with the answer; short.',
     'Link what the reader may open: files as repo-relative path:line (never a bare name), PRs as #123, commits as their sha in `code`, anything else in sources with its url.',
+    choicesRule,
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
@@ -382,11 +391,35 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (s && !following.has(s.agentId)) track(slug, group.id, s, s.resume({ timeoutMs: TURN_MS }));
   }
 
-  function post(slug: string, key: string, { text, model, groupId }: { text?: string; model?: string | null; groupId?: string | null } = {}) {
+  function post(slug: string, key: string, { text, model, groupId, choice }: { text?: string; model?: string | null; groupId?: string | null; choice?: { msgId?: string; index?: number } } = {}) {
     const { work, ref } = check(slug, key);
+    if (choice) return withLock(`${slug}:${key}`, () => pick(slug, work, ref, key, choice));
     if (!text || !String(text).trim()) throw new HttpError(400, 'text required');
     if (model && !MODELS[model]) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
     return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: text.trim(), model, groupId, role: 'user' }));
+  }
+
+  // an option of an agent reply, clicked: one that keeps the code as is closes a finding right away, any other goes to the agent as the owner's answer
+  async function pick(slug: string, work: Work, ref: Ref, key: string, { msgId, index }: { msgId?: string; index?: number }): Promise<Thread> {
+    const thread = read(slug, key);
+    const asked = thread.messages.find((m) => m.id === msgId);
+    const c = typeof index === 'number' ? asked?.choices?.[index] : undefined;
+    if (!asked || !c) throw new HttpError(404, 'no such choice');
+    if (asked.picked !== undefined) throw new HttpError(409, 'already answered');
+    if (thread.waiting) throw new HttpError(409, 'the agent is still working');
+    asked.picked = index;
+    const text = `${c.label}${c.text ? `: ${c.text}` : ''}`;
+    if (c.change || ref.kind !== 'comment' || !findingActor) {
+      write(slug, thread);
+      return dispatch(slug, work, ref, key, { text, role: 'user' });
+    }
+    const reason = `Picked ${text}`.slice(0, 300);
+    thread.messages.push(message('user', text), message('system', `No code change: finding dismissed (${reason}).`));
+    write(slug, thread);
+    const actor = findingActor;
+    // after this lock: dismiss releases the thread, which waits on the same lock
+    setImmediate(() => actor(slug, ref.n, ref.id, { action: 'dismiss', reason }).catch((e) => addNote(slug, key, `Dismiss failed: ${errText(e)}`)));
+    return thread;
   }
 
   // a message (the owner's, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight
@@ -456,10 +489,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (file.endsWith('.md')) return { text: raw };
     let blocks: Block[];
     let finding: Finding | null;
+    let choices: Choice[];
     try {
       const json = JSON.parse(raw);
       blocks = validateBlocks(json.blocks);
       finding = json.finding && typeof json.finding === 'object' ? json.finding : null;
+      choices = choicesOf(json.choices);
     } catch (e) {
       return { text: raw, error: errText(e) };
     }
@@ -469,7 +504,18 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const lines = r.ok ? r.stdout.split('\n') : null;
       b.before = lines && b.endLine <= lines.length ? lines.slice(b.startLine - 1, b.endLine).join('\n') : undefined;
     }
-    return { blocks, text: blocksToMarkdown({ blocks }), finding };
+    return { blocks, text: blocksToMarkdown({ blocks }), finding, ...(choices.length ? { choices } : {}) };
+  }
+
+  // malformed choices are dropped, not the reply
+  function choicesOf(raw: unknown): Choice[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.slice(0, MAX_CHOICES).flatMap((c) => {
+      if (!c || typeof c !== 'object') return [];
+      const { label, text, change } = c as Record<string, unknown>;
+      if (typeof label !== 'string' || !label.trim() || typeof text !== 'string') return [];
+      return [{ label: label.trim().slice(0, 40), text: text.trim().slice(0, 300), change: change !== false }];
+    });
   }
 
   // what an agent asked to do to its own finding (only on the owner's request, per its prompt): edit it now, accept or dismiss once the thread lock is free
@@ -526,7 +572,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const notes = [];
       for (const a of replied) {
         const reply = await readReply(a.replyPath, waiting.sha);
-        added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
+        added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}), ...(reply.choices ? { choices: reply.choices } : {}) }));
         if (reply.error) notes.push(message('system', `Reply not in blocks (${reply.error}): shown as text.`));
         if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) notes.push(message('system', note));
       }

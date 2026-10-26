@@ -6,7 +6,7 @@ import AgentActivity from './AgentActivity.tsx';
 import { api, errorMessage } from '../api.ts';
 import { toast } from './Toast.tsx';
 import { pendingClass } from './action.ts';
-import type { ActivityEvent, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadSummary } from '../types.ts';
+import type { ActivityEvent, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary } from '../types.ts';
 
 const POLL_MS = 10000;
 const MODELS: [string, string][] = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
@@ -40,6 +40,26 @@ export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle 
   const s = useThreadSummary(slug, key);
   const label = s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle;
   return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
+}
+
+// options the agent asked to pick from: one click answers; an option that keeps the code as is closes a finding without a new turn
+function Choices({ m, open, pending, onPick }: { m: ThreadMessage; open: boolean; pending: number | null; onPick: (index: number) => void }) {
+  return (
+    <div className="thread-choices">
+      {(m.choices || []).map((c, i) => (
+        <button
+          key={i}
+          type="button"
+          className={`thread-choice${m.picked === i ? ' on' : ''}${pendingClass(pending === i)}`}
+          disabled={!open || pending !== null}
+          title={c.change ? 'Send this answer to the agent' : 'No code change: closes the finding'}
+          onClick={() => onPick(i)}
+        >
+          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{!c.change && <span className="chip c-grey">no change</span>}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // pending: 'approve' | 'dismiss' while that decision is in flight
@@ -187,6 +207,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   if (!thread) return <div className="thread status">{error || 'Loading thread…'}</div>;
   const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
+  const lastAgentId = thread.messages.findLast((m) => m.role !== 'system')?.id;
   const others = groups.filter((g) => g.status === 'active' && g.id !== thread.groupId && g.kind === kind && (decision || String(g.n).replaceAll(':', '~') === prPart));
   return (
     <div className="thread">
@@ -214,6 +235,14 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
               <>
                 <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.steer ? ' · while it worked' : m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
                 {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+                {m.choices && (
+                  <Choices
+                    m={m}
+                    open={!waiting && m.picked === undefined && m.id === lastAgentId}
+                    pending={pending?.startsWith(`${m.id}#`) ? Number(pending.split('#')[1]) : null}
+                    onPick={(index) => act(`${m.id}#${index}`, () => api.postThread(slug, key, { choice: { msgId: m.id, index } }))}
+                  />
+                )}
                 {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
               </>
             )}
