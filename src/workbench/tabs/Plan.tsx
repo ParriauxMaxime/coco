@@ -76,7 +76,20 @@ type PrCardProps = {
   onToggle: () => void;
 };
 
-const prTitle = (work: WorkDetail, pr: WorkPr, index: number) => pr.title || work.stack?.[index]?.planned?.title || `PR ${index + 1}`;
+function DiffStat({ pr }: { pr: WorkPr }) {
+  const files = pr.files || [];
+  const added = files.filter((f) => f.status === 'added').length;
+  const deleted = files.filter((f) => f.status === 'removed').length;
+  const counts = [[added, 'added'], [deleted, 'deleted'], [files.length - added - deleted, 'changed']] as const;
+  return (
+    <div className="status diffstat-line">
+      <span className="add">+{pr.additions || 0}</span> <span className="del">−{pr.deletions || 0}</span> · {pr.changedFiles || files.length} files
+      {files.length > 0 && ` (${counts.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(', ')})`}
+    </div>
+  );
+}
+
+const prTitle =(work: WorkDetail, pr: WorkPr, index: number) => pr.title || work.stack?.[index]?.planned?.title || `PR ${index + 1}`;
 
 function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChange, open, onToggle }: PrCardProps) {
   const planned = work.stack?.[index]?.planned;
@@ -90,6 +103,7 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChang
         <div>
           {pr.number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>#{pr.number}</a> : <span className="status">planned</span>} <b>{title}</b>
           {open && planned?.branch && !pr.number && <div className="status"><code>{planned.branch}</code></div>}
+          {number && <DiffStat pr={pr} />}
         </div>
         <span className="row" style={{ justifyContent: 'flex-end' }}>
           <span className={`chip ${stateChip(pr)}`}>{stateLabel(pr)}</span>

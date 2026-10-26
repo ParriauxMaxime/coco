@@ -200,6 +200,7 @@ form.ritual label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; 
 .pr-card.folded { padding: 8px 16px; }
 .pr-card .headline { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; cursor: pointer; }
 .pr-card .step { background: var(--st, var(--navy)); }
+.pr-card .diffstat-line { font-size: 12px; font-variant-numeric: tabular-nums; }
 .hero .about { margin: 10px 0 0; }
 /* mermaid nodes without a style of their own cycle through the palette */
 svg .node.tone-0 > .label-container { fill: var(--brand-50) !important; stroke: var(--brand) !important; }
