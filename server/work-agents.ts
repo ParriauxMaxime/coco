@@ -3,6 +3,8 @@
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { TITLE_PREFIX, activityEvents, createFollower, timelineOf } from './paseo-agent.ts';
 import type { ActivityEvent, DaemonClient } from './paseo-agent.ts';
+import { fromPaseo } from './agent-usage.ts';
+import type { AgentUsage, PaseoUsage } from './agent-usage.ts';
 import type { AgentSnapshot } from './permissions.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
 
@@ -14,7 +16,9 @@ const TURN_END = ['turn_completed', 'turn_failed', 'turn_canceled'];
 
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // id is the agent's tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null };
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null } & Metrics;
+// estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
+type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
 
 type AskMeta = { id: string; prompt: string; kind: string; pr?: RowKey | null; status: string; agentId: string | null; lastActivity?: string; startedAt: string };
 type Linked = { agentId: string; key: RowKey; title: string | null };
@@ -24,6 +28,7 @@ type Options = {
   linked: (slug: string) => Linked[];
   onAgent: (l: (agent: AgentSnapshot | null) => void) => () => void;
   serverId: () => Promise<string | null>;
+  usage?: (agentId: string) => AgentUsage | null;
 };
 
 const statusOf = (a: { archivedAt?: unknown; status?: string | null }): WorkAgentStatus => (a.archivedAt || a.status === 'closed' ? 'archived' : a.status === 'error' ? 'failed' : a.status === 'idle' ? 'done' : 'running');
@@ -32,9 +37,14 @@ const titleOf = (title: string | null | undefined, id: string) => (title || '').
 
 const openStream = (res: Res) => res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
+  const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
+    const kept = agentId ? usage?.(agentId) : null;
+    const now = fromPaseo(live);
+    return { promptTokens: kept?.promptTokens ?? null, systemTokens: kept?.systemTokens ?? null, inputTokens: now.inputTokens ?? kept?.inputTokens ?? null, costUsd: now.costUsd ?? kept?.costUsd ?? null };
+  };
 
   async function list(slug: string): Promise<WorkAgent[]> {
     const c = await client();
@@ -44,9 +54,9 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId }: Op
     const seen = new Set(labelled.map((a) => a.id));
     const links = await Promise.all(linked(slug).filter((l) => !seen.has(l.agentId)).map(async (l) => ({ l, a: (await c.agents.ref(l.agentId).refresh().catch(() => null))?.agent ?? null })));
     return [
-      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: m.prompt.split('\n')[0].slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt })),
-      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: a.labels?.pr ? a.labels.pr.replaceAll('~', ':') : null, status: statusOf(a), updatedAt: a.updatedAt || null })),
-      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null })),
+      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: m.prompt.split('\n')[0].slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, ...metrics(m.agentId) })),
+      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: a.labels?.pr ? a.labels.pr.replaceAll('~', ':') : null, status: statusOf(a), updatedAt: a.updatedAt || null, ...metrics(a.id, a.lastUsage) })),
+      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, ...metrics(l.agentId) })),
     ];
   }
 

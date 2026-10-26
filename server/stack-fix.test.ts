@@ -53,7 +53,7 @@ function setup({ agents = [], place }: { agents?: TestAgent[]; place?: (slug: st
       remoteHead: async () => null,
       agentsList: async () => agents,
       sameDir: (x, y) => x === y,
-      personaExcerpt: () => null,
+      personaChecks: () => null,
       launch: async (runner, opts) => (launched.push({ runner, ...opts }), 'agent-1'),
       timeline: () => {},
     },

@@ -129,11 +129,15 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   section('Task', [`${row.planned?.scope || pr.title || scope}`, '', `You own ONE PR: \`${pr.head}\`${isLocal(rowKey(row)) ? ' (local branch, no PR yet)' : ` (#${row.number})`}. Sibling PRs belong to other agents.`]);
 
   const merged = stackPrs.filter((p) => p.state === 'MERGED').map((p) => `#${p.number}`);
-  const siblings = work.stack.flatMap((s, i) => (i === index ? [] : [`PR ${i + 1} \`${s.planned?.branch || stackPrs[i]?.head || '?'}\`${s.number ? ` #${s.number}` : ''} (${s.planned?.title || stackPrs[i]?.title || 'no scope'})`]));
+  const siblings = [index - 1, index + 1].flatMap((i) => {
+    const s = work.stack[i];
+    return s ? [`PR ${i + 1} \`${s.planned?.branch || stackPrs[i]?.head || '?'}\`${s.number ? ` #${s.number}` : ''} (${s.planned?.title || stackPrs[i]?.title || 'no scope'})`] : [];
+  });
+  const more = work.stack.length - 1 - siblings.length;
   section('Context', [
     `- Worktree: ${worktree ? `\`${worktree}\`` : 'none yet'}; branch \`${pr.head}\`; base \`${pr.base}\` (head \`${pr.sha || '?'}\`).`,
     merged.length ? `- Already merged: ${merged.join(', ')}.` : '',
-    siblings.length ? `- Siblings: ${siblings.join(', ')}.` : '',
+    siblings.length ? `- Siblings: ${siblings.join(', ')}${more ? `; ${more} more in the stack: \`curl -s ${config.baseUrl}/api/works/${work.slug}\`, its \`stack\`` : ''}.` : '',
     ...(work.links || []).map((l) => `- ${l.label}: ${l.url}`),
   ].filter(Boolean));
   if (work.description) section('What the work changes', [work.description.trim()]);

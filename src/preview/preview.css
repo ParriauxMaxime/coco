@@ -572,6 +572,7 @@ body.dp-on .pr-peek { padding: 10px 12px; font-size: 12.5px; }
 .dp-agent-log > * { max-width: 760px; margin-left: auto; margin-right: auto; }
 .dp-ag-cards { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .dp-ag-bar .dp-title { min-width: 0; }
+.dp-ag-usage { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dp-ag-start { display: flex; align-items: center; justify-content: center; }
 .dp-ag-hello { max-width: 520px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
 .dp-ag-h { margin-top: 6px; font-size: 15px; font-weight: 600; }

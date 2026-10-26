@@ -17,6 +17,7 @@
 .dp a.dp-agp-link:hover { color: var(--dp-accent); text-decoration: none; }
 .dp-agp-prov { max-width: 220px; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 18px; flex: none; }
 .dp-agp-ago { font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
+.dp-agp-usage { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dp-agp-caret { display: inline-flex; color: var(--dp-t4); flex: none; }
 .dp-agp-row:hover .dp-agp-caret { color: var(--dp-t2); }
 .dp-agp-item.dp-open .dp-agp-caret { transform: rotate(90deg); color: var(--dp-t2); }
@@ -31,7 +32,7 @@
 .dp-agp-cwd { width: auto; font: 11.5px var(--dp-mono); color: var(--dp-t3); }
 .dp-agp-cwd .dp-ell { display: block; }
 @container (max-width: 760px) {
-  .dp-agp-prov, .dp-agp-path { display: none; }
+  .dp-agp-prov, .dp-agp-path, .dp-agp-usage { display: none; }
   .dp-agp-filters { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {

@@ -5,13 +5,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { isLocal, rowKey } from './stack.ts';
-import { byFileThenLine, capitalize, commentSection, fenced as fence, sharedRules } from './review-agent.ts';
+import { byFileThenLine, capitalize, commentSection, fenced as fence, notesBrief, personaPointers, sharedRules } from './review-agent.ts';
 import { blocksToMarkdown } from './blocks.ts';
 import type { Block } from './blocks.ts';
 import { HttpError, errorMessage } from './core-types.ts';
 import type { Comment, Exec, PaseoAgentInfo, ReadBody, Refs, Req, Res, ReviewAgentApi, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
 
 const MAX_COMMENTS = 60;
+const REPLY_MAX = 800;
 const SETTLE_MS = 15000;
 
 type FixComment = Pick<Comment, 'id' | 'status' | 'path' | 'startLine' | 'endLine' | 'body'> & Partial<Comment>;
@@ -25,7 +26,7 @@ type RawComment = { id?: string; status?: string; commit?: string | null; note?:
 type RawRow = { key?: RowKey; branch?: string; tipAfter?: unknown; restacked?: unknown; error?: unknown } | null;
 type RawResult = { comments?: RawComment[]; rows?: RawRow[] };
 type StartInput = { commits?: unknown; select?: unknown; provider?: string; requestedBy?: unknown };
-type FixAgent = Pick<ReviewAgentApi, 'agentsList' | 'branchSha' | 'worktreeFor' | 'remoteHead' | 'sameDir' | 'personaExcerpt' | 'launch' | 'timeline' | 'trailersBetween'> & { rowPr(work: Work, index: number): Promise<Pick<ReviewPr, 'head' | 'title' | 'state'>> };
+type FixAgent = Pick<ReviewAgentApi, 'agentsList' | 'branchSha' | 'worktreeFor' | 'remoteHead' | 'sameDir' | 'personaChecks' | 'launch' | 'timeline' | 'trailersBetween'> & { rowPr(work: Work, index: number): Promise<Pick<ReviewPr, 'head' | 'title' | 'state'>> };
 type Deps = {
   DATA: string;
   REPO: string;
@@ -84,22 +85,23 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
 
   // what the owner said when triaging a comment: the board note, their thread messages and the agent's last answer
   function triageOf(slug: string, key: RowKey, c: FixComment, byComment: Map<string, Verdict>) {
-    const thread = readJson<{ messages?: ThreadMessage[] } | null>(path.join(DATA, 'works', slug, 'threads', `c.${String(key).replaceAll(':', '~')}.${c.id}.json`), null);
-    const messages = thread?.messages || [];
+    const file = path.join(DATA, 'works', slug, 'threads', `c.${String(key).replaceAll(':', '~')}.${c.id}.json`);
+    const messages = readJson<{ messages?: ThreadMessage[] } | null>(file, null)?.messages || [];
     const last = messages.findLast((m) => m.role === 'agent');
     return {
       note: byComment.get(c.id)?.reason || '',
       said: messages.flatMap((m) => (m.role === 'user' && m.text?.trim() ? [m.text.trim()] : [])),
       reply: last ? (last.blocks ? blocksToMarkdown({ blocks: last.blocks }) : last.text || '').trim() : '',
+      file,
     };
   }
   const quote = (text: string) => text.split('\n').map((l) => `> ${l}`.trimEnd()).join('\n');
-  function triageSection({ note, said, reply }: { note: string; said: string[]; reply: string }) {
+  function triageSection({ note, said, reply, file }: { note: string; said: string[]; reply: string; file: string }) {
     if (!note && !said.length && !reply) return [];
     const out = [`**${Owner}'s triage**`, ''];
     if (note) out.push(`Note: ${note}`, '');
     if (said.length) out.push(`${Owner} in the thread:`, '', ...said.flatMap((t) => [quote(t), '']));
-    if (reply) out.push('Last agent reply in the thread:', '', quote(reply), '');
+    if (reply) out.push('Last agent reply in the thread:', '', quote(reply.length > REPLY_MAX ? `${reply.slice(0, REPLY_MAX)}… (the whole thread: \`${file}\`)` : reply), '');
     return out;
   }
 
@@ -196,17 +198,10 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     );
 
     out.push('## Work rules', '');
-    out.push(work.notes && work.notes.trim() ? fence(work.notes, 'markdown') : '(none)', '');
+    out.push(...notesBrief(work.notes, `\`jq -r .notes ${path.join(DATA, 'works', `${work.slug}.json`)}\``), '');
 
-    const logins = [...new Set(rows.flatMap((r) => r.personas))];
-    const excerpts = logins.flatMap((login) => {
-      const ex = reviewAgent.personaExcerpt(login);
-      return ex ? [{ login, ex }] : [];
-    });
-    if (excerpts.length) {
-      out.push('## Owner personas', '');
-      for (const { login, ex } of excerpts) out.push(`### ${login} — ${ex.heading}`, '', ex.text, '');
-    }
+    const pointers = personaPointers([...new Set(rows.flatMap((r) => r.personas))], reviewAgent.personaChecks);
+    if (pointers.length) out.push('## Owner personas', '', ...pointers, '');
 
     out.push('## Rows', '');
     const byComment = verdicts(work.slug);

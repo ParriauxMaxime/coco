@@ -5,11 +5,17 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, createPaseoAgents, expandHome, launcherEnv, sameDir, worktreeFor as worktreeOf } from './paseo-agent.ts';
+import { notesSection } from './briefs.ts';
 import { HttpError, errorMessage, errorStatus } from './core-types.ts';
 import type { Config } from './config.ts';
 import type { Comment, CommentsApi, Exec, LaunchInput, PaseoAgentInfo, ReadBody, Req, Res, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
 
 const MAX_COMMENTS = 30;
+const SNIPPET_LINES = 8;
+const SNIPPET_HEAD = 3;
+const NOTES_INLINE = 2000;
+const BODY_INLINE = 1500;
+const KEPT_NOTES = ['Rules', 'Do not revisit'];
 const SETTLE_MS = 15000;
 const AGENT_ID = new RegExp(`^${UUID.source}$`);
 
@@ -79,10 +85,33 @@ export const sharedRules = (config: { repo: { rules?: string[]; commitConvention
     '- Touch only what a comment asks for. A comment you disagree with or cannot satisfy is declined with a one-line reason, not worked around.',
   ];
 };
+// a long anchored range shows its first lines only: the agent reads the rest in the file
 export const commentSection = (c: Pick<Comment, 'id' | 'path' | 'startLine' | 'endLine' | 'body'> & Partial<Pick<Comment, 'side' | 'snippet' | 'ctxBefore' | 'ctxAfter'>>, level = '###') => {
-  const code = [...(c.ctxBefore || []).map((l) => `  ${l}`), ...String(c.snippet || '').split('\n').map((l) => `> ${l}`), ...(c.ctxAfter || []).map((l) => `  ${l}`)].join('\n');
-  return [`${level} ${c.id} · ${c.path}:${c.startLine}-${c.endLine} (${c.side || 'head'})`, '', fenced(code), '', c.body, ''];
+  const side = c.side || 'head';
+  const snippet = String(c.snippet || '').split('\n');
+  const all = [...(c.ctxBefore || []).map((l) => `  ${l}`), ...snippet.map((l) => `> ${l}`), ...(c.ctxAfter || []).map((l) => `  ${l}`)];
+  const code = all.length <= SNIPPET_LINES ? all : snippet.slice(0, SNIPPET_HEAD).map((l) => `> ${l}`);
+  const rest = all.length <= SNIPPET_LINES ? [] : [`(${snippet.length} lines in all: read lines ${c.startLine}-${c.endLine} of the file at ${side}.)`, ''];
+  return [`${level} ${c.id} · ${c.path}:${c.startLine}-${c.endLine} (${side})`, '', fenced(code.join('\n')), '', ...rest, c.body, ''];
 };
+// the work notes: whole when short, else their Rules and Do not revisit sections and where to read the rest
+export const notesBrief = (notes: string | null | undefined, rest: string) => {
+  const text = String(notes || '').trim();
+  if (!text) return ['(none)'];
+  if (text.length <= NOTES_INLINE) return [fenced(text, 'markdown')];
+  const kept = KEPT_NOTES.flatMap((h) => {
+    const lines = notesSection(text, h);
+    return lines.length ? [`### ${h}`, '', ...lines.map((l) => `- ${l}`), ''] : [];
+  });
+  const others = [...text.matchAll(/^## (.+)$/gm)].map((m) => m[1].trim()).filter((h) => !KEPT_NOTES.some((k) => k.toLowerCase() === h.toLowerCase()));
+  return [...kept, `The rest of the work notes${others.length ? ` (${others.join(', ')})` : ''}: ${rest}.`];
+};
+// where each owner persona's checks are, rather than the checks themselves
+export const personaPointers = (logins: string[], excerpt: (login: string) => { heading: string; file: string } | null) =>
+  logins.flatMap((login) => {
+    const ex = excerpt(login);
+    return ex ? [`- \`${login}\`: read \`${ex.file}\`, "${ex.heading}".`] : [];
+  });
 
 export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents(), placement }: Deps) {
   const GH = config.repo.github;
@@ -145,18 +174,13 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     works.save(work);
   }
 
-  function personaExcerpt(login: string) {
+  // the persona file and its "What … checks" heading, when it has one
+  function personaChecks(login: string) {
     if (!/^[\w.-]+$/.test(String(login))) return null;
     const file = path.join(PERSONAS, `${login}.md`);
     if (!fs.existsSync(file)) return null;
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
-    const start = lines.findIndex((l) => /^##\s+What (?:he|she|they) checks\b/i.test(l));
-    if (start < 0) return null;
-    let end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
-    if (end < 0) end = lines.length;
-    const section = lines.slice(start + 1, end);
-    while (section.length && !section[0].trim()) section.shift();
-    return { heading: lines[start].replace(/^##\s+/, ''), text: section.slice(0, 20).join('\n').trimEnd() };
+    const heading = fs.readFileSync(file, 'utf8').match(/^##\s+(What (?:he|she|they) checks\b.*)$/im)?.[1].trim();
+    return heading ? { heading, file } : null;
   }
 
   function stackLine(stackPrs: StackPr[], index: number, n: RowKey | null) {
@@ -190,18 +214,15 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     out.push(...(local ? [] : [`- Number: #${pr.number}`]), `- Title: ${pr.title || ''}`, ...(local ? [] : [`- URL: ${pr.url || ''}`]), `- Base: \`${pr.base}\``, `- Head: \`${pr.head}\``, `- Head sha: \`${pr.sha || ''}\``, `- ${stackLine(stackPrs.length ? stackPrs : [{ number: pr.number }], stackPrs.length ? index : 0, pr.number)}`, '');
 
     out.push('## PR body', '');
-    out.push(pr.body && pr.body.trim() ? fenced(pr.body, 'markdown') : '(empty)', '');
+    const body = (pr.body || '').trim();
+    out.push(!body ? '(empty)' : local || body.length <= BODY_INLINE ? fenced(body, 'markdown') : `Not inlined (${body.length} characters): \`gh pr view ${pr.number} --repo ${GH} --json body -q .body\`.`, '');
 
     out.push('## Work rules', '');
-    out.push(work.notes && work.notes.trim() ? fenced(work.notes, 'markdown') : '(none)', '');
+    out.push(...notesBrief(work.notes, `\`jq -r .notes ${path.join(DATA, 'works', `${work.slug}.json`)}\``), '');
 
     out.push('## Owner personas', '');
-    const excerpts = personas.flatMap((login) => {
-      const ex = personaExcerpt(login);
-      return ex ? [{ login, ex }] : [];
-    });
-    if (!excerpts.length) out.push('(none)', '');
-    for (const { login, ex } of excerpts) out.push(`### ${login} — ${ex.heading}`, '', ex.text, '');
+    const pointers = personaPointers(personas, personaChecks);
+    out.push(...(pointers.length ? pointers : ['(none)']), '');
 
     out.push('## Comments to address', '');
     for (const c of sorted) out.push(...commentSection(c));
@@ -502,5 +523,5 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     }
   }
 
-  return { handle, buildBrief, pickRunner, launch, start, ingest, list, rowPr, fetchStackState, exec, branchSha, worktreeFor, agentsList, remoteHead, trailersBetween, personaExcerpt, sameDir, timeline };
+  return { handle, buildBrief, pickRunner, launch, start, ingest, list, rowPr, fetchStackState, exec, branchSha, worktreeFor, agentsList, remoteHead, trailersBetween, personaChecks, sameDir, timeline };
 }

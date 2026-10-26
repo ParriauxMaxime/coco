@@ -12,13 +12,15 @@ import Icon from './Icon.tsx';
 import { AgentDot } from './AgentsSection.tsx';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
-import type { ActivityEvent } from '../types.ts';
+import { usageLine, usageTitle } from './format.ts';
+import type { ActivityEvent, AgentMetrics } from '../types.ts';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
 
-function Header({ title, kind, pr, state, agentId }: { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null }) {
+function Header({ title, kind, pr, state, agentId, metrics }: { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null }) {
   const href = paseoLink(useServerId(useWork().slug), agentId);
+  const usage = metrics ? usageLine(metrics) : '';
   return (
     <div className="dp-vbar dp-ag-bar">
       <AgentDot state={state} />
@@ -27,6 +29,7 @@ function Header({ title, kind, pr, state, agentId }: { title: string; kind: stri
       {pr && <span className="dp-chip">{prLabel(pr)}</span>}
       <span className="dp-xs dp-t3">{STATE_LABEL[state]}</span>
       <span className="dp-sp" />
+      {usage && metrics && <span className="dp-xs dp-t3 dp-ag-usage" title={usageTitle(metrics)}>{usage}</span>}
       {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} />Open in Paseo</a>}
     </div>
   );
@@ -76,7 +79,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const state = working && base !== 'waiting' ? 'running' : base;
   return (
     <div className="dp-tabview dp-agtab">
-      <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} />
+      <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
       <Log size={events.length + pending.length}>
         {run && <Conversation run={run} events={events} pending={pending} working={working} />}
         {run && <Proposals run={run} onApplied={(s) => { location.hash = `#/work/${s}`; }} />}
@@ -130,7 +133,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const archived = state === 'archived';
   return (
     <div className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} />
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} />
       <Log size={events.length + pending.length}>
         <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running'} who={listed?.kind || 'agent'} />
         <PendingPermissions agentId={agentId} />

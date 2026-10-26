@@ -1,4 +1,4 @@
-// Review plan: deterministic file categories, then a coco Paseo agent that proposes a reading path for one PR head.
+// Review plan: a coco Paseo agent that reads one PR head through git and proposes a reading path; coco's deterministic file categories fill what it leaves out.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -7,9 +7,10 @@ import { branchOf, fileKey, isLocal, parseKey, rowKey } from './stack.ts';
 import { capitalize } from './review-agent.ts';
 import { createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { Entry, Started } from './paseo-agent.ts';
+import { writeReviewContext } from './review-context.ts';
 import { HttpError, errorMessage, errorStatus, isSeverity } from './core-types.ts';
 import type { Config, FileLayers } from './config.ts';
-import type { CodeApi, Persona, PrFile, ReadBody, Refs, Req, Res, Rule, RowKey, Send, Works } from './core-types.ts';
+import type { CodeApi, PrFile, ReadBody, Refs, Req, Res, Rule, RowKey, Send, Works } from './core-types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
 
@@ -27,8 +28,7 @@ type PlanRun = { status: string; startedAt: string; finishedAt: string | null; h
 type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined> };
 type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
-type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: CodeApi; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
-const MAX_PROMPT_DIFF = 160 * 1024;
+type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
 const MAX_STEPS = 8;
 const MAX_WATCH = 8;
 export const SEVERITIES = ['blocking', 'major', 'minor', 'nit'];
@@ -177,58 +177,30 @@ export function normalizePlan(raw: RawPlan, files: PrFile[], cats: Cats, lineCou
 }
 
 const systemPrompt = (owner: string, repo: string) => `You are coco, the review copilot inside cocopilot, ${owner}'s local review tool. ${capitalize(owner)} reviews a pull request and asks you for a review plan: where to look, in which order, and what to check.
-Everything is a proposal: never edit, push, post or send. The working tree of ${repo} is on another branch: read PR code only through git at the given shas (git show <head>:<path>, git grep -n <term> <head> -- <pathspec>, git diff <mergeBase> <head> -- <path>, git log). Never use the working tree.
+Everything is a proposal: never edit, push, post or send. The working tree of ${repo} is on another branch: read PR code only through git at the given shas (git diff <mergeBase> <head>, git show <head>:<path>, git grep -n <term> <head> -- <pathspec>, git log). Never use the working tree.
 Method:
-1. Read the PR body (github_pr) and, when a work slug is given, its notes and decisions (get_work). Owner personas come with the prompt; read_persona only for the main one.
-2. Read the diff of the core files first. Evaluate the review surface: entry points touched (routes, MCP tools, RPC or server methods, UI actions), callers outside the diff (git grep at head), permission and validation checks, data writes.
+1. Call get_review_context first: ${owner}'s guidance for this run overrides your defaults, code breaking one of their rules is a watch point, the owner personas tell whose surfaces the PR touches (read_persona only for the main one). Read the PR body (github_pr) and, when a work slug is given, its notes and decisions (get_work).
+2. List the changed files yourself: git diff --name-status <mergeBase> <head>, with --stat for sizes. Read the diff of the core files first (behaviour: entry points, use-cases, services, domain, repositories, client logic), then glance at tests, wiring (re-exports, type declarations, registries, import-only edits), docs and generated files. Evaluate the review surface: entry points touched (routes, MCP tools, RPC or server methods, UI actions), callers outside the diff (git grep at head), permission and validation checks, data writes.
 3. Build the reading path: steps in the order a reviewer should read, usually entry point first then use-case, service, domain, repository, then client. Group files that answer one question. Tests that only mirror logic, registries, config entries and small call-site edits go to skim, each with a short reason.
 4. Watch points: precise risks worth a review comment, anchored on head line numbers you verified with git show <head>:<path> (cat -n numbering). Eight at most, only real findings, phrased as the review comment ${owner} would leave. Each gets a severity (blocking: wrong behaviour, security or data loss; major: a real bug or gap to fix before merge; minor: worth fixing, not blocking; nit: style or naming) and a confidence from 0 to 100 that the finding is real, lower when you could not verify a caller or a runtime path.
-Write for ${owner}: product effect first, short plain English, no filler, paths quoted exactly. End with exactly one propose_review_plan call carrying the full plan; every changed file goes in exactly one step or in skim.`;
+Write for ${owner}: product effect first, short plain English, no filler, paths quoted exactly. End with exactly one propose_review_plan call carrying the full plan; every file --name-status lists goes in exactly one step or in skim.`;
 
-const fenced = (text: string) => {
-  const f = '`'.repeat(Math.max(3, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length + 1)));
-  return `${f}diff\n${text}\n${f}`;
-};
+type PromptInput = { n: RowKey; slug?: string; refs: Pick<Refs, 'headSha' | 'mergeBase'>; fileCount?: number };
 
-type PromptInput = { n: RowKey; slug?: string; refs: Pick<Refs, 'headSha' | 'mergeBase'>; files: PrFile[]; cats: Cats; diffText: string; personas: Persona[]; guidance?: string; rules?: Rule[]; owner?: string; order?: (files: PrFile[], cats: Cats) => string[] };
-
-export function buildPrompt({ n, slug, refs, files, cats, diffText, personas, guidance = '', rules = [], owner = 'the user', order: orderOf = suggestedOrder }: PromptInput) {
-  const byPath: Record<string, string> = {};
-  for (const chunk of diffText.split(/^(?=diff --git )/m)) {
-    const m = chunk.match(/^diff --git a\/.* b\/(.*)$/m);
-    if (m) byPath[m[1]] = chunk.trimEnd();
-  }
-  const order = orderOf(files, cats);
-  let budget = MAX_PROMPT_DIFF;
-  const inline: string[] = [];
-  const omitted: string[] = [];
-  for (const p of order) {
-    const d = byPath[p];
-    if (d && d.length <= budget) {
-      inline.push(d);
-      budget -= d.length;
-    } else omitted.push(p);
-  }
-  const rows = order.map((p) => {
-    const f = files.find((x) => x.filename === p);
-    return `| ${p} | ${f?.status} | +${f?.additions} −${f?.deletions} | ${cats[p].category} | ${cats[p].reason} |`;
-  });
+export function buildPrompt({ n, slug, refs: { headSha: head, mergeBase: base }, fileCount }: PromptInput) {
   return [
     `Plan the review of ${isLocal(n) ? `local branch ${branchOf(n)} (no PR yet, skip github_pr)` : `PR #${n}`}${slug ? ` (work ${slug})` : ''}.`,
-    `head ${refs.headSha} · merge-base ${refs.mergeBase} (diff base; a stacked PR shows its own slice).`,
-    personas.length ? `Owner personas by surface: ${personas.map((p) => `${p.login} (${p.hits} files)`).join(', ')}.` : 'No owner persona matches these paths.',
-    ...(guidance.trim() ? ['', `${capitalize(owner)}'s guidance for this plan (it overrides your defaults):`, '', guidance.trim()] : []),
-    ...(rules.length ? ['', `${capitalize(owner)}'s rules (global, then work, then this PR); code breaking one is a watch point:`, '', ...rules.map((r) => `- ${r.text}`)] : []),
+    `head ${head} · merge-base ${base} (diff base; a stacked PR shows its own slice)${fileCount === undefined ? '' : ` · ${fileCount} changed files`}.`,
     '',
-    `Changed files (${files.length}) with a deterministic category, a hint you may overrule:`,
+    `Call get_review_context with pr "${n}"${slug ? ` and work "${slug}"` : ''} first. The diff is not in this prompt: read it through git.`,
     '',
-    '| path | status | size | category | reason |',
-    '| --- | --- | --- | --- | --- |',
-    ...rows,
-    '',
-    omitted.length ? `Diff not inlined for: ${omitted.join(', ')}. Read them with git diff ${refs.mergeBase} ${refs.headSha} -- <path> when they matter.` : 'Full diff inlined below.',
-    '',
-    fenced(inline.join('\n')),
+    '```bash',
+    `git diff --stat ${base} ${head}`,
+    `git diff --name-status ${base} ${head}`,
+    `git diff ${base} ${head} -- <path>`,
+    `git show ${head}:<path>`,
+    `git grep -n <term> ${head} -- <pathspec>`,
+    '```',
   ].join('\n');
 }
 
@@ -261,22 +233,21 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
   };
   const live = new Map<string, PlanRun>();
 
-  const catCache = new Map<string, { diffText: string; cats: Cats }>();
+  const catCache = new Map<string, Cats>();
   async function categories(refs: Pick<Refs, 'mergeBase' | 'headSha'>, files: PrFile[]) {
     const key = `${refs.mergeBase}:${refs.headSha}`;
     const hit = catCache.get(key);
     if (hit) return hit;
-    const diffText = await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha]);
-    const made = { diffText, cats: classifier.classify(files, splitDiff(diffText)) };
-    catCache.set(key, made);
+    const cats = classifier.classify(files, splitDiff(await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha])));
+    catCache.set(key, cats);
     if (catCache.size > 20) catCache.delete(catCache.keys().next().value ?? '');
-    return made;
+    return cats;
   }
 
   async function state(slug: string, n: RowKey) {
     const refs = await code.ensureRefs(n);
     const files = await code.prFilesFromGit(n, refs);
-    const { cats } = await categories(refs, files);
+    const cats = await categories(refs, files);
     const data = read(slug, n);
     const run = live.get(`${slug}:${n}`) || data.run;
     return {
@@ -296,11 +267,11 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     if (live.get(k)?.status === 'running') return { ok: true, running: true };
     const refs = await code.ensureRefs(n, { fresh: true });
     const files = await code.prFilesFromGit(n, refs);
-    const { cats, diffText } = await categories(refs, files);
-    const personas = works.personasForPaths(files.map((f) => f.filename));
+    const cats = await categories(refs, files);
     const work = works.get(slug);
     const kept = rules && work ? rules.keptFor(work, (work.stack || []).findIndex((s) => rowKey(s) === n)) : [];
-    const prompt = buildPrompt({ n, slug, refs, files, cats, diffText, personas, guidance: String(guidance).slice(0, 4000), rules: kept, owner: OWNER, order: classifier.suggestedOrder });
+    writeReviewContext(DATA, slug, n, { guidance: String(guidance).slice(0, 4000).trim(), rules: kept.map((r) => r.text), personas: works.personasForPaths(files.map((f) => f.filename)), headSha: refs.headSha, at: new Date().toISOString() });
+    const prompt = buildPrompt({ n, slug, refs, fileCount: files.length });
     const run: PlanRun = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, headSha: refs.headSha, error: '', cost: null, progress: [], log: [], proposal: null };
     live.set(k, run);
     const note = (text: string) => {

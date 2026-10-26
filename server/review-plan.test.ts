@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, createClassifier, normalizePlan, splitDiff, suggestedOrder } from './review-plan.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { classify, createClassifier, createReviewPlan, normalizePlan, splitDiff, suggestedOrder } from './review-plan.ts';
+import { readReviewContext, reviewContextFile, writeReviewContext } from './review-context.ts';
+import { DEFAULTS } from './config.ts';
+import type { Work } from './core-types.ts';
 
 const L = 'src';
 const hunk = (minus: string[], plus: string[]) => ['@@ -1,1 +1,1 @@', ...minus.map((l) => `-${l}`), ...plus.map((l) => `+${l}`)].join('\n');
@@ -76,4 +82,45 @@ test('normalizePlan drops unknown paths, dedupes, skims the rest and clamps watc
   assert.equal(plan.steps[0].files.length, 1);
   assert.equal(plan.skim.length, files.length - 1);
   assert.deepEqual(plan.watchPoints.map((w) => [w.startLine, w.endLine]), [[2, 10]]);
+});
+
+test('the plan prompt of a 250-file PR stays under 2k tokens: no diff, no file list, guidance and rules behind get_review_context', async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-plan-'));
+  const big = Array.from({ length: 250 }, (_, i) => ({ filename: `${L}/feature-${i % 9}/server/use-case/a-rather-long-module-name-${i}.ts`, status: 'modified', additions: 120, deletions: 40 }));
+  const refs = { number: 4242, headSha: 'a'.repeat(40), baseSha: 'c'.repeat(40), mergeBase: 'b'.repeat(40) };
+  const work: Work = { slug: 'csv', title: 'CSV export', timeline: [], stack: [{ number: 4242 }] };
+  const sent: { prompt: string; systemPrompt?: string }[] = [];
+  const plan = createReviewPlan({
+    DATA,
+    REPO: DATA,
+    config: { ...DEFAULTS, owner: { name: 'Alice', login: 'alice' } },
+    code: { ensureRefs: async () => refs, prFilesFromGit: async () => big },
+    works: { get: () => work, prInfo: async () => assert.fail('placed, no PR lookup'), personasForPaths: () => [{ login: 'bob', hits: 250 }], remark: () => null },
+    rules: { keptFor: () => [{ id: 'r1', text: 'No ternaries in server code.', source: 'x', addedAt: 'x', status: 'kept' }] },
+    agents: { run: (opts) => (sent.push(opts), new Promise(() => {})) },
+    place: async () => ({ workspaceId: 'wks_1', cwd: DATA }),
+  });
+  await plan.start('csv', 4242, { guidance: `Focus on the export permission. ${'Be thorough. '.repeat(200)}` });
+  await new Promise((resolve) => setImmediate(resolve));
+  const [{ prompt }] = sent;
+  assert.ok(Math.ceil(prompt.length / 4) <= 2000, `${Math.ceil(prompt.length / 4)} tokens`);
+  assert.doesNotMatch(prompt, /a-rather-long-module-name|Be thorough|No ternaries/);
+  assert.match(prompt, /get_review_context with pr "4242" and work "csv"/);
+  assert.match(prompt, new RegExp(`git diff --name-status ${refs.mergeBase} ${refs.headSha}`));
+  const ctx = readReviewContext(DATA, { pr: '4242', work: 'csv' });
+  assert.ok(!('error' in ctx));
+  assert.match(ctx.guidance, /^Focus on the export permission/);
+  assert.deepEqual(ctx.rules, ['No ternaries in server code.']);
+  assert.deepEqual(ctx.personas, [{ login: 'bob', hits: 250 }]);
+});
+
+test('get_review_context reads the latest run on a PR, in the given work or any', () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-ctx-'));
+  writeReviewContext(DATA, 'old', 7, { guidance: 'old run', rules: [], personas: [] });
+  writeReviewContext(DATA, 'new', 7, { guidance: 'new run', rules: ['r'], personas: [] });
+  fs.utimesSync(reviewContextFile(DATA, 'old', 7), new Date(1000), new Date(1000));
+  assert.equal((readReviewContext(DATA, { pr: 7 }) as { guidance: string }).guidance, 'new run');
+  assert.equal((readReviewContext(DATA, { pr: '7', work: 'old' }) as { guidance: string }).guidance, 'old run');
+  assert.match((readReviewContext(DATA, { pr: 8 }) as { error: string }).error, /no review plan run recorded for #8/);
+  assert.match((readReviewContext(DATA, { pr: 'nope' }) as { error: string }).error, /PR number/);
 });

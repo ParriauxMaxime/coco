@@ -3,6 +3,7 @@ import { api, errorMessage } from '../../api.ts';
 import { toHash } from '../../workbench/hash.ts';
 import { PendingPermissions, usePendingPermissions } from '../chat/Permission.tsx';
 import Icon from '../Icon.tsx';
+import { usageLine, usageTitle } from '../format.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { AgentsResponse, LinkedAgent, PaseoAgent, PaseoWorkspace } from '../../types.ts';
 import './agents-page.css';
@@ -21,6 +22,7 @@ const byState = (x: Row, y: Row) => rank(x.state) - rank(y.state);
 
 function AgentRow({ r, open, log, where, onToggle }: { r: Row; open: boolean; log?: string; where: boolean; onToggle: () => void }) {
   const { a, ws, link } = r;
+  const usage = a.usage ? usageLine(a.usage) : '';
   return (
     <div className={`dp-agp-item${open ? ' dp-open' : ''}`}>
       <div className="dp-rowi dp-click dp-agp-row" role="button" tabIndex={0} aria-expanded={open} onClick={onToggle} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
@@ -36,6 +38,7 @@ function AgentRow({ r, open, log, where, onToggle }: { r: Row; open: boolean; lo
         </span>
         <span className="dp-chip dp-agp-prov" title={a.provider}>{a.provider}</span>
         {a.thinking && <span className="dp-chip">{a.thinking}</span>}
+        {usage && a.usage && <span className="dp-xs dp-t3 dp-agp-usage" title={usageTitle(a.usage)}>{usage}</span>}
         <span className="dp-rowi-m dp-agp-ago">{a.created}</span>
         <span className="dp-agp-caret"><Icon name="chevron-right" size={12} /></span>
       </div>

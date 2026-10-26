@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import { catalog } from './dispatch.ts';
+import { readReviewContext } from './review-context.ts';
 
 const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const config = loadConfig({ APP });
@@ -34,6 +35,7 @@ server.tool('get_work', 'Full work JSON: notes, timeline, stack, links, artifact
   const art = path.join(WORKS, slug, 'artifacts');
   return text({ ...w, artifacts: fs.existsSync(art) ? fs.readdirSync(art) : [] });
 });
+server.tool('get_review_context', `What a review plan on a PR runs under: ${OWNER}'s guidance for its latest run (it overrides your defaults), ${OWNER}'s rules (global, then work, then PR; code breaking one is a watch point) and the owner personas of its paths with hit counts.`, { pr: z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet'), work: z.string().optional().describe('work slug; omit to take the latest run on that PR in any work') }, async ({ pr, work }) => text(readReviewContext(config.dataDir, { pr, work })));
 server.tool('list_personas', 'Reviewer and message-writer personas with their surfaces (path globs) and confidence.', {}, async () => {
   const out = [];
   for (const login of personaLogins(personaFiles(), config.personaFiles)) {

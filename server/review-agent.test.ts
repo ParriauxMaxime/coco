@@ -49,7 +49,7 @@ function setup({ comments: list = [], execImpl, stack }: { comments?: Comment[];
 const pr = { number: N, title: 'Add thing', url: 'https://github.com/x/y/pull/102', base: 'feat/base', head: 'feat/thing', sha: SHA, body: 'Body text\n# Heading inside' };
 const stackPrs = [{ number: 101, state: 'MERGED' }, { number: N, state: 'OPEN', isDraft: true }, { number: 103, state: 'OPEN', isDraft: true }];
 
-test('buildBrief has every section in order, the stack line and the persona excerpt', () => {
+test('buildBrief has every section in order, the stack line and where the persona checks are', () => {
   const { agent, PERSONAS } = setup();
   const lines = Array.from({ length: 30 }, (_, i) => `- check ${i + 1}`).join('\n');
   fs.writeFileSync(path.join(PERSONAS, 'bob.md'), `# Bob\n\n## What he checks\n\n${lines}\n\n## What he avoids\n\n- avoid-me\n`);
@@ -71,9 +71,9 @@ test('buildBrief has every section in order, the stack line and the persona exce
   assert.match(text, /Head sha: `a{40}`/);
   assert.match(text, /Body text\n# Heading inside/);
   assert.match(text, /Work note verbatim/);
-  assert.match(text, /- check 20\n/);
-  assert.doesNotMatch(text, /check 21\b/);
-  assert.doesNotMatch(text, /avoid-me/);
+  assert.match(text, /- `bob`: read `[^`]*\/bob\.md`, "What he checks"\./);
+  assert.doesNotMatch(text, /check 1\b/);
+  assert.doesNotMatch(text, /ghost/);
   assert.ok(text.indexOf('### aaa · src/a.ts:10-11 (head)') < text.indexOf('### bbb · src/z.ts:3-3 (head)'));
   assert.match(text, /Read `AGENTS\.md` and `CLAUDE\.md`, then follow the rules/);
   assert.doesNotMatch(text, /commit messages follow/);

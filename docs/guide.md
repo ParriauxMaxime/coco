@@ -234,11 +234,13 @@ in a hidden category shows that category again.
 "Plan this review" starts a Paseo agent (`coco · Plan review …`) in the
 workspace of the PR's worktree (else the stack's top worktree, else the
 repo), archived once the plan is in.
-The run reads the PR through git at the head sha only (`git show`, `git grep`,
-`git diff`, `git log`), plus `github_pr`, `get_work` and the owner personas.
-It gets the file table with the categories and the diff inlined (core files
-first, up to 160 KB). It ends with one `propose_review_plan` call (cocopilot
-MCP) that returns:
+Its prompt carries no diff and no file list: only the PR, the work, the head
+and merge-base shas and the git commands to read them (`git diff --name-status`
+lists the changed files, then `git diff`, `git show`, `git grep` at the head
+sha), plus `github_pr` and `get_work`. The guidance typed for the run, the
+rules and the owner personas come from the `get_review_context` tool
+(cocopilot MCP). Files the plan leaves out land in skim with their category.
+It ends with one `propose_review_plan` call (cocopilot MCP) that returns:
 
 - a summary, product first;
 - the review surface, with a risk level per area;

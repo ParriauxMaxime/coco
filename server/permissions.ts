@@ -3,6 +3,7 @@
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { TITLE_PREFIX } from './paseo-agent.ts';
 import type { ReadBody, Req, Res, Send } from './core-types.ts';
+import type { PaseoUsage } from './agent-usage.ts';
 
 const WAIT_MS = 10000;
 const RETRY_MS = 30000;
@@ -14,7 +15,7 @@ export type PermissionRequest = { id: string; provider?: string; name: string; k
 export type PermissionResponse =
   | { behavior: 'allow'; selectedActionId?: string; updatedInput?: Record<string, unknown>; updatedPermissions?: Record<string, unknown>[] }
   | { behavior: 'deny'; selectedActionId?: string; message?: string; interrupt?: boolean };
-export type AgentSnapshot = { id: string; title?: string | null; labels?: Record<string, string>; archivedAt?: string | null; status?: string | null; updatedAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null; workspaceId?: string | null; cwd?: string | null; pendingPermissions?: PermissionRequest[] };
+export type AgentSnapshot = { id: string; title?: string | null; labels?: Record<string, string>; archivedAt?: string | null; status?: string | null; updatedAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null; workspaceId?: string | null; cwd?: string | null; pendingPermissions?: PermissionRequest[]; lastUsage?: PaseoUsage | null };
 export type AgentUpdate = { kind: 'upsert'; agent: AgentSnapshot } | { kind: 'remove'; agentId: string };
 type AgentPage = { entries: { agent: AgentSnapshot }[]; pageInfo?: { nextCursor?: string | null } };
 export type AgentListObserver = { snapshot(s: AgentPage): void; update(m: { type: string; payload?: unknown }): void; error?(e: unknown): void };

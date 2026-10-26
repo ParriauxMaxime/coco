@@ -37,7 +37,8 @@ import { createPurge } from './purge.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
-import { createPermissions, whereOf } from './permissions.ts';
+import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
+import { createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
@@ -63,7 +64,8 @@ interface FeedbackItem {
 }
 
 fs.mkdirSync(DATA, { recursive: true });
-const paseoAgents = createPaseoAgents({ APP });
+const agentUsage = createAgentUsage(path.join(DATA, 'agent-usage.json'));
+const paseoAgents = createPaseoAgents({ APP, usage: agentUsage });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
 const repos = createRepos({ DATA, repos: config.repos });
 const placement = createPlacement({ repos: config.repos, APP, DATA, listWorkspaces: paseoAgents.listWorkspaces, works });
@@ -120,7 +122,10 @@ const permissions = createPermissions({
   client: paseoAgents.client,
   locate: (agent) => whereOf(agent, { askOf: ask.byAgent, groupKind: threads.groupKind, workTitle: (slug) => works.get(slug)?.title || null, repoName: (id) => repos.byId(id)?.name || null }),
 });
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId() });
+permissions.onAgent((a) => {
+  if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
+});
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
@@ -247,7 +252,7 @@ async function agents(cached = false) {
       return [];
     }
   };
-  const agents = parse<{ cwd?: string }>(a).map((x) => ({ ...x, cwd: x.cwd?.replace(/^~/, os.homedir()) }));
+  const agents = parse<{ id?: string; cwd?: string }>(a).map((x) => ({ ...x, cwd: x.cwd?.replace(/^~/, os.homedir()), usage: x.id ? agentUsage.get(x.id) : null }));
   return { agents, workspaces: parse<unknown>(w), error: a.ok ? null : a.stderr };
 }
 

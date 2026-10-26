@@ -4,6 +4,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createPaseoClient } from '@getpaseo/client';
 import { rowKey } from './stack.ts';
+import { promptSize, systemSize } from './agent-usage.ts';
+import type { UsageStore } from './agent-usage.ts';
 import type { PermissionClient, PermissionRequest } from './permissions.ts';
 
 export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
@@ -14,7 +16,7 @@ const TIMEOUT_MS = 15 * 60 * 1000;
 const HOME = os.homedir();
 const COCO_TOOL = /^mcp__cocopilot__(propose_\w+|dispatch)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
-export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch'];
+export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch'];
 
 type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[], opts?: Record<string, unknown>) => Promise<ExecResult>;
@@ -300,7 +302,7 @@ export type AgentSession = Started & {
   close(): Promise<void>;
 };
 
-export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP?: string | null; connect?: () => Promise<DaemonClient> } = {}) {
+export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null } = {}) {
   let pending: Promise<DaemonClient> | null = null;
   const client = () =>
     (pending ||= connect().catch((e) => {
@@ -356,6 +358,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
   async function start({ title, prompt, labels, cwd = null, workspaceId = null, worktree = null, ...config }: StartOptions) {
     const { workspace, created } = workspaceId ? { workspace: (await client()).workspaces.ref(workspaceId), created: false } : worktree ? await worktreeWorkspace(cwd, worktree) : await workspaceFor(cwd ?? '');
     const agent = await workspace.agents.create({ title: cocoTitle(title), config: configFor(config), labels: cleanLabels(labels), ...(prompt ? { prompt } : {}) });
+    usage?.record(agent.id, { ...promptSize(prompt), ...systemSize(config.systemPrompt) });
     return { agent, agentId: agent.id, workspaceId: workspace.id, createdWorkspace: created ? workspace.id : null };
   }
 
@@ -438,11 +441,14 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     const deliver = (text: string) => (sending = sending.catch(() => {}).then(() => ready).then(() => agent.send(text, { activeTurnBehavior: 'steer' })));
     let inFlight: Promise<Outcome> | null = null;
     let steered = false;
+    let first = !agentId;
 
     // prompt null waits on the turn the agent is already in; waits through permissions answered in coco or Paseo and a steer landing as the turn ends
     async function turn(prompt: string | null, timeoutMs: number): Promise<Outcome> {
       follow = createFollower(callbacks);
       steered = false;
+      if (first && prompt !== null) usage?.record(started.agentId, promptSize(prompt), { onlyIfMissing: true });
+      first = false;
       const deadline = Date.now() + timeoutMs;
       let result: WaitResult;
       try {
