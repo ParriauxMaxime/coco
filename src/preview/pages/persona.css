@@ -50,7 +50,7 @@ button.dp-pers-checkh[disabled]:hover { background: transparent; }
 
 .dp-btn.dp-pers-fbon { background: var(--dp-active); color: var(--dp-t1); }
 
-.dp-pers-md { padding: 4px 20px 12px; }
+.dp-pers-md { padding: 14px 20px 16px; }
 .dp-pers-md, .dp-pers-split { margin-top: 16px; }
 
 @container (max-width: 760px) {

@@ -59,7 +59,7 @@ function LoginSteps({ steps, onClose }: { steps: LoginStepsData; onClose: () => 
   );
 }
 
-function Logs({ id }: { id: string }) {
+export function useDevLogs(id: string) {
   const [lines, setLines] = useState<string[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -68,14 +68,17 @@ function Logs({ id }: { id: string }) {
     const t = setInterval(load, LOG_POLL_MS);
     return () => { live = false; clearInterval(t); };
   }, [id]);
-  return <pre className="dev-logs">{lines ? lines.join('\n') || '(empty)' : '…'}</pre>;
+  return lines ? lines.join('\n') || '(empty)' : '…';
 }
 
-// one stack row: the server serving its worktree (its own, or the stack top it holds), and what this row can do with it
-export function DevServerRow({ slug, row, onChange }: { slug: string; row: DevServerRowData; onChange: () => unknown }) {
+function Logs({ id }: { id: string }) {
+  return <pre className="dev-logs">{useDevLogs(id)}</pre>;
+}
+
+// what a stack row can do with the server serving its worktree (its own, or the stack top it holds)
+export function useDevServerRow(slug: string, row: DevServerRowData, onChange: () => unknown) {
   const { pending, busy, run } = useAction();
   const [steps, setSteps] = useState<LoginStepsData | null>(null);
-  const [showLogs, setShowLogs] = useState(false);
   const server = row.server;
   const act = (key: string, fn: () => Promise<unknown>) => run(key, async () => { await fn(); await onChange(); });
   const rowAction = <A extends RowAction>(action: A, body?: Record<string, unknown>) => api.devServerRow(slug, row.key, action, body);
@@ -93,9 +96,15 @@ export function DevServerRow({ slug, row, onChange }: { slug: string; row: DevSe
   const startLabel = !row.worktree ? null : !server?.running ? 'Start' : held ? null : 'Use this server';
   const actions = server ? serverActions(server) : null;
   const stopAction = actions?.stop ?? null;
-  const button = (key: string, action: Action | null | undefined, onClick: () => unknown, extra = '') =>
-    action?.visible && <button key={key} className={`sm${extra}${pendingClass(pending === key)}`} disabled={busy || !action.enabled} title={action.hint} onClick={onClick}>{action.label}</button>;
   const details = server ? [statusText(server), holdersText(server), pinnedText(server), optInsText(server), idleText(server)].filter(Boolean) : [];
+  return { server, pending, busy, steps, setSteps, start, stop, pin, login, startLabel, actions, stopAction, details };
+}
+
+export function DevServerRow({ slug, row, onChange }: { slug: string; row: DevServerRowData; onChange: () => unknown }) {
+  const { server, pending, busy, steps, setSteps, start, stop, pin, login, startLabel, actions, stopAction, details } = useDevServerRow(slug, row, onChange);
+  const [showLogs, setShowLogs] = useState(false);
+  const button =(key: string, action: Action | null | undefined, onClick: () => unknown, extra = '') =>
+    action?.visible && <button key={key} className={`sm${extra}${pendingClass(pending === key)}`} disabled={busy || !action.enabled} title={action.hint} onClick={onClick}>{action.label}</button>;
 
   return (
     <div className="dev-server">

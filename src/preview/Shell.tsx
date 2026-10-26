@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PendingPermissions, usePendingPermissions } from '../components/PermissionCard.tsx';
+import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
 import { setThemeMode, useTheme } from '../theme.ts';
 import { useConfig } from '../config.ts';
 import Icon from './Icon.tsx';
@@ -335,7 +335,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
         {waitOpen && (
           <div className="dp-pop dp-on dp-waitpop">
             <div className="dp-pop-h"><b>Waiting on you</b><span className="dp-count dp-acc">{waiting.length}</span><span className="dp-sp" /><button type="button" className="dp-ibtn" onClick={() => setWaitOpen(false)}><Icon name="x" size={14} /></button></div>
-            <div className="dp-pop-s dp-legacy"><PendingPermissions withWhere /></div>
+            <div className="dp-pop-s dp-waitpop-s"><PendingPermissions withWhere /></div>
           </div>
         )}
         {palette && <Palette commands={all} onClose={() => setPalette(false)} />}

@@ -8,7 +8,7 @@
 .dp-skill-main { min-width: 0; }
 .dp-skill-docbar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); color: var(--dp-t2); }
 .dp-skill-docbar .dp-mono { color: var(--dp-t1); }
-.dp-skill-md { padding: 4px 20px 12px; }
+.dp-skill-md { padding: 14px 20px 16px; }
 .dp-skill-pad { padding: 12px; }
 .dp-skill-pad .dp-pempty { border: 0; }
 .dp-skill-main > .dp-psec { margin-top: 8px; }

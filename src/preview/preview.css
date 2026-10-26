@@ -545,7 +545,7 @@ body.dp-on .pr-peek { padding: 10px 12px; font-size: 12.5px; }
   .dp-overlay { padding-top: 8vh; }
 }
 .dp-waitpop { position: fixed; bottom: 28px; right: 12px; width: 440px; max-height: 70vh; overflow: auto; }
-.dp-waitpop .dp-legacy { padding: 8px; background: transparent; }
+.dp-waitpop .dp-waitpop-s { padding: 8px; }
 
 .dp-ag-dot { width: 8px; height: 8px; margin: 0 1px; border-radius: 50%; flex: none; box-sizing: border-box; }
 .dp-ag-running { width: 10px; height: 10px; margin: 0; border: 1.5px solid color-mix(in srgb, var(--dp-info) 22%, transparent); border-top-color: var(--dp-info); border-right-color: var(--dp-info); }

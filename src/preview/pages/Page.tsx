@@ -45,6 +45,3 @@ export function Tiles({ items }: { items: Tile[] }) {
 export const Empty = ({ icon = 'sparkles', children }: { icon?: IconName; children: React.ReactNode }) => <div className="dp-pempty"><Icon name={icon} size={16} /><span>{children}</span></div>;
 export const Loading = ({ what = 'Loading…' }: { what?: string }) => <div className="dp-pempty dp-ploading"><span className="dp-ag-dot dp-ag-running" /><span>{what}</span></div>;
 export const ErrorNote = ({ children }: { children: React.ReactNode }) => <div className="dp-perr"><Icon name="alert-triangle" size={14} /><span>{children}</span></div>;
-
-// an older component with its own markup; its colours, radii and fonts take the shell's tokens
-export const Legacy = ({ children }: { children: React.ReactNode }) => <div className="dp-legacy dp-embed">{children}</div>;

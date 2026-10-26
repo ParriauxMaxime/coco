@@ -36,7 +36,6 @@
 .dp-pempty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 28px 16px; border: 1px dashed var(--dp-line-2); border-radius: var(--dp-r3); color: var(--dp-t3); font-size: 12.5px; text-align: center; }
 .dp-ploading { border-style: solid; border-color: var(--dp-line); }
 .dp-perr { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--dp-bad) 35%, var(--dp-line)); border-radius: var(--dp-r3); background: color-mix(in srgb, var(--dp-bad) 6%, transparent); color: var(--dp-bad); font-size: 12.5px; }
-.dp-legacy.dp-embed { flex: none; overflow: visible; padding: 0; background: transparent; }
 .dp-md { font-size: 13px; line-height: 21px; }
 .dp-sb-new { margin-top: 4px; color: var(--dp-t3); }
 .dp-sb-fold { margin-top: 12px; }
