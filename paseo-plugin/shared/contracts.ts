@@ -56,7 +56,7 @@ export const resolveRpc = defineRpc({
 });
 
 export const addBriefRpc = defineRpc({
-  name: "cocopilot.addBrief",
+  name: "cocopilot.brief",
   input: z.object({ agentId: z.string(), workspaceId: z.string(), cwd: z.string() }),
   output: z.object({ label: z.string() }),
 });
