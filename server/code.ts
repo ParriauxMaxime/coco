@@ -72,10 +72,26 @@ export function createCode({ REPO, config, works }: Deps) {
   };
 
   const infoCache = new Map<number, { at: number; promise: Promise<PrShas> }>();
+  const refreshingShas = new Set<number>();
   async function prShas(number: number, fresh = false): Promise<PrShas> {
     const hit = infoCache.get(number);
     if (hit && Date.now() - hit.at < (fresh ? FRESH_TTL : INFO_TTL)) return hit.promise;
-    const promise = (async (): Promise<PrShas> => {
+    // past INFO_TTL a plain read keeps the old shas while gh is asked again
+    if (hit && !fresh) {
+      if (!refreshingShas.has(number)) {
+        refreshingShas.add(number);
+        const next = loadShas(number);
+        next.then(() => infoCache.get(number) === hit && infoCache.set(number, { at: Date.now(), promise: next }), () => {}).finally(() => refreshingShas.delete(number));
+      }
+      return hit.promise;
+    }
+    const promise = loadShas(number);
+    infoCache.set(number, { at: Date.now(), promise });
+    promise.catch(() => infoCache.delete(number));
+    return promise;
+  }
+  function loadShas(number: number): Promise<PrShas> {
+    return (async (): Promise<PrShas> => {
       if (!GITHUB) throw new HttpError(503, 'no GitHub repo configured (repo.github)');
       const r = await exec('gh', ['pr', 'view', String(number), '--repo', GITHUB, '--json', 'headRefOid,baseRefOid,baseRefName']);
       let d: { headRefOid?: string; baseRefOid: string; baseRefName: string } | null = null;
@@ -85,9 +101,6 @@ export function createCode({ REPO, config, works }: Deps) {
       if (!d?.headRefOid) throw new HttpError(/Could not resolve|not found/i.test(r.stderr) ? 404 : 500, `gh pr view ${number}: ${r.stderr.trim().slice(0, 200) || 'no data'}`);
       return { headSha: d.headRefOid, baseSha: d.baseRefOid, baseRef: d.baseRefName };
     })();
-    infoCache.set(number, { at: Date.now(), promise });
-    promise.catch(() => infoCache.delete(number));
-    return promise;
   }
 
   const mergeBases = new Map<string, string>();
