@@ -142,7 +142,7 @@ test('run starts the agent in the workspace already open on its directory, waits
   assert.equal(created.prompt, undefined);
   assert.deepEqual(created.labels, { source: 'cocopilot', kind: 'ask', comments: '2' });
   const { toolPolicy, ...config } = created.config;
-  assert.deepEqual(config, { provider: 'claude/opus', systemPrompt: 'You are coco.', mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [`${APP}/server/mcp.ts`], alwaysLoad: true } } });
+  assert.deepEqual(config, { provider: 'claude/opus', modeId: 'auto', systemPrompt: 'You are coco.', mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [`${APP}/server/mcp.ts`], alwaysLoad: true } } });
   assert.deepEqual(toolPolicy?.preapproved.map((ref) => `${ref.server}.${ref.tool}`), COCO_MCP_TOOLS.map((tool) => `cocopilot.${tool}`));
   assert.deepEqual(daemon.calls.sent, ['Plan the widgets export']);
   assert.deepEqual(daemon.calls.archived, [AGENT]);
