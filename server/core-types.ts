@@ -10,7 +10,7 @@ export type { Decision };
 
 export type Req = IncomingMessage;
 export type Res = ServerResponse;
-export type Send = (res: Res, code: number, body: unknown, type?: string) => void;
+export type Send = (res: Res, code: number, body: unknown, type?: string, cache?: string) => void;
 export type ReadBody = (req: Req) => Promise<string>;
 
 export type RowKey = number | string;
@@ -121,6 +121,7 @@ export interface PrInfo {
   head?: string;
   base?: string;
   sha?: string;
+  headOid?: string | null;
   ci?: string;
   checks?: { name: string; status: string; conclusion: string }[];
   reviewers?: { login: string; state: string }[];

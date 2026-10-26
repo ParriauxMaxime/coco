@@ -2,6 +2,7 @@
 // Push and ready for review have no button: cocopilot never pushes, it shows the command.
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { skillFor } from './config.ts';
+import { swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { GateRecord, PrInfo, ReadBody, Req, Res, ReviewAgentApi, Send, StackRow, Work } from './core-types.ts';
@@ -91,14 +92,8 @@ export function gateState(stored: Partial<GateRecord> | null | undefined, derive
 
 export function createGates({ config, works, reviewAgent, reviewPlan }: { config: Config; works: GatesWorks; reviewAgent: ReviewAgentApi; reviewPlan: { planOf(slug: string, n: number | string): GateFacts['plan'] } }) {
   const GATES = gatesFor(config);
-  const remotes = new Map<number | string, { at: number; value: string | null }>();
-  const remoteOf = async (n: number | string) => {
-    const hit = remotes.get(n);
-    if (hit && Date.now() - hit.at < REMOTE_TTL_MS) return hit.value;
-    const value = await reviewAgent.remoteHead(n);
-    remotes.set(n, { at: Date.now(), value });
-    return value;
-  };
+  const remotes = swrCache<string | null>(REMOTE_TTL_MS);
+  const remoteOf = (n: number | string) => remotes(String(n), () => reviewAgent.remoteHead(n));
 
   function rowOf(slug: string, raw: string) {
     const work = works.get(slug);

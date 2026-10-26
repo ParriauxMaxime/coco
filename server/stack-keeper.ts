@@ -64,9 +64,9 @@ export function createStackKeeper({ REPO, config, works, reviewAgent }: Deps) {
       const key = rowKey(s);
       const pr = s.number ? await works.prInfo(s.number) : null;
       const branch = pr?.head || s.planned?.branch || null;
-      const headOid = pr?.state === 'MERGED' && opts.github ? out(await exec('gh', ['pr', 'view', String(s.number), '--repo', opts.github, '--json', 'headRefOid', '--jq', '.headRefOid'])) : null;
-      const tip = branch ? await reviewAgent.branchSha(branch) : null;
-      return { key, number: s.number || null, state: pr?.state || 'LOCAL', branch, tip, headOid, worktree: branch ? await reviewAgent.worktreeFor(branch) : null, keptFor: s.keeper?.parent ?? null };
+      const headOid = pr?.state === 'MERGED' ? pr.headOid || null : null;
+      const [tip, worktree] = branch ? await Promise.all([reviewAgent.branchSha(branch), reviewAgent.worktreeFor(branch)]) : [null, null];
+      return { key, number: s.number || null, state: pr?.state || 'LOCAL', branch, tip, headOid, worktree, keptFor: s.keeper?.parent ?? null };
     }));
   }
 

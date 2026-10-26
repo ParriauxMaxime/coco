@@ -53,11 +53,11 @@ test('apply rebases the child of a squash-merged parent onto origin/master and m
   fs.writeFileSync(path.join(meta, 'worktree.json'), JSON.stringify({ version: 2, baseRefName: 'a', baseRef: 'refs/heads/a' }));
 
   let work: Work = { slug: 'w', title: 'W', stack: [{ number: 1 }, { number: 2 }] };
-  const exec = (cmd: string, args: string[]) => (cmd === 'gh' ? Promise.resolve<ExecResult>({ ok: true, stdout: `${aHead}\n`, stderr: '' }) : new Promise<ExecResult>((resolve) => execFile(cmd, args, (err, stdout, stderr) => resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) }))));
+  const exec = (cmd: string, args: string[]) => new Promise<ExecResult>((resolve) => execFile(cmd, args, (err, stdout, stderr) => resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) })));
   const keeper = createStackKeeper({
     REPO: repo,
     config: { repo: { github: 'acme/widgets', defaultBranch: 'master' } },
-    works: { get: () => work, save: (w) => (work = w), prInfo: async (n) => ({ number: n ?? null, state: n === 1 ? 'MERGED' : 'OPEN', head: n === 1 ? 'a' : 'b' }) },
+    works: { get: () => work, save: (w) => (work = w), prInfo: async (n) => ({ number: n ?? null, state: n === 1 ? 'MERGED' : 'OPEN', head: n === 1 ? 'a' : 'b', headOid: n === 1 ? aHead : null }) },
     reviewAgent: { exec, branchSha: async (b) => sh(repo, 'rev-parse', b), worktreeFor: async (b) => (b === 'b' ? wt : null), agentsList: async () => [], sameDir: () => false, timeline: () => {} },
   });
   const res: { code?: number; body?: unknown } = {};

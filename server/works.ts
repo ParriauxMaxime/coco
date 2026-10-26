@@ -12,6 +12,7 @@ import { decisionBullet, decisionSummary, validChoice } from './decisions.ts';
 import type { Decision } from './decisions.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { validateNext } from './next.ts';
+import { batcher, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Send, Work } from './core-types.ts';
@@ -51,8 +52,10 @@ interface GhCheck {
   state?: string;
   conclusion?: string;
 }
+const PR_FIELDS = 'number title url state isDraft reviewDecision headRefName baseRefName headRefOid additions deletions changedFiles mergedAt updatedAt body labels(first:20){nodes{name}} reviews(last:100){nodes{author{login} state}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}';
 interface GhPr {
   number: number;
+  body?: string;
   title: string;
   url: string;
   state: string;
@@ -66,9 +69,13 @@ interface GhPr {
   changedFiles: number;
   mergedAt: string | null;
   updatedAt: string;
-  statusCheckRollup?: GhCheck[];
-  reviews?: { author?: { login: string }; state: string }[];
-  labels?: { name: string }[];
+  commits?: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: GhCheck[] } } | null } }[] };
+  reviews?: { nodes: { author?: { login: string } | null; state: string }[] };
+  labels?: { nodes: { name: string }[] };
+}
+interface GhPrNode {
+  info: PrInfo;
+  body: string;
 }
 interface PrFile {
   filename: string;
@@ -114,7 +121,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug: string) => path.join(ROOT, `${slug}.json`);
   const artDir = (slug: string) => path.join(ROOT, slug, 'artifacts');
-  const prCache = new Map<number, { at: number; data: PrInfo }>();
+  const prCache = swrCache<GhPrNode>(60000);
 
   const list = (): Work[] =>
     fs
@@ -146,15 +153,29 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     return { projects: tree, orphanAgents, error: p.ok ? null : p.stderr };
   }
 
+  // one GraphQL call for every PR asked within the same few ms (a page load asks for the whole stack at once)
+  const fetchPrs = batcher<number, GhPrNode>(async (numbers) => {
+    if (!GITHUB) throw new Error(noRepo.stderr);
+    const [owner, name] = GITHUB.split('/');
+    const query = `query{repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){${numbers.map((n) => `p${n}:pullRequest(number:${n}){...P}`).join(' ')}}} fragment P on PullRequest{${PR_FIELDS}}`;
+    const r = await run('gh', ['api', 'graphql', '-f', `query=${query}`]);
+    const repo = parseJson<{ data?: { repository?: Record<string, GhPr | null> } }>(r, {}).data?.repository;
+    if (!repo) throw new Error(r.stderr.slice(0, 200));
+    return new Map(numbers.flatMap((n) => {
+      const d = repo[`p${n}`];
+      return d ? [[n, { info: toPrInfo(d), body: d.body || '' }]] : [];
+    }));
+  });
+  const prNode = (number: number, fresh = false) => prCache(String(number), () => fetchPrs(number), fresh);
+
   async function prInfo(number: number | null | undefined, fresh = false): Promise<PrInfo> {
     if (!number) return { number: null, state: 'PLANNED', isDraft: false, ci: 'none', checks: [], reviewers: [], additions: 0, deletions: 0, changedFiles: 0 };
-    const cached = prCache.get(number);
-    if (!fresh && cached && Date.now() - cached.at < 60000) return cached.data;
-    const r = await gh(['pr', 'view', String(number), '--repo', GITHUB, '--json', 'number,title,url,state,isDraft,reviewDecision,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,mergedAt,updatedAt,statusCheckRollup,reviews,labels,author']);
-    const d = parseJson<GhPr | null>(r, null);
-    if (!d) return { number, error: r.stderr.slice(0, 200) };
-    const checks = (d.statusCheckRollup || []).map((c) => ({ name: c.name || c.context || '', status: c.status || c.state || '', conclusion: c.conclusion || '' }));
-    const data: PrInfo = {
+    return prNode(number, fresh).then((n) => n.info, (e: Error) => ({ number, error: e.message }));
+  }
+  function toPrInfo(d: GhPr): PrInfo {
+    const contexts = d.commits?.nodes[0]?.commit.statusCheckRollup?.contexts.nodes || [];
+    const checks = contexts.map((c) => ({ name: c.name || c.context || '', status: c.status || c.state || '', conclusion: c.conclusion || '' }));
+    return {
       number: d.number,
       title: d.title,
       url: d.url,
@@ -164,18 +185,17 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       head: d.headRefName,
       base: d.baseRefName,
       sha: (d.headRefOid || '').slice(0, 11),
+      headOid: d.headRefOid || null,
       additions: d.additions,
       deletions: d.deletions,
       changedFiles: d.changedFiles,
       mergedAt: d.mergedAt,
       updatedAt: d.updatedAt,
-      labels: (d.labels || []).map((l) => l.name),
+      labels: (d.labels?.nodes || []).map((l) => l.name),
       ci: checks.length === 0 ? 'none' : checks.some((c) => c.conclusion === 'FAILURE') ? 'failure' : checks.some((c) => c.status !== 'COMPLETED') ? 'pending' : 'success',
       checks,
-      reviewers: Object.entries((d.reviews || []).reduce<Record<string, string>>((acc, rv) => ((acc[rv.author?.login || '?'] = rv.state), acc), {})).map(([login, state]) => ({ login, state })),
+      reviewers: Object.entries((d.reviews?.nodes || []).reduce<Record<string, string>>((acc, rv) => ((acc[rv.author?.login || '?'] = rv.state), acc), {})).map(([login, state]) => ({ login, state })),
     };
-    prCache.set(number, { at: Date.now(), data });
-    return data;
   }
 
   // { [artifact name]: { pr, kind, headSha, at } }: which PR head a kit piece was made for
@@ -232,24 +252,13 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   }
   const matchGlob = (glob: string, p: string) => globToRegExp(glob).test(p);
 
-  const filesCache = new Map<number, { at: number; data: PrFile[] }>();
-  async function prFiles(number: number): Promise<PrFile[]> {
-    const cached = filesCache.get(number);
-    if (cached && Date.now() - cached.at < 120000) return cached.data;
-    const r = await gh(['api', '--paginate', `repos/${GITHUB}/pulls/${number}/files?per_page=100`, '--jq', '.[] | {filename,additions,deletions,status}']);
-    const data: PrFile[] = r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-    filesCache.set(number, { at: Date.now(), data });
-    return data;
-  }
-  const bodyCache = new Map<number, { at: number; data: string }>();
-  async function prBody(number: number): Promise<string> {
-    const cached = bodyCache.get(number);
-    if (cached && Date.now() - cached.at < 120000) return cached.data;
-    const r = await gh(['pr', 'view', String(number), '--repo', GITHUB, '--json', 'body']);
-    const data = parseJson<{ body?: string }>(r, { body: '' }).body || '';
-    bodyCache.set(number, { at: Date.now(), data });
-    return data;
-  }
+  const filesCache = swrCache<PrFile[]>(120000);
+  const prFiles = (number: number): Promise<PrFile[]> =>
+    filesCache(String(number), async () => {
+      const r = await gh(['api', '--paginate', `repos/${GITHUB}/pulls/${number}/files?per_page=100`, '--jq', '.[] | {filename,additions,deletions,status}']);
+      return r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+    });
+  const prBody = (number: number): Promise<string> => prNode(number).then((n) => n.body, () => '');
   const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await prInfo(s.number, fresh)), key: rowKey(s), personas: s.personas || [] })));
 
   async function plan(work: Work) {

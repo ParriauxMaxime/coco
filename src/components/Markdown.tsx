@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import DiagramViewer from './DiagramViewer.tsx';
 import { useCodeRefs } from './CodeRefs.tsx';
 import { marked } from 'marked';
-import mermaid from 'mermaid';
+import type { Mermaid } from 'mermaid';
 import { useTheme } from '../theme.ts';
 
 marked.setOptions({ gfm: true, breaks: false });
-const initMermaid = (resolved?: string) => mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: resolved === 'dark' ? 'dark' : 'neutral', fontFamily: 'Inter, sans-serif' });
-initMermaid(document.documentElement.dataset.theme);
+let mermaidLib: Promise<Mermaid> | null = null;
+const loadMermaid = () => (mermaidLib ??= import('mermaid').then((m) => m.default));
+const initMermaid = (mermaid: Mermaid, resolved?: string) => mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: resolved === 'dark' ? 'dark' : 'neutral', fontFamily: 'Inter, sans-serif' });
 
 const fontsReady = document.fonts ? Promise.all([document.fonts.load('400 14px Inter'), document.fonts.load('italic 400 14px Inter'), document.fonts.ready]).catch(() => {}) : Promise.resolve();
 
@@ -40,9 +41,11 @@ export default function Markdown({ text }: { text?: string | null }) {
     const nodes = Array.from(all).filter((n) => !n.hasAttribute('data-processed'));
     if (!nodes.length) return;
     nodes.forEach((n) => { n.dataset.theme = resolved; });
-    initMermaid(resolved);
     // mermaid sizes labels with the font loaded at run time; Inter arrives later from a webfont and clips them
-    fontsReady.then(() => mermaid.run({ nodes })).then(() => nodes.forEach(toneNodes)).catch(() => {});
+    Promise.all([loadMermaid(), fontsReady])
+      .then(([mermaid]) => { initMermaid(mermaid, resolved); return mermaid.run({ nodes }); })
+      .then(() => nodes.forEach(toneNodes))
+      .catch(() => {});
   }, [html, resolved]);
   useEffect(() => {
     const root = ref.current;

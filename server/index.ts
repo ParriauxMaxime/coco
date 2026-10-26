@@ -84,9 +84,9 @@ setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
 fs.mkdirSync(BRIEFS, { recursive: true });
 
-const send: Send = (res, code, body, type = 'application/json') => {
+const send: Send = (res, code, body, type = 'application/json', cache = 'no-store') => {
   const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' });
+  res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': cache });
   res.end(data);
 };
 const readBody = (req: Req) =>
@@ -327,7 +327,7 @@ async function api(req: Req, res: Res, url: URL) {
       const login = decodeURIComponent(a);
       const local = ['png', 'jpg', 'jpeg', 'webp'].map((ext) => path.join(DATA, 'avatars', `${login}.${ext}`)).find((f) => fs.existsSync(f));
       const avatarTypes: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
-      if (local) return send(res, 200, fs.readFileSync(local), avatarTypes[path.extname(local).slice(1)]);
+      if (local) return send(res, 200, fs.readFileSync(local), avatarTypes[path.extname(local).slice(1)], 'public, max-age=86400');
       const p = listPersonas().find((x) => x.login === login);
       res.writeHead(302, { Location: `https://github.com/${p?.github || login}.png?size=96`, 'Cache-Control': 'public, max-age=3600' });
       return res.end();
@@ -381,7 +381,9 @@ function serveStatic(res: Res, url: URL) {
   if (!file.startsWith(DIST)) return send(res, 403, 'forbidden', 'text/plain');
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html');
   if (!fs.existsSync(file)) return send(res, 503, 'run `npm run build` first', 'text/plain');
-  send(res, 200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream');
+  // vite puts a content hash in every /assets/ name
+  const cache = file.startsWith(path.join(DIST, 'assets') + path.sep) ? 'public, max-age=31536000, immutable' : 'no-store';
+  send(res, 200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream', cache);
 }
 
 http
