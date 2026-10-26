@@ -86,7 +86,7 @@ export default function App() {
   else if (root === 'work' && a) page = <Workbench key={a} slug={a} />;
   else if (root === 'repo' && a) page = <Repo key={a} id={decodeURIComponent(a)} />;
   else if (root === 'repos' && a === 'new') page = <NewRepo />;
-  else if (root === 'ask') page = <Ask />;
+  else if (root === 'ask') page = <Ask convId={a} />;
   else if (root === 'inbox') page = <Inbox />;
   else if (root === 'archive') page = <Archive />;
   else if (root === 'rules') page = <><h1>Rules</h1><Rules /></>;

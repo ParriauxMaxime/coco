@@ -1,7 +1,7 @@
 import type {
   AddRepoResult, AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
-  KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
+  KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
   WorktreeNotice, WorktreesRemoved, WorkWorktree,
@@ -63,6 +63,8 @@ export const api = {
   saveSkillFile: (name: string, file: string, body: string) => putText<{ ok: boolean; bytes: number }>(`/api/skills/${name}/files/${encodeURIComponent(file)}`, body),
   agents: () => get<AgentsResponse>('/api/agents'),
   agentActivity: (id: string) => get<AgentLog>(`/api/agents-activity/${id}`),
+  respondPermission: (agentId: string, requestId: string, body: PermissionResponse) => postJson(`/api/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}`, body).then(jsonOrError<{ ok: boolean }>),
+  askConversation: (id: string) => get<AskRun>(`/api/ask/${encodeURIComponent(id)}`),
   linkedAgents: (slug?: string) => get<{ agents: LinkedAgent[] }>(`/api/paseo-link/agents${slug ? `?work=${encodeURIComponent(slug)}` : ''}`).then((r) => r.agents),
   reviews: () => get<{ name: string; dir: boolean; mtime: string; entries: string[] }[]>('/api/reviews'),
   feedback: () => get<FeedbackItem[]>('/api/feedback'),

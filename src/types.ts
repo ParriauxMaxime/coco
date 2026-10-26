@@ -290,7 +290,17 @@ export type ActivityEvent = {
   dispatchProposal?: DispatchProposal | null;
   repoProposal?: RepoProposal | null;
   agentId?: string;
+  request?: PermissionRequest;
+  requestId?: string;
+  resolution?: unknown;
 };
+
+export type PermissionAction = { id: string; label: string; behavior: 'allow' | 'deny'; variant?: string; intent?: string };
+export type PermissionRequest = { id: string; provider?: string; name: string; kind: string; title?: string; description?: string; input?: Record<string, unknown>; detail?: unknown; suggestions?: Record<string, unknown>[]; actions?: PermissionAction[]; metadata?: Record<string, unknown> };
+export type PermissionResponse =
+  | { behavior: 'allow'; selectedActionId?: string; updatedInput?: Record<string, unknown>; updatedPermissions?: Record<string, unknown>[] }
+  | { behavior: 'deny'; selectedActionId?: string; message?: string; interrupt?: boolean };
+export type PendingPermission = { agentId: string; agentTitle: string | null; request: PermissionRequest; since: string; where: { label: string; href: string } | null };
 
 export type Suggestion = {
   state: string;

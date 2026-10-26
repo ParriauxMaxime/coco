@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Markdown from './Markdown.tsx';
-import { groupActivity } from './activity.ts';
+import PermissionCard from './PermissionCard.tsx';
+import { groupActivity, toolLabel } from './activity.ts';
 import type { ActivityEvent } from '../types.ts';
 
 const ICONS: Record<string, string[]> = {
@@ -15,12 +16,6 @@ const Icon = ({ name, className = '' }: { name: string; className?: string }) =>
     {ICONS[name].map((d) => <path key={d} d={d} />)}
   </svg>
 );
-
-export const toolLabel = (name?: string) => {
-  const parts = String(name || '').split('__');
-  if (parts[0] !== 'mcp' || parts.length < 3) return name;
-  return `${parts[1] === 'cocopilot' ? 'coco' : parts[1]}.${parts.slice(2).join('__')}`;
-};
 
 type RowProps = { icon: string; label: string; running: boolean; open?: boolean; onToggle: () => void; children?: React.ReactNode };
 function Row({ icon, label, running, open, onToggle, children }: RowProps) {
@@ -78,9 +73,10 @@ export default function AgentActivity({ events, active = false, renderEvent = de
         if (it.kind === 'tools') return <Row key={i} icon="wrench" label={it.label} running={it.running} open={open[i]} onToggle={() => toggle(i)}>{it.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
         if (it.kind === 'think') return <Row key={i} icon="brain" label="Thinking" running={it.running} open={open[i]} onToggle={() => toggle(i)}><div className="act-think">{it.text}</div></Row>;
         if (it.kind === 'live') return <div key={i} className="act-text"><Markdown text={it.text} /></div>;
+        if (it.kind === 'permission') return it.event.request ? <PermissionCard key={i} agentId={it.event.agentId} request={it.event.request} resolution={it.resolution} /> : null;
         return <React.Fragment key={i}>{renderEvent(it.event)}</React.Fragment>;
       })}
-      {active && !(last && 'running' in last && last.running) && last?.kind !== 'live' && <div className="act act-working running"><span className="act-row"><span className="spinner act-spin" aria-hidden /><span className="act-label">Working…</span></span></div>}
+      {active && !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined) && <div className="act act-working running"><span className="act-row"><span className="spinner act-spin" aria-hidden /><span className="act-label">Working…</span></span></div>}
     </div>
   );
 }

@@ -760,5 +760,5 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     }
   }
 
-  return { handle, post, ingest, turnEnded, summaries, decideSuggestion, drainQueue, regroup, release, setFindingActor };
+  return { handle, post, ingest, turnEnded, summaries, decideSuggestion, drainQueue, regroup, release, setFindingActor, groupKind: (slug: string, id: string) => readGroup(slug, id)?.kind ?? null };
 }

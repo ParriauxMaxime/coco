@@ -360,6 +360,20 @@ button.act-row:hover { background: var(--line-2); color: var(--ink-2); }
 .keep { border-left: 3px solid var(--amber); }
 .keep .row { flex-wrap: wrap; }
 .keep-cmd { align-items: flex-start; flex-wrap: nowrap !important; }
+.perm { display: grid; gap: 8px; margin: 6px 0; font-size: 13px; }
+.perm-head { gap: 6px; flex-wrap: wrap; }
+.perm-q { margin: 0; padding: 0; border: 0; display: grid; gap: 4px; }
+.perm-q legend { padding: 0; margin-bottom: 4px; font-weight: 500; }
+.perm-opt { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.perm-opt input { margin-top: 3px; }
+.perm-other { width: 100%; box-sizing: border-box; }
+.perm-pre, .perm-plan { margin: 0; padding: 6px 8px; max-height: 320px; overflow: auto; background: var(--grey-bg); border-radius: var(--r-sm); }
+.perm-pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--ink); }
+.perm-actions { gap: 6px; flex-wrap: wrap; }
+.perm-done { margin: 2px 0; }
+button.danger { color: var(--red); }
+.sidebar a.nav .n.wait { color: var(--amber); background: var(--amber-bg); }
+.sidebar a.nav .n.wait + .n { margin-left: 4px; }
 .wt-row { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
 .wt-row input { margin-top: 3px; }
 .wt-row .status { display: block; font-family: ui-monospace, Menlo, monospace; word-break: break-all; }

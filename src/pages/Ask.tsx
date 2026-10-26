@@ -336,10 +336,13 @@ export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.sli
 const SAFE = 'Follow up as long as you like, even while it works. It reads and proposes; you apply. Nothing is pushed, posted or sent.';
 
 // three tiers: global (no work, no repo), a repo's (repoId: scaffolds its works), a work's (workSlug)
-export default function Ask({ workSlug, repoId, repoName }: { workSlug?: string; repoId?: string; repoName?: string }) {
+export default function Ask({ workSlug, repoId, repoName, convId }: { workSlug?: string; repoId?: string; repoName?: string; convId?: string }) {
   const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
   const convo = useAskConversation('ask', scope);
   const { run, open } = convo;
+  useEffect(() => {
+    if (convId && run?.id !== convId) api.askConversation(convId).then(open, (e) => toast.error(errorMessage(e)));
+  }, [convId]);
   const repo = repoName || repoId;
   return (
     <>

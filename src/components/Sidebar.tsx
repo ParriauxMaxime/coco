@@ -3,6 +3,7 @@ import { cycleTheme, useTheme } from '../theme.ts';
 import type { ThemeMode } from '../theme.ts';
 import { useConfig } from '../config.ts';
 import { api } from '../api.ts';
+import { usePendingPermissions } from './PermissionCard.tsx';
 import type { Persona, RepoGroup, Skill, WorkProgress, WorkSummary } from '../types.ts';
 
 export type Nav = { works: WorkSummary[]; repos: RepoGroup[]; personas: Persona[]; skills: Skill[]; projects: number; running: number; notices: number };
@@ -102,6 +103,7 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
     <a className={`nav ${on ? 'on' : ''}`} href={href} onClick={onClose}>{icon}{children}</a>
   );
   const archivedCount = nav.works.filter((w) => w.archived).length;
+  const waiting = usePendingPermissions().pending.length;
   const bySlug = new Map(nav.works.map((w) => [w.slug, w]));
   // reorders show at once; the next overview poll brings the saved order back
   const [moved, setMoved] = useState<{ from: RepoGroup[]; to: RepoGroup[] } | null>(null);
@@ -145,7 +147,7 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
         <Link href="#/" on={!root} icon={<Icon d={ICONS.dashboard} />}>Dashboard</Link>
         <Link href="#/inbox" on={is('inbox')} icon={<Icon d={ICONS.inbox} />}>Inbox {nav.notices > 0 && <span className="n">{nav.notices}</span>}</Link>
         <Link href="#/projects" on={is('projects')} icon={<Icon d={ICONS.projects} />}>Projects <span className="n">{nav.projects}</span></Link>
-        <Link href="#/agents" on={is('agents')} icon={<Icon d={ICONS.agents} />}>Agents {nav.running > 0 && <span className="n live"><span className="dot run" />{nav.running}</span>}</Link>
+        <Link href="#/agents" on={is('agents')} icon={<Icon d={ICONS.agents} />}>Agents {waiting > 0 && <span className="n wait" title={`${waiting} agent request${waiting > 1 ? 's' : ''} waiting for you`}>{waiting} waiting</span>}{nav.running > 0 && <span className="n live"><span className="dot run" />{nav.running}</span>}</Link>
         {hasRituals && <Link href="#/rituals" on={is('rituals')} icon={<Icon d={ICONS.rituals} />}>Rituals</Link>}
         <Link href="#/rules" on={is('rules')} icon={<Icon d={ICONS.rules} />}>Rules</Link>
         {archivedCount > 0 && <Link href="#/archive" on={is('archive')} icon={<Icon d={ICONS.archive} />}>Archive <span className="n">{archivedCount}</span></Link>}

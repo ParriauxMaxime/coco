@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createPaseoClient } from '@getpaseo/client';
 import { rowKey } from './stack.ts';
+import type { PermissionClient, PermissionRequest } from './permissions.ts';
 
 export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 export const TITLE_PREFIX = 'coco · ';
@@ -22,12 +23,13 @@ type StackRow = { number?: number | null; planned?: { branch?: string } };
 
 export type ToolDetail = { type: string; command?: string; filePath?: string; query?: string; url?: string; text?: string; label?: string; description?: string; input?: unknown; output?: unknown; content?: string; result?: string; log?: string; unifiedDiff?: string; oldString?: string; newString?: string };
 type TimelineItem = { type: string; text?: string; messageId?: string; callId?: string; status?: string; name?: string; detail?: ToolDetail; error?: unknown; message?: string };
-export type TimelineEvent = { type: string; provider?: string; item?: TimelineItem; request?: { id?: string; title?: string; name?: string; kind?: string }; requestId?: string; resolution?: unknown; usage?: { totalCostUsd?: number }; error?: unknown };
+export type TimelineEvent = { type: string; provider?: string; item?: TimelineItem; request?: PermissionRequest; requestId?: string; resolution?: unknown; usage?: { totalCostUsd?: number }; error?: unknown };
 type TimelineMessage = { agentId?: string; event?: TimelineEvent } | null;
 export type Entry = { type: string; text?: string; id?: string | null; name?: string; kind?: string; input?: unknown; output?: string; status?: string; error?: string | null };
 export type ToolStart = { type: 'tool'; id?: string; name?: string; kind: string; input: unknown; text: string; output: string; status: string; error: string | null };
-export type ActivityEvent = { type: string; id?: string | null; name?: string; kind?: string; summary?: string; input?: string; output?: string; status?: string; text?: string };
-export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text: string, kind?: 'text' | 'think') => void; onToolStart?: (e: ToolStart) => void; onPermission?: (what: string) => void };
+export type PermissionEvent = { type: 'permission'; agentId: string | null; request: PermissionRequest } | { type: 'permission_resolved'; agentId: string | null; requestId: string; resolution: unknown };
+export type ActivityEvent = { type: string; id?: string | null; name?: string; kind?: string; summary?: string; input?: string; output?: string; status?: string; text?: string; agentId?: string | null; request?: PermissionRequest; requestId?: string; resolution?: unknown };
+export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text: string, kind?: 'text' | 'think') => void; onToolStart?: (e: ToolStart) => void; onPermission?: (e: PermissionEvent) => void };
 export type WaitResult = { status: string; error?: string | null; lastMessage?: string | null; final?: { lastUsage?: { totalCostUsd?: number } | null } | null };
 type Unsubscribe = (() => void) & { ready?: Promise<unknown> };
 type Cursor = { epoch: string; seq: number };
@@ -42,7 +44,7 @@ export type DaemonAgent = {
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
   refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null } | null } | null>;
   archive(): Promise<unknown>;
-};
+} & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown };
 export type WorkspaceHandle = { id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
 export type DaemonClient = {
@@ -52,7 +54,7 @@ export type DaemonClient = {
     open(cwd: string): Promise<WorkspaceHandle>;
     create(opts: Record<string, unknown>): Promise<WorkspaceHandle>;
   };
-  agents: { ref(id: string): DaemonAgent };
+  agents: { ref(id: string): DaemonAgent; list?: PermissionClient['agents']['list'] };
 };
 type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
 
@@ -131,7 +133,7 @@ const toolOutput = (d?: ToolDetail | null): string => (!d ? '' : d.type === 'she
 
 // Turns timeline events into entries: text and thinking once their message is complete (their deltas go to onDelta(text, 'text' | 'think') as they stream),
 // a tool call once it has its result; onToolStart sees a running call each time what it shows changes.
-export function createFollower({ onEntry, onDelta, onToolStart, onPermission }: FollowerCallbacks = {}) {
+export function createFollower({ onEntry, onDelta, onToolStart, onPermission, agentId = null }: FollowerCallbacks & { agentId?: string | null } = {}) {
   const entries: Entry[] = [];
   const submitted: Record<string, unknown> = {};
   const done = new Set<string | undefined>();
@@ -191,10 +193,11 @@ export function createFollower({ onEntry, onDelta, onToolStart, onPermission }: 
       if (it.type === 'error') emit({ type: 'error', text: it.message });
       return;
     }
-    if (ev.type === 'permission_requested') {
+    if (ev.type === 'permission_requested' && ev.request?.id) {
       close();
-      onPermission?.(ev.request?.title || ev.request?.name || 'permission');
+      onPermission?.({ type: 'permission', agentId, request: ev.request });
     }
+    if (ev.type === 'permission_resolved' && ev.requestId) onPermission?.({ type: 'permission_resolved', agentId, requestId: ev.requestId, resolution: ev.resolution ?? null });
     if (ev.type === 'turn_completed') cost = ev.usage?.totalCostUsd ?? cost;
     if (ev.type === 'turn_failed') failure = ev.error;
     if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(ev.type)) close();
@@ -212,6 +215,8 @@ type Follower = ReturnType<typeof createFollower>;
 
 const EXCERPT = 2000;
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+// what logs keep of a request: long strings (a file to write, a long command) cut, the live list keeps them whole
+const clipDeep = (v: unknown): unknown => (typeof v === 'string' ? clip(v, EXCERPT) : Array.isArray(v) ? v.map(clipDeep) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clipDeep(x)])) : v);
 export const toolEvent = (e: Entry): ActivityEvent => ({ type: 'tool', id: e.id || null, name: e.name, kind: e.kind || 'unknown', summary: clip(String(e.text || ''), 300), input: e.kind === 'unknown' && e.input != null ? clip(JSON.stringify(e.input), EXCERPT) : '', output: clip(String(e.error || e.output || ''), EXCERPT), status: e.status });
 
 // the follower callbacks every conversation surface uses: keep() gets what is stored and replayed (text, think, tool running then settled under one id, stderr, meta),
@@ -246,7 +251,10 @@ export function activityEvents({ keep, live, deltaMs = 100 }: { keep: (ev: Activ
         keep(toolEvent(e));
       } else if (e.type === 'error') keep({ type: 'stderr', text: (e.text ?? '').slice(0, EXCERPT) });
     },
-    onPermission: (what: string) => keep({ type: 'meta', text: `waiting for a permission in Paseo: ${what}` }),
+    onPermission: (e: PermissionEvent) => {
+      flush();
+      keep(e.type === 'permission' ? { ...e, request: clipDeep(e.request) as PermissionRequest } : e);
+    },
     flush,
   };
 }
@@ -389,7 +397,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
       agent = created;
       started = rest;
     }
-    const callbacks = { onEntry, onDelta, onToolStart, onPermission };
+    const callbacks = { onEntry, onDelta, onToolStart, onPermission, agentId: started.agentId };
     let follow = createFollower(callbacks);
     const unsubscribe = agent.timeline.subscribe((m) => follow.push(m));
     const { ready } = unsubscribe;
@@ -400,7 +408,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     let inFlight: Promise<Outcome> | null = null;
     let steered = false;
 
-    // prompt null waits on the turn the agent is already in; waits through permissions answered in Paseo and a steer landing as the turn ends
+    // prompt null waits on the turn the agent is already in; waits through permissions answered in coco or Paseo and a steer landing as the turn ends
     async function turn(prompt: string | null, timeoutMs: number): Promise<Outcome> {
       follow = createFollower(callbacks);
       steered = false;
@@ -447,7 +455,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     };
   }
 
-  // starts the agent, follows its timeline until the turn ends (waiting through permission requests answered in Paseo), then archives it, failures included
+  // starts the agent, follows its timeline until the turn ends (waiting through permission requests answered in coco or Paseo), then archives it, failures included
   async function run({ prompt, timeoutMs = TIMEOUT_MS, onStart, ...opts }: Omit<SessionOptions, 'agentId'> & { prompt: string; timeoutMs?: number; onStart?: (started: Started) => void }) {
     const s = await session(opts);
     const started = { agentId: s.agentId, workspaceId: s.workspaceId, createdWorkspace: s.createdWorkspace };

@@ -482,5 +482,6 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     resume,
     boot,
     load,
+    byAgent: (agentId: string) => [...convs.values()].find((c) => c.agentId === agentId) || null,
   };
 }

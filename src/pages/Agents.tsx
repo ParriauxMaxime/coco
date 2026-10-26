@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { toHash } from '../workbench/hash.ts';
+import { PendingPermissions, usePendingPermissions } from '../components/PermissionCard.tsx';
 import type { AgentsResponse, LinkedAgent } from '../types.ts';
 
 const statusChip = (s: string) => (s === 'running' ? 'c-green' : s === 'idle' ? 'c-grey' : s === 'error' ? 'c-red' : 'c-orange');
@@ -10,6 +11,7 @@ export default function Agents() {
   const [open, setOpen] = useState<string | null>(null);
   const [log, setLog] = useState('');
   const [links, setLinks] = useState<Record<string, LinkedAgent>>({});
+  const { pending } = usePendingPermissions();
   const refresh = () => {
     api.linkedAgents().then((all) => setLinks(Object.fromEntries(all.map((l) => [l.agentId, l]))), () => setLinks({}));
     return api.agents().then(setData);
@@ -32,6 +34,8 @@ export default function Agents() {
     <>
       <h1>Agents <button onClick={refresh} style={{ marginLeft: 8 }}>Refresh</button></h1>
       <p className="sub">From <code>paseo ls --json</code>, refreshed every 15 s. Tap an agent for its recent log.</p>
+      {pending.length > 0 && <h2>Waiting for you</h2>}
+      <PendingPermissions withWhere />
       {data.error && <div className="card danger">{data.error}</div>}
       <div className="card">
         {(data.agents || []).map((a) => {

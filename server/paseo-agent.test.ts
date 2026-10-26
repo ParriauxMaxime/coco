@@ -73,9 +73,9 @@ function fakeDaemon({ workspaces = [], events = [], results = [{ status: 'idle',
 test('the follower streams text and thinking deltas, shows a running call once per change, closes a message when a tool call lands, and keeps full tool inputs, results and proposals', () => {
   const deltas: (string | undefined)[][] = [];
   const entries: Entry[] = [];
-  const asked: string[] = [];
+  const asked: unknown[] = [];
   const starts: (string | undefined)[][] = [];
-  const f = createFollower({ onDelta: (t, kind) => deltas.push([kind, t]), onEntry: (e) => entries.push(e), onToolStart: (e) => starts.push([e.id, e.kind, e.text]), onPermission: (p) => asked.push(p) });
+  const f = createFollower({ onDelta: (t, kind) => deltas.push([kind, t]), onEntry: (e) => entries.push(e), onToolStart: (e) => starts.push([e.id, e.kind, e.text]), onPermission: (p) => asked.push(p), agentId: AGENT });
   const scaffold = { slug: 'widgets-export', notes: 'x'.repeat(2000) };
   for (const event of [
     tl({ type: 'user_message', text: 'the brief' }),
@@ -90,6 +90,7 @@ test('the follower streams text and thinking deltas, shows a running call once p
     tool('c2', 'Bash', { type: 'shell', command: 'git log -1', output: 'abc widgets' }),
     tool('c2', 'Bash', { type: 'shell', command: 'git log -1', output: 'abc widgets' }),
     { type: 'permission_requested', provider: 'claude', request: { id: 'p1', name: 'Bash', kind: 'tool', title: 'Run gh pr view 7' } },
+    { type: 'permission_resolved', provider: 'claude', requestId: 'p1', resolution: { behavior: 'allow' } },
     mcp('c3', 'propose_work_scaffold', scaffold, { recorded: true }),
     say('Done.', 'm2'),
     { type: 'turn_completed', provider: 'claude', usage: { totalCostUsd: 0.42 } },
@@ -106,7 +107,10 @@ test('the follower streams text and thinking deltas, shows a running call once p
   assert.equal(entries[3].output, 'abc widgets');
   assert.deepEqual(entries[4].input, scaffold);
   assert.deepEqual(f.submitted, { propose_work_scaffold: scaffold });
-  assert.deepEqual(asked, ['Run gh pr view 7']);
+  assert.deepEqual(asked, [
+    { type: 'permission', agentId: AGENT, request: { id: 'p1', name: 'Bash', kind: 'tool', title: 'Run gh pr view 7' } },
+    { type: 'permission_resolved', agentId: AGENT, requestId: 'p1', resolution: { behavior: 'allow' } },
+  ]);
   assert.equal(f.cost(), 0.42);
 });
 

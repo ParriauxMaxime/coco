@@ -7,6 +7,7 @@ export type ActivityItem =
   | { kind: 'tools'; calls: ActivityEvent[]; counts: CallCounts; label: string; running: boolean }
   | { kind: 'think'; text: string; running: boolean }
   | { kind: 'live'; text: string }
+  | { kind: 'permission'; event: ActivityEvent; resolution?: unknown }
   | { kind: 'event'; event: ActivityEvent };
 
 const NAME_KIND: Record<string, string> = { bash: 'shell', read: 'read', edit: 'edit', multiedit: 'edit', notebookedit: 'edit', write: 'write', grep: 'search', glob: 'search', websearch: 'search', webfetch: 'fetch' };
@@ -19,6 +20,12 @@ const PHRASES: [keyof CallCounts, string, string, string][] = [
   ['otherTools', 'used', 'other tool', 'other tools'],
   ['paseoCalls', 'called Paseo', 'time', 'times'],
 ];
+
+export const toolLabel = (name?: string) => {
+  const parts = String(name || '').split('__');
+  if (parts[0] !== 'mcp' || parts.length < 3) return name;
+  return `${parts[1] === 'cocopilot' ? 'coco' : parts[1]}.${parts.slice(2).join('__')}`;
+};
 
 // stored calls name their detail kind; older logs only their tool name
 export const kindOf = (call: ActivityEvent) => (call.kind && call.kind !== 'unknown' ? call.kind : NAME_KIND[String(call.name || '').toLowerCase()] || 'unknown');
@@ -55,7 +62,8 @@ export function callsLabel(counts: CallCounts) {
 
 // events: a conversation's stored and live events in order; a tool event repeating an id updates that call in place, a legacy tool_result fills the call before it.
 // Text and thinking deltas stream until their finished event replaces them. active: the agent is mid-turn, so running calls and streamed thinking show as running.
-// Items: { kind: 'tools', calls, counts, label, running } · { kind: 'think', text, running } · { kind: 'live', text } · { kind: 'event', event }
+// A permission request carries its answer once one is logged.
+// Items: { kind: 'tools', calls, counts, label, running } · { kind: 'think', text, running } · { kind: 'live', text } · { kind: 'permission', event, resolution } · { kind: 'event', event }
 export function groupActivity(events: ActivityEvent[] | null | undefined, { active = false } = {}): ActivityItem[] {
   const calls = new Map<string, ActivityEvent>();
   const merged: ActivityEvent[] = [];
@@ -78,7 +86,11 @@ export function groupActivity(events: ActivityEvent[] | null | undefined, { acti
     if (ev.type === 'delta') text += ev.text;
     else if (ev.type === 'think_delta') think += ev.text;
     else if (ev.type === 'thread') continue;
-    else if (ev.type === 'tool') {
+    else if (ev.type === 'permission') items.push({ kind: 'permission', event: ev });
+    else if (ev.type === 'permission_resolved') {
+      const asked = items.findLast((it) => it.kind === 'permission' && it.event.request?.id === ev.requestId);
+      if (asked?.kind === 'permission') asked.resolution = ev.resolution ?? null;
+    } else if (ev.type === 'tool') {
       const last = items.at(-1);
       if (last?.kind === 'tools') last.calls.push(ev);
       else items.push({ kind: 'tools', calls: [ev], counts: countCalls([ev]), label: '', running: false });

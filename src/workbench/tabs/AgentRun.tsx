@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import Collapsible from '../../components/Collapsible.tsx';
+import { PendingPermissions } from '../../components/PermissionCard.tsx';
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { reviewApi, useReviewStore, findRun, putRuns } from '../code/use-comments.ts';
@@ -67,6 +68,7 @@ export default function AgentRun({ tabId }: { tabId: string }) {
         started {new Date(run.startedAt).toLocaleString()}{run.finishedAt ? ` · finished ${new Date(run.finishedAt).toLocaleTimeString()}` : ''} · {run.commentIds.length} comments · {run.commits === 'squash' ? 'one squash commit' : 'one commit per comment'} · {run.provider} · agent <code>{(run.agentId || '?').slice(0, 8)}</code>{run.cwd ? <> · <code>{run.cwd}</code></> : null}
       </div>
       {brief && <Collapsible title="Brief sent to the agent" badge={run.briefPath?.split('/').pop()}><Markdown text={brief} /></Collapsible>}
+      {run.agentId && <PendingPermissions agentId={run.agentId} />}
       <h3>Logs {done ? '' : '· live every 5 s'}</h3>
       <pre ref={pre} className="ar-log">{out || '…'}</pre>
     </div>

@@ -10,7 +10,7 @@ const bash = (id: string, command: string, status?: string) => tool(id, 'Bash', 
 const read = (id: string, file: string) => tool(id, 'Read', 'read', file);
 const edit = (id: string, file: string) => tool(id, 'Edit', 'edit', file);
 const mcp = (id: string, name: string) => tool(id, `mcp__cocopilot__${name}`, 'unknown', '{}');
-const shape = (items: Item[]) => items.map((it) => (it.kind === 'tools' ? ['tools', it.label] : it.kind === 'event' ? [it.event.type, it.event.text ?? ''] : [it.kind, it.text]));
+const shape = (items: Item[]) => items.map((it) => (it.kind === 'tools' ? ['tools', it.label] : it.kind === 'event' ? [it.event.type, it.event.text ?? ''] : it.kind === 'permission' ? ['permission', it.event.request?.id ?? '', it.resolution] : [it.kind, it.text]));
 const toolsRow = (it: Item | undefined) => {
   assert.ok(it?.kind === 'tools');
   return it;

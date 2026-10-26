@@ -36,6 +36,7 @@ import { createWorktrees } from './worktrees.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents } from './paseo-agent.ts';
+import { createPermissions, whereOf } from './permissions.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
@@ -101,9 +102,14 @@ const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, 
 const devServers = createDevServers({ REPO, config, works });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});
+const permissions = createPermissions({
+  client: paseoAgents.client,
+  locate: (agent) => whereOf(agent, { askOf: ask.byAgent, groupKind: threads.groupKind, workTitle: (slug) => works.get(slug)?.title || null, repoName: (id) => repos.byId(id)?.name || null }),
+});
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
+permissions.boot();
 briefWriter.boot();
 fs.mkdirSync(BRIEFS, { recursive: true });
 
@@ -430,6 +436,7 @@ async function api(req: Req, res: Res, url: URL) {
       if (!s) return send(res, 404, { error: 'not found' });
       return send(res, 200, { ...s, md: fs.readFileSync(path.join(SKILLS, a, 'SKILL.md'), 'utf8') });
     }
+    if (root === 'permissions' || (root === 'agents' && b === 'permissions')) return permissions.handle(req, res, parts, readBody, send);
     if (root === 'agents') return send(res, 200, await agents());
     if (root === 'agents-activity' && a) {
       const r = await run('paseo', ['logs', a, '--tail', '40']);
