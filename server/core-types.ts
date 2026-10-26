@@ -63,6 +63,8 @@ export interface StackRow {
   forbidden?: string[];
   scope?: string;
   notionPage?: { url: string; title: string };
+  // the Paseo workspace coco made or adopted for this row, once an agent needed its branch
+  workspaceId?: string;
 }
 
 export interface TimelineEntry {

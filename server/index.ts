@@ -59,7 +59,7 @@ fs.mkdirSync(DATA, { recursive: true });
 const paseoAgents = createPaseoAgents({ APP });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
 const repos = createRepos({ DATA, repos: config.repos });
-const placement = createPlacement({ repos: config.repos });
+const placement = createPlacement({ repos: config.repos, APP, DATA, listWorkspaces: paseoAgents.listWorkspaces, works });
 const logRenames = (renames: Awaited<ReturnType<typeof placement.syncProjectNames>>) => renames.forEach((r) => console.log(`Paseo project ${r.from} → ${r.to}${r.skipped ? ` skipped: ${r.skipped}` : ''}`));
 repos
   .assign(works.list(), (w) => works.save(w, { touch: false }))

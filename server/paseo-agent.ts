@@ -272,7 +272,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     }));
 
   // the workspace already open on cwd (the biggest project's when several share it); opening one only when there is none
-  async function workspaceFor(cwd: string) {
+  async function listWorkspaces() {
     const c = await client();
     const entries: WorkspaceEntry[] = [];
     for (let cursor: string | undefined, page: Awaited<ReturnType<typeof c.workspaces.list>> | undefined; !page || cursor; ) {
@@ -280,6 +280,12 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
       entries.push(...page.entries);
       cursor = page.pageInfo?.nextCursor;
     }
+    return entries;
+  }
+
+  async function workspaceFor(cwd: string) {
+    const c = await client();
+    const entries = await listWorkspaces();
     const size = (p?: string) => entries.filter((w) => w.projectId === p).length;
     const [best] = entries.filter((w) => !w.archivingAt && w.workspaceDirectory && sameDir(w.workspaceDirectory, cwd)).sort((a, b) => size(b.projectId) - size(a.projectId));
     if (best) return { workspace: c.workspaces.ref(best), created: false };
@@ -434,5 +440,5 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     }
   }
 
-  return { start, run, session, attach, archive, workspaceFor, client };
+  return { start, run, session, attach, archive, workspaceFor, listWorkspaces, client };
 }
