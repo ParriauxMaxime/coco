@@ -10,7 +10,7 @@ export function orderGroups(files: RefFile[], st: ReviewPlanState): FileGroup[] 
   const plan = st.plan;
   const groups: FileGroup[] = plan
     ? [
-      ...plan.steps.map((s, i) => ({ key: `step-${i}`, title: `${i + 1}. ${s.title}`, why: s.why, files: pick(s.files.map((x) => x.path)) })),
+      ...plan.steps.map((s, i) => ({ key: `step:${s.title}`, title: `${i + 1}. ${s.title}`, why: s.why, files: pick(s.files.map((x) => x.path)) })),
       { key: 'skim', title: 'Skim', why: 'coco says a glance is enough', files: pick(plan.skim.map((x) => x.path)) },
     ]
     : CATEGORIES.map((c) => ({ key: c, title: c, files: pick(st.suggested.filter((p) => st.categories[p]?.category === c)) }));
@@ -25,5 +25,23 @@ export function planNotes(plan: PlanBody | null | undefined) {
   if (!plan) return out;
   for (const s of plan.steps) for (const f of s.files) if (f.focus) out[f.path] = f.focus;
   for (const f of plan.skim) if (f.reason) out[f.path] = `skim: ${f.reason}`;
+  return out;
+}
+
+// path → its folder, longer where another file in the list has the same name
+export function dirHints(paths: string[]) {
+  const byName = new Map<string, string[]>();
+  for (const p of paths) {
+    const name = p.split('/').pop() ?? p;
+    byName.set(name, [...(byName.get(name) || []), p]);
+  }
+  const out: Record<string, string> = {};
+  for (const same of byName.values()) {
+    const dirs = same.map((p) => p.split('/').slice(0, -1));
+    let depth = 1;
+    const hint = (d: string[]) => d.slice(-depth).join('/');
+    while (depth < Math.max(...dirs.map((d) => d.length)) && new Set(dirs.map(hint)).size < same.length) depth++;
+    same.forEach((p, i) => (out[p] = hint(dirs[i])));
+  }
   return out;
 }

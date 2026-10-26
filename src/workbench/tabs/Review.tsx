@@ -6,7 +6,7 @@ import { isDesktop } from '../code/code-api.ts';
 import { treeOrder } from '../code/FileList.tsx';
 import { isLocalKey, keyLabel, reviewKeyOfTab } from '../code/ids.ts';
 import ReviewSidebar, { TONE } from '../code/ReviewSidebar.tsx';
-import ReviewFileCard from '../code/ReviewFileCard.tsx';
+import ReviewFileCard, { StepHeader } from '../code/ReviewFileCard.tsx';
 import ReviewActivity from '../code/ReviewActivity.tsx';
 import { openCommentThread } from '../code/CommentZone.tsx';
 import { threadKey } from '../../components/Thread.tsx';
@@ -72,10 +72,11 @@ export default function Review({ tabId }: { tabId: string }) {
   const files = rv.refs?.files || [];
   const [mode, setMode] = useLocal(`cc.rv.order.${n}`, 'suggested');
   const [hidden, setHidden] = useLocal<string[]>(`cc.rv.hide.${n}`, []);
+  const [folded, setFolded] = useLocal<string[]>(`cc.rv.fold.${n}`, []);
   const cats = rv.plan?.categories;
   const shown = useMemo(() => files.filter((f) => !hidden.includes(cats?.[f.filename]?.category ?? '')), [files, hidden, cats]);
   const groups = useMemo(() => (mode === 'suggested' && rv.plan ? orderGroups(shown, rv.plan) : null), [mode, shown, rv.plan]);
-  const order = useMemo(() => (groups ? groups.flatMap((g) => g.files) : treeOrder(shown)), [groups, shown]);
+  const order = useMemo(() => (groups ? groups.filter((g) => !folded.includes(g.key)).flatMap((g) => g.files) : treeOrder(shown)), [groups, folded, shown]);
   const ticks = useMemo(() => new Set<string>(rv.plan?.ticks || []), [rv.plan?.ticks]);
   const notes = useMemo(() => planNotes(rv.plan?.plan), [rv.plan?.plan]);
   const catCounts = useMemo(() => files.reduce<Record<string, number>>((acc, f) => {
@@ -108,6 +109,8 @@ export default function Review({ tabId }: { tabId: string }) {
   unhide.current = (path: string) => {
     const c = cats?.[path]?.category ?? '';
     if (hidden.includes(c)) setHidden(hidden.filter((x) => x !== c));
+    const step = groups?.find((g) => folded.includes(g.key) && g.files.some((f) => f.filename === path));
+    if (step) setFolded(folded.filter((x) => x !== step.key));
   };
   const lock = useRef(0);
   const pendingScroll = useRef<string | null>(null);
@@ -318,6 +321,7 @@ export default function Review({ tabId }: { tabId: string }) {
   if (!pr) return <div className="rv-missing">{keyLabel(n)} is not in this work.</div>;
   const title = pr.title || pr.planned?.title;
   const toggleCat = (c: string) => setHidden(hidden.includes(c) ? hidden.filter((x) => x !== c) : [...hidden, c]);
+  const onFold = (key: string) => setFolded(folded.includes(key) ? folded.filter((x) => x !== key) : [...folded, key]);
   // panes that fit the group's width (a split halves it): the activity pane shrinks, then folds into the main column, then the file list does
   const room = boxW || innerWidth;
   const fitAct = Math.min(actWidth, room - width - 12 - MAIN_MIN);
@@ -326,9 +330,32 @@ export default function Review({ tabId }: { tabId: string }) {
   const showSide = desktop && room - width - 6 - (showAct ? fitAct + 6 : 0) >= MAIN_MIN;
   const mainW = room - (showSide ? width + 6 : 0) - (showAct ? fitAct + 6 : 0);
   const columns = [showSide && `${width}px 6px`, 'minmax(0, 1fr)', showAct && `6px ${fitAct}px`].filter(Boolean).join(' ');
-  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
+  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, folded, onFold, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
   const activity = <ReviewActivity slug={slug} n={n} rv={rv} onJump={jump} />;
   const sbsOn = sbs && mainW >= SBS_MIN;
+  const card = (f: RefFile) => (
+    <ReviewFileCard
+      key={f.filename}
+      n={n}
+      rv={rvCards}
+      file={f}
+      open={Boolean(opened?.has(f.filename))}
+      mounted={mounted.has(f.filename)}
+      knownHeight={heights.current.get(f.filename)}
+      reveal={reveal?.path === f.filename ? reveal : null}
+      category={cats?.[f.filename]}
+      note={notes[f.filename]}
+      reviewed={ticks.has(f.filename)}
+      onTick={rv.plan ? onTick : null}
+      sbs={sbsOn}
+      desktop={desktop}
+      cardRef={cardRef}
+      onToggle={onToggle}
+      onOpenTab={onOpenTab}
+      onReveal={onReveal}
+      onHeight={onHeight}
+    />
+  );
   return (
     <CodeRefScope n={n}>
     <div className="rv">
@@ -354,29 +381,12 @@ export default function Review({ tabId }: { tabId: string }) {
         <div className="rv-main" ref={mainRef} onScroll={onScroll}>
           {(!showSide || foldAct) && <div className="rv-side-m">{!showSide && sidebar}{foldAct && <Fold title="Plan and activity">{activity}</Fold>}</div>}
           {!rv.refs && <div className="rv-note">{rv.error ? '' : 'Loading files…'}</div>}
-          {opened && order.map((f) => (
-            <ReviewFileCard
-              key={f.filename}
-              n={n}
-              rv={rvCards}
-              file={f}
-              open={Boolean(opened?.has(f.filename))}
-              mounted={mounted.has(f.filename)}
-              knownHeight={heights.current.get(f.filename)}
-              reveal={reveal?.path === f.filename ? reveal : null}
-              category={cats?.[f.filename]}
-              note={notes[f.filename]}
-              reviewed={ticks.has(f.filename)}
-              onTick={rv.plan ? onTick : null}
-              sbs={sbsOn}
-              desktop={desktop}
-              cardRef={cardRef}
-              onToggle={onToggle}
-              onOpenTab={onOpenTab}
-              onReveal={onReveal}
-              onHeight={onHeight}
-            />
-          ))}
+          {opened && (groups ? groups.map((g) => (
+            <React.Fragment key={g.key}>
+              <StepHeader group={g} done={g.files.filter((f) => ticks.has(f.filename)).length} folded={folded.includes(g.key)} onFold={onFold} />
+              {!folded.includes(g.key) && g.files.map(card)}
+            </React.Fragment>
+          )) : order.map(card))}
         </div>
         {showAct && handle('right')}
         {showAct && activity}

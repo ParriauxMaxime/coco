@@ -98,6 +98,8 @@
 .fl-group > ul { padding-left: 8px; }
 .fl-file.done .fl-name { color: var(--dp-t3); }
 .fl-file.done .fl-name::before { content: '✓ '; color: var(--dp-ok); }
+.fl-hint { color: var(--dp-t3); font-size: 11px; }
+.fl-why { margin: 0 6px 2px 24px; color: var(--dp-t3); font-size: 11px; white-space: normal; }
 
 /* quick open */
 .qo-backdrop { position: fixed; inset: 0; z-index: 100; background: var(--dp-scrim); display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; }
@@ -185,6 +187,14 @@
 @container cr-card (max-width: 400px) { .rv-card-h .dp-chip { display: none; } }
 .rv-focus { display: flex; align-items: flex-start; gap: 8px; padding: 6px 12px; background: color-mix(in srgb, var(--dp-accent) 5%, var(--dp-panel)); color: var(--dp-t2); font-size: 12px; line-height: 18px; border-bottom: 1px solid var(--dp-line); }
 .rv-focus .dp-bot { flex: none; }
+.rv-card.shut .rv-card-h:has(+ .rv-focus) { border-bottom: 1px solid var(--dp-line); border-radius: var(--dp-r3) var(--dp-r3) 0 0; }
+.rv-card.shut .rv-focus { border-bottom: 0; border-radius: 0 0 var(--dp-r3) var(--dp-r3); }
+.rv-card.shut .rv-focus > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-step { margin: 18px 0 8px; cursor: pointer; }
+.rv-main > .rv-step:first-of-type { margin-top: 0; }
+.rv-step-h { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--dp-t1); }
+.rv-step-h .dp-caret { width: 14px; height: 14px; }
+.rv-step-why { margin: 2px 0 0 18px; color: var(--dp-t2); font-size: 12px; }
 .rv-diff { position: relative; isolation: isolate; z-index: 0; overflow: clip; border-radius: 0 0 var(--dp-r3) var(--dp-r3); }
 .rv-diff:hover { z-index: 2; }
 .rv-diff .cc-editor { min-height: 0; }

@@ -3,6 +3,7 @@ import { buildTree, collapse } from './file-tree.ts';
 import type { TreeDir } from './file-tree.ts';
 import Icon from '../../preview/Icon.tsx';
 import type { PrFile } from '../../types.ts';
+import { dirHints } from './review-order.ts';
 import type { FileCategory, FileGroup, RefFile } from '../types.ts';
 import './code.css';
 
@@ -13,6 +14,8 @@ type ListContext = {
   onOpen: OpenFile;
   collapsed: Set<string>;
   toggle: (path: string) => void;
+  folded: string[];
+  fold: (key: string) => void;
   ticks: Set<string> | null;
   cats: Record<string, FileCategory | undefined> | null | undefined;
 };
@@ -32,31 +35,40 @@ export function treeOrder<F extends PrFile>(files: F[]): F[] {
   return out;
 }
 
-function FileRow({ file, label, ctx }: { file: PrFile; label: string; ctx: ListContext }) {
+function FileRow({ file, label, hint, ctx }: { file: PrFile; label: string; hint?: string; ctx: ListContext }) {
   const { filename, status, additions, deletions } = file;
   const count = ctx.commentsByPath?.[filename] || 0;
   const cat = ctx.cats?.[filename];
   return (
     <li className={`fl-file${filename === ctx.activePath ? ' on' : ''}${ctx.ticks?.has(filename) ? ' done' : ''}`} onClick={() => ctx.onOpen(filename, { preview: true })} onDoubleClick={() => ctx.onOpen(filename, { preview: false })}>
-      <span className={`fl-name st-${status}`} title={cat ? `${filename}\n${cat.category}: ${cat.reason}` : filename}>{label}</span>
+      <span className={`fl-name st-${status}`} title={cat ? `${filename}\n${cat.category}: ${cat.reason}` : filename}>{label}{hint && <span className="fl-hint"> {hint}/</span>}</span>
       {count > 0 && <span className="dp-count dp-acc" title={`${count} comment${count > 1 ? 's' : ''}`}>{count}</span>}
       <span className="fl-stat"><span className="dp-add">+{additions}</span> <span className="dp-del">−{deletions}</span></span>
     </li>
   );
 }
 
+function Why({ text }: { text: string }) {
+  const [full, setFull] = useState(false);
+  return <div className={`rv-excerpt fl-why${full ? ' full' : ''}`} onClick={() => setFull(!full)}>{text}</div>;
+}
+
 function Groups({ groups, ctx }: { groups: FileGroup[]; ctx: ListContext }) {
+  const hints = useMemo(() => dirHints(groups.flatMap((g) => g.files.map((f) => f.filename))), [groups]);
   return (
     <ul>
       {groups.map((g) => {
         const done = g.files.filter((f) => ctx.ticks?.has(f.filename)).length;
+        const shut = ctx.folded.includes(g.key);
         return (
           <li key={g.key} className="fl-group">
-            <div className="fl-row" title={g.why || ''} onClick={() => ctx.onOpen(g.files[0].filename, { preview: true })}>
+            <div className="fl-row" title={g.title} onClick={() => ctx.fold(g.key)}>
+              <span className={`dp-caret${shut ? '' : ' dp-open'}`}><Icon name="chevron-right" size={12} /></span>
               <span className="fl-group-t">{g.title}</span>
               <span className={`fl-progress${done === g.files.length ? ' all' : ''}`}>{done}/{g.files.length}</span>
             </div>
-            <ul>{g.files.map((f) => <FileRow key={f.filename} file={f} label={f.filename.split('/').pop() ?? f.filename} ctx={ctx} />)}</ul>
+            {!shut && g.why && <Why text={g.why} />}
+            {!shut && <ul>{g.files.map((f) => <FileRow key={f.filename} file={f} label={f.filename.split('/').pop() ?? f.filename} hint={hints[f.filename]} ctx={ctx} />)}</ul>}
           </li>
         );
       })}
@@ -87,7 +99,7 @@ function Entries({ node, prefix, ctx }: { node: TreeDir; prefix: string; ctx: Li
 }
 
 // files: [{ filename, status, additions, deletions }] · commentsByPath: { [path]: count } · follow: scroll the list to keep activePath visible
-// groups: [{ key, title, why, files }] shows a flat reading order instead of the tree · ticks: Set of reviewed paths · cats: { [path]: { category, reason } }
+// groups: [{ key, title, why, files }] shows a flat reading order instead of the tree · folded: keys of folded groups · ticks: Set of reviewed paths · cats: { [path]: { category, reason } }
 type Props = {
   files: RefFile[];
   activePath: string | null;
@@ -95,11 +107,13 @@ type Props = {
   onOpen: OpenFile;
   follow?: boolean;
   groups?: FileGroup[] | null;
+  folded?: string[];
+  onFold?: (key: string) => void;
   ticks?: Set<string> | null;
   cats?: ListContext['cats'];
 };
 
-export default function FileList({ files, activePath, commentsByPath, onOpen, follow = false, groups = null, ticks = null, cats = null }: Props) {
+export default function FileList({ files, activePath, commentsByPath, onOpen, follow = false, groups = null, folded = [], onFold = () => {}, ticks = null, cats = null }: Props) {
   const [filter, setFilter] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -113,7 +127,7 @@ export default function FileList({ files, activePath, commentsByPath, onOpen, fo
       if (!next.delete(path)) next.add(path);
       return next;
     });
-  const ctx = { activePath, commentsByPath, onOpen, collapsed, toggle, ticks, cats };
+  const ctx = { activePath, commentsByPath, onOpen, collapsed, toggle, folded: needle ? [] : folded, fold: onFold, ticks, cats };
   useEffect(() => {
     if (!follow) return;
     const ul = rootRef.current?.querySelector<HTMLElement>(':scope > ul');

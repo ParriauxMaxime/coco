@@ -10,7 +10,7 @@ import { prUrl, useConfig } from '../../config.ts';
 import type { editor } from 'monaco-editor/editor/editor.api';
 import type { Reveal } from './DiffView.tsx';
 import type { ReviewHandle } from './use-comments.ts';
-import type { FileCategory, PrKey, RefFile } from '../types.ts';
+import type { FileCategory, FileGroup, PrKey, RefFile } from '../types.ts';
 import './code.css';
 
 const LINE_PX = 19;
@@ -168,10 +168,24 @@ function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, 
         {github && <a className="dp-ibtn" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer" title="Open on GitHub"><Icon name="external-link" size={14} /></a>}
         <button type="button" className="dp-btn dp-sm dp-ghost rv-opentab" title="Open in a tab in the other group" onClick={() => onOpenTab(path)}><Icon name="file" size={12} /><span>Open in tab</span></button>
       </header>
-      {open && note && <div className="rv-focus"><span className="dp-bot"><Icon name="bot" size={12} /></span><span>{note}</span></div>}
+      {note && <div className="rv-focus" title={open ? undefined : note}><span className="dp-bot"><Icon name="bot" size={12} /></span><span>{note}</span></div>}
       {body}
     </section>
   );
 }
 
 export default memo(ReviewFileCard);
+
+// a plan step above its cards in the diff column: title, why, progress; a click folds its cards
+export function StepHeader({ group, done, folded, onFold }: { group: FileGroup; done: number; folded: boolean; onFold: (key: string) => void }) {
+  return (
+    <header className="rv-step" onClick={() => onFold(group.key)}>
+      <div className="rv-step-h">
+        <span className={`dp-caret${folded ? '' : ' dp-open'}`}><Icon name="chevron-right" size={12} /></span>
+        <b>{group.title}</b>
+        <span className={`fl-progress${done === group.files.length ? ' all' : ''}`}>{done}/{group.files.length}</span>
+      </div>
+      {group.why && <div className="rv-step-why">{group.why}</div>}
+    </header>
+  );
+}
