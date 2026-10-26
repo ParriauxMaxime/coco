@@ -4,6 +4,7 @@ import type { ThemeMode } from '../theme.ts';
 import { useConfig } from '../config.ts';
 import { api } from '../api.ts';
 import { usePendingPermissions } from './PermissionCard.tsx';
+import { useBetaPanel } from '../preview/prefs.ts';
 import type { Persona, RepoGroup, Skill, WorkProgress, WorkSummary } from '../types.ts';
 
 export type Nav = { works: WorkSummary[]; repos: RepoGroup[]; personas: Persona[]; skills: Skill[]; projects: number; running: number; notices: number };
@@ -22,6 +23,7 @@ const ICONS = {
   rules: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
   archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
   plus: ['M12 5v14', 'M5 12h14'],
+  beta: ['M4 21v-7', 'M4 10V3', 'M12 21v-9', 'M12 8V3', 'M20 21v-5', 'M20 12V3', 'M1 14h6', 'M9 8h6', 'M17 16h6'],
 };
 
 const usePersisted = (key: string, initial: boolean): [boolean, () => void] => {
@@ -84,6 +86,11 @@ function WorkLink({ w, on, onClose, drag, over }: { w: WorkSummary; on: boolean;
 }
 
 const THEME_ICON: Record<ThemeMode, string> = { system: '◐', light: '☀︎', dark: '☾' };
+
+function BetaToggle() {
+  const { open, toggle } = useBetaPanel();
+  return <button className={`theme-toggle beta-toggle${open ? ' on' : ''}`} onClick={toggle} title="Beta features (Cmd/Ctrl+.)" aria-label="Beta features"><Icon d={ICONS.beta} /></button>;
+}
 
 function ThemeToggle() {
   const { mode } = useTheme();
@@ -189,7 +196,7 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
         {nav.skills.map((s) => <a key={s.name} className={`nav skill ${is('skill', s.name) ? 'on' : ''}`} href={`#/skill/${s.name}`} onClick={onClose}>{s.name}</a>)}
       </Section>
 
-      <div className="sidebar-foot"><ThemeToggle /></div>
+      <div className="sidebar-foot row"><ThemeToggle /><BetaToggle /></div>
     </aside>
   );
 }

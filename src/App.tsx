@@ -18,6 +18,8 @@ import Sidebar from './components/Sidebar.tsx';
 import type { Nav } from './components/Sidebar.tsx';
 import Toasts from './components/Toast.tsx';
 import DesignPreview from './preview/DesignPreview.tsx';
+import BetaPanel from './preview/BetaPanel.tsx';
+import { useBetaPanel, usePrefs } from './preview/prefs.ts';
 
 const useHash = () => {
   const [hash, setHash] = useState(location.hash || '#/');
@@ -69,6 +71,8 @@ function crumbs(route: string, nav: Nav, tabTitle?: string | null) {
 export default function App() {
   const route = useHash();
   const tabTitle = useWorkbench((s) => s.title);
+  const workbench = usePrefs((s) => s.workbench);
+  const beta = useBetaPanel((s) => s.open);
   const [root, a, b, c] = route.split('/').filter(Boolean);
   const [open, setOpen] = useState(false);
   const [nav, setNav] = useState<Nav>({ works: [], repos: [], personas: [], skills: [], projects: 0, running: 0, notices: 0 });
@@ -78,7 +82,7 @@ export default function App() {
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [route]);
-  if (root === 'design-preview') return <><DesignPreview slug={a} /><Toasts /></>;
+  if (root === 'design-preview' || (root === 'work' && a && a !== 'new' && workbench === 'on')) return <><DesignPreview slug={a} /><Toasts /></>;
   let page;
   if (!root) page = <Dashboard />;
   else if (root === 'persona' && a) page = <Persona login={decodeURIComponent(a)} tab={b} />;
@@ -115,6 +119,7 @@ export default function App() {
         </div>
         {bench ? page : <main>{page}</main>}
       </div>
+      {beta && <div className="dp dp-float"><BetaPanel /></div>}
       <Toasts />
     </div>
   );

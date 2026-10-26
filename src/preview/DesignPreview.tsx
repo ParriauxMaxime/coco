@@ -14,7 +14,8 @@ import StackView from './StackView.tsx';
 import Inspector from './Inspector.tsx';
 import OverviewView from './OverviewView.tsx';
 import FindingsView from './FindingsView.tsx';
-import { CHOICES, usePrefs } from './prefs.ts';
+import BetaPanel from './BetaPanel.tsx';
+import { CHOICES, useBetaPanel, usePrefs, workHref } from './prefs.ts';
 import type { PrefKey, Prefs } from './prefs.ts';
 import { prKey, prState, prTitle, usePreviewData } from './data.ts';
 import type { PreviewData } from './data.ts';
@@ -121,7 +122,7 @@ function WorkRow({ w, on, views }: { w: WorkSummary; on: boolean; views?: React.
   const st = w.progress.attention ? 'dp-st-changes' : w.progress.ready + w.progress.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow';
   return (
     <>
-      <a className={`dp-work${on ? ' dp-on' : ''}`} href={`#/design-preview/${w.slug}`}>
+      <a className={`dp-work${on ? ' dp-on' : ''}`} href={workHref(w.slug)}>
         <span className={`dp-dot dp-lg ${st}`} />
         <span className="dp-grow dp-ell">{w.title}</span>
         <span className="dp-mini"><i style={{ width: `${pr.merged}%` }} /><i className="dp-d" style={{ width: `${pr.open}%` }} /></span>
@@ -184,31 +185,7 @@ function Palette({ commands, onClose }: { commands: Command[]; onClose: () => vo
           ))}
           {!list.length && <div className="dp-mi dp-t3">Nothing matches.</div>}
         </div>
-        <div className="dp-pf"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> run</span><span className="dp-sp" /><span><kbd>⌘</kbd><kbd>.</kbd> variants panel</span></div>
-      </div>
-    </div>
-  );
-}
-
-function Controls({ onClose }: { onClose: () => void }) {
-  const prefs = usePrefs();
-  const theme = useTheme();
-  return (
-    <div className="dp-ctl">
-      <div className="dp-row"><b>Design preview</b><span className="dp-sp" /><span className="dp-xs dp-t3">• = recommended</span><button className="dp-ibtn" title="Hide  ⌘." onClick={onClose}><Icon name="x" size={14} /></button></div>
-      {CHOICES.map((c, n) => (
-        <div key={c.key} className="dp-ctl-row">
-          <span className="dp-t2">{n + 1}. {c.label}</span>
-          <div className="dp-seg">
-            {c.options.map((o) => <button key={o.value} type="button" className={prefs[c.key] === o.value ? 'dp-on' : ''} onClick={() => prefs.set(c.key, o.value)}>{o.label}{o.rec ? ' •' : ''}</button>)}
-          </div>
-        </div>
-      ))}
-      <div className="dp-ctl-row">
-        <span className="dp-t2">Theme</span>
-        <div className="dp-seg">
-          {(['light', 'dark', 'system'] as const).map((m) => <button key={m} type="button" className={theme.mode === m ? 'dp-on' : ''} onClick={() => setThemeMode(m)}>{m}</button>)}
-        </div>
+        <div className="dp-pf"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> run</span><span className="dp-sp" /><span><kbd>⌘</kbd><kbd>.</kbd> beta features</span></div>
       </div>
     </div>
   );
@@ -224,7 +201,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   });
   const [inspector, setInspector] = useState(true);
   const [palette, setPalette] = useState(false);
-  const [controls, setControls] = useState(true);
+  const { open: controls, toggle: toggleControls } = useBetaPanel();
   const [waitOpen, setWaitOpen] = useState(false);
   const [repo, setRepo] = useState<string | null>(null);
   const [drag, setDrag] = useState<string | null>(null);
@@ -262,7 +239,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     { id: 'split', label: 'Split / join panes', hint: '⌘\\', icon: 'columns', run: split },
     ...CHOICES.flatMap((c) => c.options.map((o) => ({ id: `c-${c.key}-${o.value}`, label: `${c.label}: ${o.label}`, hint: prefs[c.key] === o.value ? 'current' : 'variant', icon: 'eye' as const, run: () => prefs.set(c.key, o.value) }))),
     ...d.prs.map((p) => ({ id: `pr-${prKey(p)}`, label: `${p.number ? `#${p.number}` : 'planned'} ${prTitle(p)}`, hint: prState(p), icon: 'git-pull-request' as const, run: () => openPr(prKey(p)) })),
-    ...(ov?.works || []).filter((w) => !w.archived && w.slug !== slug).map((w) => ({ id: `w-${w.slug}`, label: w.title, hint: 'work', icon: 'layers' as const, run: () => { location.hash = `#/design-preview/${w.slug}`; } })),
+    ...(ov?.works || []).filter((w) => !w.archived && w.slug !== slug).map((w) => ({ id: `w-${w.slug}`, label: w.title, hint: 'work', icon: 'layers' as const, run: () => { location.hash = workHref(w.slug); } })),
     { id: 'theme', label: `Theme: ${theme.resolved === 'dark' ? 'light' : 'dark'}`, hint: '⌘⇧L', icon: theme.resolved === 'dark' ? 'sun' : 'moon', run: () => setThemeMode(theme.resolved === 'dark' ? 'light' : 'dark') },
     { id: 'exit', label: 'Exit the preview (today’s UI)', icon: 'external-link', run: () => { location.hash = `#/work/${slug}`; } },
   ];
@@ -272,7 +249,6 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => !p); }
       if (mod && e.key === '\\') { e.preventDefault(); split(); }
-      if (mod && e.key === '.') { e.preventDefault(); setControls((c) => !c); }
       if (mod && e.key.toLowerCase() === 'i' && !tabDetails) { e.preventDefault(); setInspector((x) => !x); }
       if (mod && e.key === 'Enter' && selected) { e.preventDefault(); open(`pr-${selected}`); }
     };
@@ -334,7 +310,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
           <span className="dp-sep-v" style={{ margin: '0 4px' }} />
           {!tabDetails && <button type="button" className={`dp-ibtn dp-lg${showInspector ? ' dp-on' : ''}`} title="Inspector  ⌘I" onClick={() => setInspector((x) => !x)}><Icon name="panel-right" /></button>}
           <button type="button" className="dp-ibtn dp-lg" title="Light / dark  ⌘⇧L" onClick={() => setThemeMode(theme.resolved === 'dark' ? 'light' : 'dark')}><Icon name={theme.resolved === 'dark' ? 'sun' : 'moon'} /></button>
-          <a className="dp-btn dp-sm" href={`#/work/${slug}`} title="Back to today’s UI">Exit preview</a>
+          <button type="button" className="dp-btn dp-sm" title="Turn the new workbench off" onClick={() => { prefs.set('workbench', 'off'); location.hash = `#/work/${slug}`; }}>Today’s UI</button>
         </div>
       </header>
 
@@ -344,7 +320,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
             <button type="button" className="dp-ibtn dp-on" title="Works"><Icon name="layers" /></button>
             {NAV.slice(1).map((n) => <a key={n.href} className="dp-ibtn" href={n.href} title={n.label}><Icon name={n.icon} />{n.label === 'Inbox' && (ov?.notices || 0) > 0 && <span className="dp-count dp-acc">{ov?.notices}</span>}</a>)}
             <span className="dp-sp" />
-            <button type="button" className={`dp-ibtn${controls ? ' dp-on' : ''}`} title="Variants  ⌘." onClick={() => setControls((c) => !c)}><Icon name="settings" /></button>
+            <button type="button" className={`dp-ibtn${controls ? ' dp-on' : ''}`} title="Beta features  ⌘." onClick={toggleControls}><Icon name="settings" /></button>
           </div>
         )}
         {prefs.shell === 'C' && (
@@ -356,7 +332,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
             ))}
             <span className="dp-sp" />
             {NAV.slice(1, 3).map((n) => <a key={n.href} className="dp-ibtn" href={n.href} title={n.label}><Icon name={n.icon} /></a>)}
-            <button type="button" className={`dp-ibtn${controls ? ' dp-on' : ''}`} title="Variants  ⌘." onClick={() => setControls((c) => !c)}><Icon name="settings" /></button>
+            <button type="button" className={`dp-ibtn${controls ? ' dp-on' : ''}`} title="Beta features  ⌘." onClick={toggleControls}><Icon name="settings" /></button>
           </div>
         )}
         <nav className={`dp-sidebar${prefs.shell === 'B' ? ' dp-classic' : ''}`}>
@@ -378,7 +354,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
               </>
             )}
           </div>
-          {prefs.shell === 'B' && <div className="dp-sb-foot"><div className="dp-sb-nav" onClick={() => setControls((c) => !c)}><Icon name="settings" /><span>Variants</span><span className="dp-xs dp-t3" style={{ marginLeft: 'auto' }}>⌘.</span></div></div>}
+          {prefs.shell === 'B' && <div className="dp-sb-foot"><div className="dp-sb-nav" onClick={toggleControls}><Icon name="settings" /><span>Beta features</span><span className="dp-xs dp-t3" style={{ marginLeft: 'auto' }}>⌘.</span></div></div>}
         </nav>
 
         <div className="dp-wb" ref={bench}>
@@ -426,7 +402,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         <span className="dp-sbi">Layout: {preset}</span>
         <span className="dp-sbi" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
         <span className="dp-sbi" onClick={split}><kbd>⌘</kbd><kbd>\</kbd>Split</span>
-        <span className="dp-sbi" onClick={() => setControls((c) => !c)}><kbd>⌘</kbd><kbd>.</kbd>Variants</span>
+        <span className="dp-sbi" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>
       </footer>
 
       {waitOpen && prefs.questions === 'inline' && (
@@ -436,7 +412,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         </div>
       )}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
-      {controls && <Controls onClose={() => setControls(false)} />}
+      {controls && <BetaPanel preview />}
     </div>
   );
 }

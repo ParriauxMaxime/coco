@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 export type Shell = 'A' | 'B' | 'C';
 export type Prefs = {
+  workbench: 'on' | 'off';
   shell: Shell;
   details: 'inspector' | 'tab';
   planned: 'fold' | 'all';
@@ -21,7 +22,7 @@ export const CHOICES: { key: PrefKey; label: string; options: { value: string; l
 ];
 
 const KEY = 'cc.design-preview';
-const DEFAULTS: Prefs = { shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', preset: 'last', narrow: 'drop' };
+const DEFAULTS: Prefs = { workbench: 'off', shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', preset: 'last', narrow: 'drop' };
 
 const read = (): Prefs => {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return DEFAULTS; }
@@ -35,3 +36,15 @@ export const usePrefs = create<Prefs & { set: (key: PrefKey, value: string) => v
     try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {}
   },
 }));
+
+export const workHref = (slug: string) => (usePrefs.getState().workbench === 'on' ? `#/work/${slug}` : `#/design-preview/${slug}`);
+
+export const useBetaPanel = create<{ open: boolean; toggle: () => void; close: () => void }>()((set) => ({
+  open: false,
+  toggle: () => set((s) => ({ open: !s.open })),
+  close: () => set({ open: false }),
+}));
+
+addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === '.') { e.preventDefault(); useBetaPanel.getState().toggle(); }
+});

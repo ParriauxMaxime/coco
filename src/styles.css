@@ -276,6 +276,10 @@ button.suggest .persona-chip { background: transparent; padding: 0; }
 .theme-toggle { display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start; background: transparent; border-color: transparent; color: var(--ink-2); font-size: 13px; padding: 6px 8px; text-transform: capitalize; }
 .theme-toggle:hover { background: var(--grey-bg); }
 .theme-toggle span { width: 16px; text-align: center; font-size: 15px; line-height: 1; }
+.sidebar-foot.row { flex-wrap: nowrap; gap: 4px; }
+.sidebar-foot.row .theme-toggle { width: auto; flex: 1; }
+.sidebar-foot.row .theme-toggle.beta-toggle { flex: none; }
+.theme-toggle.beta-toggle.on { background: var(--brand-50); color: var(--brand-700); border-color: transparent; }
 .sidebar { display: flex; flex-direction: column; }
 .sidebar > * { flex: none; }
 .sidebar-foot { margin-top: auto; }
