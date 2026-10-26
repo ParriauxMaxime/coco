@@ -1,9 +1,7 @@
 import { createElement } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 import type { WorkData } from '../types.ts';
-import Artifacts from './Artifacts.tsx';
 import Artifact from './Artifact.tsx';
-import Notes from './Notes.tsx';
 import Decisions, { decisionCounts } from './Decisions.tsx';
 import CodeTab from './Code.tsx';
 import Review from './Review.tsx';
@@ -25,8 +23,6 @@ export type TabDef = {
 const Unknown = () => createElement('div', { className: 'sub' }, 'Unknown tab.');
 
 const fixed: Record<string, TabDef> = {
-  artifacts: { title: (c) => `Artifacts (${c.w.artifacts.length})`, Component: Artifacts },
-  notes: { title: () => 'Notes', Component: Notes },
   decisions: { title: (c) => { const { taken, total } = decisionCounts(c.w); return `Decisions (${taken}/${total})`; }, Component: Decisions },
 };
 

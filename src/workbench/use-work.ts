@@ -33,9 +33,9 @@ export function useWorkData(slug: string): LoadedWork {
   const syncing = Boolean(w?.notionStatus?.running);
   useEffect(() => { if (!syncing) return; const t = setInterval(() => load(), 5000); return () => clearInterval(t); }, [syncing]);
   const prs: WorkPr[] = plan?.prs || w?.prs || [];
-  const saveStack = async (stack: StackRow[]) => { await api.updateWork(slug, { stack }); load(); };
-  const saveMeta = async ({ title, description }: { title: string; description?: string }) => { await api.updateWork(slug, { title: title.slice(0, 100), description }); load(); };
-  const saveNotes = async (notes: string) => { await api.updateWork(slug, { notes }); load(); };
+  const saveStack = async (stack: StackRow[]) => { await api.updateWork(slug, { stack }); await load(); };
+  const saveMeta = async ({ title, description }: { title: string; description?: string }) => { await api.updateWork(slug, { title: title.slice(0, 100), description }); await load(); };
+  const saveNotes = async (notes: string) => { await api.updateWork(slug, { notes }); await load(); };
   const addNote = async (text: string) => { if (!text) return; await api.addTimeline(slug, { kind: 'note', text }); load(); };
   const importArtifact = async (body: ImportArtifactBody) => { const r = await api.importArtifact(slug, body); load(); return r; };
   const addLink = async () => { const label = prompt('Label'); const url = label && prompt('URL'); if (!label || !url) return; await api.updateWork(slug, { links: [...(w?.links || []), { label, url }] }); load(); };

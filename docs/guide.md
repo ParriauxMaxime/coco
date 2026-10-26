@@ -814,7 +814,7 @@ Colours go through the CSS variables in `src/styles.css` (dark values under `htm
   groups, and opening an open tab focuses it. A group that loses its last
   tab disappears; the last group keeps `plan`.
   - Tabs: click activates, double click pins, middle click or × closes. A
-    preview tab (italic, opened by "details ▸" or "view ▸") is replaced by the
+    preview tab (italic, opened by "details ▸" or an artifact's name or View) is replaced by the
     next preview in its group until pinned. The focused group's active tab is
     underlined in the accent colour; "⫿ split" moves the active tab to a new group
     on the right (Alt-click: below); "⤢" maximizes the focused group ("↙ exit"
@@ -837,6 +837,15 @@ Colours go through the CSS variables in `src/styles.css` (dark values under `htm
     group. `#/work/<slug>` restores the saved layout. The layout tree (splits,
     sizes, groups, focus, max) is saved per work in `localStorage`
     `cc.wb.<slug>`; the older two-group format is migrated on load.
+  - Notes: title (100 characters), description and notes in markdown
+    (Write or Preview; double-click a preview to edit), and the stack order
+    as PR numbers in merge order, planned rows kept after them. Each section
+    has its own Save and Revert.
+  - Artifacts: by name or newest, a filter; a name or View opens the
+    artifact in a preview tab, Open serves the raw file in a new browser
+    tab; a folder without `index.html` lists its files. "Import from disk…"
+    copies a file or folder under `importRoots`, optionally tied to a PR
+    head and a kit kind.
   - Legacy links `#/work/<slug>/plan/<pane>` still work: plan on the left,
     the pane on the right, then the hash is rewritten to the new format.
   - Phone (≤ 900 px): one group; the tabs of every group are appended to
