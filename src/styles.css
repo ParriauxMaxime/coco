@@ -63,11 +63,19 @@ a:hover { text-decoration: underline; }
 .sidebar a.nav.work.archived { opacity: .55; }
 .sidebar .work-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.35; }
 .sidebar .work-title .attn { display: inline-block; margin-right: 6px; vertical-align: 1px; }
-.sidebar .attn { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--red, #e03131); }
-.sidebar .work-meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
-.sidebar .bar { flex: 1; display: flex; gap: 2px; height: 4px; }
-.sidebar .bar i { border-radius: 2px; background: var(--st, var(--line)); }
-.sidebar .frac { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.sidebar .group .gcaret { all: unset; cursor: pointer; padding: 0 2px; }
+.sidebar .group a.gtitle { color: inherit; text-decoration: none; }
+.sidebar .group a.gtitle:hover { color: var(--brand-700); }
+.sidebar .group.on { color: var(--brand-700); }
+:is(.sidebar, .work-card) .attn { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--red, #e03131); }
+:is(.sidebar, .work-card) .work-meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+:is(.sidebar, .work-card) .bar { flex: 1; display: flex; gap: 2px; height: 4px; }
+:is(.sidebar, .work-card) .bar i { border-radius: 2px; background: var(--st, var(--line)); }
+:is(.sidebar, .work-card) .frac { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.work-card { display: flex; flex-direction: column; gap: 6px; color: var(--ink); text-decoration: none; }
+.work-card:hover { text-decoration: none; }
+.work-card .work-next { font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+.work-card .work-next.none { color: var(--mute); }
 .sidebar .people { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px 2px 6px; }
 .sidebar .person { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0; letter-spacing: -.01em; border-radius: var(--r); color: var(--ink-2); font-size: 11px; text-decoration: none; min-width: 0; }
 .sidebar .person span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

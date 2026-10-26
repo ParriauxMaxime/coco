@@ -27,15 +27,22 @@ const usePersisted = (key: string, initial: boolean): [boolean, () => void] => {
   return [v, () => { localStorage.setItem(key, v ? '0' : '1'); setV(!v); }];
 };
 
-type SectionProps = { id: string; title: string; count?: number; extra?: React.ReactNode; defaultOpen?: boolean; handle?: React.HTMLAttributes<HTMLButtonElement> & { draggable?: boolean }; className?: string; children?: React.ReactNode };
-function Section({ id, title, count, extra, defaultOpen = true, handle, className = '', children }: SectionProps) {
+// with link, the title opens link.href and only the caret folds the section
+type SectionProps = { id: string; title: string; count?: number; extra?: React.ReactNode; defaultOpen?: boolean; handle?: React.HTMLAttributes<HTMLElement> & { draggable?: boolean }; link?: { href: string; on: boolean; onClick: () => void }; className?: string; children?: React.ReactNode };
+function Section({ id, title, count, extra, defaultOpen = true, handle, link, className = '', children }: SectionProps) {
   const [open, toggle] = usePersisted(`nav:${id}`, defaultOpen);
+  const caret = <span className={`caret ${open ? 'open' : ''}`}>▸</span>;
+  const tail = <>{count != null && <span className="gcount">{count}</span>}{extra}</>;
   return (
     <div className={`nav-section ${className}`}>
-      <button className="group" onClick={toggle} aria-expanded={open} {...handle}>
-        <span className={`caret ${open ? 'open' : ''}`}>▸</span>{title}{count != null && <span className="gcount">{count}</span>}
-        {extra}
-      </button>
+      {link ? (
+        <div className={`group ${link.on ? 'on' : ''}`} {...handle}>
+          <button className="gcaret" onClick={toggle} aria-expanded={open} aria-label={`${open ? 'Fold' : 'Unfold'} ${title}`}>{caret}</button>
+          <a className="gtitle" href={link.href} onClick={link.onClick}>{title}</a>{tail}
+        </div>
+      ) : (
+        <button className="group" onClick={toggle} aria-expanded={open} {...handle}>{caret}{title}{tail}</button>
+      )}
       {open && children}
     </div>
   );
@@ -51,17 +58,25 @@ const moveBefore = (list: string[], item: string, target: string) => {
 };
 type DragProps = Pick<React.HTMLAttributes<HTMLElement>, 'onDragStart' | 'onDragOver' | 'onDragLeave' | 'onDrop' | 'onDragEnd'>;
 
-function WorkLink({ w, on, onClose, drag, over }: { w: WorkSummary; on: boolean; onClose: () => void; drag: DragProps; over: boolean }) {
+// one segment per PR, colored by state, then merged / open count
+export function WorkBar({ w }: { w: WorkSummary }) {
   const p: Partial<WorkProgress> = w.progress || {};
   const total = w.stack || 1;
   const seg = (n: number | undefined, st: string) => Array.from({ length: n || 0 }, (_, i) => <i key={`${st}-${i}`} className={`st-${st}`} style={{ flex: 1 }} title={`${n} ${st}`} />);
   return (
+    <span className="work-meta">
+      <span className="bar">{seg(p.merged, 'merged')}{seg(p.ready, 'ready')}{seg(p.draft, 'draft')}{seg(p.planned, 'planned')}{seg(p.closed, 'closed')}{!w.stack && <i className="st-planned" style={{ flex: 1 }} />}</span>
+      <span className="frac">{w.archived ? 'archived' : `${p.merged || 0}/${total - (p.closed || 0)}`}</span>
+    </span>
+  );
+}
+
+function WorkLink({ w, on, onClose, drag, over }: { w: WorkSummary; on: boolean; onClose: () => void; drag: DragProps; over: boolean }) {
+  const p: Partial<WorkProgress> = w.progress || {};
+  return (
     <a className={`nav work ${on ? 'on' : ''} ${w.archived ? 'archived' : ''} ${over ? 'drop-over' : ''}`} href={`#/work/${w.slug}`} onClick={onClose} title={w.title} draggable {...drag}>
       <span className="work-title">{p.attention && <span className="attn" title="changes requested or CI failing" />}{w.title}{p.restack && <span className="chip c-orange" title="a parent PR merged: its children still sit on the old base">restack</span>}</span>
-      <span className="work-meta">
-        <span className="bar">{seg(p.merged, 'merged')}{seg(p.ready, 'ready')}{seg(p.draft, 'draft')}{seg(p.planned, 'planned')}{seg(p.closed, 'closed')}{!w.stack && <i className="st-planned" style={{ flex: 1 }} />}</span>
-        <span className="frac">{w.archived ? 'archived' : `${p.merged || 0}/${total - (p.closed || 0)}`}</span>
-      </span>
+      <WorkBar w={w} />
     </a>
   );
 }
@@ -144,6 +159,7 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
             id={`repo:${g.id}`}
             title={g.name}
             count={list.length}
+            link={{ href: `#/repo/${g.id}`, on: is('repo', g.id), onClick: onClose }}
             className={over === `repo:${g.id}` ? 'drop-over' : ''}
             handle={{ draggable: true, title: g.github || g.name, ...dragProps({ kind: 'repo', id: g.id }, `repo:${g.id}`, () => dropRepo(g.id)) }}
           >

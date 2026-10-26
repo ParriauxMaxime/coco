@@ -12,6 +12,7 @@ import Ask from './pages/Ask.tsx';
 import Rules from './components/Rules.tsx';
 import Inbox from './pages/Inbox.tsx';
 import Archive from './pages/Archive.tsx';
+import Repo from './pages/Repo.tsx';
 import { api } from './api.ts';
 import Sidebar from './components/Sidebar.tsx';
 import type { Nav } from './components/Sidebar.tsx';
@@ -38,9 +39,14 @@ function crumbs(route: string, nav: Nav, tabTitle?: string | null) {
   if (root === 'rules') out.push(['#/rules', 'Rules']);
   if (root === 'inbox') out.push(['#/inbox', 'Inbox']);
   if (root === 'archive') out.push(['#/archive', 'Archive']);
+  if (root === 'repo') {
+    const r = nav.repos.find((x) => x.id === a);
+    out.push([`#/repo/${a}`, r ? r.name : a]);
+  }
   if (root === 'work') {
-    out.push(['#/projects', 'Projects']);
     const w = nav.works.find((x) => x.slug === a);
+    const r = nav.repos.find((x) => x.id === w?.repo);
+    out.push(r ? [`#/repo/${r.id}`, r.name] : ['#/projects', 'Projects']);
     out.push([`#/work/${a}`, w ? w.title : a]);
     if (a !== 'new' && tabTitle) out.push([`#/work/${a}/${b || 'plan'}`, tabTitle]);
   }
@@ -77,6 +83,7 @@ export default function App() {
   else if (root === 'projects') page = <Projects />;
   else if (root === 'work' && a === 'new' && b) page = <NewWork projectId={b} projectName={decodeURIComponent(c || b)} />;
   else if (root === 'work' && a) page = <Workbench key={a} slug={a} />;
+  else if (root === 'repo' && a) page = <Repo key={a} id={decodeURIComponent(a)} />;
   else if (root === 'ask') page = <Ask />;
   else if (root === 'inbox') page = <Inbox />;
   else if (root === 'archive') page = <Archive />;

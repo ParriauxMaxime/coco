@@ -37,9 +37,15 @@ type Scaffold = {
 };
 type AgentProposal = { title: string; prompt: string; workspaceId?: string; cwd?: string; provider?: string; thinking?: string; mode?: string; workSlug?: string };
 type Submitted = { propose_work_scaffold?: Scaffold; propose_paseo_agent?: AgentProposal; propose_rules?: { rules: { text: string; source: string }[] } };
+// the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan, stack and findings)
+export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
+export const scopeKey = (s: AskScope) => (s.kind === 'global' ? 'global' : s.kind === 'repo' ? `repo:${s.repoId}` : `work:${s.slug}`);
+// conversations saved before scopes existed: a work's stays the work's, any other was started from the global page
+const scopeOf = (c: { scope?: AskScope | null; workSlug?: string | null }): AskScope => c.scope || (c.workSlug ? { kind: 'work', slug: c.workSlug } : { kind: 'global' });
 type Conv = {
   id: string;
   prompt: string;
+  scope: AskScope;
   workSlug: string | null;
   kind: string;
   model: string | null;
@@ -62,7 +68,7 @@ type Conv = {
   onEnd?: (conv: Conv) => void;
   once?: boolean;
 };
-const META = ['id', 'prompt', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
+const META = ['id', 'prompt', 'scope', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; submitted?: Record<string, unknown>; text?: string; cost?: number | null };
 type AskWork = Work & { stack?: StackRow[]; timeline?: TimelineEntry[] };
@@ -70,16 +76,21 @@ type AskOptions = {
   DATA: string;
   APP?: string | null;
   REPO: string;
-  config: { owner: { name: string }; models: { default: string }; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string };
+  config: { owner: { name: string }; models: { default: string }; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string }[] };
   works: { get(slug: string): AskWork | null | undefined; save(work: AskWork): unknown; prInfo(n: number): Promise<PrInfo | null> };
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
-  // the Paseo workspace for a work's agents, else by the conversation's kind (the inbox is global, an Ask without a work is the repo's); without it, the folder decides as before
-  place?: (slug: string | null, kind: string) => Promise<{ workspaceId: string; cwd: string }>;
+  // the Paseo workspace of a scope's agents; without it, the folder decides as before
+  place?: (scope: AskScope) => Promise<{ workspaceId: string; cwd: string }>;
 };
 
 export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place }: AskOptions) {
-  const where = async (work: AskWork | null | undefined, kind = 'ask') => (place ? place(work?.slug || null, kind) : { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO });
+  const repos = config.repos || [];
+  const where = async (scope: AskScope) => {
+    if (place) return place(scope);
+    const work = scope.kind === 'work' ? works.get(scope.slug) : null;
+    return { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO };
+  };
   const DIR = path.join(DATA, 'asks');
   fs.mkdirSync(DIR, { recursive: true });
   const convs = new Map<string, Conv>();
@@ -102,15 +113,25 @@ For a new work, end with exactly one propose_work_scaffold call carrying the ful
 To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it. For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.
 This is a conversation: ${OWNER} follows up in the same session, sometimes while you are still working; answer the latest message and keep what was already settled.`;
 
+  // the inbox is global too but scaffolds works: only the global Ask page gets the global tier's line
+  const tierOf = ({ scope, kind }: Pick<Conv, 'scope' | 'kind'>) => {
+    if (scope.kind === 'work') return `\nCurrent work: ${scope.slug} (use get_work first).`;
+    const repo = scope.kind === 'repo' ? repos.find((r) => r.id === scope.repoId) : null;
+    if (repo) return `\nThis is the Ask coco of the ${repo.name} repo (${repo.github || 'no GitHub slug'}, clone at ${repo.path}): the works you scaffold belong to it.`;
+    if (kind !== 'ask') return '';
+    const names = repos.map((r) => r.name).join(', ');
+    return `\nThis is the global Ask coco: questions across ${OWNER}'s repos${names ? ` (${names})` : ''}. A work belongs to one repo: for a new work, say which repo it belongs to and send ${OWNER} to that repo's page, whose Ask coco scaffolds it; do not call propose_work_scaffold here.`;
+  };
+
   const providerFor = (model?: string | null) => (!model ? config.models.default : model.includes('/') ? model : `${config.models.default.split('/')[0]}/${model}`);
 
   const fileOf = (id: string, ext: string) => path.join(DIR, `${id}.${ext}`);
-  const meta = (c: Meta): Meta => Object.fromEntries(META.map((k) => [k, c[k] ?? null])) as Meta;
+  const meta = (c: Meta): Meta => ({ ...(Object.fromEntries(META.map((k) => [k, c[k] ?? null])) as Meta), scope: scopeOf(c) });
   const save = (c: Conv) => fs.writeFileSync(fileOf(c.id, 'json'), JSON.stringify(meta(c), null, 1));
   const now = () => new Date().toISOString();
   const metas = (): Meta[] => fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8')));
   const remember = (c: Meta, events: Event[] = []): Conv => {
-    const conv: Conv = { ...c, events, listeners: new Set(), session: null, fresh: false, stream: null };
+    const conv: Conv = { ...c, scope: scopeOf(c), events, listeners: new Set(), session: null, fresh: false, stream: null };
     convs.set(conv.id, conv);
     return conv;
   };
@@ -160,16 +181,15 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         push(conv, { type: 'meta', text: `Paseo agent ${conv.agentId.slice(0, 8)} is gone: a new one starts with the conversation so far` });
       }
       if (!create) return null;
-      const work = conv.workSlug ? works.get(conv.workSlug) : null;
-      const { workspaceId, cwd } = await where(work, conv.kind);
+      const { workspaceId, cwd } = await where(conv.scope);
       const s = await agents.session({
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
-        systemPrompt: SYSTEM + (conv.workSlug ? `\nCurrent work: ${conv.workSlug} (use get_work first).` : ''),
+        systemPrompt: SYSTEM + tierOf(conv),
         provider: providerFor(conv.model),
         mode: 'auto',
         cwd,
         workspaceId,
-        labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug },
+        labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
         mcp: true,
         ...stream,
       });
@@ -261,8 +281,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   }
 
   // onEnd(conv) fires after each turn; conv.rulesProposal holds a propose_rules call. once: the agent is archived after the first turn
-  function start({ prompt, workSlug = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
-    const conv = remember({ id: randomUUID(), prompt, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
+  // the scope: the work's when there is one, else the repo's, else global
+  function start({ prompt, workSlug = null, repoId = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
+    const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
+    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
     Object.assign(conv, { onEnd, once });
     save(conv);
     say(conv, prompt, { nonce });
@@ -329,6 +351,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const work: AskWork = {
       ...(existing || { createdAt: new Date().toISOString(), timeline: [] }),
       slug: p.slug,
+      ...(!existing?.repo && run.scope.kind === 'repo' ? { repo: run.scope.repoId } : {}),
       title: (p.title || '').slice(0, 100),
       description: p.description || '',
       summary: p.summary,
@@ -348,13 +371,14 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   }
 
   async function startAgent(id: string) {
-    const p = load(id)?.agentProposal;
-    if (!p) return { error: 'no agent proposal on this run' };
+    const conv = load(id);
+    const p = conv?.agentProposal;
+    if (!conv || !p) return { error: 'no agent proposal on this run' };
     let started: { agentId?: string; createdWorkspace?: string | null } = {};
     let error = '';
     const work = p.workSlug ? works.get(p.workSlug) : null;
     try {
-      const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work);
+      const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv.scope);
       started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, mode: p.mode === 'bypass' ? 'bypassPermissions' : p.mode, ...placed, labels: { source: 'cocopilot', ask: id.slice(0, 8) } });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -367,8 +391,9 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     return error ? { error: error.slice(0, 500) } : { ok: true, agentId, out: `started ${agentId}${createdWorkspace ? ` in new workspace ${createdWorkspace}` : ''}` };
   }
 
-  function list() {
-    return metas().map((m) => meta(convs.get(m.id) ?? m)).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30);
+  // the latest conversations, of one scope (its scopeKey) when given
+  function list(scope?: string | null) {
+    return metas().map((m) => meta(convs.get(m.id) ?? m)).filter((m) => !scope || scopeKey(m.scope) === scope).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30);
   }
 
   // the conversation's log, then every new event while the page watches; a reconnect replays the whole log
@@ -387,10 +412,11 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       if (req.method === 'POST') {
         const b = await body();
         if (!String(b.prompt || '').trim()) return send(res, 400, { error: 'prompt required' });
-        const conv = start({ prompt: b.prompt.trim(), workSlug: b.workSlug || null, model: b.model || null, nonce: b.nonce });
+        if (b.repoId && !repos.some((r) => r.id === b.repoId)) return send(res, 400, { error: `unknown repo ${b.repoId}` });
+        const conv = start({ prompt: b.prompt.trim(), workSlug: b.workSlug || null, repoId: b.repoId || null, model: b.model || null, nonce: b.nonce });
         return send(res, 200, { id: conv.id });
       }
-      return send(res, 200, list());
+      return send(res, 200, list(new URL(req.url || '/', 'http://coco').searchParams.get('scope')));
     }
     const conv = load(id);
     if (!conv) return send(res, 404, { error: 'no such conversation' });

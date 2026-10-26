@@ -5,13 +5,17 @@ import AgentActivity from '../components/AgentActivity.tsx';
 import { ThreadComposer } from '../components/Thread.tsx';
 import { toast } from '../components/Toast.tsx';
 import { pendingClass } from '../components/action.ts';
-import type { ActivityEvent, AskRun } from '../types.ts';
+import type { ActivityEvent, AskRun, AskScope } from '../types.ts';
 
 export type Run = Partial<AskRun> & { id: string };
 type Pending = { nonce: string; text: string };
 type StartFn = (prompt: string, nonce: string) => Promise<{ id: string }>;
 
-const EXAMPLES = [
+const GLOBAL_EXAMPLES = [
+  'Which works across my repos are blocked, and on what?',
+  'Which repo does a CSV export of invoices belong in, and is there a precedent work for it?',
+];
+const REPO_EXAMPLES = [
   'Scaffold a work for adding CSV export to the invoices page, mirroring the PDF export stack. Who reviews each PR?',
   'Which open PRs touch alice\'s surfaces this week and have no persona self-review yet?',
   'From Notion page https://www.notion.so/acme/Spec-00000000000000000000000000000000, list what is not built yet and propose a work for the next piece.',
@@ -138,15 +142,16 @@ export function Conversation({ run, events, pending = [], working }: { run: Run;
 }
 
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
+const scopeKey = (s: AskScope) => (s.kind === 'global' ? 'global' : s.kind === 'repo' ? `repo:${s.repoId}` : `work:${s.slug}`);
 
 // one conversation streamed over SSE; the stream stays open for the follow-ups, and a reconnect replays the whole log
-export function useAskConversation(kind: string, workSlug: string | null = null) {
+export function useAskConversation(kind: string, scope: AskScope = { kind: 'global' }) {
   const [run, setRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [history, setHistory] = useState<AskRun[]>([]);
   const source = useRef<EventSource | null>(null);
-  const loadHistory = () => api.asks().then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind && (!workSlug || h.workSlug === workSlug))), () => {});
+  const loadHistory = () => api.asks(scopeKey(scope)).then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind)), () => {});
   useEffect(() => {
     loadHistory();
     return () => source.current?.close();
@@ -271,18 +276,27 @@ export function AskHistory({ title, history, onOpen, label = (h) => h.prompt.sli
   );
 }
 
-export default function Ask({ workSlug }: { workSlug?: string }) {
-  const convo = useAskConversation('ask', workSlug);
+const SAFE = 'Follow up as long as you like, even while it works. It reads and proposes; you apply. Nothing is pushed, posted or sent.';
+
+// three tiers: global (no work, no repo), a repo's (repoId: scaffolds its works), a work's (workSlug)
+export default function Ask({ workSlug, repoId, repoName }: { workSlug?: string; repoId?: string; repoName?: string }) {
+  const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
+  const convo = useAskConversation('ask', scope);
   const { run, open } = convo;
+  const repo = repoName || repoId;
   return (
     <>
-      {!workSlug && <h1>Ask coco 🦜</h1>}
-      <p className="sub">A conversation with one Paseo agent in your repo with the cocopilot MCP server (works, personas, Paseo, gh): follow up as long as you like, even while it works. It reads and proposes; you apply. Nothing is pushed, posted or sent.</p>
+      {scope.kind === 'global' && <h1>Ask coco 🦜</h1>}
+      <p className="sub">
+        {scope.kind === 'global' ? `The global coco, on cocopilot's own folder with its MCP server (works, personas, Paseo, gh): questions across your repos. A new work starts from its repo's page. ${SAFE}`
+          : scope.kind === 'repo' ? `Coco for ${repo}, on its main checkout: scaffolds new works in this repo and answers about its code and PRs. ${SAFE}`
+          : `Coco for this work, in its Plan workspace: the plan, the stack and the findings. ${SAFE}`}
+      </p>
       <AskConversation
         convo={convo}
-        start={(prompt, nonce) => api.ask({ prompt, workSlug, nonce })}
-        examples={workSlug ? [] : EXAMPLES}
-        placeholder={run ? 'Follow up, correct or narrow it down (markdown, ⌘↵)' : workSlug ? `Ask about or extend the ${workSlug} work… (⌘↵)` : 'Scaffold a work for … / Who reviews … / What is blocked on … (⌘↵)'}
+        start={(prompt, nonce) => api.ask({ prompt, workSlug, repoId, nonce })}
+        examples={scope.kind === 'global' ? GLOBAL_EXAMPLES : scope.kind === 'repo' ? REPO_EXAMPLES : []}
+        placeholder={run ? 'Follow up, correct or narrow it down (markdown, ⌘↵)' : workSlug ? `Ask about or extend the ${workSlug} work… (⌘↵)` : repoId ? `Scaffold a work in ${repo} for … / Who reviews … (⌘↵)` : 'What is blocked across my repos … / Where does … belong (⌘↵)'}
       />
       {run && (
         <>
@@ -290,7 +304,7 @@ export default function Ask({ workSlug }: { workSlug?: string }) {
           <AgentProposal run={run} />
         </>
       )}
-      <AskHistory title={workSlug ? 'Earlier conversations on this work' : 'Previous conversations'} history={convo.history} onOpen={open} />
+      <AskHistory title={workSlug ? 'Earlier conversations on this work' : repoId ? `Earlier conversations on ${repo}` : 'Previous conversations'} history={convo.history} onOpen={open} />
     </>
   );
 }

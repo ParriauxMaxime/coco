@@ -31,6 +31,7 @@ import { createPack } from './pack.ts';
 import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
 import { loadConfig, personaLogins } from './config.ts';
+import type { RepoConfig } from './config.ts';
 import { createPaseoAgents } from './paseo-agent.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
@@ -68,7 +69,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (slug, kind) => placement.place(slug ? { kind: 'work', slug } : kind === 'inbox' ? { kind: 'global' } : { kind: 'repo', repoId: config.repos[0].id }) });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope) => placement.place(scope) });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -257,6 +258,56 @@ function workProgress(w: Work) {
   return out;
 }
 
+const summarize = (w: Work) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null });
+
+type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
+const loosePrCache = swrCache<LoosePr[]>(60000, cacheFile(DATA, 'loose-prs'));
+// the owner's open PRs on the repo that no work of it holds
+async function loosePrs(repo: RepoConfig, held: Set<number>, fresh: boolean) {
+  if (!repo.github) return { prs: [], error: 'no GitHub slug for this repo' };
+  try {
+    const all = await loosePrCache(repo.github, async () => {
+      const r = await run('gh', ['pr', 'list', '--repo', repo.github, '--author', '@me', '--state', 'open', '--limit', '50', '--json', 'number,title,url,state,isDraft,reviewDecision,headRefName,updatedAt']);
+      if (!r.ok) throw new Error(r.stderr.trim().slice(0, 300));
+      return JSON.parse(r.stdout);
+    }, fresh);
+    return { prs: all.filter((p) => !held.has(p.number)), error: null };
+  } catch (e) {
+    return { prs: [], error: errorMessage(e) };
+  }
+}
+
+// lessons the brief writer kept for this repo, oldest first; none until it has run
+function briefLessons(repoId: string): { text: string; at?: string }[] {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(path.join(DATA, 'repos', repoId, 'brief-lessons.json'), 'utf8'));
+    const list = Array.isArray(raw) ? raw : [];
+    return list.map((l) => (typeof l === 'string' ? { text: l } : { text: String(l?.text || ''), at: l?.at })).filter((l) => l.text);
+  } catch {
+    return [];
+  }
+}
+
+const nextSummary = (next: unknown) => (next && typeof next === 'object' && 'summary' in next && typeof next.summary === 'string' ? next.summary : null);
+async function repoPage(repo: RepoConfig, fresh: boolean) {
+  const mine = works.list().filter((w) => repos.repoFor(w).id === repo.id);
+  const order = repos.grouped(mine.map(summarize)).find((g) => g.id === repo.id)?.works || [];
+  const live = order.filter((w) => !w.archived).map((s) => ({ ...s, next: nextSummary(mine.find((w) => w.slug === s.slug)?.next) }));
+  const held = new Set(mine.flatMap((w) => (w.stack || []).map((s) => s.number).filter((n): n is number => typeof n === 'number')));
+  return {
+    id: repo.id,
+    name: repo.name,
+    github: repo.github,
+    path: repo.path,
+    defaultBranch: repo.defaultBranch,
+    works: live,
+    archivedCount: order.length - live.length,
+    loose: await loosePrs(repo, held, fresh),
+    lessons: briefLessons(repo.id),
+    ruleFiles: repo.rules || [],
+  };
+}
+
 async function launchRitual(body: { kind: string; provider?: string; [key: string]: unknown }) {
   const spec = config.rituals.find((r) => r.kind === body.kind);
   if (!spec) return { ok: false, error: `unknown ritual ${body.kind}` };
@@ -312,6 +363,10 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
+    if (root === 'repos' && a) {
+      const repo = repos.byId(a);
+      return repo ? send(res, 200, await repoPage(repo, url.searchParams.has('fresh'))) : send(res, 404, { error: 'no such repo' });
+    }
     if (root === 'layout' && req.method === 'PUT') return send(res, 200, repos.saveOrder(JSON.parse((await readBody(req)) || '{}')));
     if (root === 'overview') {
       const personas = listPersonas();
@@ -321,7 +376,7 @@ async function api(req: Req, res: Res, url: URL) {
       let projectCount = 0;
       try { projectCount = JSON.parse(pj.stdout).length; } catch {}
       const read = (n: string) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');
-      const summaries = works.list().map((w) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null }));
+      const summaries = works.list().map(summarize);
       return send(res, 200, { projectCount, personas, skills, works: summaries, repos: repos.grouped(summaries).map((r) => ({ ...r, works: r.works.map((w) => w.slug) })), feedback: feedback.slice(-20).reverse(), feedbackCount: feedback.length, agents: ag.agents.slice(0, 12), agentsError: ag.error, backlog: read('backlog.md'), changelog: read('CHANGELOG.md'), rituals: readRituals().slice(0, 10) });
     }
     if (root === 'personas' && !a) return send(res, 200, listPersonas());

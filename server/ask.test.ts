@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { Socket } from 'node:net';
 import { createPaseoAgents } from './paseo-agent.ts';
 import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
 import { createAsk } from './ask.ts';
@@ -246,6 +248,45 @@ test('after a restart, a conversation whose agent is gone starts a new one fed t
   daemon.finish(reloaded.agentId ?? '', 'Split.');
   await until(() => ends(reloaded) === 2, 'fallback turn');
   assert.equal(reloaded.status, 'idle');
+});
+
+test('a conversation runs at its tier: global without work or repo, the repo’s from its page, the work’s; one saved before tiers reads as global', async () => {
+  const DATA = tmpDir();
+  const daemon = fakeDaemon();
+  const placed: unknown[] = [];
+  const place = async (scope: unknown) => (placed.push(scope), { workspaceId: 'wks_repo', cwd: REPO });
+  const saved: { slug: string; repo?: string }[] = [];
+  const repoConfig = { ...config, repos: [{ id: 'widgets', name: 'widgets', github: 'acme/widgets', path: REPO }] };
+  const ask = createAsk({ DATA, APP, REPO, config: repoConfig, works: { ...works, save: (w) => saved.push(w) }, agents: createPaseoAgents({ APP, connect: daemon.connect }), place });
+  const global = ask.start({ prompt: 'What is blocked across repos?' });
+  const repo = ask.start({ prompt: 'Scaffold the CSV export', repoId: 'widgets' });
+  const work = ask.start({ prompt: 'What is next?', workSlug: 'csv-export' });
+  await until(() => daemon.calls.created.length === 3, 'three agents');
+  assert.deepEqual(placed, [{ kind: 'global' }, { kind: 'repo', repoId: 'widgets' }, { kind: 'work', slug: 'csv-export' }]);
+  const prompts = daemon.calls.created.map((c) => String(c.config.systemPrompt));
+  assert.match(prompts[0], /global Ask coco/);
+  assert.match(prompts[1], /Ask coco of the widgets repo/);
+  assert.match(prompts[2], /Current work: csv-export/);
+
+  const call = async (method: string, url: string, parts: string[]) => {
+    const req = new IncomingMessage(new Socket());
+    Object.assign(req, { method, url });
+    let out: unknown;
+    await ask.handle(req, new ServerResponse(req), parts, async () => '{}', (_res, _code, body) => void (out = body));
+    return out;
+  };
+
+  daemon.finish(daemon.calls.created[1].id, 'Here.', { propose: { tool: 'propose_work_scaffold', input: { slug: 'csv-export', title: 'CSV export' } } });
+  await until(() => ends(repo) === 1, 'repo turn end');
+  await call('POST', `/api/ask/${repo.id}/apply`, ['ask', repo.id, 'apply']);
+  assert.equal(saved[0].repo, 'widgets');
+
+  const old = { ...JSON.parse(fs.readFileSync(path.join(DATA, 'asks', `${global.id}.json`), 'utf8')), id: '00000000-0000-4000-8000-0000000000aa', scope: undefined };
+  fs.writeFileSync(path.join(DATA, 'asks', `${old.id}.json`), JSON.stringify(old));
+  const listed = async (scope: string) => (await call('GET', `/api/ask?scope=${scope}`, ['ask'])) as { id: string }[];
+  assert.deepEqual((await listed('global')).map((c) => c.id).sort(), [global.id, old.id].sort());
+  assert.deepEqual((await listed('repo:widgets')).map((c) => c.id), [repo.id]);
+  assert.deepEqual((await listed('work:csv-export')).map((c) => c.id), [work.id]);
 });
 
 test('a one-shot run (rules) archives its agent after the first turn', async () => {

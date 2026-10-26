@@ -79,7 +79,21 @@ export type PaseoProject = {
 export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgent & { cwdAbs: string })[]; error: string | null };
 
 export type WorkProgress = { merged: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean };
-export type WorkSummary = { slug: string; title: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null };
+export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null };
+export type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
+// a repo's page: its live works in sidebar order with their what's-next line, the owner's open PRs no work holds, its brief lessons and rule files
+export type RepoPage = {
+  id: string;
+  name: string;
+  github: string;
+  path: string;
+  defaultBranch: string;
+  works: (WorkSummary & { next: string | null })[];
+  archivedCount: number;
+  loose: { prs: LoosePr[]; error: string | null };
+  lessons: { text: string; at?: string }[];
+  ruleFiles: string[];
+};
 export type RitualRun = { ts: string; kind: string; title: string; prompt: string; agentId: string | null; ok: boolean; out: string };
 
 // a repo in sidebar order, its works' slugs in theirs
@@ -234,7 +248,7 @@ export type WorkPlan = Work & { prs: PlanPr[] };
 export type NotionStatus = { running?: boolean; [key: string]: unknown };
 export type NotionResult = { error?: string; [key: string]: unknown };
 export type WorkInput = Partial<Omit<Work, 'slug' | 'archived'>>;
-export type CreateWorkBody = { slug: string; title: string; projectId: string; projectName: string; stack: { number: number; personas: string[] }[]; links: Link[] };
+export type CreateWorkBody = { slug: string; title: string; repo?: string; projectId?: string; projectName?: string; stack: { number: number; personas: string[] }[]; links: Link[] };
 export type ImportArtifactBody = { path: string; label?: string; pr?: string | number | null; kind?: string | null; headSha?: string };
 export type ImportedArtifact = { name: string; dest: string; headSha: string | null };
 export type PersonaSuggestion = { files: number; personas: { login: string; hits: number }[] };
@@ -429,9 +443,12 @@ export type AgentProposal = {
   workSlug?: string;
   prompt: string;
 };
+// the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan)
+export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export type AskRun = {
   id: string;
   prompt: string;
+  scope?: AskScope;
   workSlug?: string | null;
   kind?: string | null;
   model?: string | null;
@@ -444,7 +461,7 @@ export type AskRun = {
   agentId?: string | null;
   cost?: number | null;
 };
-export type AskStartBody = { prompt: string; workSlug?: string | null; nonce: string };
+export type AskStartBody = { prompt: string; workSlug?: string | null; repoId?: string | null; nonce: string };
 export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean };
 export type AskStartAgentResult = { ok?: boolean; error?: string; agentId?: string; out?: string };
 

@@ -2,7 +2,7 @@ import type {
   AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
-  PersonaSuggestion, Persona, PinResult, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
+  PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
 } from './types.ts';
 
@@ -48,6 +48,7 @@ export const api = {
   config: () => get<Partial<Config>>('/api/config'),
   overview: () => get<Overview>('/api/overview'),
   saveLayout: (body: { repos: string[] } | { repo: string; works: string[] }) => send<unknown>('PUT', '/api/layout', body),
+  repo: (id: string, fresh?: boolean) => get<RepoPage>(`/api/repos/${encodeURIComponent(id)}${fresh ? '?fresh=1' : ''}`),
   setup: () => get<SetupStatus>('/api/setup'),
   setupAgent: () => postEmpty<StartedAgent>('/api/setup/agent'),
   personas: () => get<Persona[]>('/api/personas'),
@@ -99,7 +100,7 @@ export const api = {
   importArtifact: (slug: string, body: ImportArtifactBody) => post<ImportedArtifact>(`${works(slug)}/artifacts`, body),
   suggestPersonas: (slug: string, pr: string | number | null) => get<PersonaSuggestion>(`${works(slug)}/personas-suggest${pr ? `?pr=${pr}` : ''}`),
   plan: (slug: string) => get<WorkPlan>(`${works(slug)}/plan`),
-  asks: () => get<AskRun[]>('/api/ask'),
+  asks: (scope?: string) => get<AskRun[]>(`/api/ask${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`),
   ask: (body: AskStartBody) => post<{ id: string }>('/api/ask', body),
   askSay: (id: string, body: { text: string; nonce: string }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
