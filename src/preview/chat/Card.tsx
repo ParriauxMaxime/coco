@@ -44,6 +44,8 @@ const fieldError = (f: CardField, v: CardValue | undefined) => {
 
 const hasOther = (c: Card) => (c.kind === 'form' ? c.other === true : c.other !== false);
 
+const fieldsOk = (c: Card, d: Draft) => (c.fields ?? []).every((f) => !fieldError(f, d.values[f.key]));
+
 const isValid = (c: Card, d: Draft) => {
   const other = hasOther(c) && d.other.trim() !== '';
   if (c.kind === 'choice') return d.picked.length > 0 || other;
@@ -51,22 +53,21 @@ const isValid = (c: Card, d: Draft) => {
     if (c.rowOptions?.length) return other || Object.keys(d.rowPicks).length > 0;
     return other || (c.select === 'one' ? d.rows.length === 1 : d.rows.length > 0);
   }
-  if (c.kind === 'form') return (c.fields ?? []).every((f) => !fieldError(f, d.values[f.key]));
+  if (c.kind === 'form') return fieldsOk(c, d);
   return false;
 };
+
+const valuesOf = (c: Card, d: Draft) => Object.fromEntries((c.fields ?? []).flatMap((f): [string, CardValue][] => {
+  const v = d.values[f.key];
+  if (f.type !== 'toggle' && (v == null || String(v).trim() === '')) return [];
+  return [[f.key, f.type === 'number' ? Number(v) : v]];
+}));
 
 const answerOf = (c: Card, d: Draft): CardAnswerBody => {
   const other = (hasOther(c) && d.other.trim()) || undefined;
   if (c.kind === 'choice') return { picked: d.picked, other };
   if (c.kind === 'rows') return c.rowOptions?.length ? { rowPicks: d.rowPicks, other } : { rows: d.rows, other };
-  if (c.kind === 'form') {
-    const values = (c.fields ?? []).flatMap((f): [string, CardValue][] => {
-      const v = d.values[f.key];
-      if (f.type !== 'toggle' && (v == null || String(v).trim() === '')) return [];
-      return [[f.key, f.type === 'number' ? Number(v) : v]];
-    });
-    return { values: Object.fromEntries(values), other };
-  }
+  if (c.kind === 'form') return { values: valuesOf(c, d), other };
   return { other };
 };
 
@@ -199,24 +200,46 @@ function Field({ f, v, ro, shown, onChange, onBlur }: { f: CardField; v: CardVal
   );
 }
 
+// a confirm card's fields come with the approval: no Other box of their own, the note is the card's
 function Form({ c, d, set, ro, tried }: Part & { tried: boolean }) {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   return (
     <div className="dp-cd-form">
       {(c.fields ?? []).map((f) => <Field key={f.key} f={f} v={d.values[f.key]} ro={ro} shown={tried || !!touched[f.key]} onBlur={() => setTouched((t) => ({ ...t, [f.key]: true }))} onChange={(v) => set({ values: { ...d.values, [f.key]: v } })} />)}
-      {hasOther(c) && <Other value={d.other} ro={ro} onChange={(v) => set({ other: v })} />}
+      {c.kind === 'form' && hasOther(c) && <Other value={d.other} ro={ro} onChange={(v) => set({ other: v })} />}
     </div>
   );
 }
 
+const delivered = (c: Card) => {
+  const del = c.delivery;
+  if (!del) return 'delivering…';
+  if (del.skipped) return 'nothing to deliver: its run had ended';
+  return del.ok ? 'delivered to the agent' : `agent gone: not delivered${del.error ? ` (${del.error})` : ''}`;
+};
+
 function Status({ c }: { c: Card }) {
   if (c.status === 'cancelled') return <div className="dp-cd-st"><Icon name="x" size={12} />Dismissed: the agent was told</div>;
-  const del = c.delivery;
+  const bad = c.delivery && !c.delivery.ok;
   return (
-    <div className={`dp-cd-st${del && !del.ok ? ' dp-cd-bad' : ''}`}>
-      <Icon name={del && !del.ok ? 'alert-triangle' : 'check'} size={12} />
+    <div className={`dp-cd-st${bad ? ' dp-cd-bad' : ''}`}>
+      <Icon name={bad ? 'alert-triangle' : 'check'} size={12} />
       <span>Answered {clock(c.answer?.at)}</span>
-      <span>{!del ? 'delivering…' : del.ok ? 'delivered to the agent' : `agent gone: not delivered${del.error ? ` (${del.error})` : ''}`}</span>
+      <span>{delivered(c)}</span>
+    </div>
+  );
+}
+
+// what approving a proposal did: running, done with a link to what it made, or failed
+function Result({ c }: { c: Card }) {
+  const r = c.result;
+  if (!c.action || c.status !== 'answered' || (c.kind === 'confirm' && !c.answer?.approved)) return null;
+  if (!r) return c.kind === 'confirm' ? <div className="dp-cd-res"><span className="dp-ag-dot dp-ag-running" aria-label="in progress" />Running…</div> : null;
+  return (
+    <div className={`dp-cd-res${r.ok ? ' dp-cd-res-ok' : ' dp-cd-bad'}`} role={r.ok ? undefined : 'alert'}>
+      <Icon name={r.ok ? 'check' : 'alert-triangle'} size={12} />
+      <span className="dp-cd-resd">{r.detail}</span>
+      {r.ok && r.link && <a className="dp-btn dp-sm dp-cd-open" href={r.link}><Icon name="external-link" size={12} />Open</a>}
     </div>
   );
 }
@@ -224,6 +247,7 @@ function Status({ c }: { c: Card }) {
 const outcome = (c: Card): [string, string] => {
   if (c.status === 'open') return ['waiting on you', 'dp-warn'];
   if (c.status === 'cancelled') return ['dismissed', ''];
+  if (c.result && !c.result.ok) return ['failed', 'dp-bad'];
   if (c.kind === 'confirm' && c.answer?.approved != null) return c.answer.approved ? [c.confirmLabel ? c.confirmLabel.toLowerCase() : 'approved', 'dp-ok'] : [c.rejectLabel ? c.rejectLabel.toLowerCase() : 'rejected', 'dp-bad'];
   return ['answered', 'dp-ok'];
 };
@@ -269,6 +293,11 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
     if (ok && !busy) void answer('answer', answerOf(c, d));
   };
   const note = d.other.trim() || undefined;
+  const approve = () => {
+    setTried(true);
+    if (!fieldsOk(c, d) || busy) return;
+    void answer('yes', { approved: true, ...(c.fields?.length ? { values: valuesOf(c, d) } : {}), other: note });
+  };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || !open || c.kind === 'confirm') return;
     const t = e.target as HTMLElement;
@@ -293,14 +322,14 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
         {c.question && <Inline as="div" className="dp-cd-q" text={c.question} />}
         {c.blocks && c.blocks.length > 0 && <div className="dp-cd-blocks"><Blocks blocks={c.blocks} /></div>}
         {Kind && <Kind c={c} d={d} set={set} ro={ro} />}
-        {c.kind === 'form' && <Form c={c} d={d} set={set} ro={ro} tried={tried} />}
+        {(c.kind === 'form' || (c.kind === 'confirm' && (c.fields?.length ?? 0) > 0)) && <Form c={c} d={d} set={set} ro={ro} tried={tried} />}
         {c.kind === 'confirm' && hasOther(c) && (open ? <textarea className="dp-inp dp-cd-ta dp-cd-note" rows={2} value={d.other} disabled={ro} placeholder="Optional note for the agent" aria-label="Note for the agent" onChange={(e) => set({ other: e.target.value })} /> : d.other && <div className="dp-cd-said"><span className="dp-t3">Note:</span> {d.other}</div>)}
       </div>
       {open && !post && (
         <div className="dp-cq-f dp-cd-f">
           {c.kind === 'confirm' ? (
             <>
-              <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'yes')}`} disabled={busy} onClick={() => void answer('yes', { approved: true, other: note })}><Icon name="check" size={12} />{c.confirmLabel || 'Approve'}</button>
+              <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'yes')}`} disabled={busy} onClick={approve}><Icon name="check" size={12} />{c.confirmLabel || 'Approve'}</button>
               <button type="button" className={`dp-btn dp-danger dp-sm${pendingClass(pending === 'no')}`} disabled={busy} onClick={() => void answer('no', { approved: false, other: note })}><Icon name="x" size={12} />{c.rejectLabel || 'Reject'}</button>
               {note && <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'note')}`} disabled={busy} onClick={() => void answer('note', { other: note })}>Send the note only</button>}
             </>
@@ -315,6 +344,7 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
           <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question; the agent is told you dismissed it" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>
         </div>
       )}
+      <Result c={c} />
       {!open && !post && <Status c={c} />}
       {!open && err && <div className="dp-cd-st dp-cd-bad" role="alert"><Icon name="alert-triangle" size={12} />{err}</div>}
     </div>

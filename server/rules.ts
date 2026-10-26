@@ -1,10 +1,13 @@
 // Rules ledger: one-line rules in three scopes (global data/rules.json, work.rules, stack[i].rules), injected into every brief and review plan.
-// Coco proposes candidates from a chat excerpt or a thread (the Ask path, propose_rules); the owner keeps or drops each.
+// Coco proposes candidates from a chat excerpt or a thread (the Ask path, propose_rules) on a card; the owner keeps or drops each.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { parseKey, rowKey } from './stack.ts';
 import { capitalize } from './review-agent.ts';
+import { list, opt, str } from './cards.ts';
+import type { ActionDef } from './cards.ts';
+import type { Raw } from './blocks.ts';
 import type { Config } from './config.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { ReadBody, Req, Res, Rule, Send, Work } from './core-types.ts';
@@ -36,6 +39,9 @@ interface ProposeState {
   added: number;
   error: string;
   runId?: string;
+  slug?: string;
+  source?: string;
+  cardId?: string;
 }
 
 interface ScopeInput {
@@ -61,11 +67,10 @@ interface ProposeInput extends ScopeInput {
 }
 
 interface RulesAsk {
-  start(
-    input: { prompt: string; workSlug: string },
-    opts: { once: boolean; onEnd: (r: { rulesProposal?: { rules?: { text: string; source?: string }[] } | null }) => void },
-  ): { id: string };
+  start(input: { prompt: string; workSlug: string }, opts: { once: boolean; onEnd: () => void }): { id: string };
+  convOf(agentId: string): { id: string } | null;
 }
+type Target = { slug: string; scope: string; pr: string | number | null; source: string };
 
 interface RulesWorks {
   get(slug: string): Work | null;
@@ -166,24 +171,59 @@ export function createRules({ DATA, config, works, ask }: { DATA: string; config
       '',
       excerpt,
     ].join('\n');
-    const state: ProposeState = { status: 'running', startedAt: new Date().toISOString(), scope, pr: pr ?? null, added: 0, error: '' };
+    const state: ProposeState = { status: 'running', startedAt: new Date().toISOString(), scope, pr: pr ?? null, added: 0, error: '', slug, ...(threadKey ? { source: `thread ${threadKey}` } : {}) };
     proposing.set(slug, state);
     const run = ask.start({ prompt, workSlug: slug }, {
       once: true,
-      onEnd: (r) => {
-        const found = r.rulesProposal?.rules || [];
-        try {
-          const { list, save } = scopeOf(slug, scope, pr);
-          save([...list, ...found.map((x) => rule(x.text, x.source || (threadKey ? `thread ${threadKey}` : 'chat excerpt')))]);
-          Object.assign(state, { status: 'done', added: found.length, error: r.rulesProposal ? '' : 'coco ended without proposing' });
-        } catch (e) {
-          Object.assign(state, { status: 'error', error: errorMessage(e) });
-        }
-      },
+      onEnd: () => Object.assign(state, { status: 'done', error: state.cardId ? '' : 'coco ended without proposing' }),
     });
     state.runId = run.id;
     return view(slug);
   }
+
+  const scopeName = (t: Target) => (t.scope === 'global' ? 'global' : t.scope === 'work' ? `${t.slug} work` : `PR ${t.pr} of ${t.slug}`);
+
+  // propose_rules: a card with one row per candidate, Keep or Drop; the kept ones go to the ledger of the run's scope
+  const cardAction: ActionDef = {
+    card: (raw, ctx) => {
+      const runId = ask.convOf(ctx.agentId)?.id;
+      const run = [...proposing.values()].find((s) => runId && s.runId === runId);
+      const target: Target = run ? { slug: run.slug ?? '', scope: run.scope, pr: run.pr, source: run.source || 'chat excerpt' } : { slug: ctx.work || '', scope: ctx.work ? 'work' : 'global', pr: null, source: `agent ${ctx.agentId.slice(0, 8)}` };
+      const rules = list(raw.rules ?? [], 0, 6, 'rules').map((r, i) => ({ text: str(r?.text, MAX_TEXT, `rules[${i}].text`), source: opt(r?.source, 500, `rules[${i}].source`) ?? '' }));
+      const input = { rules, target };
+      const title = rules.length ? `Rules for the ${scopeName(target)} ledger` : 'No new rule';
+      if (!rules.length) return { input, card: { kind: 'post', title, blocks: [{ type: 'text', text: 'coco found no correction or stated rule that the ledger lacks.' }] } };
+      return {
+        input,
+        card: {
+          kind: 'rows',
+          title,
+          question: 'Keep or drop each one. Kept rules go into every future brief and review plan.',
+          columns: ['Rule', 'From'],
+          rows: rules.map((r, i) => ({ key: `r${i}`, cells: [r.text, { text: r.source || target.source, tone: 'mute' }], recommended: 'keep' })),
+          rowOptions: [{ key: 'keep', label: 'Keep' }, { key: 'drop', label: 'Drop' }],
+        },
+      };
+    },
+    run: async (card) => {
+      const input: Raw = card.action?.input ?? {};
+      const t: Target = input.target;
+      const picks = card.answer?.rowPicks ?? {};
+      const kept: { text: string; source: string }[] = (input.rules ?? []).filter((_: unknown, i: number) => picks[`r${i}`] === 'keep');
+      if (!Object.keys(picks).length) return null;
+      if (kept.length) {
+        const { list: rules, save } = scopeOf(t.slug, t.scope, t.pr ?? undefined);
+        save([...rules, ...kept.map((r) => rule(r.text, r.source || t.source, 'kept'))]);
+      }
+      const dropped = Object.values(picks).filter((v) => v === 'drop').length;
+      return { ok: true, detail: `${kept.length} kept in the ${scopeName(t)} rules, ${dropped} dropped`, link: t.slug ? `#/work/${t.slug}/rules` : '#/rules' };
+    },
+    posted: (card) => {
+      const runId = ask.convOf(card.agentId)?.id;
+      const run = [...proposing.values()].find((s) => runId && s.runId === runId);
+      if (run) Object.assign(run, { cardId: card.id, added: card.rows?.length ?? 0 });
+    },
+  };
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
@@ -208,5 +248,5 @@ export function createRules({ DATA, config, works, ask }: { DATA: string; config
     }
   }
 
-  return { handle, keptFor, view };
+  return { handle, keptFor, view, cardAction };
 }

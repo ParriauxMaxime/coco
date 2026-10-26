@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
-import { RuleRow } from '../widgets/Rules.tsx';
+import { ProposedRules, RuleRow } from '../widgets/Rules.tsx';
 import type { Patch } from '../widgets/Rules.tsx';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section } from './Page.tsx';
 import type { Rule, RulesResponse } from '../../types.ts';
@@ -61,6 +61,7 @@ export default function RulesPage() {
               </button>
               {data.proposing && !running && <span className={`dp-sm ${data.proposing.error ? 'dp-rules-err' : 'dp-t3'}`}>{data.proposing.error || `Last run: ${data.proposing.added ?? 0} proposed`}</span>}
             </div>
+            <ProposedRules cardId={data.proposing?.cardId} onAnswered={() => void load()} />
           </div>
         </div>
       </Section>

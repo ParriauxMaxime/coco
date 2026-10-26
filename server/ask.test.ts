@@ -8,6 +8,7 @@ import { Socket } from 'node:net';
 import { createPaseoAgents } from './paseo-agent.ts';
 import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
 import { createAsk } from './ask.ts';
+import { createCards } from './cards.ts';
 import { DEFAULTS } from './config.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
@@ -141,7 +142,6 @@ test('a follow-up goes to the same agent as a new turn, with only the new messag
   assert.equal(daemon.calls.created.length, 1);
   assert.deepEqual(daemon.calls.sent.map((s) => [s.agentId, s.text, s.busy]), [[agent.id, 'Who reviews the widgets export?', false], [agent.id, 'And the API part?', false]]);
   assert.deepEqual(types(conv), ['user', 'text', 'end', 'user', 'text', 'tool', 'end']);
-  assert.deepEqual(conv.proposal, { slug: 'widgets-export' });
   assert.equal(conv.turns, 2);
   assert.deepEqual(daemon.calls.archived, []);
   const saved = JSON.parse(fs.readFileSync(path.join(DATA, 'asks', `${conv.id}.json`), 'utf8'));
@@ -222,7 +222,7 @@ test('after a coco restart a conversation re-attaches to its agent: a follow-up 
   assert.equal(daemon.calls.created.length, 2);
 });
 
-test('after a restart, a conversation whose agent is gone starts a new one fed the conversation so far', async () => {
+test('after a restart, a conversation whose agent is gone starts a new one fed the conversation so far, a proposal saved before cards included', async () => {
   const DATA = tmpDir();
   const daemon = fakeDaemon();
   const before = setup(DATA, daemon).ask;
@@ -232,6 +232,9 @@ test('after a restart, a conversation whose agent is gone starts a new one fed t
   daemon.finish(old, 'Proposed.', { propose: { tool: 'propose_work_scaffold', input: { slug: 'gadgets-import' } } });
   await until(() => ends(conv) === 1, 'first turn');
   daemon.forget(old);
+  const file = path.join(DATA, 'asks', `${conv.id}.json`);
+  const { proposed: _none, ...saved } = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...saved, proposal: { slug: 'gadgets-import', title: 'Gadgets import' }, rulesProposal: null }));
 
   const after = setup(DATA, daemon).ask;
   await after.say(conv.id, 'Split the UI PR.');
@@ -243,7 +246,8 @@ test('after a restart, a conversation whose agent is gone starts a new one fed t
   assert.ok(reloaded.events.some((e) => e.type === 'meta' && /is gone: a new one starts/.test(String(e.text))));
   const prompt = daemon.calls.sent[1].text;
   assert.match(prompt, /\*\*Alice:\*\* Scaffold the gadgets import\n\n\*\*coco:\*\* Proposed\./);
-  assert.match(prompt, /You already proposed a work scaffold for `gadgets-import`/);
+  assert.match(prompt, /You already proposed a work scaffold "Gadgets import" on a card/);
+  assert.deepEqual(after.list('global').find((c) => c.id === conv.id)?.proposed, { kind: 'work', title: 'Gadgets import' });
   assert.ok(prompt.endsWith('Split the UI PR.'));
   daemon.finish(reloaded.agentId ?? '', 'Split.');
   await until(() => ends(reloaded) === 2, 'fallback turn');
@@ -276,9 +280,12 @@ test('a conversation runs at its tier: global without work or repo, the repo’s
     return out;
   };
 
-  daemon.finish(daemon.calls.created[1].id, 'Here.', { propose: { tool: 'propose_work_scaffold', input: { slug: 'csv-export', title: 'CSV export' } } });
+  const repoAgent = daemon.calls.created[1].id;
+  daemon.finish(repoAgent, 'Here.');
   await until(() => ends(repo) === 1, 'repo turn end');
-  await call('POST', `/api/ask/${repo.id}/apply`, ['ask', repo.id, 'apply']);
+  const cards = createCards({ DATA, actions: ask.actions, deliver: async () => {} });
+  const card = await cards.create({ agentId: repoAgent, action: { type: 'work_scaffold', input: { slug: 'csv-export', title: 'CSV export' } } });
+  await cards.answer(card.id, { approved: true });
   assert.equal(saved[0].repo, 'widgets');
 
   const old = { ...JSON.parse(fs.readFileSync(path.join(DATA, 'asks', `${global.id}.json`), 'utf8')), id: '00000000-0000-4000-8000-0000000000aa', scope: undefined };
@@ -289,13 +296,79 @@ test('a conversation runs at its tier: global without work or repo, the repo’s
   assert.deepEqual((await listed('work:csv-export')).map((c) => c.id), [work.id]);
 });
 
-test('a one-shot run (rules) archives its agent after the first turn', async () => {
-  const { ask, daemon } = setup();
+test('a one-shot run (rules) archives its agent after the first turn and stays known as one-shot after a restart', async () => {
+  const { ask, daemon, DATA } = setup();
   const ended: { conv?: ReturnType<typeof ask.start> } = {};
   const conv = ask.start({ prompt: 'Distill rules' }, { once: true, onEnd: (c) => (ended.conv = c) });
   await until(() => daemon.calls.sent.length === 1, 'send');
-  daemon.finish(daemon.calls.created[0].id, 'None.', { propose: { tool: 'propose_rules', input: { rules: [] } } });
+  const agentId = daemon.calls.created[0].id;
+  daemon.finish(agentId, 'None.');
   await until(() => conv.status === 'closed', 'closed');
-  assert.deepEqual(ended.conv?.rulesProposal, { rules: [] });
-  assert.deepEqual(daemon.calls.archived, [daemon.calls.created[0].id]);
+  assert.equal(ended.conv, conv);
+  assert.deepEqual(daemon.calls.archived, [agentId]);
+  assert.equal(setup(DATA, daemon).ask.convOf(agentId)?.once, true);
+});
+
+test('a proposal card shows what the agent proposes, is refused when it cannot run, runs only once approved, and its outcome reaches the card and the agent', async () => {
+  const DATA = tmpDir();
+  const daemon = fakeDaemon();
+  const work = JSON.parse('{"slug":"csv-export","title":"CSV export","stack":[{"number":12}],"timeline":[]}');
+  const saved: { slug: string; stack?: { planned?: { branch?: string } }[] }[] = [];
+  const dispatched: string[] = [];
+  const ask = createAsk({
+    DATA, APP, REPO, config,
+    works: { get: (slug) => (slug === 'csv-export' ? work : undefined), save: (w) => void saved.push(w), prInfo: async () => null },
+    agents: createPaseoAgents({ APP, connect: daemon.connect }),
+    place: async () => ({ workspaceId: 'wks_repo', cwd: REPO }),
+    dispatch: async (slug, input) => {
+      dispatched.push(`${slug} ${input.entry} ${input.key ?? ''}`);
+      if (input.entry === 'broken') throw new Error('no catalog entry broken');
+      return { title: 'Ask on #12', agentId: 'agent-d' };
+    },
+    addRepo: async (source) => ({ ok: true, repo: { id: 'gadgets', name: 'gadgets', path: '/acme/gadgets', github: source, defaultBranch: 'main' }, how: 'cloned', project: { name: 'gadgets' } }),
+  });
+  const conv = ask.start({ prompt: 'Plan the CSV export', workSlug: 'csv-export' });
+  await until(() => daemon.calls.sent.length === 1, 'send');
+  const agentId = daemon.calls.created[0].id;
+  daemon.finish(agentId, 'Proposed.');
+  await until(() => ends(conv) === 1, 'turn end');
+  const told: string[] = [];
+  const cards = createCards({ DATA, actions: ask.actions, deliver: async (_id, text) => void told.push(text) });
+  const propose = (type: string, input: Record<string, unknown>, by = agentId) => cards.create({ agentId: by, action: { type, input } });
+
+  const scaffold = await propose('work_scaffold', { slug: 'csv-export', title: 'CSV export v2', summary: 'Export invoices as CSV.', tier: 'stack', stack: [{ order: 1, title: 'API', scope: 'endpoint', branch: 'feat/csv-api', personas: ['bob'] }], personas: ['bob'] });
+  assert.deepEqual([scaffold.kind, scaffold.title, scaffold.question, scaffold.confirmLabel], ['confirm', 'Update work: CSV export v2', 'Export invoices as CSV.', 'Update work']);
+  assert.deepEqual(scaffold.blocks?.map((b) => b.type), ['text', 'callout', 'table']);
+  assert.deepEqual(scaffold.fields?.map((f) => [f.key, f.type, f.default]), [['replaceStack', 'toggle', false]]);
+  assert.deepEqual(ask.list('work:csv-export')[0].proposed, { kind: 'work', title: 'CSV export v2' });
+  const applied = await cards.answer(scaffold.id, { approved: true, values: { replaceStack: true } });
+  assert.deepEqual([applied.result?.ok, applied.result?.detail, applied.result?.link], [true, 'updated work csv-export', '#/work/csv-export']);
+  assert.equal(saved[0].stack?.[0].planned?.branch, 'feat/csv-api');
+  assert.match(told[0], /\nApproved\nReplace its 1 stack rows with the planned stack: yes\nDone: updated work csv-export\n/);
+  assert.equal(JSON.parse(told[0].split('```json\n')[1].split('\n```')[0]).result.link, '#/work/csv-export');
+
+  const rejected = await propose('dispatch', { entry: 'ask', pr: 12, prompt: 'What is left?' });
+  assert.equal(rejected.title, 'Dispatch ask on #12');
+  const no = await cards.answer(rejected.id, { approved: false, other: 'Not now' });
+  assert.deepEqual([no.result, dispatched], [undefined, []]);
+  const failed = await cards.answer((await propose('dispatch', { entry: 'broken' })).id, { approved: true });
+  assert.deepEqual([failed.result?.ok, failed.result?.detail], [false, 'no catalog entry broken']);
+  assert.match(told.at(-1) ?? '', /\nFailed: no catalog entry broken\n/);
+  const sent = await cards.answer((await propose('dispatch', { entry: 'ask', pr: 12 })).id, { approved: true });
+  assert.deepEqual([sent.result?.detail, sent.result?.link, dispatched.at(-1)], ['started Ask on #12', '#/work/csv-export/ag-agent-d', 'csv-export ask 12']);
+
+  const agent = await propose('paseo_agent', { title: 'PR 1: endpoint', prompt: 'Build the endpoint', why: 'Starts PR 1', workspaceId: 'wks_repo', workSlug: 'csv-export' });
+  assert.deepEqual([agent.title, agent.blocks?.map((b) => b.type)], ['Start agent: PR 1: endpoint', ['text', 'code']]);
+  const started = await cards.answer(agent.id, { approved: true });
+  const newAgent = daemon.calls.created[1];
+  assert.equal(newAgent.prompt, 'Build the endpoint');
+  assert.equal(started.result?.link, `#/work/csv-export/ag-${newAgent.id}`);
+  assert.match(work.timeline[0].text, /^started Paseo agent "PR 1: endpoint" \(\w{8}\) from ask \w{8}: "Plan the CSV export"$/);
+
+  const repo = await cards.answer((await propose('repo', { source: 'acme/gadgets', why: 'Its importer' })).id, { approved: true });
+  assert.deepEqual([repo.result?.detail, repo.result?.link], ['gadgets cloned into /acme/gadgets · Paseo project gadgets', '#/repo/gadgets']);
+
+  await assert.rejects(propose('dispatch', { entry: 'ask' }, '99999999-0000-4000-8000-000000000000'), /a dispatch needs a work: pass workSlug/);
+  await assert.rejects(propose('work_scaffold', { slug: 'Bad Slug', title: 'x' }), /slug must be kebab-case/);
+  await assert.rejects(propose('launch', {}), /action\.type must be one of work_scaffold, paseo_agent, dispatch, repo/);
 });

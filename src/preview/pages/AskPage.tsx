@@ -5,7 +5,6 @@ import Icon from '../Icon.tsx';
 import { CardsWaiting } from '../chat/Card.tsx';
 import { Composer, Log } from '../chat/Composer.tsx';
 import Conversation from '../chat/Conversation.tsx';
-import { Proposals } from '../chat/Proposals.tsx';
 import { askState, useAskConversation } from '../chat/conversation.ts';
 import { Empty, Loading, PageHead } from './Page.tsx';
 import type { AskRun, UploadRef } from '../../types.ts';
@@ -23,11 +22,9 @@ const when = (iso?: string) => {
   const d = new Date(iso);
   return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
-const proposed = (h: AskRun) => h.proposal ? 'work' : h.agentProposal ? 'agent' : h.dispatchProposal ? 'dispatch' : h.repoProposal ? 'repo' : null;
-
 function ConvRow({ h, on, live }: { h: AskRun; on: boolean; live?: string | null }) {
   const [dot, label] = toneOf(on && live ? live : h.status);
-  const kind = proposed(h);
+  const kind = h.proposed?.kind;
   return (
     <a className={`dp-askp-conv${on ? ' dp-on' : ''}`} href={`#/ask/${h.id}`} title={h.prompt}>
       <span className={`dp-ag-dot ${dot}`} title={label} />
@@ -37,7 +34,7 @@ function ConvRow({ h, on, live }: { h: AskRun; on: boolean; live?: string | null
           {when(h.lastActivity || h.startedAt)}
           {(h.turns ?? 0) > 1 && <><span className="dp-t4">·</span>{h.turns} turns</>}
           {h.cost != null && <><span className="dp-t4">·</span>${Number(h.cost).toFixed(2)}</>}
-          {kind && <span className="dp-chip dp-acc" title={`Proposes a ${kind}`}>{kind}</span>}
+          {kind && <span className="dp-chip dp-acc" title={`Proposes a ${kind}: ${h.proposed?.title}`}>{kind}</span>}
         </span>
       </span>
     </a>
@@ -102,7 +99,6 @@ export default function AskPage({ convId }: { convId?: string }) {
               </div>
               <Log size={events.length + pending.length + cards.length}>
                 <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />
-                <Proposals run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
               </Log>
               <CardsWaiting cards={cards} />
               <Composer

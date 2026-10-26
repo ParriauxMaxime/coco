@@ -33,26 +33,47 @@ export type CardBody = {
   rejectLabel?: string;
   other?: boolean;
 };
-export type Card = CardBody & { id: string; agentId: string; work: string | null; pr: string | null; status: 'open' | 'answered' | 'cancelled'; createdAt: string; answer?: CardAnswer; delivery?: { at: string; ok: boolean; error?: string } };
+export type CardAction = { type: string; input: Raw };
+export type CardResult = { at: string; ok: boolean; detail: string; link?: string };
+export type Card = CardBody & {
+  id: string;
+  agentId: string;
+  work: string | null;
+  pr: string | null;
+  action?: CardAction;
+  status: 'open' | 'answered' | 'cancelled';
+  createdAt: string;
+  answer?: CardAnswer;
+  result?: CardResult;
+  delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };
+};
 type Place = { work: string | null; pr: string | null };
+export type ActionContext = Place & { agentId: string };
+// a proposal card: card() checks the agent's input and builds the card showing it, run() does what approving it does
+export type ActionDef = {
+  card(input: Raw, ctx: ActionContext): Promise<{ input: Raw; card: Raw }> | { input: Raw; card: Raw };
+  run(card: Card): Promise<Omit<CardResult, 'at'> | null>;
+  posted?(card: Card): void;
+};
+export const SKIPPED = 'skipped';
 
 const KEY = /^[\w.:~-]{1,60}$/;
 const ID = /^[\w-]{1,80}$/;
 const MAX_OTHER = 2000;
 
-const strip = <T extends Raw>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
-const str = (v: unknown, max: number, field: string): string => {
+export const strip = <T extends Raw>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+export const str = (v: unknown, max: number, field: string): string => {
   if (typeof v !== 'string' || !v.trim()) throw new Error(`${field} required`);
   if (v.trim().length > max) throw new Error(`${field} longer than ${max}`);
   return v.trim();
 };
-const opt = (v: unknown, max: number, field: string) => (v == null || v === '' ? undefined : str(v, max, field));
-const bool = (v: unknown, field: string) => {
+export const opt = (v: unknown, max: number, field: string) => (v == null || v === '' ? undefined : str(v, max, field));
+export const bool = (v: unknown, field: string) => {
   if (v == null) return undefined;
   if (typeof v !== 'boolean') throw new Error(`${field} must be true or false`);
   return v;
 };
-const list = (v: unknown, min: number, max: number, field: string): Raw[] => {
+export const list = (v: unknown, min: number, max: number, field: string): Raw[] => {
   if (!Array.isArray(v) || v.length < min || v.length > max) throw new Error(`${field} must hold ${min}-${max} entries`);
   return v;
 };
@@ -138,13 +159,31 @@ export function validateCard(c: Raw): CardBody {
     const select = rowOptions ? undefined : c.select == null ? 'many' : oneOf(c.select, ['many', 'one'] as const, 'select');
     return strip({ ...head, columns, rows: rowsOf(c, columns, rowOptions), select, rowOptions, other });
   }
-  if (kind === 'form') {
-    const fields = list(c.fields, 1, 8, 'fields').map((f, i) => field(f, `fields[${i}]`));
-    unique(fields.map((f) => f.key), 'fields');
-    return strip({ ...head, fields, other });
-  }
-  return strip({ ...head, confirmLabel: opt(c.confirmLabel, 40, 'confirmLabel'), rejectLabel: opt(c.rejectLabel, 40, 'rejectLabel'), other });
+  if (kind === 'form') return strip({ ...head, fields: fieldsOf(c.fields, 1), other });
+  return strip({ ...head, fields: c.fields == null ? undefined : fieldsOf(c.fields, 0), confirmLabel: opt(c.confirmLabel, 40, 'confirmLabel'), rejectLabel: opt(c.rejectLabel, 40, 'rejectLabel'), other });
 }
+
+const fieldsOf = (v: unknown, min: number) => {
+  const fields = list(v, min, 8, 'fields').map((f, i) => field(f, `fields[${i}]`));
+  unique(fields.map((f) => f.key), 'fields');
+  return fields;
+};
+
+// field values: required ones only when they count (a form, an approval)
+const valuesOf = (fields: CardField[], given: unknown, enforce: boolean) => {
+  const raw = given ?? {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error('values must map field keys to values');
+  const stray = Object.keys(raw).find((k) => !fields.some((f) => f.key === k));
+  if (stray) throw new Error(`values.${stray} is not a field of this card`);
+  const values: Record<string, CardValue> = {};
+  for (const f of fields) {
+    const v = (raw as Raw)[f.key];
+    if (v == null || v === '') {
+      if (f.required && enforce) throw new Error(`${f.label} is required`);
+    } else values[f.key] = fieldValue(f, v, `values.${f.key}`);
+  }
+  return values;
+};
 
 const keysIn = (v: unknown, known: string[], field: string) => {
   if (v == null) return [];
@@ -176,25 +215,12 @@ export function validateAnswer(card: CardBody, a: Raw): Omit<CardAnswer, 'at'> {
     if (card.select === 'one' && rows.length !== 1 && !(other && !rows.length)) throw new Error('tick exactly one row');
     return strip({ rows, other });
   }
-  if (card.kind === 'form') {
-    const given = a.values ?? {};
-    if (typeof given !== 'object' || Array.isArray(given)) throw new Error('values must map field keys to values');
-    const fields = card.fields || [];
-    const stray = Object.keys(given).find((k) => !fields.some((f) => f.key === k));
-    if (stray) throw new Error(`values.${stray} is not a field of this card`);
-    const values: Record<string, CardValue> = {};
-    for (const f of fields) {
-      const v = given[f.key];
-      if (v == null || v === '') {
-        if (f.required) throw new Error(`${f.label} is required`);
-      } else values[f.key] = fieldValue(f, v, `values.${f.key}`);
-    }
-    return strip({ values, other });
-  }
+  if (card.kind === 'form') return strip({ values: valuesOf(card.fields || [], a.values, true), other });
   if (card.kind === 'confirm') {
     const approved = bool(a.approved, 'approved');
     if (approved == null && !other) throw new Error('approve, reject or write an answer');
-    return strip({ approved, other });
+    const values = card.fields?.length && approved ? valuesOf(card.fields, a.values, true) : undefined;
+    return strip({ approved, values, other });
   }
   throw new Error('a post card takes no answer');
 }
@@ -212,20 +238,23 @@ export function answerSummary(card: Card) {
   if (a.picked?.length) lines.push(`Picked: ${a.picked.map((k) => label(card.options, k)).join(', ')}`);
   if (a.rows) lines.push(a.rows.length ? `Ticked: ${a.rows.map(rowLabel).join(', ')}` : 'Ticked: no row');
   for (const [k, v] of Object.entries(a.rowPicks || {})) lines.push(`${rowLabel(k)}: ${label(card.rowOptions, v)}`);
-  for (const f of card.fields || []) if (a.values && f.key in a.values) lines.push(`${f.label}: ${a.values[f.key] === true ? 'yes' : a.values[f.key] === false ? 'no' : a.values[f.key]}`);
   if (a.approved != null) lines.push(a.approved ? 'Approved' : 'Rejected');
+  for (const f of card.fields || []) if (a.values && f.key in a.values) lines.push(`${f.label}: ${a.values[f.key] === true ? 'yes' : a.values[f.key] === false ? 'no' : a.values[f.key]}`);
   if (a.other) lines.push(`Other: ${a.other}`);
+  if (card.result) lines.push(`${card.result.ok ? 'Done' : 'Failed'}: ${card.result.detail}`);
   return lines.join('\n');
 }
 
 export function deliveryText(card: Card) {
   if (card.status === 'cancelled') return `[coco card ${card.id} dismissed] ${card.title}\nThe user dismissed this ask without answering.`;
-  return `[coco card ${card.id} answered] ${card.title}\n${answerSummary(card)}\n\n\`\`\`json\n${JSON.stringify(card.answer)}\n\`\`\``;
+  const r = card.result;
+  return `[coco card ${card.id} answered] ${card.title}\n${answerSummary(card)}\n\n\`\`\`json\n${JSON.stringify(r ? { ...card.answer, result: strip({ ok: r.ok, detail: r.detail, link: r.link }) } : card.answer)}\n\`\`\``;
 }
 
-type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown> };
+// deliver resolves to SKIPPED when nobody waits for the answer (a one-shot run that ended)
+type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef> };
 
-export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver }: Options) {
+export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {} }: Options) {
   const DIR = path.join(DATA, 'cards');
   fs.mkdirSync(DIR, { recursive: true });
   const cards = new Map<string, Card>();
@@ -266,21 +295,50 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
   };
   const ofAgent = (agentId: string) => [...cards.values()].filter((c) => c.agentId === agentId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
+  // with an action, the card is built from it: the agent sends what it proposes, coco shows it
+  async function proposal(raw: unknown, ctx: ActionContext) {
+    const type = typeof (raw as Raw)?.type === 'string' ? (raw as Raw).type : '';
+    const def = actions[type];
+    if (!def) throw new HttpError(400, `action.type must be one of ${Object.keys(actions).join(', ')}`);
+    try {
+      const built = await def.card((raw as Raw).input ?? {}, ctx);
+      return { def, action: { type, input: built.input }, body: validateCard(built.card) };
+    } catch (e) {
+      throw new HttpError(httpStatus(e) === 500 ? 400 : httpStatus(e), errorMessage(e));
+    }
+  }
+
   async function create(input: Raw) {
     if (typeof input?.agentId !== 'string' || !ID.test(input.agentId)) throw new HttpError(400, 'agentId required');
-    const body = checked(() => validateCard(input));
     const where = await place(input.agentId).catch(() => ({ work: null, pr: null }));
-    return save({ id: crypto.randomBytes(6).toString('hex'), agentId: input.agentId, work: where.work, pr: where.pr, ...body, status: body.kind === 'post' ? 'answered' : 'open', createdAt: now() });
+    const made = input.action == null ? null : await proposal(input.action, { agentId: input.agentId, ...where });
+    const body = made ? made.body : checked(() => validateCard(input));
+    const c = save({ id: crypto.randomBytes(6).toString('hex'), agentId: input.agentId, work: where.work, pr: where.pr, ...body, ...(made ? { action: made.action } : {}), status: body.kind === 'post' ? 'answered' : 'open', createdAt: now() });
+    made?.def.posted?.(c);
+    return c;
   }
 
   async function tell(c: Card) {
     try {
-      await deliver(c.agentId, deliveryText(c));
-      c.delivery = { at: now(), ok: true };
+      const r = await deliver(c.agentId, deliveryText(c));
+      c.delivery = { at: now(), ok: true, ...(r === SKIPPED ? { skipped: true } : {}) };
     } catch (e) {
       c.delivery = { at: now(), ok: false, error: errorMessage(e).slice(0, 300) };
     }
     return save(c);
+  }
+
+  // what approving a proposal does; its outcome goes on the card and in the answer the agent gets
+  async function act(c: Card) {
+    const def = c.action && actions[c.action.type];
+    if (!def || (c.kind === 'confirm' && c.answer?.approved !== true)) return;
+    try {
+      const r = await def.run(c);
+      if (r) c.result = { at: now(), ...r, detail: r.detail.slice(0, 500) };
+    } catch (e) {
+      c.result = { at: now(), ok: false, detail: errorMessage(e).slice(0, 500) };
+    }
+    if (c.result) save(c);
   }
 
   async function answer(id: string, input: Raw) {
@@ -289,6 +347,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     c.status = 'answered';
     c.answer = { at: now(), ...given };
     save(c);
+    await act(c);
     return tell(c);
   }
 

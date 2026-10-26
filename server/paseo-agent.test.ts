@@ -70,7 +70,7 @@ function fakeDaemon({ workspaces = [], events = [], results = [{ status: 'idle',
   return { connect: async () => client, calls };
 }
 
-test('the follower streams text and thinking deltas, shows a running call once per change, closes a message when a tool call lands, and keeps full tool inputs, results and proposals', () => {
+test('the follower streams text and thinking deltas, shows a running call once per change, closes a message when a tool call lands, and keeps full tool inputs and results, proposals now being cards', () => {
   const deltas: (string | undefined)[][] = [];
   const entries: Entry[] = [];
   const asked: unknown[] = [];
@@ -106,7 +106,7 @@ test('the follower streams text and thinking deltas, shows a running call once p
   );
   assert.equal(entries[3].output, 'abc widgets');
   assert.deepEqual(entries[4].input, scaffold);
-  assert.deepEqual(f.submitted, { propose_work_scaffold: scaffold });
+  assert.deepEqual(f.submitted, {});
   assert.deepEqual(asked, [
     { type: 'permission', agentId: AGENT, request: { id: 'p1', name: 'Bash', kind: 'tool', title: 'Run gh pr view 7' } },
     { type: 'permission_resolved', agentId: AGENT, requestId: 'p1', resolution: { behavior: 'allow' } },
@@ -123,7 +123,7 @@ test('run starts the agent in the workspace already open on its directory, waits
       { id: 'wks_sibling', projectId: 'p2', workspaceDirectory: '/acme/widgets-pr1' },
       { id: 'wks_other', projectId: 'p3', workspaceDirectory: '/elsewhere' },
     ],
-    events: [say('Planned.'), mcp('c1', 'propose_rules', { rules: [] }, { recorded: true }), { type: 'turn_completed', provider: 'claude', usage: { totalCostUsd: 0.1 } }],
+    events: [say('Planned.'), mcp('c1', 'propose_review_plan', { steps: [] }, { recorded: true }), { type: 'turn_completed', provider: 'claude', usage: { totalCostUsd: 0.1 } }],
     results: [{ status: 'permission' }, { status: 'idle', lastMessage: 'Planned.' }],
   });
   const seen: string[] = [];
@@ -134,7 +134,7 @@ test('run starts the agent in the workspace already open on its directory, waits
   assert.equal(r.status, 'done');
   assert.equal(r.finalText, 'Planned.');
   assert.equal(r.cost, 0.1);
-  assert.deepEqual(r.submitted, { propose_rules: { rules: [] } });
+  assert.deepEqual(r.submitted, { propose_review_plan: { steps: [] } });
   assert.deepEqual(seen, ['text', 'tool']);
   const [created] = daemon.calls.agents;
   assert.equal(created.workspaceId, 'wks_big');
@@ -202,7 +202,7 @@ test("a work's agents run in the row's worktree, else the top-most open row's, e
 
 const config = { ...DEFAULTS, owner: { name: 'Alice', login: 'alice' }, repo: { ...DEFAULTS.repo, github: 'acme/widgets' } };
 
-test('Ask coco streams deltas to watchers only, records text, tool calls with their results and the scaffold proposal', async () => {
+test('Ask coco streams deltas to watchers only, records text and tool calls with their results', async () => {
   const DATA = tmpDir();
   const scaffold = { slug: 'widgets-export' };
   const daemon = fakeDaemon({ events: [mcp('c1', 'list_works', {}, [{ slug: 'widgets' }]), say('Here is '), say('the scaffold.'), mcp('c2', 'propose_work_scaffold', scaffold, { recorded: true })], results: [{ status: 'idle', lastMessage: 'Here is the scaffold.' }] });
@@ -215,7 +215,6 @@ test('Ask coco streams deltas to watchers only, records text, tool calls with th
   const run = await done;
 
   assert.equal(run.status, 'idle');
-  assert.deepEqual(run.proposal, scaffold);
   assert.equal(run.text, 'Here is the scaffold.');
   assert.deepEqual(run.events.filter((e) => e.type !== 'meta').map((e) => e.type), ['user', 'tool', 'text', 'tool', 'end']);
   assert.equal(run.events.at(-1)?.status, 'done');

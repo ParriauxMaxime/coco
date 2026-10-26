@@ -3,16 +3,30 @@ import { api, errorMessage } from '../../api.ts';
 import { stateKey, stateLabel } from '../../components/PrBadge.tsx';
 import { useConfig } from '../../config.ts';
 import { RepoAsk } from '../chat/AskPanel.tsx';
-import { addRepoAndOpen } from '../chat/Proposals.tsx';
+import { toast } from '../../components/Toast.tsx';
 import RulesLedger from '../widgets/Rules.tsx';
 import Icon from '../Icon.tsx';
 import { SegBar, workDot } from '../Shell.tsx';
 import { workHref } from '../prefs.ts';
 import { reloadOverview } from '../overview.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
-import type { LoosePr, RepoPage as RepoData } from '../../types.ts';
+import type { AddRepoResult, LoosePr, RepoPage as RepoData } from '../../types.ts';
 import './newwork.css';
 import './repo.css';
+
+const repoAdded = (r: AddRepoResult) => [
+  `${r.repo?.name} ${r.how === 'cloned' ? 'cloned into' : r.how === 'found' ? 'found at' : 'at'} ${r.repo?.path}`,
+  r.project?.error ? `no Paseo project: ${r.project.error}` : r.project ? `Paseo project ${r.project.name}` : null,
+  r.setup?.error ? `setup run failed: ${r.setup.error}` : r.setup?.agentId ? `setup run ${r.setup.agentId.slice(0, 8)} proposes its config` : null,
+].filter(Boolean).join(' · ');
+
+// adds the repo, then opens its page: the overview reload that comes with the route shows its sidebar section
+async function addRepoAndOpen(add: () => Promise<AddRepoResult>) {
+  const r = await add();
+  toast.success(repoAdded(r));
+  if (r.repo) location.hash = `#/repo/${r.repo.id}`;
+  return r;
+}
 
 type RepoWork = RepoData['works'][number];
 

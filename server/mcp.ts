@@ -82,7 +82,14 @@ server.tool('github_search', `Search ${GITHUB || 'the repo'} PRs or issues: gh s
   const r = await run('gh', ['search', kind, '--repo', GITHUB, '--limit', '20', '--json', 'number,title,url,state,author,updatedAt', query]);
   return text(r.ok ? JSON.parse(r.out) : { error: r.err });
 });
-server.tool('propose_work_scaffold', 'Submit the proposal for a new or updated work. Nothing is created: the user reviews and applies it in cocopilot. Call it once, at the end, with the full proposal.', {
+// a proposal is a card built by coco from the input; approving it runs it (docs/agent-io.md)
+const ON_CARD = `Returns at once with the card id: do not wait or poll. ${OWNER}'s answer arrives later as a new user message starting "[coco card <id> answered]", with what approving did (Done: or Failed:). A refused proposal names the bad field: fix it and call again.`;
+const propose = async (type: string, input: Record<string, unknown>) => {
+  const r = await postCard({ action: { type, input } });
+  return 'error' in r ? refused(`proposal refused: ${r.error}`) : text({ id: r.id, status: 'open', note: ON_CARD });
+};
+
+server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${OWNER} as a card. Nothing is created until ${OWNER} presses Create work (Update work for an existing slug, with a choice to replace its stack) on the card. Call it once, at the end, with the full proposal. ${ON_CARD}`, {
   slug: z.string().describe('kebab-case'),
   title: z.string().max(100).describe('short noun phrase naming the feature, like a product label: "CSV export of invoices", "Bulk invoice reminders"; the description carries the behaviour change'),
   description: z.string().describe('markdown: one summary paragraph, then a before/after table per surface (Surface | Before | After), then the legend line and at most two mermaid diagrams (Before/After: where the check lives and who bypasses it; merge order for a stack)'),
@@ -97,9 +104,9 @@ server.tool('propose_work_scaffold', 'Submit the proposal for a new or updated w
   notes: z.string().describe('markdown for the work notes: ## Rules (one sentence each), ## Do not revisit (inherited from precedent works plus new ones), persona gaps'),
   nextSteps: z.array(z.string()),
   betaFlags: z.array(z.object({ code: z.string().describe("the flag's code, as the repo names it"), why: z.string().describe('the surface it gates, e.g. "the Export CSV button"'), prs: z.array(z.number()).optional().describe('planned PR orders it applies to; omit for every PR') })).optional().describe('feature flags a tester must switch on to reach the surfaces this work touches (grep the flag checks on the entry points); empty when nothing is gated'),
-}, async (proposal) => text({ recorded: true, proposal }));
+}, async (proposal) => propose('work_scaffold', proposal));
 
-server.tool('propose_paseo_agent', `Propose starting a Paseo agent (local, in an existing workspace or cwd). Nothing starts: ${OWNER} presses Start on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief.`, {
+server.tool('propose_paseo_agent', `Propose starting a Paseo agent (local, in an existing workspace or cwd), shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Start agent on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief. ${ON_CARD}`, {
   title: z.string().max(60).describe('agent title shown in Paseo, e.g. "PR 1: export endpoint skeleton"'),
   prompt: z.string().describe('the full task for the agent'),
   workspaceId: z.string().optional().describe('existing Paseo workspace id (wks_…) from list_paseo'),
@@ -108,10 +115,10 @@ server.tool('propose_paseo_agent', `Propose starting a Paseo agent (local, in an
   thinking: z.enum(['low', 'medium', 'high', 'auto']).default('high'),
   workSlug: z.string().optional().describe('work this agent belongs to, for its timeline'),
   why: z.string().describe('one sentence: what the agent will do and why'),
-}, async (p) => text({ recorded: true, proposal: p }));
+}, async (p) => propose('paseo_agent', p));
 
 const dispatchable = catalog(config).map((e) => `${e.id} (${e.label}${e.kind === 'prompt' ? ', read-only unless edits' : e.edits ? ', works on the PR branch' : ', read-only'}${e.needsPrompt ? ', needs prompt' : ''}${e.needsPersona ? ', needs persona' : ''})`).join('; ');
-server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of its PRs. Nothing starts: ${OWNER} confirms on the card, then coco adds the work brief and picks the Paseo workspace (read-only kinds in the work's Plan workspace, the others in the PR's own). Call it once, at the end. Entries: ${dispatchable}.`, {
+server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of its PRs, shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Dispatch on the card; then coco adds the work brief and picks the Paseo workspace (read-only kinds in the work's Plan workspace, the others in the PR's own). Call it once, at the end. Entries: ${dispatchable}. ${ON_CARD}`, {
   entry: z.string().describe('catalog entry id, e.g. "ask", "persona-review", "fix-findings", "gate:self-review:<skill>", "prompt"'),
   pr: z.union([z.number(), z.string()]).optional().describe('PR number, or "b:<branch>" for a stack row with no PR yet; omit only for a free prompt on the whole work'),
   prompt: z.string().optional().describe('the question (ask) or the task (prompt); extra instructions for a gate run'),
@@ -119,19 +126,19 @@ server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of
   edits: z.boolean().optional().describe('free prompt only: true when the agent must work on the PR branch'),
   workSlug: z.string().optional().describe('the work, when the conversation has none'),
   why: z.string().describe('one sentence: what the agent will do and why'),
-}, async (p) => text({ recorded: true, proposal: p }));
+}, async (p) => propose('dispatch', p));
 
-server.tool('propose_repo', `Propose adding a repo to coco. Nothing happens until ${OWNER} confirms on the card: then coco reuses a clone already on disk (matched by its origin remote) or clones it with gh, lists it in the config, adds a Paseo project named after it and starts a setup run proposing its config. Call it once, at the end.`, {
+server.tool('propose_repo', `Propose adding a repo to coco, shown to ${OWNER} as a card. Nothing happens until ${OWNER} presses Add repo on the card: then coco reuses a clone already on disk (matched by its origin remote) or clones it with gh, lists it in the config, adds a Paseo project named after it and starts a setup run proposing its config. Call it once, at the end. ${ON_CARD}`, {
   source: z.string().describe('GitHub slug "owner/name", or the absolute path of a local clone'),
   why: z.string().describe('one sentence: why this repo'),
-}, async (p) => text({ recorded: true, proposal: p }));
+}, async (p) => propose('repo', p));
 
-server.tool('propose_rules', `Submit candidate rules for ${OWNER}'s rules ledger, distilled from a chat excerpt or an agent thread. Nothing is kept: each lands as "proposed" and ${OWNER} keeps or drops it. Call it once, at the end.`, {
+server.tool('propose_rules', `Submit candidate rules for ${OWNER}'s rules ledger, distilled from a chat excerpt or an agent thread, shown to ${OWNER} as a card with one row per rule. Nothing is kept until ${OWNER} picks Keep or Drop on each row; the kept ones join the ledger. Call it once, at the end; an empty list is fine. ${ON_CARD}`, {
   rules: z.array(z.object({
     text: z.string().max(200).describe('one line, plain English, imperative, reusable beyond this PR: "TL;DR collapsed in PR bodies", "No low-value tests that will not survive a moving codebase"'),
     source: z.string().describe('the exact quote from the excerpt the rule comes from, short'),
   })).max(6).describe(`only corrections ${OWNER} made or rules they stated; none already in the ledger given in the prompt`),
-}, async (p) => text({ recorded: true, rules: p.rules.length }));
+}, async (p) => propose('rules', p));
 
 server.tool('propose_review_plan', `Submit the review plan for the PR under review. Nothing is posted: ${OWNER} reads it in cocopilot and accepts watch points one by one. Call it once, at the end, with the full plan; every changed file goes in exactly one step or in skim.`, {
   summary: z.string().describe('2-3 sentences, product effect first: what changes for users, then how'),
@@ -286,12 +293,12 @@ server.tool('upsert_decision', `Write a decision card on a work: an open product
   confidence: z.number().int().min(0).max(100).optional().describe('how sure you are of the recommendation'),
   positions: z.record(z.string(), z.string()).optional().describe('reviewer → markdown position'),
   source: z.string().optional().describe('who raised it'),
-  pr: rowArg.optional().describe("stack row the card belongs to; omit for this agent's row"),
+  pr: rowArg.optional().describe('stack row the card belongs to; omit for a card on the whole work'),
   sha: z.string().optional().describe('commit a suggestion block is read at'),
 }, async ({ work: slugIn, id, pr: prIn, ...card }) => {
   const t = await target(slugIn, prIn);
   if (!t.slug) return refused(NO_WORK);
-  const r = await coco('PUT', `/api/works/${t.slug}/decisions/${encodeURIComponent(id)}`, { ...card, ...(t.pr ? { pr: t.pr } : {}) });
+  const r = await coco('PUT', `/api/works/${t.slug}/decisions/${encodeURIComponent(id)}`, { ...card, ...(prIn !== undefined && t.pr ? { pr: t.pr } : {}) });
   if (!r.ok) return refused(`decision refused: ${r.error}`);
   const saved = (Array.isArray(r.data.decisions) ? (r.data.decisions as { id: string; status?: string; title?: string }[]) : []).find((d) => d.id === id);
   return text({ id, status: saved?.status ?? 'pending', title: saved?.title });

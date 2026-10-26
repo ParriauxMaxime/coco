@@ -564,8 +564,10 @@ The kept rules, global first, then work, then PR, go into every brief
 The `Rules` tab of a work and the sidebar's Rules page list them with a
 scope chip and keep / retire (drop for a proposed one). "🦜 Propose rules"
 on a pasted excerpt, or "🦜 rules" in an agent thread, starts a coco
-Paseo agent through the Ask path; it ends with one `propose_rules` call and the
-candidates land as `proposed` in the chosen scope.
+Paseo agent through the Ask path; it ends with one `propose_rules` call, shown
+under the box as a card with one row per candidate, Keep (recommended) or
+Drop; the kept ones join the chosen scope as `kept`, the dropped ones leave no
+trace. The run is one-shot, so the answer is not sent back to an agent.
 
 Routes: `GET|POST /api/rules`, `PUT /api/rules/<id>`, `POST
 /api/rules/propose`; the same under `/api/works/<slug>/rules` with `{ scope:
@@ -718,8 +720,8 @@ when your Claude Code account has them, read tools only (`notion-fetch`,
 Without the connectors, only GitHub links work. Coco frames the work (size,
 title, Surface | Before | After table, precedents under `## Precedents` in
 the notes, surfaces, personas per planned PR, stack) and ends with one
-`propose_work_scaffold` call, shown as the Ask proposal card. **Create work**
-applies it; nothing exists before. Past links are listed below. A run costs
+`propose_work_scaffold` call, shown as a card in the conversation. **Create
+work** on the card applies it; nothing exists before. Past links are listed below. A run costs
 about $1 to $2.5.
 
 ## Ask coco (natural language → proposals)
@@ -746,10 +748,12 @@ to the same agent if Paseo still has it, a turn that was running is followed
 to its end, and a gone agent is replaced by a new one that reads the
 conversation so far. Inbox links are conversations too; the rules proposal
 stays a one-shot run. The agent never writes: a scaffold ends in one
-`propose_work_scaffold` call, shown as a proposal card; **Apply** creates or
-updates the work (stack with planned PRs and their personas, surface table,
-open questions, notes, next steps). Runs are kept in `data/asks/`. The same
-MCP server can be mounted in any Paseo agent or Codex.
+`propose_work_scaffold` call, shown as a proposal card (below); **Create
+work** creates the work, or **Update work** updates an existing slug (stack
+with planned PRs and their personas, surface table, open questions, notes,
+next steps). The conversation stream also carries the cards of every agent
+the conversation had. Runs are kept in `data/asks/`. The same MCP server can
+be mounted in any Paseo agent or Codex.
 
 ## Agent cards (how agents show and ask)
 
@@ -761,6 +765,20 @@ into its turn when it is working. An agent with an open card shows as
 waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
 `data/cards/`; routes, shapes and delivery are in
 [agent-io.md](agent-io.md).
+
+Proposals are cards too. `propose_work_scaffold`, `propose_paseo_agent`,
+`dispatch` and `propose_repo` post a confirm card that coco builds from the
+proposal (stack, surfaces, open questions and flags as tables, the brief or
+prompt as code); its button says what it does (**Create work**, **Update
+work**, **Start agent**, **Dispatch**, **Add repo**) and pressing it runs it
+there. An update of a work that already has a stack asks, with a toggle,
+whether the planned stack replaces it. The card then shows the outcome with
+an **Open** link to the work, the agent's tab or the repo, and the agent
+gets your answer with that outcome (`Done:` or `Failed:`). Reject or a note
+runs nothing. `propose_rules` is a rows card (see Rules ledger);
+`propose_review_plan` stays the review plan's result, not a card.
+Conversations saved before cards keep their proposals in the transcript as
+the tool call, read-only.
 
 The same MCP carries the agents' writes to the work, in place of curl:
 `upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact` and

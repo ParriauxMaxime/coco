@@ -15,7 +15,8 @@ const TITLE_MAX = 60;
 const DEFAULT_LISTEN = '127.0.0.1:6767';
 const TIMEOUT_MS = 15 * 60 * 1000;
 const HOME = os.homedir();
-const COCO_TOOL = /^mcp__cocopilot__(propose_\w+|dispatch)$/;
+// the one cocopilot tool whose input is the run's result; the other proposals are cards
+const COCO_TOOL = /^mcp__cocopilot__(propose_review_plan)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
 export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks', 'upsert_finding', 'upsert_decision', 'attach_media', 'import_artifact', 'set_next'];
 // every coco agent's one line on cards (docs/agent-io.md); Claude agents also lose AskUserQuestion

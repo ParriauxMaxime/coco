@@ -3,7 +3,8 @@ import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
 import { ErrorNote, Loading } from '../pages/Page.tsx';
-import type { Rule, RuleScope, RulesResponse } from '../../types.ts';
+import CardView from '../chat/Card.tsx';
+import type { Card, Rule, RuleScope, RulesResponse } from '../../types.ts';
 import '../pages/rules.css';
 
 const POLL_MS = 3000;
@@ -27,6 +28,17 @@ export function RuleRow({ r, scope, onSet }: { r: Rule; scope?: string; onSet: (
       </span>
     </div>
   );
+}
+
+// the card of the last Propose rules run: Keep or Drop per rule, the kept ones join the ledger
+export function ProposedRules({ cardId, onAnswered }: { cardId?: string; onAnswered: () => void }) {
+  const [card, setCard] = useState<Card | null>(null);
+  useEffect(() => {
+    setCard(null);
+    if (cardId) api.card(cardId).then(setCard, () => {});
+  }, [cardId]);
+  if (!card || card.kind === 'post') return null;
+  return <CardView card={card} onCard={(c) => { setCard(c); if (c.status !== 'open') onAnswered(); }} />;
 }
 
 // global, work and PR rules in one ledger; slug null is the global ledger only
@@ -79,6 +91,7 @@ export default function RulesLedger({ slug = null }: { slug?: string | null }) {
           {data.proposing && !running && <span className={`dp-sm ${data.proposing.error ? 'dp-rules-err' : 'dp-t3'}`}>{data.proposing.error || `Last run: ${data.proposing.added ?? 0} proposed`}</span>}
         </div>
       </div>
+      <ProposedRules cardId={data.proposing?.cardId} onAnswered={() => void load()} />
       {retired.length > 0 && (
         <div>
           <button type="button" className="dp-rules-fold" aria-expanded={showRetired} onClick={() => setShowRetired((v) => !v)}><span className={`dp-caret${showRetired ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span>Retired<span className="dp-count">{retired.length}</span></button>

@@ -6,7 +6,6 @@ import { followCards, useCardList } from './chat/cards.ts';
 import { Composer, Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
 import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
-import { Proposals } from './chat/Proposals.tsx';
 import { nonceOf, useAskConversation } from './chat/conversation.ts';
 import { useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
@@ -84,7 +83,6 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
       <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
       <Log size={events.length + pending.length + cards.length}>
         {run && <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />}
-        {run && <Proposals run={run} onApplied={(s) => { location.hash = `#/work/${s}`; }} />}
       </Log>
       <CardsWaiting cards={cards} />
       <Composer

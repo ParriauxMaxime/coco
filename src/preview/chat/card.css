@@ -70,6 +70,13 @@
 .dp-cd-st.dp-cd-bad { color: var(--dp-bad); }
 .dp-cd-st.dp-cd-bad > svg.dp-i { color: var(--dp-bad); }
 .dp-cd.dp-cd-done { box-shadow: none; }
+.dp-cd-res { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 12px; border-top: 1px solid var(--dp-line); font-size: 12.5px; color: var(--dp-t2); }
+.dp-cd-res.dp-cd-res-ok { background: color-mix(in srgb, var(--dp-ok) 8%, transparent); color: var(--dp-t1); }
+.dp-cd-res.dp-cd-res-ok > svg.dp-i { color: var(--dp-ok); }
+.dp-cd-res.dp-cd-bad { background: color-mix(in srgb, var(--dp-bad) 8%, transparent); color: var(--dp-bad); }
+.dp-cd-res > svg.dp-i { flex: none; }
+.dp-cd-resd { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.dp-btn.dp-cd-open { flex: none; }
 
 .dp-cd-sent { display: flex; align-items: center; gap: 6px; align-self: flex-end; font-size: 11.5px; color: var(--dp-t3); }
 .dp-cd-sent > svg.dp-i { color: var(--dp-t4); }

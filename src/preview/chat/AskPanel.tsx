@@ -6,7 +6,6 @@ import Icon from '../Icon.tsx';
 import { CardsWaiting } from './Card.tsx';
 import { Composer, Log } from './Composer.tsx';
 import Conversation from './Conversation.tsx';
-import { Proposals } from './Proposals.tsx';
 import { askState, useAskConversation } from './conversation.ts';
 import type { AskConvo } from './conversation.ts';
 import type { AskRun, UploadRef } from '../../types.ts';
@@ -87,7 +86,6 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
         examples={REPO_EXAMPLES}
         placeholder={run ? 'Follow up, correct or narrow it down (markdown, ⌘↵)' : `Scaffold a work in ${repo} for … / Who reviews … (⌘↵)`}
       />
-      {run && <Proposals run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />}
       {history.length > 0 && (
         <>
           <div className="dp-repoask-h">Earlier conversations on {repo}<span className="dp-count">{history.length}</span></div>
@@ -98,7 +96,7 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
                 <div key={h.id} className={`dp-rowi dp-click${run?.id === h.id ? ' dp-repoask-on' : ''}`} role="button" tabIndex={0} onClick={() => open(h)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(h); } }}>
                   <span className={`dp-ag-dot ${st.dot}`} title={st.label} />
                   <span className="dp-ell dp-grow">{h.prompt.slice(0, 110)}</span>
-                  {h.proposal && <span className="dp-chip dp-acc" title="Proposes a work">{h.proposal.title || 'proposal'}</span>}
+                  {h.proposed && <span className="dp-chip dp-acc" title={`Proposes a ${h.proposed.kind}`}>{h.proposed.title}</span>}
                   <span className="dp-rowi-m dp-num">{stamp(h.startedAt)}{(h.turns ?? 0) > 1 ? ` · ${h.turns} turns` : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span>
                 </div>
               );

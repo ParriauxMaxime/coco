@@ -145,7 +145,7 @@ export type RulesResponse = {
   global: Rule[];
   work?: Rule[];
   prs?: { key: string | number | null; title: string; rules: Rule[] }[];
-  proposing?: { status: string; error?: string; added?: number } | null;
+  proposing?: { status: string; error?: string; added?: number; cardId?: string } | null;
 };
 
 export type Link = { label: string; url: string };
@@ -302,10 +302,13 @@ export type Card = {
   confirmLabel?: string;
   rejectLabel?: string;
   other?: boolean;
+  // a proposal card: approving it runs this action, and result is what it did
+  action?: { type: string; input: Record<string, unknown> };
   status: 'open' | 'answered' | 'cancelled';
   createdAt: string;
   answer?: CardAnswer;
-  delivery?: { at: string; ok: boolean; error?: string };
+  result?: { at: string; ok: boolean; detail: string; link?: string };
+  delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };
 };
 
 export type ActivityEvent = {
@@ -325,10 +328,6 @@ export type ActivityEvent = {
   conversation?: string;
   nonce?: string;
   steer?: boolean;
-  proposal?: AskProposal | null;
-  agentProposal?: AgentProposal | null;
-  dispatchProposal?: DispatchProposal | null;
-  repoProposal?: RepoProposal | null;
   agentId?: string;
   request?: PermissionRequest;
   requestId?: string;
@@ -479,29 +478,6 @@ export type DevServerRowData = {
 export type DevServersResponse = { on: true; board: Board; rows: DevServerRowData[] } | { on: false; reason: string };
 export type DevServerLogs = { lines: string[] };
 
-export type AskProposal = {
-  title: string;
-  slug: string;
-  tier: string | number;
-  summary: string;
-  paseoProject?: { existingProjectId?: string; createNamed?: string };
-  personas?: string[];
-  stack?: { order: number; title: string; scope: string; branch: string; existingPr?: number; personas?: string[] }[];
-  surfaces?: { surface: string; entryPoint: string; coverage: string }[];
-  openQuestions?: { question: string; recommendation: string; tradeoff: string }[];
-  notes: string;
-  nextSteps?: string[];
-};
-export type AgentProposal = {
-  title: string;
-  provider: string;
-  thinking: string;
-  why: string;
-  workspaceId?: string;
-  cwd?: string;
-  workSlug?: string;
-  prompt: string;
-};
 // the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan)
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export type DispatchEntry = { id: string; kind: string; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
@@ -510,7 +486,6 @@ export type DispatchResult = { kind: string; title: string; agentId: string | nu
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };
 export type WorktreesRemoved = { removed: string[]; kept: { path: string; why: string }[]; unarchived: { workspaceId: string; why: string }[] };
-export type DispatchProposal = { entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
 export type AskRun = {
   id: string;
   prompt: string;
@@ -523,10 +498,8 @@ export type AskRun = {
   lastActivity?: string;
   status: string;
   turns?: number;
-  proposal?: AskProposal | null;
-  agentProposal?: AgentProposal | null;
-  dispatchProposal?: DispatchProposal | null;
-  repoProposal?: RepoProposal | null;
+  // the latest proposal card of the conversation
+  proposed?: { kind: 'work' | 'agent' | 'dispatch' | 'repo'; title: string } | null;
   agentId?: string | null;
   cost?: number | null;
 };
@@ -537,8 +510,6 @@ export type WorkAgent = { id: string; agentId: string | null; askId: string | nu
 // estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them
 export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
 export type WorkAgents = { agents: WorkAgent[]; serverId: string | null; error?: string };
-export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean; stackKept?: boolean };
-export type RepoProposal = { source: string; why?: string };
 export type AddRepoResult = {
   ok: boolean;
   error?: string;
@@ -548,7 +519,6 @@ export type AddRepoResult = {
   project?: { projectId?: string; name?: string; error?: string };
   setup?: { agentId?: string | null; error?: string };
 };
-export type AskStartAgentResult = { ok?: boolean; error?: string; agentId?: string; out?: string };
 
 export type OverviewRituals = { kinds: string[]; rituals: Ritual[]; history: RitualRun[] };
 export type RitualLaunchBody = { kind: string; login?: string; pr?: string; paths?: string; text?: string };

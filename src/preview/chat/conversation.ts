@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import type { ActivityEvent, AskRun, AskScope, UploadRef } from '../../types.ts';
-import { useAgentCards } from './cards.ts';
+import { followAskCards, useCardList } from './cards.ts';
 
 export type Run = Partial<AskRun> & { id: string };
 export type Pending = { nonce: string; text: string; attachments?: UploadRef[] };
@@ -29,6 +29,7 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
   const [pending, setPending] = useState<Pending[]>([]);
   const [history, setHistory] = useState<AskRun[]>([]);
   const source = useRef<EventSource | null>(null);
+  const { cards, merge: mergeCard, setCards } = useCardList();
   const loadHistory = () => api.asks(scopeKey(scope)).then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind)), () => {});
   useEffect(() => {
     loadHistory();
@@ -38,16 +39,18 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
     source.current?.close();
     setRun(conv);
     setEvents([]);
+    setCards([]);
     const es = new EventSource(`/api/ask/${conv.id}/events`);
     source.current = es;
     es.onopen = () => setEvents([]);
+    followAskCards(es, mergeCard);
     es.onmessage = (m) => {
       const ev: ActivityEvent = JSON.parse(m.data);
       setEvents((prev) => [...prev, ev]);
       if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
       if (ev.type === 'meta' && ev.text?.startsWith('Paseo agent ')) api.askConversation(conv.id).then((c) => c.agentId && setRun((r) => r && r.id === c.id ? { ...r, agentId: c.agentId } : r), () => {});
       if (ev.type === 'end' || ev.type === 'closed') {
-        setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, dispatchProposal: ev.dispatchProposal || r.dispatchProposal, repoProposal: ev.repoProposal || r.repoProposal, agentId: ev.agentId || r.agentId });
+        setRun((r) => r && { ...r, status: ev.conversation || ev.status, agentId: ev.agentId || r.agentId });
         loadHistory();
       }
     };
@@ -79,12 +82,12 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
     source.current?.close();
     setRun(null);
     setEvents([]);
+    setCards([]);
     setPending([]);
   };
   const mark = events.findLast((e) => e.type === 'user' || e.type === 'end' || e.type === 'closed');
   const working = pending.length > 0 || mark?.type === 'user';
   const state = working ? 'running' : mark?.conversation || run?.status || null;
-  const { cards, merge: mergeCard } = useAgentCards(run?.agentId, run?.id);
   return { run, events, pending, history, working, state, cards, mergeCard, watch, send, open, reset, loadHistory };
 }
 export type AskConvo = ReturnType<typeof useAskConversation>;

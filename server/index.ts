@@ -41,7 +41,7 @@ import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
 import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
 import { createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
-import { createCards } from './cards.ts';
+import { SKIPPED, createCards } from './cards.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
@@ -80,7 +80,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), addRepo: (source) => repoAdder.add(source), uploads });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -128,9 +128,10 @@ const permissions = createPermissions({
 permissions.onAgent((a) => {
   if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
 });
-// an Ask agent's answer goes through its conversation, so the turn it opens is logged there
-const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), deliver: async (agentId, text) => {
-  const conv = ask.byAgent(agentId);
+// an Ask agent's answer goes through its conversation, so the turn it opens is logged there; a one-shot run is not reopened for it
+const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction }, deliver: async (agentId, text) => {
+  const conv = ask.convOf(agentId);
+  if (conv?.once) return SKIPPED;
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
 } });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads });

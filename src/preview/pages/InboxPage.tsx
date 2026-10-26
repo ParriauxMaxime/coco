@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { useConfig } from '../../config.ts';
 import { AskPanel } from '../chat/AskPanel.tsx';
-import { Proposal } from '../chat/Proposals.tsx';
 import { askState, useAskConversation } from '../chat/conversation.ts';
 import WorktreeChoice from '../widgets/WorktreeChoice.tsx';
 import Icon from '../Icon.tsx';
@@ -109,7 +108,6 @@ export default function InboxPage() {
         <Section title="Proposal" meta={<span className="dp-ell dp-inbox-src">{linkOf(run.prompt || '')}</span>}>
           <div className="dp-inbox-run">
             <AskPanel convo={convo} placeholder="Reshape the proposal: smaller tier, split a PR, another precedent… (markdown, ⌘↵)" />
-            <Proposal run={run} label="Create work" onApplied={(slug) => { location.hash = workHref(slug); }} />
           </div>
         </Section>
       )}
@@ -124,8 +122,8 @@ export default function InboxPage() {
                 <div key={h.id} className={`dp-rowi dp-click dp-inbox-row${run?.id === h.id ? ' dp-on' : ''}`} role="button" tabIndex={0} onClick={() => pick(h)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(h); } }}>
                   <span className="dp-inbox-ic"><Icon name="link" size={14} /></span>
                   <span className="dp-rowi-b">
-                    <span className="dp-ell">{h.proposal?.title || link}</span>
-                    <span className="dp-t3 dp-ell">{h.proposal?.title ? link : sourceOf(link)}</span>
+                    <span className="dp-ell">{h.proposed?.title || link}</span>
+                    <span className="dp-t3 dp-ell">{h.proposed?.title ? link : sourceOf(link)}</span>
                   </span>
                   <span className={`dp-chip ${st.tone}`}>{st.label}</span>
                   <span className="dp-rowi-m dp-inbox-meta">{when(h.startedAt)}{(h.turns ?? 0) > 1 ? ` · ${h.turns} turns` : ''}{h.cost != null ? ` · $${Number(h.cost).toFixed(3)}` : ''}</span>

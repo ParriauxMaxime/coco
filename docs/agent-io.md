@@ -28,6 +28,15 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 2. Fold the old paths: `propose_*` become `confirm` cards whose approval runs
    the side effect; thread `choices` become `choice` cards; MCP
    `upsert_finding`, `upsert_decision`, `attach_media` replace curl in skills.
+   - [x] Part A: `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`
+     and `propose_repo` post `confirm` cards carrying an `action` (below)
+     that coco builds and runs on approval, the outcome on the card and in
+     the answer; `propose_rules` is a Keep / Drop rows card writing the kept
+     rules; `propose_review_plan` stays the plan run's result. The old
+     `Proposals` cards, their `/api/ask/<id>/apply|start-agent|dispatch|add-repo`
+     routes and the captured `submitted` calls go; the Ask stream carries
+     the conversation's cards.
+   - [ ] Part B: thread `choices` become `choice` cards.
    - [x] Part C: MCP work writes (`upsert_finding`, `upsert_decision`,
      `attach_media`, `import_artifact`, `set_next`, below), skills and briefs
      lead with them and keep curl for sessions without the MCP; uploads never
@@ -62,15 +71,17 @@ type Card = {
   select?: 'many' | 'one';        // tick rows (default many)
   rowOptions?: CardOption[];      // instead of ticks: one pick per row (decision-style), 2-4
   // form
-  fields?: CardField[];           // 1-8
+  fields?: CardField[];           // 1-8; a confirm card may carry 0-8, sent with the approval
   // confirm
   confirmLabel?: string;          // default "Approve"
   rejectLabel?: string;           // default "Reject"
   other?: boolean;                // free-text "Other…" box, default true for choice/rows/confirm, false for form; stored resolved
+  action?: CardAction;            // a proposal card: what answering it runs
   status: 'open' | 'answered' | 'cancelled';   // post cards are 'answered' at birth
   createdAt: string;
   answer?: CardAnswer;
-  delivery?: { at: string; ok: boolean; error?: string };
+  result?: CardResult;            // what the action did, before delivery
+  delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };  // skipped: nobody waits (a one-shot run)
 };
 
 type CardAnswer = {
@@ -78,24 +89,49 @@ type CardAnswer = {
   picked?: string[];                       // choice: option keys
   rows?: string[];                         // rows with select: ticked row keys
   rowPicks?: Record<string, string>;       // rows with rowOptions: row key -> option key
-  values?: Record<string, string | number | boolean>;  // form
+  values?: Record<string, string | number | boolean>;  // form, or confirm fields on approval
   approved?: boolean;                      // confirm
   other?: string;                          // free text, alone or alongside
 };
+
+type CardAction = { type: 'work_scaffold' | 'paseo_agent' | 'dispatch' | 'repo' | 'rules'; input: object };  // input as checked by coco
+type CardResult = { at: string; ok: boolean; detail: string; link?: string };  // link: #/work/<slug>, #/work/<slug>/ag-<agent>, #/repo/<id>, #/work/<slug>/rules
 ```
+
+### Proposal cards
+
+A card posted with an `action` is built by coco, not by the agent: the action
+checks its input (a refusal names the field), then makes the card that shows
+it. On answer, a `confirm` card runs its action only when approved, a `rules`
+card when a row is picked; the outcome becomes `result` (a throw is
+`ok: false` with the error) and is part of the answer the agent gets.
+
+| `action.type` (tool) | Card | Approve runs |
+| --- | --- | --- |
+| `work_scaffold` (`propose_work_scaffold`) | confirm "Create work: …" or "Update work: …" for an existing slug; summary as question; blocks: slug, tier, Paseo project and personas, an "already exists" callout, tables for the planned stack, surfaces, open questions and flags, notes as code, next steps; a `replaceStack` toggle when the work already has a stack | writes the work like the old Apply, scope repo taken from the Ask conversation; link to the work |
+| `paseo_agent` (`propose_paseo_agent`) | confirm "Start agent: …"; why; model, thinking, workspace and work line; the brief as code (cut at 4000, the agent gets all of it) | starts the agent, logs it on the work's timeline; link to its `ag-` tab |
+| `dispatch` (`dispatch`) | confirm "Dispatch <entry> on <PR>"; refused without a work (the conversation's, `workSlug`, or the agent's label) | the catalog dispatch; link to the started agent |
+| `repo` (`propose_repo`) | confirm "Add repo <source>"; what adding does | adds the repo (clone, config, Paseo project, setup run); link to its page |
+| `rules` (`propose_rules`) | rows, one per candidate, `rowOptions` Keep (recommended) / Drop, target scope taken from the Propose rules run; an empty list is a `post` card "No new rule" | writes the kept rules as `kept` |
+
+Conversations saved before cards keep `proposal`, `agentProposal`,
+`dispatchProposal`, `repoProposal` in their JSON: read as `proposed: { kind,
+title }` for the lists, and the transcript shows the old tool call
+read-only.
 
 Validation lives on the server (`server/cards.ts`), reusing `server/blocks.ts`
 for `blocks` and cells. A `choice` answer needs ≥ 1 pick or `other` (one pick
 at most unless `multi`); `one` row select needs exactly one row (or `other`
 alone); `rowOptions` needs ≥ 1 row pick or `other`; required fields need a
-value; `confirm` needs `approved` or `other`. Option, row and field keys are
+value (on a `confirm`, only to approve); `confirm` needs `approved` or `other`. Option, row and field keys are
 short ids (`[\w.:~-]{1,60}`), unique per card. A `post` card needs `blocks`.
 Cards are stored one JSON file each under `<dataDir>/cards/`.
 
 ## Routes
 
 - `POST /api/cards` body `Card` minus `id/status/createdAt/answer/delivery`,
-  `agentId` required → `Card`. Used by the MCP server.
+  `agentId` required → `Card`. Used by the MCP server. With `action: { type,
+  input }` the rest of the body is ignored: coco builds the card.
 - `GET /api/agent-chat/<agentId>/cards` → `Card[]` oldest first.
 - `GET /api/cards/<id>` → `Card`.
 - `POST /api/cards/<id>/answer` body `CardAnswer` minus `at` → `Card`. Stores the
@@ -104,6 +140,9 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
   is told it was dismissed).
 - Chat SSE `/api/agent-chat/<agentId>/events` also emits
   `event: cards` with `data: Card[]` whenever a card of that agent changes.
+- Ask SSE `/api/ask/<id>/events` emits `event: cards` with every card of the
+  conversation's agents (past ones included, `agentIds` on the conversation)
+  after the log replay and on every change.
 - Work agents SSE marks an agent with an open card as waiting on you (same
   orange state as a pending permission): every `WorkAgent` carries
   `openCards: number`, and the list is resent when a card of a listed agent
@@ -118,10 +157,13 @@ On answer, coco sends the agent one message:
 
 ```
 [coco card <id> answered] <title>
-<plain-text summary: picked labels, ticked rows, field values, approved/rejected, other text>
+<plain-text summary: picked labels, ticked rows, approved/rejected, field values, other text>
+Done: <result detail>      (or Failed: …, proposal cards only)
 ```
 
-followed by the answer JSON in a fenced block. A dismissal sends
+followed by the answer JSON in a fenced block (with `result: { ok, detail,
+link }` when the action ran). The answer to a card of a one-shot Ask run (the
+rules run) is not delivered: `delivery.skipped`. A dismissal sends
 `[coco card <id> dismissed] <title>` and a line saying the user dismissed it.
 Running agent: steer; idle: new turn; archived or unreachable: stored with
 `delivery.ok: false` and shown on the card. An Ask coco agent gets it through
@@ -135,6 +177,9 @@ on any follow-up); any other agent through the agent chat's send
   `{ id, status: 'open', note }`, the note saying the answer arrives as a new
   user message and the agent should not wait or poll.
 - `post_blocks({ title, blocks })`: a `post` card.
+- `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
+  `propose_rules`: same names and inputs as before, now posting a proposal
+  card (`action`) and returning `{ id, status: 'open', note }`.
 
 Work writes mirror the HTTP routes. `work` and `pr` default to the calling
 agent's labels (`GET /api/agent-chat/<agentId>/place`; its row only on its

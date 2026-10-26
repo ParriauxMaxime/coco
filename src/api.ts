@@ -1,5 +1,5 @@
 import type {
-  AddRepoResult, AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
+  AddRepoResult, AgentLog, AgentsResponse, AskRun, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
@@ -124,10 +124,6 @@ export const api = {
   card: (id: string) => fetch(`/api/cards/${encodeURIComponent(id)}`).then(jsonOrError<Card>),
   answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),
   cancelCard: (id: string) => postJson(`/api/cards/${encodeURIComponent(id)}/cancel`).then(jsonOrError<Card>),
-  startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
-  askDispatch: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/dispatch`),
-  askAddRepo: (id: string) => postJson(`/api/ask/${id}/add-repo`).then(jsonOrError<AddRepoResult>),
-  applyAsk: (id: string, body?: { replaceStack: boolean }) => post<AskApplyResult>(`/api/ask/${id}/apply`, body || {}),
   packContents: () => get<PackContents>('/api/pack/contents'),
   exportPack: async (body: PackExportBody) => {
     const res = await fetch('/api/pack/export', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });

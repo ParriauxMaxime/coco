@@ -35,6 +35,10 @@ test('an answer must fit its card', () => {
   assert.throws(() => validateAnswer(form, { values: { max: 5 }, other: 'x' }), /takes no free text/);
   assert.deepEqual(validateAnswer(form, { values: { max: '500', zip: false } }), { values: { max: 500, zip: false } });
   assert.throws(() => validateAnswer(validateCard({ kind: 'confirm', title: 'Push?' }), {}), /approve, reject or write an answer/);
+  const edit = validateCard({ kind: 'confirm', title: 'Start it?', fields: [{ key: 'title', label: 'Title', type: 'text', required: true }] });
+  assert.throws(() => validateAnswer(edit, { approved: true }), /Title is required/);
+  assert.deepEqual(validateAnswer(edit, { approved: false }), { approved: false });
+  assert.deepEqual(validateAnswer(edit, { approved: true, values: { title: 'PR 1' } }), { approved: true, values: { title: 'PR 1' } });
 });
 
 test('an answer is stored then sent to the agent with its summary and JSON; a dismissal tells the agent; a failed send stays on the card', async () => {
