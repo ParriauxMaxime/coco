@@ -104,7 +104,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
               <div className="dp-legend" style={{ marginTop: 8 }}>
                 {STATES.filter((s) => counts[s]).map((s) => <span key={s}><i className={`dp-dot dp-st-${s}${s === 'planned' ? ' dp-hollow' : ''}`} />{counts[s]} {STATE_WORD[s]}</span>)}
                 <span className="dp-sp" />
-                {restack && <span className="dp-chip dp-warn"><Icon name="alert-triangle" size={12} />Restack needed</span>}
+                {restack && <button type="button" className="dp-chip dp-warn dp-chip-btn" title="Open the stack to restack" onClick={() => onOpenTab('stack')}><Icon name="alert-triangle" size={12} />Restack needed</button>}
               </div>
             </div>
             <Next prs={prs} onOpenPr={onOpenPr} />

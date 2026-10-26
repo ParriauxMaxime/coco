@@ -16,7 +16,7 @@
 .wb-tab-h:hover .wb-x, .wb-tab-h.active .wb-x { opacity: 1; }
 .wb-x:hover { background: var(--line); color: var(--ink); }
 .wb-acts { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
-.wb-act { background: transparent; border: 0; color: var(--mute); width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r); box-shadow: none; }
+.wb-act { background: transparent; border: 0; color: var(--mute); min-width: 26px; height: 26px; padding: 0 5px; white-space: nowrap;display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r); box-shadow: none; }
 .wb-act:hover { background: var(--line-2); color: var(--ink); }
 .wb-act.on { background: var(--brand-50); color: var(--brand-700); }
 .wb-body { flex: 1; min-height: 0; position: relative; }

@@ -103,7 +103,7 @@ export type StackFixRun = {
   rows: StackFixRunRow[];
 };
 export type StackFixState = { runs: StackFixRun[]; open: StackFixOpenRow[] };
-export type ImportReviewFile = { path: string; name: string; mtime: string };
+export type ImportReviewFile = { path: string; name: string; mtime: number };
 export type ImportReviewResult = { added: { id: string; where: string; key: PrKey }[]; skipped: { where: string; reason: string }[] };
 
 export type FileGroup ={ key: string; title: string; why?: string; files: RefFile[] };

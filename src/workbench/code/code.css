@@ -128,6 +128,7 @@
 .rv-bar .pr-num { font-size: 14px; }
 .rv-title { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rv-bar .cc-link:disabled { opacity: .5; cursor: default; }
+.rv-bar > :not(.rv-title) { flex-shrink: 0; }
 .rv-notice { flex: none; margin: 0; padding: 6px 12px; font-size: 12px; border-radius: 0; }
 .rv-body { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 .rv-body.dragging { user-select: none; }

@@ -312,6 +312,24 @@ html[data-theme="dark"] .dp .dp-tip kbd { border-color: rgba(0,0,0,.2); color: #
 .dp-dialog .dp-dh { padding: 14px 16px 4px; font-weight: 600; font-size: 14px; }
 .dp-dialog .dp-db { padding: 4px 16px 14px; color: var(--dp-t2); }
 .dp-dialog .dp-df { padding: 10px 12px; border-top: 1px solid var(--dp-line); display: flex; justify-content: flex-end; gap: 6px; background: var(--dp-subtle); border-radius: 0 0 var(--dp-r4) var(--dp-r4); }
+.dp-dialog.dp-modal { max-width: calc(100vw - 32px); max-height: 76vh; display: flex; flex-direction: column; }
+.dp-dialog.dp-modal.dp-wide { width: 600px; }
+.dp-dialog.dp-modal .dp-db { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.dp .dp-chip-btn { font-family: inherit; cursor: pointer; }
+.dp .dp-chip-btn:hover { background: color-mix(in srgb, var(--dp-st) 18%, transparent); }
+.dp .dp-btn.dp-restack { color: var(--dp-warn); }
+.dp-keep-lead { margin: 0; font-size: 12.5px; }
+.dp-keep-step { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--dp-line); }
+.dp-keep-sh { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--dp-t1); }
+.dp-keep-tip { flex: none; white-space: nowrap; }
+.dp-keep-cmd { display: flex; align-items: flex-start; gap: 6px; }
+.dp-keep-cmd pre { flex: 1; min-width: 0; margin: 0; }
+.dp-keep-bad { color: var(--dp-bad); }
+.dp-imp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dp-imp-list li { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; }
+.dp .dp-imp-file { all: unset; flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: var(--dp-r2); color: var(--dp-accent); cursor: pointer; }
+.dp .dp-imp-file:hover { background: var(--dp-hover); }
+.dp .dp-imp-file:disabled { opacity: .6; cursor: default; }
 .dp-toast { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; background: var(--dp-panel); border: 1px solid var(--dp-line); border-radius: var(--dp-r3); box-shadow: var(--dp-sh-2); width: 400px; font-size: 12.5px; white-space: nowrap; }
 .dp-palette { width: 560px; background: var(--dp-panel); border: 1px solid var(--dp-line); border-radius: var(--dp-r4); box-shadow: var(--dp-sh-3); overflow: hidden; }
 .dp-palette .dp-pin { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-bottom: 1px solid var(--dp-line); font-size: 14px; }

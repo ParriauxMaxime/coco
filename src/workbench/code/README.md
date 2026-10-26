@@ -9,7 +9,6 @@ Wired into the workbench (tabs `diff-`, `file-`, `review-`, `agent-`). Files:
 - `LiteDiff.tsx`: phone fallback on `codeApi.diff(n, path).unified`; same comment shape, `side: 'head'` only.
 - `CommentZone.tsx`, `FileList.tsx`, `QuickOpen.tsx` (+ `useQuickOpenShortcut`): plain React, no Monaco import.
 - `code.css`: import via the components themselves; uses variables from `src/styles.css`.
-- `smoke.tsx`: `<CodeSmoke />` mounts DiffView with two strings, one fake comment, draft creation by gutter click.
 - Gate on `isDesktop()` to pick DiffView/CodeView vs LiteDiff; Monaco chunks load only when a desktop view mounts.
 - `ids.ts`: tab ids `diff-<n>~<path>`, `file-<n>~<path>`, `review-<n>`, `agent-<runId>` helpers.
 - `use-comments.ts`: one zustand entry per `slug:n` (refs, comments, drafts, runs), re-anchors when head or merge-base moved, polls 30 s while a tab of the PR is mounted.

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import Collapsible from '../../components/Collapsible.tsx';
 import { PendingPermissions } from '../../components/PermissionCard.tsx';
@@ -9,7 +9,7 @@ import { keyLabel } from './ids.ts';
 import { useConfig } from '../../config.ts';
 import { pendingClass } from '../../components/action.ts';
 import { errorMessage } from '../../api.ts';
-import type { ImportReviewFile, ImportReviewResult, StackFixOpenRow, StackFixRun, StackFixRunRow, StackFixState } from '../types.ts';
+import type { StackFixOpenRow, StackFixRun, StackFixRunRow, StackFixState } from '../types.ts';
 import './code.css';
 
 const POLL_MS = 5000;
@@ -90,50 +90,6 @@ export function FixDialog({ slug, open, select, onClose, onSent }: FixDialogProp
   );
 }
 
-function ImportDialog({ slug, onClose, onDone }: { slug: string; onClose: () => void; onDone: () => void }) {
-  const [files, setFiles] = useState<ImportReviewFile[] | null>(null);
-  // the path being imported, if any
-  const [busy, setBusy] = useState('');
-  const [out, setOut] = useState<ImportReviewResult | null>(null);
-  const [error, setError] = useState('');
-  useEffect(() => { reviewApi.reviewFiles(slug).then((r) => setFiles(r.files), (e) => setError(errorMessage(e))); }, [slug]);
-  const run = async (path: string) => {
-    setBusy(path);
-    setError('');
-    try {
-      setOut(await reviewApi.importReview(slug, path));
-      onDone();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-    setBusy('');
-  };
-  return (
-    <div className="cc-scrim" onMouseDown={() => !busy && onClose()}>
-      <div className="card cc-dialog" role="dialog" aria-label="Import review findings" onMouseDown={(e) => e.stopPropagation()}>
-        <b>Import review findings as comments</b>
-        {!out && (
-          <ul className="sd-list">
-            {(files || []).map((f) => <li key={f.path}><button className="cc-link" disabled={Boolean(busy)} onClick={() => run(f.path)} title={f.path}>{busy === f.path && <span className="spinner" aria-hidden />} {f.name}</button> <span className="status">{new Date(f.mtime).toLocaleString()}</span></li>)}
-            {files && !files.length && <li className="status">No review file in .claude/reviews.</li>}
-            {!files && !error && <li className="status">Loading…</li>}
-          </ul>
-        )}
-        {out && (
-          <ul className="sd-list">
-            {out.added.map((a) => <li key={a.id}><span className="chip c-green">added</span> <code>{a.where}</code> on {keyLabel(a.key)}</li>)}
-            {out.skipped.map((s, i) => <li key={i} className="off"><span className="chip c-grey">skipped</span> <code>{s.where}</code> {s.reason}</li>)}
-          </ul>
-        )}
-        {error && <div className="card danger" style={{ margin: '8px 0 0' }}>{error}</div>}
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-          <button className="sm" disabled={Boolean(busy)} onClick={onClose}>{out ? 'Close' : 'Cancel'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const RowLine = ({ row, i }: { row: StackFixRunRow; i: number }) => (
   <li>
     <code>{i + 1}</code> {row.branch} · {row.commentIds.length} comments · {short(row.tipBefore)} → {short(row.tipAfter)}
@@ -141,31 +97,6 @@ const RowLine = ({ row, i }: { row: StackFixRunRow; i: number }) => (
     {row.error && <span className="chip c-red" title={row.error}>{row.error.slice(0, 80)}</span>}
   </li>
 );
-
-export function StackFixCard({ group }: { group: number }) {
-  const { slug } = useWork();
-  const { runs, open, reload } = useStackFix(slug, true);
-  const [dialog, setDialog] = useState<'fix' | 'import' | null>(null);
-  const total = open.reduce((n, r) => n + r.count, 0);
-  const rows = open.filter((r) => r.count).length;
-  const last = runs[0];
-  const openTab = (id: string) => openStackRun(id, group === 1 ? 2 : 1);
-  const refresh = () => open.forEach((r) => loadReview(slug, r.key));
-  return (
-    <div className="card" style={{ marginTop: 8 }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <b>Review comments on the stack</b>
-        <span className="row">
-          <button className="sm" onClick={() => setDialog('import')}>Import review…</button>
-          <button className="sm primary" disabled={!total || last?.status === 'running'} onClick={() => setDialog('fix')}>Fix all comments ({total} on {rows} row{rows === 1 ? '' : 's'})</button>
-        </span>
-      </div>
-      {last && <div style={{ marginTop: 6 }}><StackRunLink run={last} onOpen={openTab} /></div>}
-      {dialog === 'fix' && <FixDialog slug={slug} open={open} onClose={() => setDialog(null)} onSent={(run) => { setDialog(null); refresh(); reload(); openTab(run.id); }} />}
-      {dialog === 'import' && <ImportDialog slug={slug} onClose={() => setDialog(null)} onDone={refresh} />}
-    </div>
-  );
-}
 
 export default function StackRun({ tabId }: { tabId: string }) {
   const { slug } = useWork();

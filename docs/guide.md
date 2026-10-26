@@ -294,6 +294,10 @@ on the PR (`server/findings.ts`, `GET /api/works/<slug>/findings?pr=<n>`):
   from anyone but the PR author, bot comments (grouped by `botGroups`, e.g.
   Sentry), failed checks of `gh pr checks`.
 
+**Import review…** in the Findings view header lists the review pages above
+and turns each finding of the picked one into an open local comment on the
+last PR whose diff holds its file (`GET|POST /api/works/<slug>/import-review`).
+
 Columns: reviewer, severity, confidence, file:line (jump to the diff), claim
 (click to fold the body), status. Default view "left" (new, open, sent,
 accepted), worst first (severity, confidence, recency). Grouping: `spot`
@@ -472,8 +476,9 @@ from a coco review plan at the current head. Stored on `stack[i].gates`
 
 When a stack PR merges while the next row is still open, the sidebar shows
 a `restack` chip on the work (from the last GitHub snapshot, no gh call) and
-the overview a "Restack needed" chip. The keeper itself is API-only for now
-(`server/stack-keeper.ts`, `GET /api/works/<slug>/stack-keeper`). The dry run lists, bottom-up, each
+the overview a "Restack needed" chip that opens the Stack view. There,
+**Restack…** in the header opens the keeper (`server/stack-keeper.ts`,
+`GET /api/works/<slug>/stack-keeper`). The dry run lists, bottom-up, each
 open child with its tip and the exact lines: `git fetch origin <default>`,
 then `git rebase --onto origin/<default> <merged parent head> <child>` (with
 `<default>` the default branch) for the first

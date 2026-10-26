@@ -9,6 +9,8 @@ import { DevServerCell } from './widgets/DevServer.tsx';
 import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { usePrefs } from './prefs.ts';
+import { reloadOverview } from './overview.ts';
+import StackKeeper from './StackKeeper.tsx';
 import './stack.css';
 
 type Filter = 'all' | 'open' | 'merged' | 'planned';
@@ -85,6 +87,8 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
   const [expanded, setExpanded] = useState(false);
   const [dispatching, setDispatching] = useState<string | null>(null);
   const [width, setWidth] = useState(0);
+  const [keeping, setKeeping] = useState(false);
+  const restack = d.overview?.works.find((x) => x.slug === d.slug)?.progress.restack;
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = root.current;
@@ -150,7 +154,9 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
         </div>
         <span className="dp-sp" />
         {!narrow && <span className="dp-xs dp-t3 dp-num dp-counts">{[done && `${done} merged`, open && `${open} open`, planned && `${planned} planned`].filter(Boolean).join(' · ')}</span>}
+        {restack && <button type="button" className="dp-btn dp-sm dp-restack" title="A parent PR merged: its children still sit on the old base" onClick={() => setKeeping(true)}><Icon name="git-branch" size={12} />Restack…</button>}
       </div>
+      {keeping && <StackKeeper slug={d.slug} onClose={() => setKeeping(false)} onChange={() => { d.work.load(); void reloadOverview(); }} />}
       <div className="dp-stack-head">
         <div className="dp-grow">
           <div className="dp-segs dp-thin">{d.prs.map((pr, i) => <i key={i} className={`dp-st-${prState(pr)}`} />)}</div>

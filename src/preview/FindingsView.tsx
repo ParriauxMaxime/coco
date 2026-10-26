@@ -5,6 +5,7 @@ import { FindingBody } from '../components/Blocks.tsx';
 import { pendingClass, useAction } from '../components/action.ts';
 import { api } from '../api.ts';
 import Icon from './Icon.tsx';
+import ImportReview from './ImportReview.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prTitle } from './data.ts';
@@ -92,6 +93,7 @@ export default function FindingsView({ d, onOpenPr, onReload }: { d: PreviewData
   const [prFilter, setPrFilter] = useState<string | null>(null);
   const [group, setGroup] = useState<'pr' | 'severity'>('pr');
   const [sel, setSel] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const { pending, busy, run } = useAction();
 
   const prOf = (n: string) => d.prs.find((p) => prKey(p) === n);
@@ -129,7 +131,7 @@ export default function FindingsView({ d, onOpenPr, onReload }: { d: PreviewData
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target instanceof HTMLElement ? e.target : null;
-      if (e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
+      if (importing || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
       const i = current ? visible.indexOf(current) : -1;
       if (e.key === 'j' && visible[i + 1]) setSel(visible[i + 1].key);
       else if (e.key === 'k' && visible[i - 1]) setSel(visible[i - 1].key);
@@ -138,7 +140,7 @@ export default function FindingsView({ d, onOpenPr, onReload }: { d: PreviewData
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, current, busy]);
+  }, [visible, current, busy, importing]);
 
   const prFilterIds = Object.keys(prCounts).sort((a, b) => d.prs.findIndex((p) => prKey(p) === a) - d.prs.findIndex((p) => prKey(p) === b));
 
@@ -154,7 +156,9 @@ export default function FindingsView({ d, onOpenPr, onReload }: { d: PreviewData
           <button type="button" className={group === 'pr' ? 'dp-on' : ''} onClick={() => setGroup('pr')}>By PR</button>
           <button type="button" className={group === 'severity' ? 'dp-on' : ''} onClick={() => setGroup('severity')}>By severity</button>
         </div>
+        <button type="button" className="dp-btn dp-sm" title="Turn a review file into local comments" onClick={() => setImporting(true)}><Icon name="upload" size={12} />Import review…</button>
       </div>
+      {importing && <ImportReview slug={d.slug} onClose={() => setImporting(false)} onDone={onReload} />}
 
       {rows.length === 0 ? (
         <div className="dp-fi-empty"><Icon name="flag" size={16} /><b>No findings yet</b><span className="dp-t3">Reviews of this work’s PRs post their findings here.</span></div>
