@@ -114,7 +114,7 @@ a.card:hover { text-decoration: none; box-shadow: var(--shadow-hover); transform
 .st-planned { --st: var(--mute); --st-bg: var(--grey-bg); } .st-draft { --st: var(--amber); --st-bg: var(--amber-bg); } .st-ready { --st: var(--blue); --st-bg: var(--blue-bg); }
 .st-approved { --st: var(--green); --st-bg: var(--green-bg); } .st-changes { --st: var(--red); --st-bg: var(--red-bg); } .st-merged { --st: var(--violet); --st-bg: var(--violet-bg); } .st-closed { --st: var(--line); --st-bg: var(--grey-bg); }
 .chip.st-chip { background: var(--st-bg); color: var(--st); }
-i.st-planned { opacity: .35; }
+i.st-planned, .st-planned > i { opacity: .35; }
 .c-pink { background: var(--pink-bg); color: var(--pink); } .c-cyan { background: var(--cyan-bg); color: var(--cyan); }
 button { font: inherit; font-weight: 500; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: var(--r); padding: 7px 12px; transition: background .12s, border-color .12s, box-shadow .12s; }
 button:hover { background: var(--line-2); }
@@ -212,7 +212,12 @@ svg .node.tone-5 > .label-container { fill: var(--pink-bg) !important; stroke: v
 .pr-card .what ul { margin: 4px 0; padding-left: 18px; }
 .pr-card .owners { margin: 6px 0 0 34px; }
 .progress { display: flex; gap: 4px; margin-top: 10px; }
-.progress i { flex: 1; height: 6px; border-radius: 3px; background: var(--st, var(--line)); }
+.progress .dot { flex: 1; position: relative; padding: 4px 0; cursor: pointer; outline: none; }
+.progress .dot > i { display: block; height: 6px; border-radius: 3px; background: var(--st, var(--line)); }
+.progress .dot:hover > i, .progress .dot:focus-within > i { opacity: 1; box-shadow: 0 0 0 2px var(--st-bg); }
+.dot-pop { display: none; position: absolute; top: 100%; left: 0; z-index: 20; width: 320px; margin: 0; padding: 10px 12px; flex-direction: column; gap: 6px; box-shadow: var(--shadow-hover); font-size: 13px; cursor: default; }
+.dot-pop.end { left: auto; right: 0; }
+.dot:hover > .dot-pop, .dot:focus-within > .dot-pop { display: flex; }
 .next { margin-top: 10px; padding: 8px 10px; background: var(--brand-50); border-left: 3px solid var(--brand); border-radius: 0 var(--r) var(--r) 0; font-size: 13px; color: var(--ink); }
 
 /* hero information hierarchy */

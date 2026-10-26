@@ -72,17 +72,20 @@ type PrCardProps = {
   onReview: (key: PrKey, kind?: string) => void;
   dev: DevServerRowData | null | undefined;
   onDevChange: () => unknown;
+  open: boolean;
+  onToggle: () => void;
 };
 
-function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChange }: PrCardProps) {
+const prTitle = (work: WorkDetail, pr: WorkPr, index: number) => pr.title || work.stack?.[index]?.planned?.title || `PR ${index + 1}`;
+
+function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChange, open, onToggle }: PrCardProps) {
   const planned = work.stack?.[index]?.planned;
   const { key, number } = pr;
-  const title = pr.title || planned?.title || `PR ${index + 1}`;
+  const title = prTitle(work, pr, index);
   const what = userFacing(pr.body) || planned?.scope || '';
-  const [open, setOpen] = useState(!FOLDED_STATES.includes(stateKey(pr)));
   return (
     <section id={`pr-${pr.number || index}`} className={`card pr-card plan-pr st-${stateKey(pr)}${open ? '' : ' folded'}`}>
-      <div className="headline" onClick={() => setOpen(!open)}>
+      <div className="headline" onClick={onToggle}>
         <span className="step">{index + 1}</span>
         <div>
           {pr.number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>#{pr.number}</a> : <span className="status">planned</span>} <b>{title}</b>
@@ -156,9 +159,34 @@ function NotionPreview({ w, onChange }: { w: WorkDetail; onChange: () => void })
   );
 }
 
-type HeroProps = { w: WorkDetail; prs: WorkPr[]; refreshing: boolean; onRefresh: () => void; onAddLink: () => void; onChange: () => void; devServers: DevServersResponse | null };
+type PrActions = { onJump: (index: number) => void; onDetails: (n: number) => void; onReview: (key: PrKey, kind?: string) => void };
 
-function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }: HeroProps) {
+function ProgressDot({ w, pr, index, alignEnd, onJump, onDetails, onReview }: PrActions & { w: WorkDetail; pr: WorkPr; index: number; alignEnd: boolean }) {
+  const { key, number } = pr;
+  return (
+    <span className={`dot st-${stateKey(pr)}`} tabIndex={0}>
+      <i />
+      <span className={`dot-pop card${alignEnd ? ' end' : ''}`}>
+        <span className="row">
+          {number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer">#{number} ↗</a> : <span className="status">PR {index + 1}</span>}
+          <span className={`chip ${stateChip(pr)}`}>{stateLabel(pr)}</span>
+          {number && pr.ci !== 'none' && <span className={`chip ${ciChip(pr.ci)}`}>CI {pr.ci}</span>}
+        </span>
+        <b>{prTitle(w, pr, index)}</b>
+        <span className="row">
+          <button className="sm" onClick={() => onJump(index)}>jump to ↓</button>
+          {key && <button className="sm" onClick={() => onReview(key)}>review ▸</button>}
+          {key && <button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button>}
+          {number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+type HeroProps = PrActions & { w: WorkDetail; prs: WorkPr[]; refreshing: boolean; onRefresh: () => void; onAddLink: () => void; onChange: () => void; devServers: DevServersResponse | null };
+
+function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers, onJump, onDetails, onReview }: HeroProps) {
   const { busy: archiving, run } = useAction();
   const merged = prs.filter((p) => stateKey(p) === 'merged').length;
   const total = prs.reduce((a, p) => ({ add: a.add + (p.additions || 0), del: a.del + (p.deletions || 0), files: a.files + (p.changedFiles || 0) }), { add: 0, del: 0, files: 0 });
@@ -170,12 +198,12 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }
     <div className="card hero" style={{ marginTop: 12 }}>
       {w.description ? <div className="lead md-lead"><Markdown text={lead} /></div> : summary ? <p className="lead">{summary}</p> : null}
       {more.length > 0 && <div className="about"><Collapsible title="About this work" level="pm"><div className="md-lead"><Markdown text={more.join('\n\n')} /></div></Collapsible></div>}
-      <div className="progress">{prs.map((p, i) => <i key={i} className={`st-${stateKey(p)}`} title={`${p.number ? `#${p.number}` : `PR ${i + 1}`} ${stateLabel(p)}`} />)}</div>
+      <div className="progress">{prs.map((p, i) => <ProgressDot key={p.number || i} w={w} pr={p} index={i} alignEnd={i > prs.length / 2} onJump={onJump} onDetails={onDetails} onReview={onReview} />)}</div>
       <div className="rail">
         {prs.map((pr, i) => stateKey(pr) !== 'planned' && (
           <React.Fragment key={pr.number || i}>
             {i > 0 && <span style={{ color: 'var(--line)' }}>→</span>}
-            <a href="#" onClick={(e) => { e.preventDefault(); document.getElementById(`pr-${pr.number || i}`)?.scrollIntoView({ behavior: 'smooth' }); }} className={`pill st-${stateKey(pr)}`}>{pr.number ? `#${pr.number}` : `PR ${i + 1}`} <small>{stateLabel(pr)}</small></a>
+            <a href="#" onClick={(e) => { e.preventDefault(); onJump(i); }} className={`pill st-${stateKey(pr)}`}>{pr.number ? `#${pr.number}` : `PR ${i + 1}`} <small>{stateLabel(pr)}</small></a>
           </React.Fragment>
         ))}
         {planned > 0 && <><span style={{ color: 'var(--line)' }}>→</span><span className="pill st-planned">+{planned} <small>planned</small></span></>}
@@ -219,6 +247,14 @@ export default function Plan({ group }: { group: number }) {
   const open = useWorkbench((s) => s.open);
   const opened = useWorkbench((s) => s.groups).flatMap((g) => g.tabs);
   const other = group === 1 ? 2 : 1;
+  const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const isOpen = (i: number) => toggled[i] ?? !FOLDED_STATES.includes(stateKey(prs[i]));
+  const onJump = (i: number) => {
+    setToggled((t) => ({ ...t, [i]: true }));
+    requestAnimationFrame(() => document.getElementById(`pr-${prs[i].number || i}`)?.scrollIntoView({ behavior: 'smooth' }));
+  };
+  const onDetails = (n: number) => open(`pr-${n}`, { preview: true, group: other });
+  const onReview = (n: PrKey, kind = 'review') => open(`${kind}-${n}`, { group: other });
   return (
     <div className="wb-plan">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -228,14 +264,14 @@ export default function Plan({ group }: { group: number }) {
           {SIDE.map(([id, label]) => <button key={id} className={`sm ${opened.includes(id) ? 'on' : ''}`} onClick={() => open(id, { group: other })}>{label}</button>)}
         </div>
       </div>
-      <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} devServers={dev.data} />
+      <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} devServers={dev.data} onJump={onJump} onDetails={onDetails} onReview={onReview} />
       <WhatsNext next={w.next} />
       <NotionPreview w={w} onChange={() => load()} />
       <StackKeeper slug={w.slug} onChange={() => load()} />
       {prs.some((p) => p.key) && <StackFixCard group={group} />}
       {w.notes && <Collapsible title="Rules and decisions" level="pm" badge="do not revisit"><Markdown text={w.notes} /></Collapsible>}
       {prs.length === 0 && <div className="card"><span className="sub">No PR yet.</span></div>}
-      {prs.map((pr, i) => <PrCard key={pr.number || i} work={w} pr={pr} index={i} onStack={saveStack} onDetails={(n) => open(`pr-${n}`, { preview: true, group: other })} onReview={(n, kind = 'review') => open(`${kind}-${n}`, { group: other })} dev={dev.data?.on && pr.key ? dev.rows[String(pr.key)] : null} onDevChange={dev.reload} />)}
+      {prs.map((pr, i) => <PrCard key={pr.number || i} work={w} pr={pr} index={i} onStack={saveStack} onDetails={onDetails} onReview={onReview} dev={dev.data?.on && pr.key ? dev.rows[String(pr.key)] : null} onDevChange={dev.reload} open={isOpen(i)} onToggle={() => setToggled((t) => ({ ...t, [i]: !isOpen(i) }))} />)}
     </div>
   );
 }
