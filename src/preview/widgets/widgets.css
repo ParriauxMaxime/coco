@@ -52,6 +52,10 @@
 .dp-pack-warn svg.dp-i { margin-top: 3px; }
 .dp-pack-done { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 
+.dp-tl-add { margin-bottom: 12px; }
+.dp-tl-row { align-items: flex-start; }
+.dp-tl-row > .dp-chip { margin-top: 1px; flex: none; }
+
 @container (max-width: 640px) {
   .dp-pack-top { flex-direction: column; align-items: flex-start; gap: 8px; }
 }

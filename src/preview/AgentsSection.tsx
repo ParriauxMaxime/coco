@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { usePendingPermissions } from '../components/PermissionCard.tsx';
+import { usePendingPermissions } from './chat/Permission.tsx';
 import Icon from './Icon.tsx';
 import { STATE_LABEL, groupAgents, useWorkAgents } from './agents.ts';
 import type { AgentGroup, AgentState, ListedAgent } from './agents.ts';

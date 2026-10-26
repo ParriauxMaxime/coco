@@ -17,7 +17,6 @@
 .dp-repop-lesson > svg.dp-i { margin-top: 3px; }
 .dp-repop-files { margin-bottom: 12px; }
 .dp-repop-files .dp-rowi { min-height: 34px; padding: 4px 12px; }
-.dp-repop-ask, .dp-repop-rules { margin-top: -6px; }
 .dp-repop-steps { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .dp-repop-steps li { display: flex; align-items: flex-start; gap: 10px; color: var(--dp-t2); font-size: 13px; }
 .dp-repop-n { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; background: var(--dp-accent-t); color: var(--dp-accent); font-variant-numeric: tabular-nums; }

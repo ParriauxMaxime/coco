@@ -53,14 +53,13 @@ function Row({ item, on, result, onToggle }: { item: Item; on: boolean; result?:
       <button type="button" className={`dp-purge-tick${on ? ' dp-on' : ''}`} disabled={off} aria-pressed={on} aria-label={`${on ? 'Unselect' : 'Select'} ${item.title}`} title={item.locked ? 'Protected: never purged' : undefined} onClick={onToggle}><span className="dp-check" /></button>
       <span className={`dp-ag-dot ${DOT[item.status] || 'dp-ag-archived'}`} title={item.status} />
       <span className="dp-rowi-b">
-        <span className="dp-purge-t"><span className="dp-ell">{item.title}</span></span>
+        <span className="dp-purge-t"><span className="dp-ell">{item.title}</span><span className="dp-purge-facts">{item.facts.map((f, i) => <span key={i} className={`dp-chip${f.tone ? ` dp-${f.tone}` : ''}`}>{f.text}</span>)}</span></span>
         <span className="dp-purge-where">
           {where.repo && <span className="dp-purge-w">{where.repo}</span>}
           {where.work && <a className="dp-purge-w dp-purge-link dp-ell" href={workHref(where.work.slug)}><Icon name="layers" size={12} />{where.work.title}</a>}
           {where.pr && <span className="dp-purge-w">{where.pr}</span>}
           {where.path && <span className="dp-purge-path dp-ell" title={where.path}>{tilde(where.path)}</span>}
         </span>
-        <span className="dp-purge-facts">{item.facts.map((f, i) => <span key={i} className={`dp-chip${f.tone ? ` dp-${f.tone}` : ''}`}>{f.text}</span>)}</span>
       </span>
       <span className="dp-purge-rec">
         {result ? (

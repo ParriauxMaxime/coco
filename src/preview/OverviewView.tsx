@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Markdown from '../components/Markdown.tsx';
 import Blocks from '../components/Blocks.tsx';
-import { PendingPermissions } from '../components/PermissionCard.tsx';
+import { PendingPermissions } from './chat/Permission.tsx';
 import Icon from './Icon.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';

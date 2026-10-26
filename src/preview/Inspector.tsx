@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import DispatchMenu from '../components/DispatchMenu.tsx';
 import Markdown from '../components/Markdown.tsx';
-import { PendingPermissions } from '../components/PermissionCard.tsx';
+import { PendingPermissions } from './chat/Permission.tsx';
 import { PersonaChip } from '../components/PersonaChip.tsx';
 import GateRail from '../workbench/tabs/Gates.tsx';
 import KitLine from '../workbench/tabs/KitLine.tsx';

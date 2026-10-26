@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
-import { usePendingPermissions } from '../components/PermissionCard.tsx';
+import { usePendingPermissions } from './chat/Permission.tsx';
 import { stateKey } from '../components/PrBadge.tsx';
 import { useWorkData } from '../workbench/use-work.ts';
 import { useOverview } from './overview.ts';

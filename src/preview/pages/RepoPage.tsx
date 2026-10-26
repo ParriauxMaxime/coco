@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
-import Ask, { addRepoAndOpen } from '../../pages/Ask.tsx';
-import Rules from '../../components/Rules.tsx';
 import { stateKey, stateLabel } from '../../components/PrBadge.tsx';
 import { useConfig } from '../../config.ts';
+import { RepoAsk } from '../chat/AskPanel.tsx';
+import { addRepoAndOpen } from '../chat/Proposals.tsx';
+import RulesLedger from '../widgets/Rules.tsx';
 import Icon from '../Icon.tsx';
 import { SegBar, workDot } from '../Shell.tsx';
 import { workHref } from '../prefs.ts';
 import { reloadOverview } from '../overview.ts';
-import { Empty, ErrorNote, Legacy, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
+import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { LoosePr, RepoPage as RepoData } from '../../types.ts';
 import './newwork.css';
 import './repo.css';
@@ -153,7 +154,7 @@ export default function RepoPage({ id }: { id: string }) {
       </Section>
 
       <Section title="Ask coco">
-        <div className="dp-repop-ask"><Legacy><Ask repoId={data.id} repoName={data.name} /></Legacy></div>
+        <RepoAsk key={data.id} repoId={data.id} repoName={data.name} />
       </Section>
 
       <Section title="Loose PRs" count={data.loose.prs.length} action={<button type="button" className="dp-btn dp-sm" onClick={refresh} disabled={refreshing} title="Ask GitHub again"><Icon name="refresh" size={12} className={refreshing ? 'dp-spin' : undefined} />{refreshing ? 'Asking GitHub…' : 'Refresh'}</button>}>
@@ -197,7 +198,7 @@ export default function RepoPage({ id }: { id: string }) {
             <div className="dp-rows dp-repop-files">{data.ruleFiles.map((f) => <div key={f} className="dp-rowi"><Icon name="file" size={14} /><code className="dp-ell">{f}</code></div>)}</div>
           </>
         )}
-        <div className="dp-repop-rules"><Legacy><Rules /></Legacy></div>
+        <RulesLedger />
       </Section>
     </Page>
   );

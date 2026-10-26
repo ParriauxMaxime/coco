@@ -1,5 +1,8 @@
-import React, { createContext, useContext } from 'react';
-import { PendingPermissions, usePendingPermissions } from '../components/PermissionCard.tsx';
+import React, { createContext, useContext, useState } from 'react';
+import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import RulesLedger from './widgets/Rules.tsx';
+import { Empty } from './pages/Page.tsx';
+import './widgets/widgets.css';
 import { tabDef } from '../workbench/tabs/index.ts';
 import type { TabDef } from '../workbench/tabs/index.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
@@ -44,6 +47,37 @@ function PrTab({ tabId }: { tabId: string }) {
 }
 const WaitingTab = () => <PendingPermissions withWhere />;
 
+const Doc = ({ children }: { children: React.ReactNode }) => <div className="dp-tabview"><div className="dp-doc"><div className="dp-doc-in">{children}</div></div></div>;
+function RulesTab() {
+  return <Doc><RulesLedger slug={useWork().slug} /></Doc>;
+}
+const TL_TONE: Record<string, string> = { github: 'dp-info', coco: 'dp-acc', review: 'dp-acc', decision: 'dp-ok' };
+function TimelineTab() {
+  const { w, addNote } = useWork();
+  const [note, setNote] = useState('');
+  const add = async () => { await addNote(note); setNote(''); };
+  const list = w.timeline || [];
+  return (
+    <Doc>
+      <form className="dp-row dp-g6 dp-tl-add" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+        <input className="dp-inp dp-grow" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What happened…" aria-label="Timeline note" />
+        <button type="submit" className="dp-btn dp-primary"><Icon name="plus" size={14} />Add</button>
+      </form>
+      {list.length ? (
+        <div className="dp-rows">
+          {list.map((t, i) => (
+            <div key={i} className="dp-rowi dp-tl-row">
+              <span className={`dp-chip ${TL_TONE[t.kind] || ''}`}>{t.kind}</span>
+              <span className="dp-grow">{t.text}</span>
+              <span className="dp-rowi-m dp-num">{t.ts.slice(0, 16).replace('T', ' ')}</span>
+            </div>
+          ))}
+        </div>
+      ) : <Empty icon="history">Nothing on the timeline yet.</Empty>}
+    </Doc>
+  );
+}
+
 function AgentTabIcon({ id }: { id: string }) {
   const agent = useWorkAgent(useWork().slug, id);
   const { pending } = usePendingPermissions();
@@ -57,6 +91,8 @@ const VIEWS: Record<string, TabDef> = {
   findings: { title: () => 'Findings', Component: FindingsTab, flush: true },
   waiting: { title: () => 'Waiting on you', Component: WaitingTab },
   ask: { title: () => 'New agent', Component: NewAgentTab, flush: true },
+  rules: { title: () => 'Rules', Component: RulesTab, flush: true },
+  timeline: { title: (c) => `Timeline (${(c.w.timeline || []).length})`, Component: TimelineTab, flush: true },
 };
 
 const agentDef = (id: string): TabDef | null => {

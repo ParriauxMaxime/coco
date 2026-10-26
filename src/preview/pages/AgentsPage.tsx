@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toHash } from '../../workbench/hash.ts';
-import { PendingPermissions, usePendingPermissions } from '../../components/PermissionCard.tsx';
+import { PendingPermissions, usePendingPermissions } from '../chat/Permission.tsx';
 import Icon from '../Icon.tsx';
-import { Empty, ErrorNote, Legacy, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
+import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { AgentsResponse, LinkedAgent, PaseoAgent, PaseoWorkspace } from '../../types.ts';
 import './agents-page.css';
 
@@ -120,7 +120,7 @@ export default function AgentsPage() {
 
       {(asked || pending.length > 0) && (
         <Section title="Waiting on you" count={pending.length}>
-          <div className="dp-agp-wait"><Legacy><PendingPermissions withWhere /></Legacy></div>
+          <PendingPermissions withWhere />
         </Section>
       )}
 

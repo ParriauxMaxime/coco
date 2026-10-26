@@ -45,7 +45,7 @@ span.dp-cv-actrow { cursor: default; }
 .dp-perm .dp-cq-h { min-width: 0; }
 .dp-perm-where { margin-left: auto; font-size: 12px; color: var(--dp-t3); }
 .dp-perm-b { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; }
-.dp-perm-b .dp-cmdline { max-height: 220px; overflow: auto; }
+.dp-perm-b .dp-cmdline { margin: 0; max-height: 220px; overflow: auto; }
 .dp-perm-plan { max-height: 320px; overflow: auto; padding: 8px 10px; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-subtle); }
 fieldset.dp-perm-q { margin: 0 0 10px; padding: 0; border: 0; min-width: 0; }
 .dp-perm-q legend.dp-q-t { padding: 0; margin-bottom: 4px; flex-wrap: wrap; }
