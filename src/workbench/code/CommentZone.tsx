@@ -67,6 +67,9 @@ function VerdictRow({ onJump, verdicts, extra }: { onJump?: () => void; verdicts
 }
 
 // a coco watch point: ✓ accept, ✕ dismiss, or talk it over: Dispatch accepts it as a comment and sends the text to a scoped agent,
+// thread keys shown open in the diff: survives a dispatched proposal turning into a comment and windowed card unmounts
+const openThreads = new Set<string>();
+
 // Accept / Dismiss in the box keep the text as the reason (work notes). onDispatched(threadKey) once the agent has it
 export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; rv: ReviewHandle; onJump?: (c: ReviewComment) => void; onDispatched?: (key: string) => void }) {
   const [talking, setTalking] = useState(false);
@@ -77,6 +80,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
     try {
       const c = await accept(wp);
       const key = threadKey.comment(rv.n, c.id);
+      openThreads.add(key);
       await api.postThread(rv.slug, key, { text, model });
       refreshThreads(rv.slug);
       onDispatched?.(key);
@@ -184,7 +188,12 @@ type CommentZoneProps = {
 // onSave(comment, body) · onDelete(comment) (also cancels a draft) · onStatus(comment, status) · thread: { slug, n, onSettled } to talk with the PR agent
 export default function CommentZone({ comment, onSave, onDelete, onStatus, draft = false, thread }: CommentZoneProps) {
   const [editing, setEditing] = useState(false);
-  const [talking, setTalking] = useState(false);
+  const key = thread?.slug ? threadKey.comment(thread.n, comment.id) : null;
+  const [talking, setTalking] = useState(() => Boolean(key && openThreads.has(key)));
+  const toggleTalking = () => {
+    if (key) openThreads[talking ? 'delete' : 'add'](key);
+    setTalking(!talking);
+  };
   if (draft) {
     return (
       <div className="cc-zone">
@@ -193,7 +202,6 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
     );
   }
   const { status, resolution } = comment;
-  const key = thread?.slug ? threadKey.comment(thread.n, comment.id) : null;
   const commit = resolution?.commit ? String(resolution.commit).slice(0, 7) : '';
   return (
     <div className={`cc-zone cc-zone-${status}`}>
@@ -219,7 +227,7 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
       )}
       {(status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
       {status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
-      {!editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={() => setTalking(!talking)} />} />}
+      {!editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
       {thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note) => onStatus?.(c, s, note))} />}
     </div>
   );
