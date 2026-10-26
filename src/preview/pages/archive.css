@@ -1,0 +1,18 @@
+.dp-arch-row { gap: 12px; }
+.dp-arch-row:hover { background: var(--dp-hover); }
+.dp-arch-ic { display: inline-flex; color: var(--dp-t3); flex: none; }
+.dp a.dp-arch-main { color: var(--dp-t1); }
+.dp a.dp-arch-main:hover { text-decoration: none; }
+.dp a.dp-arch-main:hover .dp-arch-t { color: var(--dp-accent); }
+.dp-arch-t { font-weight: 500; }
+.dp-arch-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--dp-t3); }
+.dp-arch-sub .dp-mono { font-size: 11px; flex: none; }
+.dp-arch-bar { display: flex; align-items: center; gap: 8px; width: 120px; flex: none; }
+.dp-arch-bar .dp-segs { flex: 1; }
+.dp-arch-pc { font-size: 11px; color: var(--dp-t3); font-variant-numeric: tabular-nums; min-width: 26px; text-align: right; }
+.dp-arch-prs { font-size: 12px; color: var(--dp-t3); font-variant-numeric: tabular-nums; width: 44px; text-align: right; flex: none; }
+.dp-rowi .dp-arch-at { margin-left: 0; width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+.dp-arch-btn { flex: none; }
+@container (max-width: 680px) {
+  .dp-arch-bar, .dp-arch-prs { display: none; }
+}

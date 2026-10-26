@@ -17,7 +17,7 @@ export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slic
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
 
 // follows the bottom while new steps arrive, unless the owner scrolled up to read
-function Log({ size, children }: { size: number; children: React.ReactNode }) {
+export function Log({ size, children }: { size: number; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   useLayoutEffect(() => {
@@ -27,7 +27,7 @@ function Log({ size, children }: { size: number; children: React.ReactNode }) {
   return <div ref={ref} className="dp-agent-log" onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>{children}</div>;
 }
 
-function Composer({ placeholder, note, disabled = false, onSend }: { placeholder: string; note?: string; disabled?: boolean; onSend: (text: string) => Promise<boolean> }) {
+export function Composer({ placeholder, note, disabled = false, onSend }: { placeholder: string; note?: string; disabled?: boolean; onSend: (text: string) => Promise<boolean> }) {
   const [text, setText] = useState('');
   const send = async () => {
     const t = text.trim();

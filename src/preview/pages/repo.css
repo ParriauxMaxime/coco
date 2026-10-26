@@ -1,0 +1,28 @@
+.dp code.dp-repop-path { font-size: 12px; color: var(--dp-t3); background: none; border: 0; padding: 0; }
+.dp-repop-gap { margin-top: 16px; }
+.dp-repop-lead { margin: -4px 0 10px; font-size: 12.5px; color: var(--dp-t3); }
+.dp-repop-lead + .dp-perr { margin-bottom: 10px; }
+.dp-repop-new { margin-bottom: 12px; }
+.dp-repop-works .dp-card { gap: 10px; }
+.dp-repop-bar { display: flex; align-items: center; gap: 8px; }
+.dp-repop-bar .dp-segs { height: 5px; }
+.dp-repop-pc { font-size: 11.5px; color: var(--dp-t3); font-variant-numeric: tabular-nums; flex: none; }
+.dp-repop-next { font-size: 12.5px; line-height: 19px; color: var(--dp-t2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex: 1; }
+.dp-repop-next.dp-repop-none { color: var(--dp-t4); font-style: italic; }
+.dp-repop-works .dp-card-s:empty { display: none; }
+.dp-repop-ref { font: 11.5px/16px var(--dp-mono); color: var(--dp-t3); }
+.dp-rowi .dp-rowi-m.dp-repop-date { font-variant-numeric: tabular-nums; }
+.dp-repop-loose .dp-rowi > svg.dp-i, .dp-repop-lesson > svg.dp-i, .dp-repop-files svg.dp-i { color: var(--dp-t3); flex: none; }
+.dp-repop-lesson { align-items: flex-start; }
+.dp-repop-lesson > svg.dp-i { margin-top: 3px; }
+.dp-repop-files { margin-bottom: 12px; }
+.dp-repop-files .dp-rowi { min-height: 34px; padding: 4px 12px; }
+.dp-repop-ask, .dp-repop-rules { margin-top: -6px; }
+.dp-repop-steps { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.dp-repop-steps li { display: flex; align-items: flex-start; gap: 10px; color: var(--dp-t2); font-size: 13px; }
+.dp-repop-n { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; background: var(--dp-accent-t); color: var(--dp-accent); font-variant-numeric: tabular-nums; }
+.dp-repop-ric { display: inline-flex; }
+@media (prefers-reduced-motion: no-preference) {
+  .dp-repop-ric.dp-on { animation: dp-repop-spin 1s linear infinite; }
+  @keyframes dp-repop-spin { to { transform: rotate(360deg); } }
+}

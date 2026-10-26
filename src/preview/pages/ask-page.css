@@ -1,0 +1,29 @@
+.dp-page.dp-askp { display: flex; flex-direction: column; overflow: hidden; }
+.dp-askp > .dp-phead { flex: none; padding: 20px 24px 16px; margin: 0; }
+.dp-askp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+.dp-askp-side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--dp-line); background: var(--dp-subtle); }
+.dp-askp-sh { flex: none; padding: 14px 16px 6px; margin: 0; font-size: 12px; color: var(--dp-t2); }
+.dp-askp-list { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 12px; display: flex; flex-direction: column; gap: 1px; }
+.dp-askp-list .dp-pempty { margin-top: 4px; padding: 20px 12px; }
+.dp-askp-conv { display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: var(--dp-r2); min-width: 0; }
+.dp a.dp-askp-conv { color: var(--dp-t1); text-decoration: none; }
+.dp a.dp-askp-conv:hover { background: var(--dp-hover); }
+.dp a.dp-askp-conv.dp-on { background: var(--dp-active); }
+.dp-askp-conv > .dp-ag-dot { margin-top: 6px; }
+.dp-askp-conv > .dp-ag-dot.dp-ag-running { margin-top: 5px; }
+.dp-askp-cm { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; line-height: 16px; color: var(--dp-t3); font-variant-numeric: tabular-nums; }
+.dp-askp-cm .dp-chip { height: 16px; padding: 0 5px; font-size: 10.5px; margin-left: auto; }
+.dp-askp-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--dp-panel); }
+.dp-askp-bar { position: static; }
+.dp-askp-bar .dp-title { min-width: 0; }
+.dp-askp-bar code { flex: none; color: var(--dp-t3); }
+.dp-askp .ask-conv { max-height: none; overflow: visible; border-top: 0; margin: 0; padding-top: 0; }
+.dp-askp .dp-ag-cards:empty { display: none; }
+@container (max-width: 760px) {
+  .dp-askp-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 200px) minmax(0, 1fr); }
+  .dp-askp-side { border-right: 0; border-bottom: 1px solid var(--dp-line); }
+  .dp-askp > .dp-phead { padding: 14px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dp-askp-conv { transition: background .12s; }
+}
