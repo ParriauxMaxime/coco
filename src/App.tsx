@@ -1,128 +1,29 @@
 import React, { useEffect, useState } from 'react';
-import Dashboard from './pages/Dashboard.tsx';
-import Persona from './pages/Persona.tsx';
-import Skill from './pages/Skill.tsx';
-import Agents from './pages/Agents.tsx';
-import Rituals from './pages/Rituals.tsx';
-import Projects from './pages/Projects.tsx';
-import NewWork from './pages/NewWork.tsx';
-import Workbench from './workbench/Workbench.tsx';
-import { useWorkbench } from './workbench/workbench-store.ts';
-import Ask from './pages/Ask.tsx';
-import Rules from './components/Rules.tsx';
-import Inbox from './pages/Inbox.tsx';
-import Archive from './pages/Archive.tsx';
-import Repo, { NewRepo } from './pages/Repo.tsx';
-import { api } from './api.ts';
-import Sidebar from './components/Sidebar.tsx';
-import type { Nav } from './components/Sidebar.tsx';
 import Toasts from './components/Toast.tsx';
 import DesignPreview from './preview/DesignPreview.tsx';
 import Pages from './preview/Pages.tsx';
-import BetaPanel from './preview/BetaPanel.tsx';
-import { useBetaPanel, usePrefs } from './preview/prefs.ts';
+
+const current = () => {
+  const hash = location.hash || '#/';
+  if (!hash.startsWith('#/design-preview')) return hash;
+  const work = hash.replace(/^#\/design-preview/, '#/work');
+  history.replaceState(null, '', work);
+  return work;
+};
 
 const useHash = () => {
-  const [hash, setHash] = useState(location.hash || '#/');
+  const [hash, setHash] = useState(current);
   useEffect(() => {
-    const on = () => setHash(location.hash || '#/');
+    const on = () => setHash(current());
     addEventListener('hashchange', on);
     return () => removeEventListener('hashchange', on);
   }, []);
   return hash.replace(/^#/, '');
 };
 
-
-function crumbs(route: string, nav: Nav, tabTitle?: string | null) {
-  const [root, a, b] = route.split('/').filter(Boolean);
-  const out: [string, string][] = [['#/', 'Dashboard']];
-  if (root === 'projects') out.push(['#/projects', 'Projects']);
-  if (root === 'agents') out.push(['#/agents', 'Agents']);
-  if (root === 'rituals') out.push(['#/rituals', 'Rituals']);
-  if (root === 'ask') out.push(['#/ask', 'Ask coco']);
-  if (root === 'rules') out.push(['#/rules', 'Rules']);
-  if (root === 'inbox') out.push(['#/inbox', 'Inbox']);
-  if (root === 'archive') out.push(['#/archive', 'Archive']);
-  if (root === 'repos' && a === 'new') out.push(['#/repos/new', 'New repo']);
-  if (root === 'repo') {
-    const r = nav.repos.find((x) => x.id === a);
-    out.push([`#/repo/${a}`, r ? r.name : a]);
-  }
-  if (root === 'work') {
-    const w = nav.works.find((x) => x.slug === a);
-    const r = nav.repos.find((x) => x.id === w?.repo);
-    out.push(r ? [`#/repo/${r.id}`, r.name] : ['#/projects', 'Projects']);
-    out.push([`#/work/${a}`, w ? w.title : a]);
-    if (a !== 'new' && tabTitle) out.push([`#/work/${a}/${b || 'plan'}`, tabTitle]);
-  }
-  if (root === 'persona') {
-    out.push(['#/', 'Personas']);
-    const p = nav.personas.find((x) => x.login === a);
-    out.push([`#/persona/${a}`, p ? p.title.replace(/ — .*$/, '') : a]);
-    if (b) out.push([`#/persona/${a}/${b}`, b]);
-  }
-  if (root === 'skill') {
-    out.push(['#/', 'Skills']);
-    out.push([`#/skill/${a}`, a]);
-    if (b) out.push([`#/skill/${a}/${b}`, b]);
-  }
-  return out;
-}
-
 export default function App() {
   const route = useHash();
-  const tabTitle = useWorkbench((s) => s.title);
-  const workbench = usePrefs((s) => s.workbench);
-  const beta = useBetaPanel((s) => s.open);
-  const [root, a, b, c] = route.split('/').filter(Boolean);
-  const [open, setOpen] = useState(false);
-  const [nav, setNav] = useState<Nav>({ works: [], repos: [], personas: [], skills: [], projects: 0, running: 0, notices: 0 });
-  useEffect(() => {
-    const load = () => api.overview().then((d) => setNav({ works: d.works || [], repos: d.repos || [], personas: d.personas, skills: d.skills, projects: d.projectCount || 0, running: d.agents.filter((x) => x.status === 'running').length, notices: d.notices || 0 })).catch(() => {});
-    load();
-    const t = setInterval(load, 30000);
-    return () => clearInterval(t);
-  }, [route]);
-  if (root === 'design-preview' || (root === 'work' && a && a !== 'new' && workbench === 'on')) return <><DesignPreview slug={a} /><Toasts /></>;
-  if (workbench === 'on') return <><Pages route={route} /><Toasts /></>;
-  let page;
-  if (!root) page = <Dashboard />;
-  else if (root === 'persona' && a) page = <Persona login={decodeURIComponent(a)} tab={b} />;
-  else if (root === 'skill' && a) page = <Skill name={decodeURIComponent(a)} tab={b} />;
-  else if (root === 'projects') page = <Projects />;
-  else if (root === 'work' && a === 'new' && b) page = <NewWork projectId={b} projectName={decodeURIComponent(c || b)} />;
-  else if (root === 'work' && a) page = <Workbench key={a} slug={a} />;
-  else if (root === 'repo' && a) page = <Repo key={a} id={decodeURIComponent(a)} />;
-  else if (root === 'repos' && a === 'new') page = <NewRepo />;
-  else if (root === 'ask') page = <Ask convId={a} />;
-  else if (root === 'inbox') page = <Inbox />;
-  else if (root === 'archive') page = <Archive />;
-  else if (root === 'rules') page = <><h1>Rules</h1><Rules /></>;
-  else if (root === 'agents') page = <Agents />;
-  else if (root === 'rituals') page = <Rituals preset={a} />;
-  else page = <div className="card">No such page.</div>;
-  const trail = crumbs(route, nav, tabTitle);
-  const bench = root === 'work' && a && a !== 'new';
-  return (
-    <div className="shell">
-      <Sidebar route={route} open={open} onClose={() => setOpen(false)} nav={nav} />
-      {open && <div className="scrim" onClick={() => setOpen(false)} />}
-      <div className={`content ${bench ? 'wb' : ''}`}>
-        <div className="topbar">
-          <button className="menu-btn sm" onClick={() => setOpen(true)}>☰</button>
-          <div className="crumbs">
-            {trail.map(([href, label], i) => (
-              <React.Fragment key={href + i}>
-                {i > 0 && <span className="sep">/</span>}
-                {i === trail.length - 1 ? <b>{label}</b> : <a href={href}>{label}</a>}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-        {bench ? page : <main>{page}</main>}
-      </div>
-      {beta && <div className="dp dp-float"><BetaPanel /></div>}
-      <Toasts />
-    </div>
-  );
+  const [root, a] = route.split('/').filter(Boolean);
+  if (root === 'work' && a !== 'new') return <><DesignPreview slug={a} /><Toasts /></>;
+  return <><Pages route={route} /><Toasts /></>;
 }

@@ -2,7 +2,6 @@ import { create } from 'zustand';
 
 export type Shell = 'A' | 'B' | 'C';
 export type Prefs = {
-  workbench: 'on' | 'off';
   shell: Shell;
   details: 'inspector' | 'tab';
   planned: 'fold' | 'all';
@@ -20,29 +19,22 @@ export const CHOICES: { key: PrefKey; label: string; options: { value: string; l
 ];
 
 const KEY = 'cc.design-preview';
-const WORKBENCH_KEY = 'cc.beta.workbench';
-const DEFAULTS: Prefs = { workbench: 'on', shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', narrow: 'drop' };
+const DEFAULTS: Prefs = { shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', narrow: 'drop' };
 
 const read = (): Prefs => {
-  try {
-    const workbench = localStorage.getItem(WORKBENCH_KEY) === 'off' ? 'off' : 'on';
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}'), workbench };
-  } catch { return DEFAULTS; }
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return DEFAULTS; }
 };
 
 export const usePrefs = create<Prefs & { set: (key: PrefKey, value: string) => void }>()((set, get) => ({
   ...read(),
   set: (key, value) => {
     set({ [key]: value });
-    const { set: _, workbench, ...prefs } = get();
-    try {
-      localStorage.setItem(KEY, JSON.stringify(prefs));
-      localStorage.setItem(WORKBENCH_KEY, workbench);
-    } catch {}
+    const { set: _, ...prefs } = get();
+    try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch {}
   },
 }));
 
-export const workHref = (slug: string) => (usePrefs.getState().workbench === 'on' ? `#/work/${slug}` : `#/design-preview/${slug}`);
+export const workHref = (slug: string) => `#/work/${slug}`;
 
 export const useBetaPanel = create<{ open: boolean; toggle: () => void; close: () => void }>()((set) => ({
   open: false,

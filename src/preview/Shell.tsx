@@ -339,7 +339,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
           </div>
         )}
         {palette && <Palette commands={all} onClose={() => setPalette(false)} />}
-        {controls && <BetaPanel preview />}
+        {controls && <BetaPanel />}
       </div>
     </div>
   );

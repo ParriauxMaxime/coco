@@ -146,7 +146,7 @@ export default function DesignPreview({ slug }: { slug?: string }) {
     if (slug) return;
     api.overview().then((ov) => {
       const first = ov.repos.flatMap((r) => r.works).map((s) => ov.works.find((w) => w.slug === s)).find((w) => w && !w.archived && w.stack > 0);
-      if (first) history.replaceState(null, '', `#/design-preview/${first.slug}`), dispatchEvent(new HashChangeEvent('hashchange'));
+      if (first) history.replaceState(null, '', `#/work/${first.slug}`), dispatchEvent(new HashChangeEvent('hashchange'));
     }, () => {});
   }, [slug]);
   if (!slug) return <div className="dp"><div className="dp-empty">Loading your works…</div></div>;

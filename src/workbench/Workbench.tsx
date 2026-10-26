@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useWorkbench, layoutRects } from './workbench-store.ts';
-import { WorkContext, useWorkData } from './use-work.ts';
+import { WorkContext } from './use-work.ts';
 import type { LoadedWork } from './use-work.ts';
 import { startHashSync } from './hash.ts';
 import { tabDef as baseTabDef } from './tabs/index.ts';
@@ -189,11 +189,7 @@ function Handle({ h }: { h: HandleData }) {
   );
 }
 
-export default function Workbench({ slug }: { slug: string }) {
-  return <WorkbenchView slug={slug} data={useWorkData(slug)} />;
-}
-
-export function WorkbenchView({ slug, data, defs = baseTabDef }: { slug: string; data: LoadedWork; defs?: (id: string) => TabDef }) {
+export function WorkbenchView({ slug, data, defs }: { slug: string; data: LoadedWork; defs: (id: string) => TabDef }) {
   const tabDef = defs;
   const loaded: WorkData | null = data.w ? { ...data, w: data.w } : null;
   const prsKey = data.prs.map((p) => p.number).filter(Boolean).join(',');
