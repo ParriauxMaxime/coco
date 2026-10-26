@@ -1,0 +1,21 @@
+.dp-fi { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
+button.dp-prb { cursor: pointer; }
+.dp-fi-prs { flex: none; padding: 6px 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-panel); overflow-x: auto; }
+.dp-fi-prs .dp-filters { flex-wrap: nowrap; }
+.dp-fx .dp-flist.dp-fi-list { width: 560px; max-width: 55%; }
+.dp-fi-row { display: flex; align-items: center; gap: 8px; }
+.dp-fi-claim { flex: 1; }
+.dp-fi-loc { flex: none; max-width: 150px; }
+.dp-fi-by { flex: none; width: 64px; text-align: right; }
+.dp-fi-age { flex: none; width: 38px; text-align: right; }
+.dp-fi-none { padding: 16px 12px; font-size: 12.5px; }
+.dp-fi-title { font-size: 16px; line-height: 24px; margin: 10px 0 2px; }
+.dp-fi-place { font-size: 11px; }
+.dp-fi-body { margin: 12px 0 14px; max-width: 680px; font-size: 13px; line-height: 20px; }
+.dp-fi-body p { margin: 0 0 8px; }
+.dp-fi-sources { margin-top: 10px; }
+.dp-fi-sources span + span::before { content: ' · '; }
+.dp-fi-actions { flex-wrap: wrap; }
+.dp-fi-pick { display: flex; align-items: center; justify-content: center; }
+.dp-fi-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 40px 16px; color: var(--dp-t3); font-size: 13px; }
+.dp-fi-empty b { color: var(--dp-t1); font-weight: 600; }

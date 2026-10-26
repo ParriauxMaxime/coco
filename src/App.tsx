@@ -17,6 +17,7 @@ import { api } from './api.ts';
 import Sidebar from './components/Sidebar.tsx';
 import type { Nav } from './components/Sidebar.tsx';
 import Toasts from './components/Toast.tsx';
+import DesignPreview from './preview/DesignPreview.tsx';
 
 const useHash = () => {
   const [hash, setHash] = useState(location.hash || '#/');
@@ -77,6 +78,7 @@ export default function App() {
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [route]);
+  if (root === 'design-preview') return <><DesignPreview slug={a} /><Toasts /></>;
   let page;
   if (!root) page = <Dashboard />;
   else if (root === 'persona' && a) page = <Persona login={decodeURIComponent(a)} tab={b} />;

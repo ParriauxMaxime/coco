@@ -1,0 +1,19 @@
+.dp-st-closed { --dp-st: var(--dp-t4); }
+button.dp-prb { cursor: pointer; }
+.dp-ov-meta { margin-bottom: 4px; white-space: nowrap; overflow: hidden; }
+.dp-lead p { margin: 0 0 8px; }
+.dp-lead p:last-child { margin-bottom: 0; }
+.dp-ov-more { margin-top: 6px; }
+.dp-ov-desc { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-subtle); font-size: 13px; line-height: 20px; max-width: 720px; }
+.dp-ov-nextsum { font-size: 13px; line-height: 20px; margin-bottom: 8px; }
+.dp-ov-nextsum p { margin: 0 0 6px; }
+.dp-linkbtn { all: unset; cursor: pointer; color: var(--dp-accent); font-size: 12px; }
+.dp-linkbtn:hover { text-decoration: underline; }
+.dp-ov-wait { display: flex; flex-direction: column; gap: 8px; }
+.dp-ov-row { cursor: pointer; }
+.dp-ov-sev { width: 10px; height: 10px; }
+.dp-ov-list { margin: 0; padding: 0; list-style: none; }
+.dp-ov-list li { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12.5px; border-bottom: 1px solid var(--dp-line); }
+.dp-ov-list li:last-child { border-bottom: 0; }
+.dp-ov-list li > svg { color: var(--dp-t3); flex: none; }
+.dp-ov-side { padding-top: 16px; border-top: 1px solid var(--dp-line); }
