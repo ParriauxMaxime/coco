@@ -12,11 +12,12 @@
 .wb-group.focus .wb-tab-h.active { border-bottom-color: var(--brand); }
 .wb-tab-h.preview .wb-label { font-style: italic; }
 .wb-label { overflow: hidden; text-overflow: ellipsis; }
-.wb-x { all: unset; box-sizing: border-box; flex: none; width: 18px; height: 18px; line-height: 17px; text-align: center; border-radius: var(--r-sm); font-size: 14px; color: var(--mute); cursor: pointer; opacity: 0; }
+.wb-x { all: unset; box-sizing: border-box; flex: none; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-sm); color: var(--mute); cursor: pointer; opacity: 0; }
+.wb-x .wb-glyph { width: 12px; height: 12px; stroke-width: 2; }
 .wb-tab-h:hover .wb-x, .wb-tab-h.active .wb-x { opacity: 1; }
 .wb-x:hover { background: var(--line); color: var(--ink); }
 .wb-acts { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
-.wb-act { background: transparent; border: 0; color: var(--mute); padding: 4px 8px; font-size: 12px; border-radius: var(--r); }
+.wb-act { background: transparent; border: 0; color: var(--mute); width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r); box-shadow: none; }
 .wb-act:hover { background: var(--line-2); color: var(--ink); }
 .wb-act.on { background: var(--brand-50); color: var(--brand-700); }
 .wb-body { flex: 1; min-height: 0; position: relative; }

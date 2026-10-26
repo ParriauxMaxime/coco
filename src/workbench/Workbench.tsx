@@ -15,6 +15,18 @@ import type { Edge, Group as GroupData, Handle as HandleData, PrKey, Rect, RefFi
 
 type Zone = Edge | 'center';
 
+const GLYPHS = {
+  close: ['M18 6 6 18', 'M6 6l12 12'],
+  split: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M12 3v18'],
+  maximize: ['M15 3h6v6', 'M9 21H3v-6', 'M21 3l-7 7', 'M3 21l7-7'],
+  restore: ['M4 14h6v6', 'M20 10h-6V4', 'M14 10l7-7', 'M3 21l7-7'],
+};
+const Glyph = ({ d }: { d: string[] }) => (
+  <svg className="wb-glyph" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {d.map((p) => <path key={p} d={p} />)}
+  </svg>
+);
+
 const TabDefs = createContext<(id: string) => TabDef>(baseTabDef);
 const useTabDef = () => useContext(TabDefs);
 type Size = { width: number; height: number };
@@ -91,13 +103,13 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
           >
             {tabDef(id).icon}
             <span className="wb-label" title={tabDef(id).tip?.(ctx)}>{tabDef(id).title(ctx)}</span>
-            {!(id === 'plan' && total === 1) && <button className="wb-x" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); close(id); }}>×</button>}
+            {!(id === 'plan' && total === 1) && <button className="wb-x" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); close(id); }}><Glyph d={GLYPHS.close} /></button>}
           </div>
         ))}
       </div>
       <div className="wb-acts">
-        {!merged && g.tabs.length > 1 && <button className="wb-act" title="Split right (Cmd+\), Alt-click splits down" onClick={(e) => splitWith(g.active ?? '', g.id, e.altKey ? 'bottom' : 'right')}>⫿ split</button>}
-        {!merged && <button className={`wb-act ${max ? 'on' : ''}`} title="Maximize (Escape leaves)" onClick={toggleMax}>⤢</button>}
+        {!merged && g.tabs.length > 1 && <button className="wb-act" title="Split right (Cmd+\), Alt-click splits down" aria-label="Split" onClick={(e) => splitWith(g.active ?? '', g.id, e.altKey ? 'bottom' : 'right')}><Glyph d={GLYPHS.split} /></button>}
+        {!merged && <button className={`wb-act ${max ? 'on' : ''}`} title={max ? 'Restore (Escape)' : 'Maximize (Escape leaves)'} aria-label="Maximize" onClick={toggleMax}><Glyph d={max ? GLYPHS.restore : GLYPHS.maximize} /></button>}
       </div>
     </div>
   );
