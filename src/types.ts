@@ -485,7 +485,7 @@ export type AskRun = {
   cost?: number | null;
 };
 export type AskStartBody = { prompt: string; workSlug?: string | null; repoId?: string | null; nonce: string };
-export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean };
+export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean; stackKept?: boolean };
 export type RepoProposal = { source: string; why?: string };
 export type AddRepoResult = {
   ok: boolean;

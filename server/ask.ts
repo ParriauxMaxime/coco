@@ -357,6 +357,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (!run?.proposal) return { error: 'no proposal on this run' };
     const p = run.proposal;
     const existing = works.get(p.slug);
+    const stackKept = Boolean(existing?.stack?.length && !options.replaceStack);
     const stack = (p.stack || []).map((s) => ({ number: s.existingPr || null, planned: { order: s.order, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [] }));
     const notes = [p.notes, '', '## Surface table', '', '| Surface | Entry point | Coverage |', '| --- | --- | --- |', ...(p.surfaces || []).map((s) => `| ${s.surface} | ${s.entryPoint} | ${s.coverage} |`), '', '## Open questions', '', ...(p.openQuestions || []).map((q, i) => `${i + 1}. ${q.question} Recommended: ${q.recommendation}. Tradeoff: ${q.tradeoff}`), '', '## Next steps', '', ...(p.nextSteps || []).map((s) => `- ${s}`)].join('\n');
     const work: AskWork = {
@@ -369,7 +370,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       tier: p.tier,
       projectId: p.paseoProject?.existingProjectId || existing?.projectId || null,
       projectName: p.paseoProject?.createNamed || existing?.projectName || null,
-      stack: existing?.stack?.length && !options.replaceStack ? existing.stack : stack,
+      stack: existing && stackKept ? existing.stack : stack,
       personas: p.personas || [],
       links: p.links || [],
       notes,
@@ -378,7 +379,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     };
     work.timeline = [{ ts: new Date().toISOString(), kind: 'coco', text: `${existing ? 'updated' : 'created'} from ask ${id.slice(0, 8)}: "${run.prompt.slice(0, 120)}"` }, ...(work.timeline || [])];
     works.save(work);
-    return { ok: true, slug: work.slug, created: !existing };
+    return { ok: true, slug: work.slug, created: !existing, stackKept };
   }
 
   async function startAgent(id: string) {

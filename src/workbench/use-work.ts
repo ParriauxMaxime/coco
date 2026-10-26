@@ -26,7 +26,9 @@ export function useWorkData(slug: string): LoadedWork {
     const t = setInterval(() => load(), 30000);
     const onVisible = () => document.visibilityState === 'visible' && load(true);
     document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+    const saved = new EventSource('/api/works/events');
+    saved.onmessage = (e: MessageEvent<string>) => (JSON.parse(e.data) as { slug: string }).slug === slug && load();
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); saved.close(); };
   }, [slug]);
   const syncing = Boolean(w?.notionStatus?.running);
   useEffect(() => { if (!syncing) return; const t = setInterval(() => load(), 5000); return () => clearInterval(t); }, [syncing]);

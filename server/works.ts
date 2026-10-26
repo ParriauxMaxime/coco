@@ -138,8 +138,19 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     const before = get(work.slug);
     if (before && before.title !== work.title) Promise.resolve(hooks.onRetitled?.(work)).catch(() => {});
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
+    onSave.forEach((l) => l(work.slug));
     return work;
   };
+  const onSave = new Set<(slug: string) => void>();
+
+  // GET /api/works/events (SSE): the slug of each work saved, so open pages reload it
+  function watch(req: Req, res: Res) {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    res.write(': open\n\n');
+    const write = (slug: string) => res.write(`data: ${JSON.stringify({ slug })}\n\n`);
+    onSave.add(write);
+    req.on('close', () => onSave.delete(write));
+  }
 
   async function paseo() {
     const [p, w, a] = await Promise.all([run('paseo', ['project', 'ls', '--json']), run('paseo', ['workspace', 'ls', '--json']), run('paseo', ['ls', '--json'])]);
@@ -367,6 +378,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       }
       return send(res, 200, list());
     }
+    if (a === 'events' && req.method === 'GET') return watch(req, res);
     const work = get(a);
     if (!work) return send(res, 404, { error: 'no such work' });
     if (b === 'artifacts' && req.method === 'POST') {

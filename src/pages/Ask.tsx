@@ -26,18 +26,23 @@ const REPO_EXAMPLES = [
 export function Proposal({ run, onApplied, label = 'Apply' }: { run: Run; onApplied?: (slug: string) => void; label?: string }) {
   const p = run.proposal;
   const [status, setStatus] = useState('');
+  const [stackKept, setStackKept] = useState(false);
   if (!p) return null;
   const apply = async (replaceStack: boolean) => {
     setStatus('applying…');
     const r = await api.applyAsk(run.id, { replaceStack });
-    setStatus(r.ok ? `${r.created ? 'created' : 'updated'} work ${r.slug}` : r.error ?? '');
-    if (r.ok && r.slug) onApplied?.(r.slug);
+    setStackKept(Boolean(r.stackKept));
+    setStatus(r.ok ? `${r.created ? 'created' : 'updated'} work ${r.slug}${r.stackKept ? ', stack kept' : ''}` : r.error ?? '');
+    if (r.ok && r.slug && !r.stackKept) onApplied?.(r.slug);
   };
   return (
     <div className="card" style={{ borderColor: 'var(--brand)', boxShadow: '0 0 0 3px var(--brand-100)' }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <span><span className="chip c-blue">proposal</span> <b>{p.title}</b> <code>{p.slug}</code> <span className="chip c-grey">tier {p.tier}</span></span>
-        <span className="row"><button className="primary" onClick={() => apply(false)}>{label}</button><span className="status">{status}</span></span>
+        <span className="row">
+          {stackKept ? <button className="primary" onClick={() => apply(true)}>Replace the stack too</button> : <button className="primary" onClick={() => apply(false)}>{label}</button>}
+          <span className="status">{status}</span>
+        </span>
       </div>
       <p style={{ marginTop: 8 }}>{p.summary}</p>
       <div className="status">Paseo: {p.paseoProject?.existingProjectId ? `existing ${p.paseoProject.existingProjectId}` : p.paseoProject?.createNamed ? `create "${p.paseoProject.createNamed}"` : 'none'} · personas: {(p.personas || []).join(', ') || 'none'}</div>
@@ -49,9 +54,7 @@ export function Proposal({ run, onApplied, label = 'Apply' }: { run: Run; onAppl
       <table className="md" style={{ fontSize: 13 }}><tbody>{(p.surfaces || []).map((s, i) => <tr key={i}><td>{s.surface}</td><td><code>{s.entryPoint}</code></td><td>{s.coverage}</td></tr>)}</tbody></table>
       <h3>Open questions</h3>
       <ol>{(p.openQuestions || []).map((q, i) => <li key={i}>{q.question} <b>Recommended: {q.recommendation}.</b> <span className="status">{q.tradeoff}</span></li>)}</ol>
-      <details><summary>Notes and next steps</summary><Markdown text={p.notes} /><ul>{(p.nextSteps || []).map((s, i) => <li key={i}>{s}</li>)}</ul></details>
-      <div className="row" style={{ marginTop: 8 }}><button className="sm" onClick={() => apply(true)}>Apply and replace the existing stack</button></div>
-    </div>
+      <details><summary>Notes and next steps</summary><Markdown text={p.notes} /><ul>{(p.nextSteps || []).map((s, i) => <li key={i}>{s}</li>)}</ul></details>    </div>
   );
 }
 
