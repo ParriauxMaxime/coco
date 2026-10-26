@@ -45,7 +45,7 @@ export type DaemonAgent = {
   refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null } | null } | null>;
   archive(): Promise<unknown>;
 } & ReturnType<PermissionClient['agents']['ref']>;
-export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown };
+export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };
 export type WorkspaceHandle = { id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
 export type DaemonClient = {
   workspaces: {
@@ -53,6 +53,7 @@ export type DaemonClient = {
     ref(w: string | WorkspaceEntry): WorkspaceHandle;
     open(cwd: string): Promise<WorkspaceHandle>;
     create(opts: Record<string, unknown>): Promise<WorkspaceHandle>;
+    archive?(workspaceId: string): Promise<{ error?: string | null }>;
   };
   agents: { ref(id: string): DaemonAgent; list?: PermissionClient['agents']['list'] };
 };

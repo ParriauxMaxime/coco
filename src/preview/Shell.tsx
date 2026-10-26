@@ -32,6 +32,7 @@ const NAV: NavItem[] = [
   { href: '#/rituals', root: 'rituals', label: 'Rituals', icon: 'sparkles' },
   { href: '#/rules', root: 'rules', label: 'Rules', icon: 'scale' },
   { href: '#/archive', root: 'archive', label: 'Archive', icon: 'archive' },
+  { href: '#/purge', root: 'purge', label: 'Purge', icon: 'trash' },
   { href: '#/ask', root: 'ask', label: 'Ask coco', icon: 'message-square' },
 ];
 

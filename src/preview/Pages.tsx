@@ -15,6 +15,7 @@ import SkillPage from './pages/SkillPage.tsx';
 import RitualsPage from './pages/RitualsPage.tsx';
 import RulesPage from './pages/RulesPage.tsx';
 import AskPage from './pages/AskPage.tsx';
+import PurgePage from './pages/PurgePage.tsx';
 import type { Overview } from '../types.ts';
 
 const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
@@ -26,6 +27,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (!root) return { crumbs: [page('Dashboard')], node: <DashboardPage /> };
   if (root === 'inbox') return { crumbs: [page('Inbox')], node: <InboxPage /> };
   if (root === 'archive') return { crumbs: [page('Archive')], node: <ArchivePage /> };
+  if (root === 'purge') return { crumbs: [page('Purge')], node: <PurgePage /> };
   if (root === 'agents') return { crumbs: [page('Agents')], node: <AgentsPage /> };
   if (root === 'projects') return { crumbs: [page('Projects')], node: <ProjectsPage /> };
   if (root === 'rules') return { crumbs: [page('Rules')], node: <RulesPage /> };

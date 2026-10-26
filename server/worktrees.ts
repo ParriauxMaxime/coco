@@ -24,6 +24,40 @@ type Deps = {
 const samePath = (a: string | undefined, b: string | undefined) => Boolean(a && b) && path.resolve(a as string) === path.resolve(b as string);
 const why = (r: { stdout: string; stderr: string }) => (r.stderr || r.stdout).trim().slice(0, 300);
 
+// the repo's worktrees, its main checkout first
+export async function gitWorktrees(exec: Exec, repoPath: string) {
+  const r = await exec('git', ['-C', repoPath, 'worktree', 'list', '--porcelain']);
+  return (r.ok ? r.stdout.split(/\n\s*\n/) : []).flatMap((block) => {
+    const lines = block.split('\n');
+    const wt = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length).trim();
+    const branch = lines.find((l) => l.startsWith('branch refs/heads/'))?.slice('branch refs/heads/'.length).trim();
+    return wt ? [{ path: wt, branch: branch || '' }] : [];
+  });
+}
+
+// uncommitted files, and commits on HEAD that no remote ref nor the PR's last pushed head holds
+export async function worktreeState(exec: Exec, dir: string, headOid?: string | null) {
+  const status = await exec('git', ['-C', dir, 'status', '--porcelain']);
+  if (!status.ok) return { dirty: 0, unpushed: 0, error: why(status) };
+  const dirty = status.stdout.split('\n').filter(Boolean).length;
+  const pushed = headOid && (await exec('git', ['-C', dir, 'cat-file', '-e', `${headOid}^{commit}`])).ok ? [headOid] : [];
+  const ahead = await exec('git', ['-C', dir, 'rev-list', '--count', 'HEAD', '--not', '--remotes', ...pushed]);
+  if (!ahead.ok) return { dirty, unpushed: 0, error: why(ahead) };
+  return { dirty, unpushed: Number(ahead.stdout.trim()) || 0 };
+}
+
+// git refuses a worktree with changes (never --force); its workspaces are archived only once it is gone
+export async function removeWorktree(exec: Exec, repoPath: string, dir: string, workspaceIds: string[]) {
+  const r = await exec('git', ['-C', repoPath, 'worktree', 'remove', dir]);
+  if (!r.ok) return { ok: false as const, why: why(r), unarchived: [] };
+  const unarchived: { workspaceId: string; why: string }[] = [];
+  for (const id of workspaceIds) {
+    const a = await exec('paseo', ['workspace', 'archive', id]);
+    if (!a.ok) unarchived.push({ workspaceId: id, why: why(a) });
+  }
+  return { ok: true as const, unarchived };
+}
+
 export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, works, repoFor }: Deps) {
   const file = path.join(DATA, 'notices.json');
   const readNotices = (): WorktreeNotice[] => {
@@ -41,16 +75,6 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
   // a notice outlives nothing: once its work is unarchived or gone, it is not shown
   const notices = () => readNotices().filter((n) => works.get(n.slug)?.archived);
 
-  async function gitWorktrees(repoPath: string) {
-    const r = await exec('git', ['-C', repoPath, 'worktree', 'list', '--porcelain']);
-    return (r.ok ? r.stdout.split(/\n\s*\n/) : []).flatMap((block) => {
-      const lines = block.split('\n');
-      const wt = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length).trim();
-      const branch = lines.find((l) => l.startsWith('branch refs/heads/'))?.slice('branch refs/heads/'.length).trim();
-      return wt ? [{ path: wt, branch: branch || '' }] : [];
-    });
-  }
-
   async function projectRoot(work: Work) {
     if (!work.projectId) return null;
     const r = await exec('paseo', ['project', 'ls', '--json']);
@@ -61,23 +85,12 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
     }
   }
 
-  // uncommitted files, and commits on HEAD that no remote ref nor the PR's last pushed head holds
-  async function state(dir: string, headOid: string | null | undefined) {
-    const status = await exec('git', ['-C', dir, 'status', '--porcelain']);
-    if (!status.ok) return { dirty: 0, unpushed: 0, error: why(status) };
-    const dirty = status.stdout.split('\n').filter(Boolean).length;
-    const pushed = headOid && (await exec('git', ['-C', dir, 'cat-file', '-e', `${headOid}^{commit}`])).ok ? [headOid] : [];
-    const ahead = await exec('git', ['-C', dir, 'rev-list', '--count', 'HEAD', '--not', '--remotes', ...pushed]);
-    if (!ahead.ok) return { dirty, unpushed: 0, error: why(ahead) };
-    return { dirty, unpushed: Number(ahead.stdout.trim()) || 0 };
-  }
-
   // the worktrees of a work: each row's (its remembered workspace, else the one on its branch) and any other workspace of the work's project; never the clone nor the project root
   async function list(slug: string): Promise<WorkWorktree[]> {
     const work = works.get(slug);
     if (!work) return [];
     const repo = repoFor(work);
-    const [trees, all, root] = await Promise.all([gitWorktrees(repo.path), listWorkspaces(), projectRoot(work)]);
+    const [trees, all, root] = await Promise.all([gitWorktrees(exec, repo.path), listWorkspaces(), projectRoot(work)]);
     const spaces = all.filter((w) => !w.archivingAt);
     const found = new Map<string, { branch: string; title: string; key: string | null; headOid: string | null }>();
     const rows = await Promise.all((work.stack || []).map(async (row) => ({ row, pr: row.number ? await works.prInfo(row.number) : null })));
@@ -102,7 +115,7 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
         title: f.title,
         key: f.key,
         workspaceIds: spaces.filter((w) => samePath(w.workspaceDirectory, p)).map((w) => w.id),
-        ...(await state(p, f.headOid)),
+        ...(await worktreeState(exec, p, f.headOid)),
       })),
     );
   }
@@ -120,16 +133,13 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
         out.kept.push({ path: p, why: 'not a worktree of this work' });
         continue;
       }
-      const r = await exec('git', ['-C', repo.path, 'worktree', 'remove', wt.path]);
+      const r = await removeWorktree(exec, repo.path, wt.path, wt.workspaceIds);
       if (!r.ok) {
-        out.kept.push({ path: wt.path, why: why(r) });
+        out.kept.push({ path: wt.path, why: r.why });
         continue;
       }
       out.removed.push(wt.path);
-      for (const id of wt.workspaceIds) {
-        const a = await exec('paseo', ['workspace', 'archive', id]);
-        if (!a.ok) out.unarchived.push({ workspaceId: id, why: why(a) });
-      }
+      out.unarchived.push(...r.unarchived);
     }
     return out;
   }

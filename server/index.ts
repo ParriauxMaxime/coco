@@ -33,6 +33,7 @@ import { createPack } from './pack.ts';
 import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
 import { createWorktrees } from './worktrees.ts';
+import { createPurge } from './purge.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
@@ -103,6 +104,18 @@ const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, 
 const devServers = createDevServers({ REPO, config, works });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});
+const subdirs = (dir: string) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(dir, d.name)) : []);
+const purge = createPurge({
+  APP,
+  client: paseoAgents.client,
+  listWorkspaces: paseoAgents.listWorkspaces,
+  repos: config.repos,
+  extraDirs: () => subdirs(path.join(DATA, 'worktrees')).flatMap(subdirs),
+  works,
+  prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)),
+  linked: () => paseoLink.linked(),
+  selfAgentId: process.env.PASEO_AGENT_ID || null,
+});
 const permissions = createPermissions({
   client: paseoAgents.client,
   locate: (agent) => whereOf(agent, { askOf: ask.byAgent, groupKind: threads.groupKind, workTitle: (slug) => works.get(slug)?.title || null, repoName: (id) => repos.byId(id)?.name || null }),
@@ -370,6 +383,7 @@ async function api(req: Req, res: Res, url: URL) {
     if ((root === 'works' && b === 'agents') || root === 'agent-chat') return workAgents.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);
+    if (root === 'purge') return purge.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
     if (root === 'repos' && !a && req.method === 'POST') {
