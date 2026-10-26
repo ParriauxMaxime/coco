@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
+import { CardsWaiting } from './chat/Card.tsx';
+import { followCards, useCardList } from './chat/cards.ts';
 import { Composer, Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
 import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
@@ -13,7 +15,7 @@ import { AgentDot } from './AgentsSection.tsx';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
-import type { ActivityEvent, AgentMetrics } from '../types.ts';
+import type { ActivityEvent, AgentMetrics, UploadRef } from '../types.ts';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -47,7 +49,7 @@ export function NewAgentTab({ tabId }: { tabId: string }) {
   useEffect(() => {
     if (started) useWorkbench.getState().rename(tabId, `ask-${started}`);
   }, [started]);
-  const start = (text: string) => convo.send(text, (nonce) => api.ask({ prompt: text, workSlug: slug, pr, nonce }));
+  const start = (text: string, files: UploadRef[] = []) => convo.send(text, (nonce) => api.ask({ prompt: text, workSlug: slug, pr, nonce, attachments: files.map((f) => f.id) }), files);
   return (
     <div className="dp-tabview dp-agtab">
       <div className="dp-vbar"><Icon name="bot" size={14} /><span className="dp-title">New agent</span><span className="dp-chip">{pr ? prLabel(pr) : 'work'}</span></div>
@@ -69,7 +71,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const { slug } = useWork();
   const id = tabId.slice(4);
   const convo = useAskConversation('ask', { kind: 'work', slug });
-  const { run, events, pending, working } = convo;
+  const { run, events, pending, working, cards, mergeCard } = convo;
   const listed = useWorkAgent(slug, tabId);
   const { pending: asked } = usePendingPermissions();
   useEffect(() => {
@@ -80,14 +82,15 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   return (
     <div className="dp-tabview dp-agtab">
       <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
-      <Log size={events.length + pending.length}>
-        {run && <Conversation run={run} events={events} pending={pending} working={working} />}
+      <Log size={events.length + pending.length + cards.length}>
+        {run && <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />}
         {run && <Proposals run={run} onApplied={(s) => { location.hash = `#/work/${s}`; }} />}
       </Log>
+      <CardsWaiting cards={cards} />
       <Composer
         placeholder="Follow up, correct or narrow it down (⌘↵)"
         note={state === 'archived' ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : ''}
-        onSend={(text) => convo.send(text)}
+        onSend={(text, files) => convo.send(text, undefined, files)}
       />
     </div>
   );
@@ -96,8 +99,10 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
 // any Paseo agent of the work: its timeline replayed then followed, the owner's messages included
 function useAgentChat(agentId: string) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
-  const [pending, setPending] = useState<{ nonce: string; text: string }[]>([]);
+  const [pending, setPending] = useState<{ nonce: string; text: string; attachments?: UploadRef[] }[]>([]);
+  const { cards, merge, setCards } = useCardList();
   useEffect(() => {
+    setCards([]);
     const es = new EventSource(`/api/agent-chat/${encodeURIComponent(agentId)}/events`);
     es.onopen = () => setEvents([]);
     es.onmessage = (m) => {
@@ -105,13 +110,14 @@ function useAgentChat(agentId: string) {
       setEvents((prev) => [...prev, ev]);
       if (ev.type === 'user') setPending((p) => p.filter((x) => x.text !== ev.text));
     };
+    followCards(es, agentId, merge);
     return () => es.close();
   }, [agentId]);
-  const send = async (text: string) => {
+  const send = async (text: string, files: UploadRef[] = []) => {
     const nonce = nonceOf();
-    setPending((p) => [...p, { nonce, text }]);
+    setPending((p) => [...p, { nonce, text, ...(files.length ? { attachments: files } : {}) }]);
     try {
-      await api.agentSay(agentId, text);
+      await api.agentSay(agentId, text, files.map((f) => f.id));
       return true;
     } catch (e) {
       setPending((p) => p.filter((x) => x.nonce !== nonce));
@@ -119,14 +125,14 @@ function useAgentChat(agentId: string) {
       return false;
     }
   };
-  return { events, pending, send };
+  return { events, pending, send, cards, merge };
 }
 
 // ag-<agent>: a review, fix, gate, brief or linked agent
 export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const { slug } = useWork();
   const agentId = tabId.slice(3);
-  const { events, pending, send } = useAgentChat(agentId);
+  const { events, pending, send, cards, merge } = useAgentChat(agentId);
   const listed = useWorkAgent(slug, tabId);
   const { pending: asked } = usePendingPermissions();
   const state = listed ? stateOf(listed, asked) : 'done';
@@ -134,10 +140,11 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   return (
     <div className="dp-tabview dp-agtab">
       <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} />
-      <Log size={events.length + pending.length}>
-        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running'} who={listed?.kind || 'agent'} />
+      <Log size={events.length + pending.length + cards.length}>
+        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running'} who={listed?.kind || 'agent'} cards={cards} onCard={merge} />
         <PendingPermissions agentId={agentId} />
       </Log>
+      <CardsWaiting cards={cards} />
       <Composer
         placeholder={archived ? 'This agent is archived' : 'Message this agent (⌘↵)'}
         note={archived ? 'Archived: + in Agents starts a new one' : state === 'running' ? 'Sends while it works' : ''}

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
-import type { ActivityEvent, AskRun, AskScope } from '../../types.ts';
+import type { ActivityEvent, AskRun, AskScope, UploadRef } from '../../types.ts';
+import { useAgentCards } from './cards.ts';
 
 export type Run = Partial<AskRun> & { id: string };
-export type Pending = { nonce: string; text: string };
+export type Pending = { nonce: string; text: string; attachments?: UploadRef[] };
 
 // conversation states (older one-shot runs read done or error): status dot, chip tone, label, short label
 type AskState = { dot: string; tone: string; label: string; short: string };
@@ -44,6 +45,7 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
       const ev: ActivityEvent = JSON.parse(m.data);
       setEvents((prev) => [...prev, ev]);
       if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
+      if (ev.type === 'meta' && ev.text?.startsWith('Paseo agent ')) api.askConversation(conv.id).then((c) => c.agentId && setRun((r) => r && r.id === c.id ? { ...r, agentId: c.agentId } : r), () => {});
       if (ev.type === 'end' || ev.type === 'closed') {
         setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, dispatchProposal: ev.dispatchProposal || r.dispatchProposal, repoProposal: ev.repoProposal || r.repoProposal, agentId: ev.agentId || r.agentId });
         loadHistory();
@@ -51,11 +53,11 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
     };
   };
   // the first message starts the conversation through start(nonce), any later one goes to its agent
-  const send = async (text: string, start?: (nonce: string) => Promise<{ id: string }>) => {
+  const send = async (text: string, start?: (nonce: string) => Promise<{ id: string }>, files: UploadRef[] = []) => {
     const nonce = nonceOf();
-    setPending((p) => [...p, { nonce, text }]);
+    setPending((p) => [...p, { nonce, text, ...(files.length ? { attachments: files } : {}) }]);
     try {
-      if (run) await api.askSay(run.id, { text, nonce });
+      if (run) await api.askSay(run.id, { text, nonce, ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
       else {
         if (!start) throw new Error('no conversation to start');
         const { id } = await start(nonce);
@@ -82,6 +84,7 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
   const mark = events.findLast((e) => e.type === 'user' || e.type === 'end' || e.type === 'closed');
   const working = pending.length > 0 || mark?.type === 'user';
   const state = working ? 'running' : mark?.conversation || run?.status || null;
-  return { run, events, pending, history, working, state, watch, send, open, reset, loadHistory };
+  const { cards, merge: mergeCard } = useAgentCards(run?.agentId, run?.id);
+  return { run, events, pending, history, working, state, cards, mergeCard, watch, send, open, reset, loadHistory };
 }
 export type AskConvo = ReturnType<typeof useAskConversation>;

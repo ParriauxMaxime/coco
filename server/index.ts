@@ -34,12 +34,14 @@ import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
 import { createWorktrees } from './worktrees.ts';
 import { createPurge } from './purge.ts';
+import { createUploads } from './uploads.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
 import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
 import { createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
+import { createCards } from './cards.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
@@ -64,6 +66,7 @@ interface FeedbackItem {
 }
 
 fs.mkdirSync(DATA, { recursive: true });
+const uploads = createUploads({ DATA });
 const agentUsage = createAgentUsage(path.join(DATA, 'agent-usage.json'));
 const paseoAgents = createPaseoAgents({ APP, usage: agentUsage });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
@@ -77,7 +80,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), addRepo: (source) => repoAdder.add(source) });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), addRepo: (source) => repoAdder.add(source), uploads });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -125,7 +128,12 @@ const permissions = createPermissions({
 permissions.onAgent((a) => {
   if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
 });
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get });
+// an Ask agent's answer goes through its conversation, so the turn it opens is logged there
+const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), deliver: async (agentId, text) => {
+  const conv = ask.byAgent(agentId);
+  return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
+} });
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
@@ -368,6 +376,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
+    if (root === 'uploads') return uploads.handle(req, res, parts, send);
     if (root === 'inbox') return inbox.handle(req, res, parts, readBody, send);
     if (root === 'pack') return pack.handle(req, res, parts, readBody, send);
     if (root === 'setup') return setup.handle(req, res, parts, readBody, send);
@@ -385,6 +394,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'kit') return kit.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'stack-keeper') return stackKeeper.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
+    if (root === 'cards' || (root === 'agent-chat' && b === 'cards')) return cards.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'agents') || root === 'agent-chat') return workAgents.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);

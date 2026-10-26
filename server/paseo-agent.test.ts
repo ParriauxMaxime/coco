@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { COCO_MCP_TOOLS, createFollower, createPaseoAgents, daemonUrl, workCwd } from './paseo-agent.ts';
+import { CARDS_LINE, COCO_MCP_TOOLS, createFollower,createPaseoAgents, daemonUrl, workCwd } from './paseo-agent.ts';
 import type { DaemonAgent, Entry, Started, TimelineEvent, ToolDetail, ToolStart, WaitResult, WorkspaceEntry, WorkspaceHandle } from './paseo-agent.ts';
 import { createAsk } from './ask.ts';
 import { createNotionSync } from './notion.ts';
@@ -142,7 +142,7 @@ test('run starts the agent in the workspace already open on its directory, waits
   assert.equal(created.prompt, undefined);
   assert.deepEqual(created.labels, { source: 'cocopilot', kind: 'ask', comments: '2' });
   const { toolPolicy, ...config } = created.config;
-  assert.deepEqual(config, { provider: 'claude/opus', modeId: 'auto', systemPrompt: 'You are coco.', mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [`${APP}/server/mcp.ts`], alwaysLoad: true } } });
+  assert.deepEqual(config, { provider: 'claude/opus', modeId: 'auto', systemPrompt: `You are coco.\n${CARDS_LINE}`, mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [`${APP}/server/mcp.ts`], alwaysLoad: true } }, options: { disallowedTools: ['AskUserQuestion'] } });
   assert.deepEqual(toolPolicy?.preapproved.map((ref) => `${ref.server}.${ref.tool}`), COCO_MCP_TOOLS.map((tool) => `cocopilot.${tool}`));
   assert.deepEqual(daemon.calls.sent, ['Plan the widgets export']);
   assert.deepEqual(daemon.calls.archived, [AGENT]);
@@ -247,7 +247,8 @@ test('a Notion sync runs in the work workspace on the fast model and reads the J
   const [created] = daemon.calls.agents;
   assert.equal(created.workspaceId, 'wks_widgets');
   assert.equal(created.config.provider, config.models.fast);
-  assert.equal(created.config.mcpServers, undefined);
+  assert.deepEqual(Object.keys(created.config.mcpServers ?? {}), ['cocopilot']);
+  assert.match(String(created.config.systemPrompt), /cocopilot ask tool/);
   assert.deepEqual(created.labels, { source: 'cocopilot', kind: 'notion-apply', work: 'widgets' });
   assert.equal(JSON.parse(fs.readFileSync(log, 'utf8')).agentId, AGENT);
 });

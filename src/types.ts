@@ -268,6 +268,46 @@ export type Block =
   | { type: 'media'; kind?: string; src: string; caption?: string };
 export type Source = { label: string; url?: string; path?: string };
 
+export type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
+export type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number };
+export type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
+export type CardRow = { key: string; cells: TableCell[]; recommended?: string | boolean };
+export type CardValue = string | number | boolean;
+export type CardAnswer = {
+  at: string;
+  picked?: string[];
+  rows?: string[];
+  rowPicks?: Record<string, string>;
+  values?: Record<string, CardValue>;
+  approved?: boolean;
+  other?: string;
+};
+export type CardAnswerBody = Omit<CardAnswer, 'at'>;
+export type Card = {
+  id: string;
+  agentId: string;
+  work: string | null;
+  pr: string | null;
+  kind: CardKind;
+  title: string;
+  question?: string;
+  blocks?: Block[];
+  options?: CardOption[];
+  multi?: boolean;
+  columns?: string[];
+  rows?: CardRow[];
+  select?: 'many' | 'one';
+  rowOptions?: CardOption[];
+  fields?: CardField[];
+  confirmLabel?: string;
+  rejectLabel?: string;
+  other?: boolean;
+  status: 'open' | 'answered' | 'cancelled';
+  createdAt: string;
+  answer?: CardAnswer;
+  delivery?: { at: string; ok: boolean; error?: string };
+};
+
 export type ActivityEvent = {
   type: string;
   id?: string;
@@ -293,7 +333,10 @@ export type ActivityEvent = {
   request?: PermissionRequest;
   requestId?: string;
   resolution?: unknown;
+  attachments?: UploadRef[];
 };
+// a file uploaded for a message to an agent, served back at /api/uploads/<id>
+export type UploadRef = { id: string; fileName: string; mimeType: string; size: number };
 
 export type PermissionAction = { id: string; label: string; behavior: 'allow' | 'deny'; variant?: string; intent?: string };
 export type PermissionRequest = { id: string; provider?: string; name: string; kind: string; title?: string; description?: string; input?: Record<string, unknown>; detail?: unknown; suggestions?: Record<string, unknown>[]; actions?: PermissionAction[]; metadata?: Record<string, unknown> };
@@ -487,10 +530,10 @@ export type AskRun = {
   agentId?: string | null;
   cost?: number | null;
 };
-export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: string | null; repoId?: string | null; nonce: string };
+export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: string | null; repoId?: string | null; nonce: string; attachments?: string[] };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null } & AgentMetrics;
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards?: number } & AgentMetrics;
 // estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them
 export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
 export type WorkAgents = { agents: WorkAgent[]; serverId: string | null; error?: string };

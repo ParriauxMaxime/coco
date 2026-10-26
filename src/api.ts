@@ -6,6 +6,8 @@ import type {
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
+import type { Card, CardAnswerBody } from './types.ts';
+import type { UploadRef } from './types.ts';
 
 export type * from './types.ts';
 
@@ -112,10 +114,15 @@ export const api = {
   plan: (slug: string) => get<WorkPlan>(`${works(slug)}/plan`),
   asks: (scope?: string) => get<AskRun[]>(`/api/ask${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`),
   ask: (body: AskStartBody) => post<{ id: string }>('/api/ask', body),
-  askSay: (id: string, body: { text: string; nonce: string }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
+  askSay: (id: string, body: { text: string; nonce: string; attachments?: string[] }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
   workAgents: (slug: string) => get<WorkAgents>(`${works(slug)}/agents`),
-  agentSay: (agentId: string, text: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text }).then(jsonOrError<{ ok: boolean }>),
+  agentSay: (agentId: string, text: string, attachments: string[] = []) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text, ...(attachments.length ? { attachments } : {}) }).then(jsonOrError<{ ok: boolean }>),
+  upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
+  dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
+  cards: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/cards`).then(jsonOrError<Card[]>),
+  answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),
+  cancelCard: (id: string) => postJson(`/api/cards/${encodeURIComponent(id)}/cancel`).then(jsonOrError<Card>),
   startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
   askDispatch: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/dispatch`),
   askAddRepo: (id: string) => postJson(`/api/ask/${id}/add-repo`).then(jsonOrError<AddRepoResult>),

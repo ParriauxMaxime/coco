@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
+import { CardsWaiting } from '../chat/Card.tsx';
 import { Composer, Log } from '../chat/Composer.tsx';
 import Conversation from '../chat/Conversation.tsx';
 import { Proposals } from '../chat/Proposals.tsx';
 import { askState, useAskConversation } from '../chat/conversation.ts';
 import { Empty, Loading, PageHead } from './Page.tsx';
-import type { AskRun } from '../../types.ts';
+import type { AskRun, UploadRef } from '../../types.ts';
 import './ask-page.css';
 
 const EXAMPLES = [
@@ -45,7 +46,7 @@ function ConvRow({ h, on, live }: { h: AskRun; on: boolean; live?: string | null
 
 export default function AskPage({ convId }: { convId?: string }) {
   const convo = useAskConversation('ask', { kind: 'global' });
-  const { run, events, pending, working, state, history: past, open, reset, send } = convo;
+  const { run, events, pending, working, state, history: past, open, reset, send, cards, mergeCard } = convo;
   const [closing, setClosing] = useState(false);
   useEffect(() => {
     if (convId && run?.id !== convId) api.askConversation(convId).then(open, (e) => toast.error(errorMessage(e)));
@@ -56,7 +57,7 @@ export default function AskPage({ convId }: { convId?: string }) {
     dispatchEvent(new HashChangeEvent('hashchange'));
   }, [run?.id]);
 
-  const start = (text: string) => send(text, (nonce) => api.ask({ prompt: text, nonce }));
+  const start = (text: string, files: UploadRef[] = []) => send(text, (nonce) => api.ask({ prompt: text, nonce, attachments: files.map((f) => f.id) }), files);
   const fresh = () => {
     if (run && state === 'idle') api.closeAsk(run.id).catch(() => {});
     reset();
@@ -99,14 +100,15 @@ export default function AskPage({ convId }: { convId?: string }) {
                 <span className="dp-sp" />
                 {(state === 'idle' || state === 'running') && <button type="button" className="dp-btn dp-sm" disabled={closing} title="Archive coco's agent; a new message starts a new one with the conversation so far" onClick={() => void close()}><Icon name="archive" size={12} />Close</button>}
               </div>
-              <Log size={events.length + pending.length}>
-                <Conversation run={run} events={events} pending={pending} working={working} />
+              <Log size={events.length + pending.length + cards.length}>
+                <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />
                 <Proposals run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
               </Log>
+              <CardsWaiting cards={cards} />
               <Composer
                 placeholder="Follow up, correct or narrow it down (⌘↵)"
                 note={ended ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : 'It reads and proposes; you apply. Nothing is pushed, posted or sent.'}
-                onSend={(text) => send(text)}
+                onSend={(text, files) => send(text, undefined, files)}
               />
             </>
           ) : convId ? (

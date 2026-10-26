@@ -7,6 +7,7 @@ import { rowKey } from './stack.ts';
 import { promptSize, systemSize } from './agent-usage.ts';
 import type { UsageStore } from './agent-usage.ts';
 import type { PermissionClient, PermissionRequest } from './permissions.ts';
+import type { UploadRef } from './uploads.ts';
 
 export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 export const TITLE_PREFIX = 'coco · ';
@@ -16,7 +17,9 @@ const TIMEOUT_MS = 15 * 60 * 1000;
 const HOME = os.homedir();
 const COCO_TOOL = /^mcp__cocopilot__(propose_\w+|dispatch)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
-export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch'];
+export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks'];
+// every coco agent's one line on cards (docs/agent-io.md); Claude agents also lose AskUserQuestion
+export const CARDS_LINE = 'Ask the user only with the cocopilot ask tool, never AskUserQuestion: it returns at once and the answer comes back later as a new user message, so end your turn or keep working. Show rich results (tables, diagrams, code) with cocopilot post_blocks.';
 
 type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[], opts?: Record<string, unknown>) => Promise<ExecResult>;
@@ -30,7 +33,7 @@ type TimelineMessage = { agentId?: string; event?: TimelineEvent } | null;
 export type Entry = { type: string; text?: string; id?: string | null; name?: string; kind?: string; input?: unknown; output?: string; status?: string; error?: string | null };
 export type ToolStart = { type: 'tool'; id?: string; name?: string; kind: string; input: unknown; text: string; output: string; status: string; error: string | null };
 export type PermissionEvent = { type: 'permission'; agentId: string | null; request: PermissionRequest } | { type: 'permission_resolved'; agentId: string | null; requestId: string; resolution: unknown };
-export type ActivityEvent = { type: string; id?: string | null; name?: string; kind?: string; summary?: string; input?: string; output?: string; status?: string; text?: string; agentId?: string | null; request?: PermissionRequest; requestId?: string; resolution?: unknown };
+export type ActivityEvent = { type: string; id?: string | null; name?: string; kind?: string; summary?: string; input?: string; output?: string; status?: string; text?: string; agentId?: string | null; request?: PermissionRequest; requestId?: string; resolution?: unknown; attachments?: UploadRef[] };
 export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text: string, kind?: 'text' | 'think') => void; onToolStart?: (e: ToolStart) => void; onPermission?: (e: PermissionEvent) => void };
 export type WaitResult = { status: string; error?: string | null; lastMessage?: string | null; final?: { lastUsage?: { totalCostUsd?: number } | null } | null };
 type Unsubscribe = (() => void) & { ready?: Promise<unknown> };
@@ -42,9 +45,9 @@ export type DaemonAgent = {
   cwd?: string | null;
   status?: string | null;
   timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
-  send(text: string, opts?: { activeTurnBehavior?: string }): Promise<unknown>;
+  send(text: string, opts?: { activeTurnBehavior?: string } & AgentInput): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string> } | null } | null>;
   archive(): Promise<unknown>;
 } & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };
@@ -291,12 +294,14 @@ export type Started = { agentId: string; workspaceId: string | null | undefined;
 type AgentConfig = { provider?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
 // every coco agent works on its own; a brief saying not to touch code is what keeps one read-only
 const AGENT_MODE = 'auto';
-type StartOptions = AgentConfig & { title: string; prompt?: string; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
+// files sent with a message: images inline, other files by path (Paseo's uploaded_file attachment)
+export type AgentInput = { images?: { data: string; mimeType: string }[]; attachments?: { type: 'uploaded_file'; id: string; fileName: string; mimeType: string; size: number; path: string }[]; messageId?: string };
+type StartOptions = AgentConfig & { title: string; prompt?: string; input?: AgentInput; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
 export type SessionOptions = Omit<StartOptions, 'prompt' | 'title'> & { title?: string } & FollowerCallbacks & { agentId?: string | null; flush?: () => void };
 export type AgentSession = Started & {
   busy(): boolean;
   cwd(): string | null;
-  say(text: string, opts?: { timeoutMs?: number }): Promise<Outcome | { steered: true }>;
+  say(text: string, opts?: { timeoutMs?: number; input?: AgentInput }): Promise<Outcome | { steered: true }>;
   resume(opts?: { timeoutMs?: number }): Promise<Outcome>;
   detach(): void;
   close(): Promise<void>;
@@ -340,25 +345,31 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     return { workspace, created: true };
   }
 
-  const configFor = ({ provider, thinking, systemPrompt, mcp }: AgentConfig) => ({
-    provider,
-    modeId: AGENT_MODE,
-    ...(thinking ? { thinkingOptionId: thinking } : {}),
-    ...(systemPrompt ? { systemPrompt } : {}),
-    ...(mcp
-      ? {
-          mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true } },
-          toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) },
-        }
-      : {}),
-  });
+  const configFor = ({ provider, thinking, systemPrompt, mcp = true }: AgentConfig) => {
+    const system = mcp ? [systemPrompt, CARDS_LINE].filter(Boolean).join('\n') : systemPrompt;
+    return {
+      provider,
+      modeId: AGENT_MODE,
+      ...(thinking ? { thinkingOptionId: thinking } : {}),
+      ...(system ? { systemPrompt: system } : {}),
+      ...(mcp
+        ? {
+            mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true } },
+            toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) },
+            ...(String(provider).startsWith('claude/') ? { options: { disallowedTools: ['AskUserQuestion'] } } : {}),
+          }
+        : {}),
+    };
+  };
   const cleanLabels = (labels?: Record<string, unknown>) => Object.fromEntries(Object.entries(labels || {}).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)]));
 
   // places and creates the agent; with a prompt it starts right away, coco does not follow it
-  async function start({ title, prompt, labels, cwd = null, workspaceId = null, worktree = null, ...config }: StartOptions) {
+  async function start({ title, prompt, input, labels, cwd = null, workspaceId = null, worktree = null, ...config }: StartOptions) {
     const { workspace, created } = workspaceId ? { workspace: (await client()).workspaces.ref(workspaceId), created: false } : worktree ? await worktreeWorkspace(cwd, worktree) : await workspaceFor(cwd ?? '');
-    const agent = await workspace.agents.create({ title: cocoTitle(title), config: configFor(config), labels: cleanLabels(labels), ...(prompt ? { prompt } : {}) });
-    usage?.record(agent.id, { ...promptSize(prompt), ...systemSize(config.systemPrompt) });
+    const { messageId, ...files } = input || {};
+    const agentConfig = configFor(config);
+    const agent = await workspace.agents.create({ title: cocoTitle(title), config: agentConfig, labels: cleanLabels(labels), ...(prompt ? { prompt, ...files, ...(messageId ? { clientMessageId: messageId } : {}) } : {}) });
+    usage?.record(agent.id, { ...promptSize(prompt), ...systemSize(agentConfig.systemPrompt) });
     return { agent, agentId: agent.id, workspaceId: workspace.id, createdWorkspace: created ? workspace.id : null };
   }
 
@@ -438,13 +449,13 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     ready?.catch(() => {});
     // messages leave in order, once the timeline is followed; one reaching a busy agent joins its turn
     let sending: Promise<unknown> = Promise.resolve();
-    const deliver = (text: string) => (sending = sending.catch(() => {}).then(() => ready).then(() => agent.send(text, { activeTurnBehavior: 'steer' })));
+    const deliver = (text: string, input?: AgentInput) => (sending = sending.catch(() => {}).then(() => ready).then(() => agent.send(text, { activeTurnBehavior: 'steer', ...input })));
     let inFlight: Promise<Outcome> | null = null;
     let steered = false;
     let first = !agentId;
 
     // prompt null waits on the turn the agent is already in; waits through permissions answered in coco or Paseo and a steer landing as the turn ends
-    async function turn(prompt: string | null, timeoutMs: number): Promise<Outcome> {
+    async function turn(prompt: string | null, timeoutMs: number, input?: AgentInput): Promise<Outcome> {
       follow = createFollower(callbacks);
       steered = false;
       if (first && prompt !== null) usage?.record(started.agentId, promptSize(prompt), { onlyIfMissing: true });
@@ -452,7 +463,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
       const deadline = Date.now() + timeoutMs;
       let result: WaitResult;
       try {
-        await (prompt === null ? ready : deliver(prompt));
+        await (prompt === null ? ready : deliver(prompt, input));
         result = await agent.waitForFinish(timeoutMs);
         for (let left; (left = deadline - Date.now()) > 0; ) {
           if (result.status === 'permission') await follow.nextSettle(left);
@@ -477,10 +488,10 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
       ...started,
       busy: () => Boolean(inFlight),
       cwd: () => agent.cwd || null,
-      say(text, { timeoutMs = TIMEOUT_MS } = {}) {
-        if (!inFlight) return track(turn(text, timeoutMs));
+      say(text, { timeoutMs = TIMEOUT_MS, input } = {}) {
+        if (!inFlight) return track(turn(text, timeoutMs, input));
         steered = true;
-        return deliver(text).then(() => ({ steered: true }));
+        return deliver(text, input).then(() => ({ steered: true }));
       },
       resume: ({ timeoutMs = TIMEOUT_MS } = {}) => inFlight || track(turn(null, timeoutMs)),
       // stops following; the agent lives on

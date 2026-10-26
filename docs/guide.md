@@ -746,6 +746,17 @@ updates the work (stack with planned PRs and their personas, surface table,
 open questions, notes, next steps). Runs are kept in `data/asks/`. The same
 MCP server can be mounted in any Paseo agent or Codex.
 
+## Agent cards (how agents show and ask)
+
+Every agent coco starts mounts the cocopilot MCP server and talks to you
+through cards: `post_blocks` shows a result (tables, diagrams, code), `ask`
+puts a question on a card (choice, rows, form, confirm) and returns at once;
+your answer, or your dismissal, reaches the agent as a new message, steered
+into its turn when it is working. An agent with an open card shows as
+waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
+`data/cards/`; routes, shapes and delivery are in
+[agent-io.md](agent-io.md).
+
 ## Team pack (share with teammates)
 
 The **Team pack** card on the Dashboard zips what a teammate needs to work

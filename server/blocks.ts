@@ -37,7 +37,7 @@ const tone = (v: unknown, field: string): Tone | undefined => {
 };
 const strip = (o: Raw): Raw => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
-const cell = (c: Raw | string | number, at: string): Cell => (typeof c === 'string' || typeof c === 'number' ? String(c).slice(0, 300) : { text: str(String(c?.text ?? ''), 300, `${at}.text`), ...strip({ tone: tone(c?.tone, `${at}.tone`) }) });
+export const cell = (c: Raw | string | number, at: string): Cell => (typeof c === 'string' || typeof c === 'number' ? String(c).slice(0, 300) : { text: str(String(c?.text ?? ''), 300, `${at}.text`), ...strip({ tone: tone(c?.tone, `${at}.tone`) }) });
 
 const TYPES: Record<string, (b: Raw, at: string) => Raw> = {
   text: (b: Raw, at: string) => ({ text: str(b.text, MAX_TEXT, `${at}.text`) }),

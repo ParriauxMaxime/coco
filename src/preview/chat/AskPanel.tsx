@@ -3,19 +3,20 @@ import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import { pendingClass } from '../../components/action.ts';
 import Icon from '../Icon.tsx';
+import { CardsWaiting } from './Card.tsx';
 import { Composer, Log } from './Composer.tsx';
 import Conversation from './Conversation.tsx';
 import { Proposals } from './Proposals.tsx';
 import { askState, useAskConversation } from './conversation.ts';
 import type { AskConvo } from './conversation.ts';
-import type { AskRun } from '../../types.ts';
+import type { AskRun, UploadRef } from '../../types.ts';
 import './chat.css';
 
-type StartFn = (prompt: string, nonce: string) => Promise<{ id: string }>;
+type StartFn = (prompt: string, nonce: string, files: UploadRef[]) => Promise<{ id: string }>;
 
 // a conversation in a box: its header, messages, then the composer that stays open while coco works
 export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: AskConvo; start?: StartFn; placeholder: string; examples?: string[] }) {
-  const { run, events, pending, working, state, send, reset } = convo;
+  const { run, events, pending, working, state, send, reset, cards, mergeCard } = convo;
   const [closing, setClosing] = useState(false);
   const st = askState(state);
   const close = async () => {
@@ -34,7 +35,7 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
     if (run && state === 'idle') api.closeAsk(run.id).catch(() => {});
     reset();
   };
-  const ask = (text: string) => send(text, start && ((nonce) => start(text, nonce)));
+  const ask = (text: string, files: UploadRef[] = []) => send(text, start && ((nonce) => start(text, nonce, files)), files);
   return (
     <div className="dp-box dp-askpanel">
       {run && (
@@ -48,7 +49,8 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
             {(state === 'idle' || state === 'running') && <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(closing)}`} disabled={closing} title="Archive coco's agent; a new message starts a new one with the conversation so far" onClick={close}><Icon name="archive" size={12} />Close</button>}
             <button type="button" className="dp-btn dp-sm" onClick={fresh}><Icon name="plus" size={12} />New conversation</button>
           </div>
-          <Log size={events.length + pending.length} className="dp-askpanel-log"><Conversation run={run} events={events} pending={pending} working={working} /></Log>
+          <Log size={events.length + pending.length + cards.length} className="dp-askpanel-log"><Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} /></Log>
+          <CardsWaiting cards={cards} />
         </>
       )}
       {!run && examples.length > 0 && (
@@ -81,7 +83,7 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
       <p className="dp-repoask-lead">Coco for {repo}, on its main checkout: scaffolds new works in this repo and answers about its code and PRs. {SAFE}</p>
       <AskPanel
         convo={convo}
-        start={(prompt, nonce) => api.ask({ prompt, repoId, nonce })}
+        start={(prompt, nonce, files) => api.ask({ prompt, repoId, nonce, attachments: files.map((f) => f.id) })}
         examples={REPO_EXAMPLES}
         placeholder={run ? 'Follow up, correct or narrow it down (markdown, ⌘↵)' : `Scaffold a work in ${repo} for … / Who reviews … (⌘↵)`}
       />

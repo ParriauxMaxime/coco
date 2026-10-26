@@ -7,6 +7,9 @@ import { fromPaseo } from './agent-usage.ts';
 import type { AgentUsage, PaseoUsage } from './agent-usage.ts';
 import type { AgentSnapshot } from './permissions.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
+import { randomUUID } from 'node:crypto';
+import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
+import type { Upload, UploadRef, Uploads } from './uploads.ts';
 
 const PAGE = 200;
 const SETTLE_MS = 500;
@@ -18,7 +21,9 @@ export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // id is the agent's tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null } & Metrics;
 // estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
-type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
+// openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
+type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; openCards: number };
+type CardFeed = { ofAgent(agentId: string): unknown[]; openCount(agentId: string): number; onChange(l: (agentId: string) => void): () => void };
 
 type AskMeta = { id: string; prompt: string; kind: string; pr?: RowKey | null; status: string; agentId: string | null; lastActivity?: string; startedAt: string };
 type Linked = { agentId: string; key: RowKey; title: string | null };
@@ -29,7 +34,10 @@ type Options = {
   onAgent: (l: (agent: AgentSnapshot | null) => void) => () => void;
   serverId: () => Promise<string | null>;
   usage?: (agentId: string) => AgentUsage | null;
+  cards?: CardFeed;
+  uploads?: Pick<Uploads, 'resolve' | 'record' | 'pairer' | 'latest'>;
 };
+const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
 const statusOf = (a: { archivedAt?: unknown; status?: string | null }): WorkAgentStatus => (a.archivedAt || a.status === 'closed' ? 'archived' : a.status === 'error' ? 'failed' : a.status === 'idle' ? 'done' : 'running');
 const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 'done', error: 'failed' };
@@ -37,13 +45,13 @@ const titleOf = (title: string | null | undefined, id: string) => (title || '').
 
 const openStream = (res: Res) => res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
     const kept = agentId ? usage?.(agentId) : null;
     const now = fromPaseo(live);
-    return { promptTokens: kept?.promptTokens ?? null, systemTokens: kept?.systemTokens ?? null, inputTokens: now.inputTokens ?? kept?.inputTokens ?? null, costUsd: now.costUsd ?? kept?.costUsd ?? null };
+    return { promptTokens: kept?.promptTokens ?? null, systemTokens: kept?.systemTokens ?? null, inputTokens: now.inputTokens ?? kept?.inputTokens ?? null, costUsd: now.costUsd ?? kept?.costUsd ?? null, openCards: agentId ? cards?.openCount(agentId) ?? 0 : 0 };
   };
 
   async function list(slug: string): Promise<WorkAgent[]> {
@@ -86,9 +94,11 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     const off = onAgent((a) => {
       if (!a || a.labels?.work === slug || ids.has(a.id)) soon();
     });
+    const offCards = cards?.onChange((id) => ids.has(id) && soon());
     const tick = setInterval(soon, REFRESH_MS);
     req.on('close', () => {
       off();
+      offCards?.();
       clearInterval(tick);
       if (timer) clearTimeout(timer);
     });
@@ -98,21 +108,26 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   async function watchChat(req: Req, res: Res, agentId: string) {
     openStream(res);
     const write = (ev: ActivityEvent) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    const writeCards = () => cards && res.write(`event: cards\ndata: ${JSON.stringify(cards.ofAgent(agentId))}\n\n`);
+    writeCards();
+    const offCards = cards?.onChange((id) => id === agentId && writeCards());
     let off: (() => void) | null = null;
     let closed = false;
     req.on('close', () => {
       closed = true;
       off?.();
+      offCards?.();
     });
     try {
       const agent = (await client()).agents.ref(agentId);
       if (!(await agent.refresh())?.agent) return write({ type: 'meta', text: 'Paseo no longer knows this agent' });
       const stream = activityEvents({ keep: write, live: write });
       const past = createFollower({ onEntry: stream.onEntry, agentId });
+      const filesOf = uploads?.pairer(agentId);
       for (const { item } of await timelineOf(agent)) {
         if (item?.type === 'user_message') {
           past.end();
-          write({ type: 'user', text: item.text });
+          write({ type: 'user', text: item.text, ...withFiles(filesOf?.(item)) });
         } else if (item) past.push({ agentId, event: { type: 'timeline', item } });
       }
       past.end();
@@ -123,7 +138,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         if (ev?.type === 'timeline' && ev.item?.type === 'user_message') {
           live.end();
           stream.flush();
-          return write({ type: 'user', text: ev.item.text });
+          return write({ type: 'user', text: ev.item.text, ...withFiles(uploads?.latest(agentId, ev.item)) });
         }
         live.push(m);
         if (ev && TURN_END.includes(ev.type)) write({ type: 'end', status: ev.type.slice(5) });
@@ -133,13 +148,22 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  async function say(agentId: string, text: string) {
+  // files go along as Paseo images and attachments; coco records them since Paseo's timeline keeps only the text
+  async function say(agentId: string, text: string, files: Upload[] = []) {
     const agent = (await client()).agents.ref(agentId);
     const found = (await agent.refresh())?.agent;
     if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
     if (statusOf(found) === 'archived') throw new HttpError(409, 'this agent is archived');
-    await agent.send(text, { activeTurnBehavior: 'steer' });
+    const messageId = files.length ? randomUUID() : null;
+    if (messageId) uploads?.record(agentId, { messageId, text, at: new Date().toISOString(), attachments: files.map(uploadRef) });
+    await agent.send(text, { activeTurnBehavior: 'steer', ...(messageId ? { ...agentInput(files), messageId } : {}) });
     return { ok: true };
+  }
+
+  // the work and stack row an agent's labels name
+  async function placeOf(agentId: string) {
+    const labels = (await (await client()).agents.ref(agentId).refresh())?.agent?.labels;
+    return { work: labels?.work || null, pr: labels?.pr ? labels.pr.replaceAll('~', ':') : null };
   }
 
   // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>/events · POST /api/agent-chat/<agentId>/messages
@@ -150,9 +174,11 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
       if (root === 'agent-chat' && a && b === 'events') return await watchChat(req, res, a);
       if (root === 'agent-chat' && a && b === 'messages' && req.method === 'POST') {
-        const { text } = JSON.parse((await readBody(req)) || '{}');
-        if (!String(text || '').trim()) throw new HttpError(400, 'text required');
-        return send(res, 200, await say(a, String(text).trim()));
+        const { text, attachments } = JSON.parse((await readBody(req)) || '{}');
+        const files = uploads?.resolve(attachments) ?? [];
+        const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
+        if (!said) throw new HttpError(400, 'text required');
+        return send(res, 200, await say(a, said, files));
       }
       return send(res, 404, { error: 'no route' });
     } catch (e) {
@@ -160,5 +186,5 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  return { list, handle };
+  return { list, handle, say, placeOf };
 }

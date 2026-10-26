@@ -1,0 +1,22 @@
+.dp-upl-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.dp-upl-pend { padding: 10px 10px 0; }
+.dp-cv-u .dp-upl-list { margin: 2px 0 6px; }
+.dp-upl-img { position: relative; display: block; flex: none; width: 64px; height: 64px; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-subtle); overflow: hidden; }
+.dp-upl-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dp-cv-u .dp-upl-img { width: 132px; height: 96px; }
+.dp-cv-u a.dp-upl-img:hover { border-color: var(--dp-accent); }
+.dp-upl-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 260px; height: 32px; padding: 0 10px 0 8px; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-subtle); color: var(--dp-t1); font-size: 12px; line-height: 16px; text-decoration: none; }
+a.dp-upl-chip:hover { border-color: var(--dp-accent); }
+.dp-upl-chip svg.dp-i { color: var(--dp-t3); }
+.dp-upl-chip .dp-t3 { flex: none; }
+.dp-upl-pend .dp-upl-chip { padding-right: 28px; }
+.dp-upl-busy { opacity: .55; }
+.dp-upl-x { position: absolute; top: 3px; right: 3px; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--dp-panel) 88%, transparent); color: var(--dp-t2); cursor: pointer; box-shadow: var(--dp-sh-1); }
+.dp-upl-chip .dp-upl-x { top: 50%; right: 5px; transform: translateY(-50%); background: transparent; box-shadow: none; }
+.dp-upl-x:hover { background: var(--dp-hover); color: var(--dp-t1); }
+.dp-upl-x svg.dp-i { width: 12px; height: 12px; }
+.dp-upl-err { display: flex; align-items: flex-start; gap: 6px; margin: 8px 12px 0; color: var(--dp-bad); font-size: 12px; line-height: 16px; }
+.dp-upl-err svg.dp-i { margin-top: 2px; }
+.dp-composer-in.dp-upl-drag { border-color: var(--dp-accent); border-style: dashed; background: color-mix(in srgb, var(--dp-accent) 6%, var(--dp-panel)); }
+.dp-comp-f .dp-btn.dp-upl-clip { padding: 0 6px; color: var(--dp-t3); }
+.dp-comp-f .dp-btn.dp-upl-clip:hover:not(:disabled) { color: var(--dp-t1); }

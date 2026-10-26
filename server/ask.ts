@@ -5,8 +5,11 @@ import { randomUUID } from 'node:crypto';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, activityEvents, createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { AgentSession, Outcome } from './paseo-agent.ts';
+import { errorMessage, httpStatus } from './core-types.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
 import type { AddRepoResult } from './repos.ts';
+import { FILES_ONLY, agentInput, createUploads, uploadRef } from './uploads.ts';
+import type { Upload, Uploads } from './uploads.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
 // past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
@@ -93,9 +96,10 @@ type AskOptions = {
   dispatch?: (slug: string, input: { entry: string; key?: number | string; prompt?: string; persona?: string; edits?: boolean }) => Promise<{ title: string; agentId: string | null }>;
   // adds what a propose_repo call proposed, once the owner confirms it
   addRepo?: (source: string) => Promise<AddRepoResult>;
+  uploads?: Uploads;
 };
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo }: AskOptions) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo, uploads = createUploads({ DATA }) }: AskOptions) {
   const repos = config.repos || [];
   const where = async (scope: AskScope, pr: RowKey | null = null) => {
     if (place) return place(scope, pr);
@@ -267,15 +271,17 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   }
 
   // a message opens a turn, or steers the turn in flight; a parked or closed conversation gets a new agent
-  async function say(conv: Conv, text: string, { nonce = null }: { nonce?: unknown } = {}) {
+  async function say(conv: Conv, text: string, { nonce = null, files = [] }: { nonce?: unknown; files?: Upload[] } = {}) {
     const steer = conv.status === 'running';
-    push(conv, { type: 'user', text, ts: now(), ...(steer ? { steer: true } : {}), ...(nonce ? { nonce: String(nonce).slice(0, 40) } : {}) });
+    push(conv, { type: 'user', text, ts: now(), ...(steer ? { steer: true } : {}), ...(nonce ? { nonce: String(nonce).slice(0, 40) } : {}), ...(files.length ? { attachments: files.map(uploadRef) } : {}) });
     if (!steer) {
       conv.status = 'running';
       save(conv);
     }
     let s: AgentSession | null;
+    let input;
     try {
+      input = files.length ? agentInput(files) : undefined;
       s = await sessionOf(conv);
     } catch (e) {
       if (!steer) settle(conv, { status: 'error', error: e instanceof Error ? e.message : String(e) });
@@ -284,22 +290,22 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (!s) return;
     const prompt = conv.fresh ? withHistory(conv, text) : text;
     conv.fresh = false;
-    if (s.busy()) return s.say(prompt).catch((e) => push(conv, { type: 'stderr', text: `could not reach the agent: ${e instanceof Error ? e.message : String(e)}`.slice(0, 2000) }));
+    if (s.busy()) return s.say(prompt, { input }).catch((e) => push(conv, { type: 'stderr', text: `could not reach the agent: ${e instanceof Error ? e.message : String(e)}`.slice(0, 2000) }));
     if (conv.status !== 'running') {
       conv.status = 'running';
       save(conv);
     }
-    track(conv, s.say(prompt, { timeoutMs: TIMEOUT_MS }));
+    track(conv, s.say(prompt, { timeoutMs: TIMEOUT_MS, input }));
   }
 
   // onEnd(conv) fires after each turn; conv.rulesProposal holds a propose_rules call. once: the agent is archived after the first turn
   // the scope: the work's when there is one, else the repo's, else global
-  function start({ prompt, workSlug = null, pr = null, repoId = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; pr?: RowKey | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
+  function start({ prompt, workSlug = null, pr = null, repoId = null, model = null, kind = 'ask', nonce = null, files = [] }: { prompt: string; workSlug?: string | null; pr?: RowKey | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown; files?: Upload[] }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
     const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
     const conv = remember({ id: randomUUID(), prompt, scope, workSlug, pr: workSlug ? pr : null, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, dispatchProposal: null, repoProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
     Object.assign(conv, { onEnd, once });
     save(conv);
-    say(conv, prompt, { nonce });
+    say(conv, prompt, { nonce, files });
     return conv;
   }
 
@@ -442,12 +448,23 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [, id, action] = parts;
     const body = async () => JSON.parse((await readBody(req)) || '{}');
+    const filesOf = (ids: unknown) => {
+      try {
+        return uploads.resolve(ids);
+      } catch (e) {
+        send(res, httpStatus(e), { error: errorMessage(e) });
+        return null;
+      }
+    };
     if (!id) {
       if (req.method === 'POST') {
         const b = await body();
-        if (!String(b.prompt || '').trim()) return send(res, 400, { error: 'prompt required' });
+        const files = filesOf(b.attachments);
+        if (!files) return;
+        const prompt = String(b.prompt || '').trim() || (files.length ? FILES_ONLY : '');
+        if (!prompt) return send(res, 400, { error: 'prompt required' });
         if (b.repoId && !repos.some((r) => r.id === b.repoId)) return send(res, 400, { error: `unknown repo ${b.repoId}` });
-        const conv = start({ prompt: b.prompt.trim(), workSlug: b.workSlug || null, pr: parseKey(b.pr), repoId: b.repoId || null, model: b.model || null, nonce: b.nonce });
+        const conv = start({ prompt, workSlug: b.workSlug || null, pr: parseKey(b.pr), repoId: b.repoId || null, model: b.model || null, nonce: b.nonce, files });
         return send(res, 200, { id: conv.id });
       }
       return send(res, 200, list(new URL(req.url || '/', 'http://coco').searchParams.get('scope')));
@@ -456,9 +473,12 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (!conv) return send(res, 404, { error: 'no such conversation' });
     if (action === 'events') return watch(req, res, conv);
     if (action === 'messages' && req.method === 'POST') {
-      const { text, nonce } = await body();
-      if (!String(text || '').trim()) return send(res, 400, { error: 'text required' });
-      say(conv, text.trim(), { nonce });
+      const { text, nonce, attachments } = await body();
+      const files = filesOf(attachments);
+      if (!files) return;
+      const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
+      if (!said) return send(res, 400, { error: 'text required' });
+      say(conv, said, { nonce, files });
       return send(res, 200, { ok: true, status: conv.status });
     }
     if (action === 'close' && req.method === 'POST') return send(res, 200, await close(id));

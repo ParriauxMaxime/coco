@@ -35,7 +35,7 @@ export const useWorkAgent = (slug: string, id: string) => useAgents((s) => find(
 export const useAgentList = (slug: string) => useAgents((s) => s.by[slug]?.agents);
 export const useServerId = (slug: string) => useAgents((s) => s.by[slug]?.serverId ?? null);
 
-export const stateOf = (a: WorkAgent, pending: PendingPermission[]): AgentState => (a.agentId && a.status !== 'archived' && pending.some((p) => p.agentId === a.agentId) ? 'waiting' : a.status);
+export const stateOf = (a: WorkAgent, pending: PendingPermission[]): AgentState => (a.agentId && a.status !== 'archived' && ((a.openCards ?? 0) > 0 || pending.some((p) => p.agentId === a.agentId)) ? 'waiting' : a.status);
 export const paseoLink = (serverId: string | null, agentId: string | null) => (serverId && agentId ? `paseo://h/${encodeURIComponent(serverId)}/agent/${encodeURIComponent(agentId)}` : null);
 export const prLabel = (key: string) => (/^\d+$/.test(key) ? `#${key}` : key.replace(/^b:/, '').replaceAll(':', '/'));
 

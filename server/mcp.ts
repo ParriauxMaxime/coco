@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cocopilot MCP server (stdio): read tools over works, personas, Paseo, plus proposal tools.
+// cocopilot MCP server (stdio): read tools over works, personas, Paseo, plus proposal tools and cards (ask, post_blocks: docs/agent-io.md).
 // Any agent (Claude Code headless, a Paseo agent, Codex) can mount it. Writes stay in the app: the user applies.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -141,5 +141,49 @@ server.tool('propose_review_plan', `Submit the review plan for the PR under revi
   skim: z.array(z.object({ path: z.string(), reason: z.string().describe('a few words: why a glance is enough') })),
   watchPoints: z.array(z.object({ path: z.string(), startLine: z.number().int().describe('head line number, verified with git show <head>:<path>'), endLine: z.number().int(), body: z.string().describe(`the review comment as ${OWNER} would write it, markdown, short`), severity: z.enum(['blocking', 'major', 'minor', 'nit']).describe('blocking: wrong behaviour, security, data loss · major: real bug or gap to fix before merge · minor: worth fixing · nit: style, naming'), confidence: z.number().int().min(0).max(100).describe('how sure you are the finding is real, 0-100') })).describe('precise risks, eight at most'),
 }, async (p) => text({ recorded: true, steps: p.steps.length, skim: p.skim.length, watchPoints: p.watchPoints.length }));
+
+const AGENT_ID = process.env.PASEO_AGENT_ID || null;
+const refused = (message: string) => ({ ...text(message), isError: true });
+async function postCard(card: Record<string, unknown>) {
+  if (!AGENT_ID) return { error: 'no PASEO_AGENT_ID in this MCP server environment: cards need a Paseo agent started by coco' };
+  try {
+    const r = await fetch(new URL('/api/cards', config.baseUrl), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...card, agentId: AGENT_ID }) });
+    const body = await r.json().catch(() => ({}));
+    return r.ok ? { id: String(body.id) } : { error: String(body.error || `coco answered ${r.status}`) };
+  } catch (e) {
+    return { error: `cannot reach coco at ${config.baseUrl}: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+const typedBlocks = z.array(z.looseObject({ type: z.string() })).describe('typed blocks, 16 at most: text {text}, callout {tone: risk|warn|ok|note, title?, text}, steps {title?, items[], outcome?}, diagram {mermaid, caption?}, code {path?, line?, lang?, code, caption?}, table {columns[], rows: cell[][], caption?}, media {kind: image|video, src: /api/works/<slug>/media/<file>, caption?}. Inline text takes **bold**, *italic*, `code`, path/file.ts:12 refs and <risk|warn|ok|note>…</…> marks');
+const cardOption = z.object({ key: z.string().describe('short id returned in the answer'), label: z.string().max(120), details: z.string().max(500).optional(), recommended: z.boolean().optional(), confidence: z.number().min(0).max(100).optional() });
+const tableCell = z.union([z.string(), z.object({ text: z.string(), tone: z.enum(['risk', 'warn', 'ok', 'note', 'mute']).optional() })]);
+
+server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to ask the user anything. Kinds: choice (2-8 options, multi for several picks), rows (a table of 1-40 rows to tick, select one or many; or rowOptions, one pick per row), form (1-8 fields), confirm (approve or reject). Every kind but form has a free-text "Other" box unless other is false. Returns at once with the card id: do not wait or poll, end your turn or keep working; the answer arrives later as a new user message starting "[coco card <id> answered]". A refused card names the bad field: fix it and call again.`, {
+  kind: z.enum(['choice', 'rows', 'form', 'confirm']),
+  title: z.string().max(120).describe('short plain text: what is decided'),
+  question: z.string().max(500).optional().describe('the question, inline markup'),
+  blocks: typedBlocks.optional().describe('context shown above the question, same typed blocks as post_blocks'),
+  options: z.array(cardOption).optional().describe('choice: 2-8 options'),
+  multi: z.boolean().optional().describe('choice: several picks allowed'),
+  columns: z.array(z.string()).optional().describe('rows: 1-8 column names'),
+  rows: z.array(z.object({ key: z.string(), cells: z.array(tableCell).describe('one cell per column'), recommended: z.union([z.string(), z.boolean()]).optional().describe('true to pre-tick; with rowOptions, the recommended option key') })).optional().describe('rows: 1-40 rows'),
+  select: z.enum(['many', 'one']).optional().describe('rows: tick many rows (default) or exactly one'),
+  rowOptions: z.array(cardOption).optional().describe('rows: 2-4 options picked per row instead of ticks'),
+  fields: z.array(z.object({ key: z.string(), label: z.string().max(120), type: z.enum(['text', 'textarea', 'number', 'select', 'toggle']), options: z.array(z.string()).optional().describe('select: the choices'), default: z.union([z.string(), z.number(), z.boolean()]).optional(), required: z.boolean().optional(), placeholder: z.string().optional() })).optional().describe('form: 1-8 fields'),
+  confirmLabel: z.string().max(40).optional().describe('confirm: default "Approve"'),
+  rejectLabel: z.string().max(40).optional().describe('confirm: default "Reject"'),
+  other: z.boolean().optional().describe('free-text "Other" box; default true except on forms'),
+}, async (card) => {
+  const r = await postCard(card);
+  return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, status: 'open', note: 'The answer arrives as a new user message starting "[coco card <id> answered]". Do not wait or poll: end your turn or keep working.' });
+});
+
+server.tool('post_blocks', `Show ${OWNER} a rich result in coco (tables, diagrams, code, callouts) as a card in your chat. Nothing is asked: use ask for that.`, {
+  title: z.string().max(120),
+  blocks: typedBlocks,
+}, async ({ title, blocks }) => {
+  const r = await postCard({ kind: 'post', title, blocks });
+  return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, shown: true });
+});
 
 await server.connect(new StdioServerTransport());
