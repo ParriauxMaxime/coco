@@ -318,8 +318,7 @@ worktree and branch once no item is left; it keeps them while the agent is
 answering or a suggested commit is not applied. "prune agent" in a thread
 does the same by hand.
 
-"Fix accepted (N)" in the board header starts a stack fix (the Plan tab's
-"Fix all comments" runner, `POST …/stack-fix` with `select: "accepted"`)
+"Fix accepted (N)" in the board header starts a stack fix (`POST …/stack-fix` with `select: "accepted"`)
 limited to the open comments whose finding is accepted in `findings.json`;
 `select` also takes `{ "<row key>": [comment ids] }`, and no `select` keeps
 every open comment. The brief adds each comment's triage: the board note,
@@ -471,8 +470,8 @@ from a coco review plan at the current head. Stored on `stack[i].gates`
 
 When a stack PR merges while the next row is still open, the sidebar shows
 a `restack` chip on the work (from the last GitHub snapshot, no gh call) and
-the Plan a Stack keeper card (`server/stack-keeper.ts`,
-`GET /api/works/<slug>/stack-keeper`). The dry run lists, bottom-up, each
+the overview a "Restack needed" chip. The keeper itself is API-only for now
+(`server/stack-keeper.ts`, `GET /api/works/<slug>/stack-keeper`). The dry run lists, bottom-up, each
 open child with its tip and the exact lines: `git fetch origin <default>`,
 then `git rebase --onto origin/<default> <merged parent head> <child>` (with
 `<default>` the default branch) for the first
@@ -789,21 +788,20 @@ node --test server/*.test.ts
 
 ## Design notes
 
-Theme: `system` (default, follows `prefers-color-scheme`), `light` or `dark`, stored in `localStorage` `cc.theme` and applied as `data-theme` on `<html>` before first paint; cycle with the sidebar button or Cmd/Ctrl+Shift+L.
+Theme: `system` (default, follows `prefers-color-scheme`), `light` or `dark`, stored in `localStorage` `cc.theme` and applied as `data-theme` on `<html>` before first paint; switch it in the Beta panel (Cmd/Ctrl+.) or with Cmd/Ctrl+Shift+L.
 Colours go through the CSS variables in `src/styles.css` (dark values under `html[data-theme="dark"]`); Monaco (`cocopilot-dark`) and mermaid follow via `src/theme.ts`.
 
 ## Pages
 
 - Projects: Paseo projects → workspaces → agents, with the attached work.
-- Work: a workbench (`src/workbench/`). The **Plan** tab is the PM-first page
-  (title ≤ 100 chars, markdown description with a before/after table and
-  optional mermaid diagram, progress, stack rail, next action, three meta
-  lines, rules folded, one card per PR with "what changes for users" and its
-  owner personas). Every other surface is a tab. Tab ids (also the hash):
-  `plan`, `pr-<n>` (developer details), `review-<n>` (review hub),
-  `diff-<n>~<path>` (a changed file of PR n), `file-<n>~<path>` (any file at
-  the PR head), `artifacts`, `artifact-<name>`, `agent-<runId>` (a review
-  run), `ask` (Ask coco), `timeline`, `notes`. Tabs live in editor groups
+- Work: the workbench is the only UI (`src/preview/`, on the tab engine of
+  `src/workbench/`; `#/design-preview/<slug>` links redirect to
+  `#/work/<slug>`). Every surface is a tab. Tab ids (also the hash):
+  `plan` (overview), `stack`, `findings`, `waiting`, `pr-<n>` (PR details),
+  `review-<n>` (review hub), `diff-<n>~<path>` (a changed file of PR n),
+  `file-<n>~<path>` (any file at the PR head), `artifacts`,
+  `artifact-<name>`, `agent-<runId>` (a review run), `ask` (new agent),
+  `decisions`, `rules`, `timeline`, `notes`. Tabs live in editor groups
   laid out like VS Code: a tree of horizontal and vertical splits, any
   depth, a 6 px handle on every split. One tab id exists once across all
   groups, and opening an open tab focuses it. A group that loses its last
@@ -812,8 +810,8 @@ Colours go through the CSS variables in `src/styles.css` (dark values under `htm
     preview tab (italic, opened by "details ▸" or "view ▸") is replaced by the
     next preview in its group until pinned. The focused group's active tab is
     underlined in the accent colour; "⫿ split" moves the active tab to a new group
-    on the right (Alt-click: below); "⤢" maximizes the focused group (hides
-    the app sidebar and topbar; "↙ exit" chip or `Escape` leaves).
+    on the right (Alt-click: below); "⤢" maximizes the focused group ("↙ exit"
+    chip or `Escape` leaves).
   - Drag a tab to reorder it in its strip or drop it on another strip; drop
     it on a group's body to move it there (center) or to split that group on
     that side (left, right, top, bottom quarter, highlighted while dragging).

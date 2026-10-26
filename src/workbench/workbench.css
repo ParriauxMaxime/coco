@@ -1,5 +1,3 @@
-.content.wb { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
-.content.wb .topbar { flex: none; }
 .wb-root { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .wb-group { position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
 .wb-group[hidden] { display: none; }
@@ -48,8 +46,6 @@
 .wb-drop.top { bottom: 50%; }
 .wb-drop.bottom { top: 50%; }
 .wb-exit { position: fixed; right: 16px; bottom: 16px; z-index: 30; border-radius: 999px; padding: 6px 14px; font-size: 12px; box-shadow: var(--shadow-hover); }
-body.wb-max .sidebar, body.wb-max .topbar { display: none; }
-body.wb-max .shell { grid-template-columns: 1fr; }
 @media (max-width: 900px) {
   .wb-pane { padding: 12px 12px 60px; }
   .wb-pane.flush { padding: 0; }
@@ -96,7 +92,3 @@ body.wb-max .shell { grid-template-columns: 1fr; }
   .fd-loc { grid-area: loc; }
   .fd-acts { grid-area: acts; }
 }
-
-.wb-plan .whats-next { margin-top: 12px; border-left: 3px solid var(--brand); }
-.wb-plan .whats-next .headline { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.wb-plan .whats-next .lead { margin: 6px 0 8px; }
