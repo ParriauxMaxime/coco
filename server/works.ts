@@ -133,8 +133,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       .map((f): Work => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')))
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   const get = (slug: string): Work | null => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
-  const save = (work: Work) => {
-    work.updatedAt = new Date().toISOString();
+  const save = (work: Work, { touch = true } = {}) => {
+    if (touch) work.updatedAt = new Date().toISOString();
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
     return work;
   };

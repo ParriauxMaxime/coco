@@ -23,9 +23,17 @@ export interface FileLayers {
   other?: [string, string][];
 }
 
+export type RepoIdentity = { path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
+// settings that belong to a repo; one left out falls back to the top-level value
+export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody'] as const;
+export type RepoSettings = Partial<Pick<Config, (typeof REPO_SETTINGS)[number]>>;
+export type RepoConfig = RepoIdentity & { id: string; name: string; settings: RepoSettings };
+
 export interface Config {
   owner: { name: string; login: string };
-  repo: { path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
+  // the default repo: the first of `repos`
+  repo: RepoIdentity;
+  repos: RepoConfig[];
   baseUrl: string;
   dataDir: string;
   briefsDir: string;
@@ -61,6 +69,7 @@ export const DEFAULTS: Config = {
     reviewsDir: '.claude/reviews',
     commitConvention: '',
   },
+  repos: [],
   baseUrl: 'http://127.0.0.1:8777',
   dataDir: '',
   briefsDir: path.join(os.tmpdir(), 'cocopilot-handoffs'),
@@ -109,12 +118,44 @@ export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(AP
   c.importRoots = c.importRoots.map(home);
   if (c.featureFlags?.provider) c.featureFlags.provider = home(c.featureFlags.provider);
   c.file = fs.existsSync(file) ? file : null;
-  if (c.repo.path) {
-    c.repo.github ||= sh('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], c.repo.path);
-    c.repo.defaultBranch ||= sh('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], c.repo.path).replace(/^origin\//, '') || 'main';
-  }
+  c.repos = loadRepos(c, raw, APP);
+  const { id: _id, name: _name, settings: _settings, ...first } = c.repos[0];
+  c.repo = first;
   return c;
 }
+
+const identify = (r: RepoIdentity) => {
+  r.path = home(r.path);
+  if (!r.path) return r;
+  r.github ||= sh('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], r.path);
+  r.defaultBranch ||= sh('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], r.path).replace(/^origin\//, '') || 'main';
+  return r;
+};
+const repoId = (p: string, used: Set<string>) => {
+  const base = path.basename(p || 'repo').toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'repo';
+  let id = base;
+  for (let i = 2; used.has(id); i++) id = `${base}-${i}`;
+  used.add(id);
+  return id;
+};
+
+// `repos` from the config, else the single `repo` of older configs; coco's own folder always closes the list, as the repo the global Ask coco runs in
+function loadRepos(c: Config, raw: { repos?: (Partial<RepoConfig> & { path: string })[] }, APP: string): RepoConfig[] {
+  const used = new Set<string>();
+  const listed = Array.isArray(raw.repos) && raw.repos.length ? raw.repos : [{ ...c.repo, path: process.env.COCO_REPO || c.repo.path }];
+  const repos = listed.map((r): RepoConfig => {
+    const ident = identify({ ...DEFAULTS.repo, ...r } as RepoIdentity);
+    return { id: r.id || repoId(ident.path, used), name: r.name || path.basename(ident.path || 'repo'), ...ident, settings: r.settings || {} };
+  });
+  for (const r of repos) used.add(r.id);
+  if (!repos.some((r) => r.path && path.resolve(r.path) === path.resolve(APP))) {
+    repos.push({ ...identify({ ...DEFAULTS.repo, path: APP }), id: used.has('cocopilot') ? repoId(APP, used) : 'cocopilot', name: 'cocopilot', settings: {} });
+  }
+  return repos;
+}
+
+// a repo's value for a repo-shaped setting, the top-level one when the repo has none
+export const repoSetting = <K extends (typeof REPO_SETTINGS)[number]>(config: Config, repo: RepoConfig | null | undefined, key: K): Config[K] => (repo?.settings[key] ?? config[key]) as Config[K];
 
 export function personaLogins(files: string[], { ignore = [], companionSuffixes = [] }: { ignore?: string[]; companionSuffixes?: string[] } = {}): string[] {
   const companion = companionSuffixes.length ? new RegExp(`-(${companionSuffixes.join('|')})\\.md$`) : null;

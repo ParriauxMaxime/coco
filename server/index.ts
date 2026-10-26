@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import type { ExecFileOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createWorks } from './works.ts';
+import { createRepos } from './repos.ts';
 import { createAsk } from './ask.ts';
 import { createCode } from './code.ts';
 import { createComments } from './comments.ts';
@@ -56,6 +57,8 @@ interface FeedbackItem {
 fs.mkdirSync(DATA, { recursive: true });
 const paseoAgents = createPaseoAgents({ APP });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
+const repos = createRepos({ DATA, repos: config.repos });
+repos.assign(works.list(), (w) => works.save(w, { touch: false })).then((moved) => moved.forEach((m) => console.log(`work ${m.slug} → repo ${m.repo}`)), () => {});
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
@@ -297,6 +300,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
+    if (root === 'layout' && req.method === 'PUT') return send(res, 200, repos.saveOrder(JSON.parse((await readBody(req)) || '{}')));
     if (root === 'overview') {
       const personas = listPersonas();
       const skills = listSkills().filter((s) => !PREFIX || mine(s.name));
@@ -305,7 +309,8 @@ async function api(req: Req, res: Res, url: URL) {
       let projectCount = 0;
       try { projectCount = JSON.parse(pj.stdout).length; } catch {}
       const read = (n: string) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');
-      return send(res, 200, { projectCount, personas, skills, works: works.list().map((w) => ({ slug: w.slug, title: w.title, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null })), feedback: feedback.slice(-20).reverse(), feedbackCount: feedback.length, agents: ag.agents.slice(0, 12), agentsError: ag.error, backlog: read('backlog.md'), changelog: read('CHANGELOG.md'), rituals: readRituals().slice(0, 10) });
+      const summaries = works.list().map((w) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null }));
+      return send(res, 200, { projectCount, personas, skills, works: summaries, repos: repos.grouped(summaries).map((r) => ({ ...r, works: r.works.map((w) => w.slug) })), feedback: feedback.slice(-20).reverse(), feedbackCount: feedback.length, agents: ag.agents.slice(0, 12), agentsError: ag.error, backlog: read('backlog.md'), changelog: read('CHANGELOG.md'), rituals: readRituals().slice(0, 10) });
     }
     if (root === 'personas' && !a) return send(res, 200, listPersonas());
     if (root === 'personas' && a && b === 'files' && c) {

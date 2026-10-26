@@ -95,6 +95,7 @@ export interface Work {
   artifacts?: Artifact[];
   notes?: string;
   tier?: string;
+  repo?: string;
   projectId?: string | null;
   projectName?: string | null;
   links?: WorkLink[];
