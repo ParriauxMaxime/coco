@@ -118,23 +118,6 @@ export type DecisionView = Omit<Decision, 'options' | 'rows'> & {
 };
 export type DecisionChoice = string | Record<string, string>;
 
-export type NotionPreviewData = {
-  at: string;
-  summary: string;
-  lastEditedTime?: string;
-  changes: { severity: string; section: string; what: string }[];
-  lostText?: string[];
-};
-export type NotionState = {
-  running?: string | boolean;
-  linked?: boolean;
-  url?: string;
-  lastError?: string;
-  preview?: NotionPreviewData;
-  editedInNotion?: boolean;
-  outOfSync?: boolean;
-  syncedAt?: string;
-};
 export type WhatsNextData = { by?: string; at?: string; summary?: string; blocks?: Block[] };
 
 export type WorkPr = PrInfo & { body?: string; planned?: StackRow['planned']; files?: PrFile[] };
