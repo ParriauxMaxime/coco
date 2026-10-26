@@ -160,7 +160,8 @@
 .rv-dc { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); border-left: 3px solid var(--orange, var(--line)); }
 .rv-dc-h { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; font-size: 12px; }
 .rv-dc-h b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rv-dc.on .card { margin: 6px 0 0; padding: 8px; box-shadow: none; }
+.rv-dc-b { margin-top: 6px; }
+.rv-dc-b .dp-dc-title { font-size: 14px; line-height: 20px; margin-top: 6px; }
 .rv-card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 12px; }
 .rv-card-h { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 8px; background: var(--card); border-bottom: 1px solid var(--line); border-radius: var(--r-md) var(--r-md) 0 0; font-size: 12px; }
 .rv-card.shut .rv-card-h { border-bottom: 0; border-radius: var(--r-md); }

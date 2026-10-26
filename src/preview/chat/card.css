@@ -23,6 +23,10 @@
 .dp-btn.dp-cd-more.dp-open svg.dp-i { transform: rotate(90deg); }
 .dp-btn.dp-cd-fold { align-self: flex-start; margin-left: -6px; }
 .dp-cd-det { margin: 2px 0 6px 24px; padding: 6px 10px; border-left: 2px solid var(--dp-line-2); font-size: 12.5px; line-height: 19px; color: var(--dp-t2); }
+.dp .dp-cd-md .md { font-size: 12.5px; line-height: 19px; color: var(--dp-t2); }
+.dp-cd-lead { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.dp-cd-lead .dp-chip { height: 18px; font-size: 10.5px; flex: none; }
+.dp-cd-tbl td > .dp-cd-det { margin: 4px 0 2px; white-space: normal; }
 
 .dp-inp.dp-cd-other { width: 100%; margin-top: 4px; box-sizing: border-box; }
 .dp-inp.dp-cd-other.dp-on { border-color: color-mix(in srgb, var(--dp-accent) 55%, var(--dp-line)); }

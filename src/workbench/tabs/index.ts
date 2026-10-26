@@ -2,7 +2,6 @@ import { createElement } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 import type { WorkData } from '../types.ts';
 import Artifact from './Artifact.tsx';
-import Decisions, { decisionCounts } from './Decisions.tsx';
 import CodeTab from './Code.tsx';
 import Review from './Review.tsx';
 import AgentRun from './AgentRun.tsx';
@@ -22,12 +21,7 @@ export type TabDef = {
 
 const Unknown = () => createElement('div', { className: 'sub' }, 'Unknown tab.');
 
-const fixed: Record<string, TabDef> = {
-  decisions: { title: (c) => { const { taken, total } = decisionCounts(c.w); return `Decisions (${taken}/${total})`; }, Component: Decisions },
-};
-
 export function tabDef(id: string): TabDef {
-  if (fixed[id]) return fixed[id];
   if (id.startsWith('artifact-')) return { title: () => id.slice(9), Component: Artifact, flush: true };
   const review = reviewKeyOfTab(id);
   if (review) return { title: () => `Review ${baseName(keyLabel(review))}`, tip: () => keyLabel(review), Component: Review, flush: true };

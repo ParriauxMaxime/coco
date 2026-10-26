@@ -7,6 +7,7 @@ import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prState, prTitle } from './data.ts';
 import { DevServersLine } from './widgets/DevServer.tsx';
+import { openDecision } from './DecisionsView.tsx';
 import type { PreviewData } from './data.ts';
 import type { WhatsNextData, WorkPr } from '../workbench/types.ts';
 import './overview.css';
@@ -44,7 +45,7 @@ function Next({ prs, onOpenPr }: { prs: WorkPr[]; onOpenPr: (key: string) => voi
   );
 }
 
-export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewData; onOpenPr: (key: string) => void; onOpenTab: (tab: 'stack' | 'findings' | 'ask') => void }) {
+export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewData; onOpenPr: (key: string) => void; onOpenTab: (tab: 'stack' | 'findings' | 'decisions' | 'ask') => void }) {
   const [full, setFull] = useState(false);
   const w = d.work.w;
   if (!w) return <div className="dp-doc"><div className="dp-doc-in dp-t3">{d.work.err || 'Loading…'}</div></div>;
@@ -159,9 +160,15 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
 
             {decisions.length > 0 && (
               <div className="dp-block">
-                <div className="dp-h2">Open decisions<span className="dp-meta dp-num">{decisions.length}</span></div>
+                <div className="dp-h2">Open decisions<span className="dp-meta dp-num">{decisions.length} · <button type="button" className="dp-linkbtn" onClick={() => onOpenTab('decisions')}>Open the board</button></span></div>
                 <ul className="dp-ov-list">
-                  {decisions.map((x) => <li key={x.id}><Icon name="scale" size={14} /><span className="dp-grow dp-ell">{x.title}</span>{x.options.length > 0 && <span className="dp-xs dp-t3">{x.options.length} options</span>}</li>)}
+                  {decisions.map((x) => (
+                    <li key={x.id}>
+                      <button type="button" className="dp-ov-decb" title="Open this decision" onClick={() => openDecision(x.id)}>
+                        <Icon name="scale" size={14} /><span className="dp-grow dp-ell">{x.title}</span>{x.options.length > 0 && <span className="dp-xs dp-t3">{x.rows ? `${x.rows.length} rows` : `${x.options.length} options`}</span>}
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               </div>
             )}

@@ -16,6 +16,7 @@ import StackView from './StackView.tsx';
 import Inspector from './Inspector.tsx';
 import OverviewView from './OverviewView.tsx';
 import FindingsView from './FindingsView.tsx';
+import DecisionsView, { decisionCounts } from './DecisionsView.tsx';
 import NotesView from './NotesView.tsx';
 import ArtifactsView from './ArtifactsView.tsx';
 import type { PreviewData } from './data.ts';
@@ -42,6 +43,10 @@ function StackTab() {
 function FindingsTab() {
   const { d, openPr } = usePreview();
   return <div className="dp-tabview"><FindingsView d={d} onOpenPr={openPr} onReload={() => { d.work.load(); }} /></div>;
+}
+function DecisionsTab() {
+  const { d, openPr } = usePreview();
+  return <div className="dp-tabview"><DecisionsView d={d} onOpenPr={openPr} /></div>;
 }
 function NotesTab() {
   const { d } = usePreview();
@@ -99,6 +104,7 @@ const VIEWS: Record<string, TabDef> = {
   plan: { title: () => 'Overview', Component: OverviewTab, flush: true },
   stack: { title: (c) => `Stack (${c.prs.length})`, Component: StackTab, flush: true },
   findings: { title: () => 'Findings', Component: FindingsTab, flush: true },
+  decisions: { title: (c) => { const { taken, total } = decisionCounts(c.w); return `Decisions (${taken}/${total})`; }, Component: DecisionsTab, flush: true },
   notes: { title: () => 'Notes', Component: NotesTab, flush: true },
   artifacts: { title: (c) => `Artifacts (${c.w.artifacts.length})`, Component: ArtifactsTab, flush: true },
   waiting: { title: () => 'Waiting on you', Component: WaitingTab },

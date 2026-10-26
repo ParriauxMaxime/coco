@@ -16,4 +16,7 @@ button.dp-prb { cursor: pointer; }
 .dp-ov-list li { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12.5px; border-bottom: 1px solid var(--dp-line); }
 .dp-ov-list li:last-child { border-bottom: 0; }
 .dp-ov-list li > svg { color: var(--dp-t3); flex: none; }
+.dp-ov-decb { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; min-width: 0; cursor: pointer; }
+.dp-ov-decb > svg { color: var(--dp-t3); flex: none; }
+.dp-ov-decb:hover .dp-grow { color: var(--dp-accent); }
 .dp-ov-side { padding-top: 16px; border-top: 1px solid var(--dp-line); }

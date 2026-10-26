@@ -5,7 +5,7 @@ import Thread, { ThreadToggle, threadKey, useThreadsOf } from '../../components/
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { useLocal } from '../tabs/Code.tsx';
-import { DecisionCard } from '../tabs/Decisions.tsx';
+import { DecisionDetail } from '../../preview/DecisionsView.tsx';
 import { isLive } from '../../../server/decisions.ts';
 import { Confidence, Severity } from '../../components/Signals.tsx';
 import { CommentActions, WatchActions, remarkVerdicts, setStatus } from './CommentZone.tsx';
@@ -108,7 +108,7 @@ function DecisionRow({ d, slug, open, onToggle, ts, onDecide, onReply }: Decisio
         <span className="status">{since(ts)}</span>
       </button>
       {!open && <ThreadToggle slug={slug} threadKey={key} open={false} onClick={onToggle} />}
-      {open && <DecisionCard d={d} slug={slug} onDecide={onDecide} onReply={onReply} talk />}
+      {open && <div key={`${d.status}-${d.decidedAt || ''}-${d.archivedAt || ''}`} className="rv-dc-b"><DecisionDetail d={d} slug={slug} onDecide={onDecide} onReload={onReply} talk /></div>}
     </div>
   );
 }

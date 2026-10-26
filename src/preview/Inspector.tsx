@@ -14,6 +14,8 @@ import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from 
 import type { PreviewData } from './data.ts';
 import { ago, sevClass } from './format.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
+import { isLive } from '../../server/decisions.ts';
+import { openDecision, openDecisionsOf } from './DecisionsView.tsx';
 import './stack.css';
 
 const openTab = (id: string) => useWorkbench.getState().open(id);
@@ -59,6 +61,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
   const waiting = pendingOf(d, pr);
   const findings = findingsOf(d, pr);
   const dev = devOf(d, pr);
+  const decisions = (d.work.w?.decisions || []).filter((x) => isLive(x) && x.pr != null && String(x.pr) === key);
   const reviewers = pr.reviewers || [];
   const owners = pr.personas || [];
   const agentStatus = (id: string) => d.overview?.agents.find((a) => a.id === id)?.status;
@@ -135,6 +138,16 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
           ))}
           {findings.length > MAX_FINDINGS && <div className="dp-ins-more">+{findings.length - MAX_FINDINGS} more</div>}
         </Sec>
+        {decisions.length > 0 && (
+          <Sec title="Decisions" aside={<button type="button" className="dp-linkbtn" title="This PR's decisions in the Decisions view" onClick={() => openDecisionsOf(key)}>{decisions.filter((x) => x.status !== 'taken').length} open of {decisions.length}</button>}>
+            {decisions.map((x) => (
+              <button key={x.id} type="button" className="dp-ins-dec" title={x.question || x.title} onClick={() => openDecision(x.id)}>
+                <span className={`dp-dc-dot dp-dc-${x.status === 'taken' ? 'taken' : 'open'}`} />
+                <span className="dp-ell">{x.title}</span>
+              </button>
+            ))}
+          </Sec>
+        )}
       </div>
       <div className="dp-ins-actions">
         <button type="button" className="dp-btn dp-split" onClick={() => setDispatching(!dispatching)}><Icon name="play" size={14} />Dispatch<Icon name="chevron-down" size={12} /></button>

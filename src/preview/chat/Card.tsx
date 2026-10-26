@@ -4,20 +4,15 @@ import Blocks, { Inline } from '../../components/Blocks.tsx';
 import { pendingClass } from '../../components/action.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
-import type { Card, CardAnswerBody, CardField, CardOption, CardValue, TableCell } from '../../types.ts';
+import OptionPicker from './OptionPicker.tsx';
+import RowsPicker from './RowsPicker.tsx';
+import type { Card, CardAnswerBody, CardField, CardValue } from '../../types.ts';
 import './card.css';
 
 const KIND: Record<Card['kind'], [string, IconName]> = { post: ['note', 'notebook'], choice: ['question', 'message-square'], rows: ['pick rows', 'list'], form: ['form', 'pencil'], confirm: ['approval', 'check'] };
 
 export const cardDomId = (id: string) => `coco-card-${id}`;
 const clock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
-
-export function Sure({ value }: { value?: number }) {
-  if (value == null) return null;
-  const n = Math.round(value <= 1 ? value * 100 : value);
-  return <span className={`dp-chip ${n >= 75 ? 'dp-ok' : n >= 50 ? 'dp-warn' : 'dp-bad'}`} title="How sure the agent is of this option">{n}% sure</span>;
-}
-const Rec = () => <span className="dp-chip dp-acc">recommended</span>;
 
 type Draft = { picked: string[]; rows: string[]; rowPicks: Record<string, string>; values: Record<string, CardValue>; other: string };
 type Part = { c: Card; d: Draft; set: (p: Partial<Draft>) => void; ro: boolean };
@@ -76,101 +71,20 @@ function Other({ value, ro, single, onChange }: { value: string; ro: boolean; si
   return <input className={`dp-inp dp-cd-other${value ? ' dp-on' : ''}`} value={value} disabled={ro} placeholder={single ? 'Other… your own answer instead' : 'Other… add your own words'} aria-label="Other" onChange={(e) => onChange(e.target.value)} />;
 }
 
-function Option({ o, on, multi, name, ro, onPick }: { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="dp-cd-opt">
-      <label className={`dp-opt${on ? ' dp-on' : ''}${ro ? ' dp-cd-ro' : ''}`}>
-        <input className="dp-vh" type={multi ? 'checkbox' : 'radio'} name={name} checked={on} disabled={ro} onChange={onPick} />
-        <span className={multi ? 'dp-check' : 'dp-radio'} />
-        <span className="dp-ol"><Inline text={o.label} /></span>
-        {o.recommended && <Rec />}
-        <Sure value={o.confidence} />
-        {o.effect && <span className="dp-chip dp-info dp-cd-eff" title="Picking it acts in coco at once, without a new turn of the agent">{o.effect.type === 'take_decision' ? 'takes the decision' : 'dismisses the finding'}</span>}
-        {o.details && (
-          <button type="button" className={`dp-btn dp-ghost dp-sm dp-cd-more${open ? ' dp-open' : ''}`} aria-expanded={open} onClick={(e) => { e.preventDefault(); setOpen(!open); }}>
-            <Icon name="chevron-right" size={12} />details
-          </button>
-        )}
-      </label>
-      {o.details && open && <Inline as="div" className="dp-cd-det" text={o.details} />}
-    </div>
-  );
-}
-
 function Choice({ c, d, set, ro }: Part) {
   const pick = (k: string) => set(c.multi ? { picked: d.picked.includes(k) ? d.picked.filter((x) => x !== k) : [...d.picked, k] } : { picked: [k], other: '' });
   return (
-    <div className="dp-cd-opts" role={c.multi ? 'group' : 'radiogroup'} aria-label={c.title}>
-      {(c.options ?? []).map((o) => <Option key={o.key} o={o} on={d.picked.includes(o.key)} multi={c.multi} name={`${c.id}-opt`} ro={ro} onPick={() => pick(o.key)} />)}
+    <OptionPicker name={`${c.id}-opt`} label={c.title} options={c.options ?? []} picked={d.picked} multi={c.multi} ro={ro} onPick={pick}>
       {hasOther(c) && <Other value={d.other} ro={ro} single={!c.multi} onChange={(v) => set(c.multi || !v ? { other: v } : { other: v, picked: [] })} />}
-    </div>
+    </OptionPicker>
   );
 }
 
-const cellText = (x: TableCell) => (typeof x === 'string' ? x : x.text);
-const Cell = ({ x }: { x: TableCell }) => <td className={typeof x === 'string' || !x.tone ? undefined : `dp-cd-tone dp-cd-${x.tone}`}><Inline text={cellText(x)} /></td>;
-
 function Rows({ c, d, set, ro }: Part) {
-  const rows = c.rows ?? [];
-  const opts = c.rowOptions ?? [];
-  const one = c.select === 'one';
-  const all = rows.length > 0 && rows.every((r) => d.rows.includes(r.key));
-  const tick = (k: string) => !ro && set({ rows: one ? [k] : d.rows.includes(k) ? d.rows.filter((x) => x !== k) : [...d.rows, k] });
   return (
-    <div className="dp-cd-rows">
-      <div className="dp-cd-tblw">
-        <table className="dp-tbl dp-cd-tbl">
-          <thead>
-            <tr>
-              {!opts.length && (
-                <th className="dp-cb">
-                  {!one && (
-                    <label className={`dp-cd-cb${all ? ' dp-on' : ''}`} title={all ? 'Untick all' : 'Tick all'}>
-                      <input className="dp-vh" type="checkbox" checked={all} disabled={ro} aria-label="Tick all rows" onChange={() => set({ rows: all ? [] : rows.map((r) => r.key) })} />
-                      <span className="dp-check" />
-                    </label>
-                  )}
-                </th>
-              )}
-              {(c.columns ?? []).map((h, i) => <th key={i}>{h}</th>)}
-              {opts.map((o) => <th key={o.key} className="dp-cd-pickh" title={o.details}><Inline text={o.label} />{o.confidence != null && <> <Sure value={o.confidence} /></>}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const on = d.rows.includes(r.key);
-              return (
-                <tr key={r.key} className={!opts.length && on ? 'dp-sel' : undefined} onClick={opts.length ? undefined : (e) => { if (!(e.target as HTMLElement).closest('label')) tick(r.key); }}>
-                  {!opts.length && (
-                    <td className="dp-cb">
-                      <label className={`dp-cd-cb${on ? ' dp-on' : ''}`}>
-                        <input className="dp-vh" type={one ? 'radio' : 'checkbox'} name={`${c.id}-row`} checked={on} disabled={ro} aria-label={`Tick ${cellText(r.cells[0] ?? r.key)}`} onChange={() => tick(r.key)} />
-                        <span className={one ? 'dp-radio' : 'dp-check'} />
-                      </label>
-                    </td>
-                  )}
-                  {r.cells.map((x, i) => <Cell key={i} x={x} />)}
-                  {opts.map((o) => {
-                    const picked = d.rowPicks[r.key] === o.key;
-                    return (
-                      <td key={o.key} className={`dp-cd-pick${r.recommended === o.key ? ' dp-cd-rec' : ''}`} title={r.recommended === o.key ? 'recommended' : undefined}>
-                        <label className={`dp-cd-cb${picked ? ' dp-on' : ''}`}>
-                          <input className="dp-vh" type="radio" name={`${c.id}-${r.key}`} checked={picked} disabled={ro} aria-label={`${cellText(r.cells[0] ?? r.key)}: ${o.label}`} onChange={() => set({ rowPicks: { ...d.rowPicks, [r.key]: o.key } })} />
-                          <span className="dp-radio" />
-                        </label>
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {opts.length > 0 && rows.some((r) => typeof r.recommended === 'string') && <div className="dp-cd-hint"><span className="dp-cd-recdot" />recommended pick</div>}
+    <RowsPicker name={c.id} columns={c.columns} rows={c.rows ?? []} options={c.rowOptions} select={c.select} ticked={d.rows} picks={d.rowPicks} ro={ro} onTick={(rows) => set({ rows })} onPick={(rowPicks) => set({ rowPicks })}>
       {hasOther(c) && <Other value={d.other} ro={ro} onChange={(v) => set({ other: v })} />}
-    </div>
+    </RowsPicker>
   );
 }
 

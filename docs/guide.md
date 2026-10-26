@@ -102,18 +102,30 @@ review feed keep only its cards. `confidence` (0-100, optional) is how sure
 the author is: on the card, of the recommendation; on an option, that it is
 the right call; on a row of a `rows` card, of its recommended pick. It shows
 as a "NN% sure" chip (green from 75, orange from 50, red under). Agents
-should fill it: a low score tells you where to look hardest. The
-`Decisions` tab (open it beside the Plan) lists them as cards with radio
-options, the recommended one chipped, and the positions each
-reviewer took.
+should fill it: a low score tells you where to look hardest.
+
+The `Decisions` view (sidebar, or beside the Overview) works like the
+Findings board: filters Open, Taken, All and Archived with their counts, a
+PR strip (Whole work or one PR) once they span several, and the list
+grouped by PR, each row with its title, question, the recommended option
+(or the one taken), its "NN% sure" and whether its thread waits on you.
+`J` and `K` move. The selected decision opens on the right: its question,
+the evidence (blocks and sources, folded once taken), the reviewers'
+positions, then the options picked with the same picker as agent cards
+(recommended and "NN% sure" chips, folded details) or the `rows` table with
+one pick per row, the rationale box, Take decision or Reopen, Archive or
+Unarchive, and its thread with the thread agent's cards. "Copy taken as
+markdown" sits in the header. An Overview open decision opens it there, and
+the PR inspector lists the PR's decisions (its count opens the view filtered
+to that PR). The Review tab's activity pane shows the same detail inline.
 
 `title`, `question` and option `label` stay short plain text: they are the
 scannable view. The explanation goes in the card, not in the Plan
 description: `details` (the context and the why), option `details` (what
 that option means, its code, its tradeoff), `positions` values and the
 `rationale` are markdown, rendered like the Plan (tables, code blocks,
-mermaid). Long markdown is cut with "show more"; the recommended option shows
-its details, the others behind "▸ details".
+mermaid). The recommended option of an open decision shows its details, the
+others behind "details".
 
 A card with `rows: [{ key, label, details, recommended: <option key> }]` is a
 table of sub-decisions, one pick per row, the card `options` as columns

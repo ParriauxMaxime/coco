@@ -40,10 +40,12 @@ export const useThreadSummary = (slug: string, key: string): ThreadSummary | und
 export const threadKey = { decision: (id: string) => `d.${id}`, comment: (n: string | number, id: string) => `c.${String(n).replaceAll(':', '~')}.${id}`, plan: (n: string | number) => `p.${String(n).replaceAll(':', '~')}` };
 const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
 
-type ToggleProps = { slug: string; threadKey: string; open?: boolean; onClick: () => void; label?: string };
+export const threadLabel = (s: ThreadSummary | undefined, idle: string) => (s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle);
+
+type ToggleProps ={ slug: string; threadKey: string; open?: boolean; onClick: () => void; label?: string };
 export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'discuss or dispatch' }: ToggleProps) {
   const s = useThreadSummary(slug, key);
-  const label = s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle;
+  const label = threadLabel(s, idle);
   return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 

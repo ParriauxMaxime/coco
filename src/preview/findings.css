@@ -3,8 +3,9 @@ button.dp-prb { cursor: pointer; }
 .dp-fi-prs { flex: none; padding: 6px 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-panel); overflow-x: auto; }
 .dp-fi-prs .dp-filters { flex-wrap: nowrap; }
 .dp-fx .dp-flist.dp-fi-list { width: 560px; max-width: 55%; }
-.dp-fi-row { display: flex; align-items: center; gap: 8px; }
-.dp-fi-claim { flex: 1; }
+.dp-frow.dp-fi-row { display: flex; align-items: center; gap: 8px; }
+.dp-fi-row > * { flex: none; }
+.dp-fi-claim { flex: 1 1 auto; }
 .dp-fi-loc { flex: none; max-width: 150px; }
 .dp-fi-by { flex: none; width: 64px; text-align: right; }
 .dp-fi-age { flex: none; width: 38px; text-align: right; }
@@ -19,3 +20,10 @@ button.dp-prb { cursor: pointer; }
 .dp-fi-pick { display: flex; align-items: center; justify-content: center; }
 .dp-fi-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 40px 16px; color: var(--dp-t3); font-size: 13px; }
 .dp-fi-empty b { color: var(--dp-t1); font-weight: 600; }
+@container (min-width: 761px) and (max-width: 1100px) {
+  .dp-fi-by { display: none; }
+  .dp-fi-loc { max-width: 110px; }
+}
+@container (max-width: 520px) {
+  .dp-fi-by, .dp-fi-loc { display: none; }
+}
