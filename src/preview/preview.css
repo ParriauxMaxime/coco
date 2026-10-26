@@ -1,6 +1,6 @@
 /* Design preview: dp- prefixed port of the coco mockup tokens and components */
 
-.dp {
+.dp, body.dp-on .pr-peek, body.dp-on .code-peek {
   color-scheme: light;
   --dp-bg: #f7f7f8;
   --dp-panel: #ffffff;
@@ -27,7 +27,7 @@
   --dp-sh-3: 0 16px 48px rgba(16,16,24,.16), 0 2px 6px rgba(16,16,24,.08);
   --dp-scrim: rgba(24,24,27,.28);
 }
-html[data-theme="dark"] .dp {
+html[data-theme="dark"] .dp, html[data-theme="dark"] body.dp-on .pr-peek, html[data-theme="dark"] body.dp-on .code-peek {
   color-scheme: dark;
   --dp-bg: #0e0e10;
   --dp-panel: #141416;
@@ -51,7 +51,7 @@ html[data-theme="dark"] .dp {
   --dp-sh-3: 0 20px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.05);
   --dp-scrim: rgba(0,0,0,.5);
 }
-.dp {
+.dp, body.dp-on .pr-peek, body.dp-on .code-peek {
   --dp-f: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --dp-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --dp-r1: 4px; --dp-r2: 6px; --dp-r3: 8px; --dp-r4: 12px;
@@ -470,6 +470,8 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
   --shadow: none; --shadow-hover: var(--dp-sh-2); --code-bg: var(--dp-code); --code-ink: var(--dp-t1); --scrim: var(--dp-scrim);
   font: 13px/1.55 var(--dp-f); color: var(--dp-t1);
 }
+body.dp-on .pr-peek, body.dp-on .code-peek { box-shadow: var(--dp-sh-3); border-color: var(--dp-line); }
+body.dp-on .pr-peek { padding: 10px 12px; font-size: 12.5px; }
 .dp .wb-pane { background: var(--dp-panel); padding: 16px 20px 60px; }
 .dp .wb-pane.flush { padding: 0; }
 .dp .wb-pane h1 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 12px; }
@@ -488,6 +490,17 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp-rail-av.dp-on { background: var(--dp-accent); color: var(--dp-on-accent); }
 .dp-legacy { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 40px; background: var(--dp-panel); }
 .dp-menu { display: none; }
+.dp-laymenu { position: relative; }
+.dp-laymenu > .dp-btn { max-width: 220px; }
+.dp-laymenu > .dp-btn.dp-on { background: var(--dp-active); }
+.dp-laypop { right: 0; top: 30px; width: 320px; }
+.dp-laypop .dp-pop-s { padding: 4px 0; }
+.dp-laypop .dp-pop-s + .dp-pop-s { border-top: 1px solid var(--dp-line); }
+.dp-laypop .dp-mi .dp-ibtn { width: 20px; height: 20px; opacity: 0; }
+.dp-laypop .dp-mi:hover .dp-ibtn { opacity: 1; }
+.dp-laypop .dp-mi .dp-r { margin-left: 4px; }
+.dp-layname { height: auto; padding: 4px 6px; gap: 6px; }
+.dp-layname .dp-inp { flex: 1; min-width: 0; height: 26px; }
 @media (max-width: 900px) {
   .dp-app { grid-template-rows: 44px minmax(0, 1fr) 28px; }
   .dp-titlebar .dp-cmdk, .dp-titlebar .dp-seg, .dp-titlebar .dp-seg + .dp-sep-v, .dp-titlebar .dp-xs, .dp-titlebar .dp-brandmark { display: none; }

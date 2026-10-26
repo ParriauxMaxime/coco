@@ -27,6 +27,7 @@ type Actions = {
   setMax: (max: boolean) => void;
   resize: (path: number[], sizes: number[]) => void;
   replaceLayout: (first: string[], second: string[], focused: number) => void;
+  setLayout: (layout: LayoutNode, focused: number) => void;
   setDrag: (drag: string | null) => void;
   setTitle: (title: string) => void;
   pendingLine: Record<string, PendingLine>;
@@ -186,6 +187,7 @@ export const useWorkbench = create<WorkbenchState>()((set, get) => {
       nextId: 3,
       focused,
     })),
+    setLayout: (layout, focused) => upd(() => ({ layout: clean(layout, new Set(), new Set()) || group(1, ['plan']), focused, max: false })),
     setDrag: (drag) => set({ drag }),
     setTitle: (title) => { if (get().title !== title) set({ title }); },
     pendingLine: {},

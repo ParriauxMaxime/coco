@@ -10,6 +10,8 @@ import type { IconName } from './Icon.tsx';
 import Inspector from './Inspector.tsx';
 import BetaPanel from './BetaPanel.tsx';
 import { PreviewContext, previewTabDef } from './tabs.tsx';
+import LayoutMenu, { useWorkLayouts } from './LayoutMenu.tsx';
+import { applyLayout } from './layouts.ts';
 import { CHOICES, useBetaPanel, usePrefs, workHref } from './prefs.ts';
 import type { PrefKey } from './prefs.ts';
 import { prKey, prState, prTitle, usePreviewData } from './data.ts';
@@ -38,14 +40,6 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: '#/rules', label: 'Rules', icon: 'scale' },
 ];
 
-const PRESETS = {
-  plan: [['stack', 'plan'], ['decisions', 'ask']],
-  review: [['plan', 'stack'], ['ask', 'findings']],
-} as const;
-const applyPreset = (name: keyof typeof PRESETS) => {
-  const [first, second] = PRESETS[name];
-  useWorkbench.getState().replaceLayout([...first], [...second], 1);
-};
 const open = (id: string) => useWorkbench.getState().open(id);
 
 const NARROW = '(max-width: 900px)';
@@ -150,7 +144,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     return () => document.body.classList.remove('dp-on');
   }, []);
 
-  useEffect(() => { if (prefs.preset !== 'last') applyPreset(prefs.preset); }, [slug]);
+  const layouts = useWorkLayouts(slug);
 
   const ov = d.overview;
   const summary = ov?.works.find((w) => w.slug === slug);
@@ -174,8 +168,6 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     if (tabDetails) open(`pr-${key}`);
     else setInspector(true);
   };
-  const active = groups.map((g) => g.active);
-  const preset = groups.length === 2 && active[0] === 'plan' && active[1] === 'ask' ? 'Plan' : groups.length === 2 && active[0] === 'stack' && active[1] === 'findings' ? 'Review' : 'Custom';
   const split = () => {
     const s = useWorkbench.getState();
     const tab = s.groups.find((g) => g.id === s.focused)?.active;
@@ -184,8 +176,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
 
   const commands: Command[] = [
     ...VIEWS.map((v) => ({ id: `v-${v.id}`, label: v.label, hint: 'view', icon: v.icon, run: () => open(v.id) })),
-    { id: 'l-plan', label: 'Layout: Plan · Overview | Ask coco', hint: 'layout', icon: 'columns', run: () => applyPreset('plan') },
-    { id: 'l-review', label: 'Layout: Review · Stack + inspector | Findings', hint: 'layout', icon: 'columns', run: () => applyPreset('review') },
+    ...layouts.list.map((l, i) => ({ id: `l-${l.id}`, label: `Layout: ${l.name}`, hint: i < 9 ? `⌥${i + 1}` : 'layout', icon: 'columns' as const, run: () => applyLayout(l) })),
     { id: 'split', label: 'Move the tab to the other pane', hint: '⌘\\', icon: 'columns', run: split },
     ...CHOICES.flatMap((c) => c.options.map((o) => ({ id: `c-${c.key}-${o.value}`, label: `${c.label}: ${o.label}`, hint: prefs[c.key] === o.value ? 'current' : 'variant', icon: 'eye' as const, run: () => prefs.set(c.key, o.value) }))),
     ...d.prs.map((p) => ({ id: `pr-${prKey(p)}`, label: `${p.number ? `#${p.number}` : 'planned'} ${prTitle(p)}`, hint: prState(p), icon: 'git-pull-request' as const, run: () => openPr(prKey(p)) })),
@@ -200,6 +191,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => !p); }
       if (mod && e.key.toLowerCase() === 'i' && !tabDetails) { e.preventDefault(); setInspector((x) => !x); }
       if (mod && e.key === 'Enter' && selected) { e.preventDefault(); open(`pr-${selected}`); }
+      const n = e.altKey && !mod && /^Digit([1-9])$/.exec(e.code);
+      if (n && layouts.list[Number(n[1]) - 1]) { e.preventDefault(); applyLayout(layouts.list[Number(n[1]) - 1]); }
     };
     addEventListener('keydown', on);
     return () => removeEventListener('keydown', on);
@@ -232,17 +225,10 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
           </div>
           <div className="dp-cmdk" onClick={() => setPalette(true)}><Icon name="search" size={14} /><span className="dp-grow">Search PRs, views, variants…</span><kbd>⌘</kbd><kbd>K</kbd></div>
           <div className="dp-row dp-g4">
-            <span className="dp-xs dp-t3">Layout</span>
-            <div className="dp-seg">
-              <button type="button" className={preset === 'Plan' ? 'dp-on' : ''} onClick={() => applyPreset('plan')}>Plan</button>
-              <button type="button" className={preset === 'Review' ? 'dp-on' : ''} onClick={() => applyPreset('review')}>Review</button>
-              <button type="button" className={preset === 'Custom' ? 'dp-on' : ''}>Custom</button>
-            </div>
+            <LayoutMenu slug={slug} />
             <span className="dp-sep-v" style={{ margin: '0 4px' }} />
             {!tabDetails && <button type="button" className={`dp-ibtn dp-lg${showInspector ? ' dp-on' : ''}`} title="Inspector  ⌘I" onClick={() => setInspector((x) => !x)}><Icon name="panel-right" /></button>}
-            <button type="button" className="dp-ibtn dp-lg" title="Light / dark  ⌘⇧L" onClick={() => setThemeMode(theme.resolved === 'dark' ? 'light' : 'dark')}><Icon name={theme.resolved === 'dark' ? 'sun' : 'moon'} /></button>
-            <button type="button" className="dp-btn dp-sm" title="Turn the new workbench off" onClick={() => { prefs.set('workbench', 'off'); location.hash = `#/work/${slug}`; }}>Today’s UI</button>
-          </div>
+            <button type="button" className="dp-ibtn dp-lg" title="Light / dark  ⌘⇧L" onClick={() => setThemeMode(theme.resolved === 'dark' ? 'light' : 'dark')}><Icon name={theme.resolved === 'dark' ? 'sun' : 'moon'} /></button>          </div>
         </header>
 
         <div className="dp-body">
@@ -301,7 +287,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
           {(ciRun > 0 || ciBad > 0) && <span className="dp-sbi"><Icon name="circle-dot" />CI{ciRun > 0 && ` ${ciRun} running`}{ciRun > 0 && ciBad > 0 && <span className="dp-t4">·</span>}{ciBad > 0 && <span className="dp-ci-bad">{ciBad} failing</span>}</span>}
           <span className="dp-sp" />
           {waiting.length > 0 && <span className="dp-sbi dp-wait" onClick={() => (prefs.questions === 'tab' ? open('waiting') : setWaitOpen((w) => !w))}><Icon name="message-square" />{waiting.length} waiting on you</span>}
-          <span className="dp-sbi">Layout: {preset}</span>
+          <span className="dp-sbi">Layout: {layouts.current?.name || 'unsaved'}</span>
           <span className="dp-sbi" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
           <span className="dp-sbi" onClick={split}><kbd>⌘</kbd><kbd>\</kbd>Other pane</span>
           <span className="dp-sbi" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>
