@@ -56,14 +56,24 @@ const useNarrow = () => {
 
 const SEGMENTS: [keyof WorkSummary['progress'], string][] = [['merged', 'merged'], ['ready', 'review'], ['draft', 'draft'], ['planned', 'planned'], ['closed', 'closed']];
 
-function WorkRow({ w, on, views }: { w: WorkSummary; on: boolean; views?: React.ReactNode }) {
+const EXPANDED = 'cc.dp.expanded';
+const readExpanded = (): string[] => { try { const v: unknown = JSON.parse(localStorage.getItem(EXPANDED) || '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; } };
+const useExpanded = (slug: string) => {
+  const [list, setList] = useState(() => { const l = readExpanded(); return l.includes(slug) ? l : [...l, slug]; });
+  useEffect(() => { try { localStorage.setItem(EXPANDED, JSON.stringify(list)); } catch {} }, [list]);
+  const toggle = (s: string) => setList((l) => (l.includes(s) ? l.filter((x) => x !== s) : [...l, s]));
+  return { expanded: list, toggle };
+};
+
+function WorkRow({ w, on, expanded, onToggle, views }: { w: WorkSummary; on: boolean; expanded: boolean; onToggle: () => void; views: React.ReactNode }) {
   const p = w.progress;
   const st = p.attention ? 'dp-st-changes' : p.ready + p.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow';
   const segs = SEGMENTS.flatMap(([k, state]) => Array.from({ length: Number(p[k]) || 0 }, (_, i) => <i key={`${state}-${i}`} className={`dp-st-${state}`} />));
   return (
     <>
-      <a className={`dp-work dp-work2${on ? ' dp-on' : ''}`} href={workHref(w.slug)} title={w.title}>
+      <a className={`dp-work dp-work2${on ? ' dp-on' : ''}`} href={workHref(w.slug)} title={w.title} onClick={() => { if (!expanded) onToggle(); }}>
         <span className="dp-work-top">
+          <button type="button" className={`dp-caret${expanded ? ' dp-open' : ''}`} aria-label={expanded ? 'Collapse' : 'Expand'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}><Icon name="chevron-right" size={12} /></button>
           <span className={`dp-dot dp-lg ${st}`} />
           <span className="dp-grow dp-ell">{w.title}</span>
           {p.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}
@@ -73,20 +83,23 @@ function WorkRow({ w, on, views }: { w: WorkSummary; on: boolean; views?: React.
           <span className="dp-pc">{w.archived ? 'archived' : `${p.merged}/${w.stack - p.closed}`}</span>
         </span>
       </a>
-      {on && views}
+      <div className={`dp-collapse${expanded ? ' dp-open' : ''}`}><div>{views}</div></div>
     </>
   );
 }
 
-function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug: string; views: React.ReactNode; repo?: string }) {
+function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug: string; views: (w: WorkSummary) => React.ReactNode; repo?: string }) {
   const works = new Map((ov?.works || []).filter((w) => !w.archived).map((w) => [w.slug, w]));
   const repos = (ov?.repos || []).filter((r) => !repo || r.id === repo);
+  const { expanded, toggle } = useExpanded(slug);
   return (
     <>
       {repos.map((r) => (
         <React.Fragment key={r.id}>
           {!repo && <div className="dp-repo"><Icon name="git-branch" size={14} /><span>{r.name}</span><span className="dp-gh-name">{r.github.split('/')[0]}</span></div>}
-          {r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w)).map((w) => <WorkRow key={w.slug} w={w} on={w.slug === slug} views={views} />)}
+          {r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w)).map((w) => (
+            <WorkRow key={w.slug} w={w} on={w.slug === slug} expanded={expanded.includes(w.slug)} onToggle={() => toggle(w.slug)} views={views(w)} />
+          ))}
         </React.Fragment>
       ))}
     </>
@@ -200,14 +213,16 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     return () => removeEventListener('keydown', on);
   });
 
-  const views = (
+  const views = (w: WorkSummary) => (
     <div className="dp-views">
       {VIEWS.map((v) => {
-        const isOpen = groups.some((g) => g.tabs.includes(v.id));
+        const here = w.slug === slug;
+        const isOpen = here && groups.some((g) => g.tabs.includes(v.id));
+        const count = here ? tabCount[v.id] : v.id === 'stack' ? w.stack || undefined : undefined;
         return (
-          <div key={v.id} className={`dp-view${isOpen ? ' dp-open' : ''}`} onClick={() => open(v.id)}>
+          <div key={v.id} className={`dp-view${isOpen ? ' dp-open' : ''}`} onClick={() => { if (here) open(v.id); else location.hash = `${workHref(w.slug)}/${v.id}`; }}>
             <Icon name={v.icon} size={14} /><span>{v.label}</span>
-            {tabCount[v.id] !== undefined && <span className={`dp-count${v.id === 'ask' && waiting.length ? ' dp-acc' : ''}`}>{tabCount[v.id]}</span>}
+            {count !== undefined && <span className={`dp-count${here && v.id === 'ask' && waiting.length ? ' dp-acc' : ''}`}>{count}</span>}
           </div>
         );
       })}

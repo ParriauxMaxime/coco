@@ -69,6 +69,12 @@ const zoneAt = (e: React.DragEvent, el: HTMLElement): Zone => {
 function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: GroupData[]; ctx: WorkData; merged: boolean; max: boolean; drag: string | null }) {
   const { activate, close, pin, toggleMax, splitWith, moveTab, setDrag } = useWorkbench.getState();
   const tabDef = useTabDef();
+  const [closing, setClosing] = useState<string | null>(null);
+  const closeSoft = (id: string) => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return close(id);
+    setClosing(id);
+    setTimeout(() => { close(id); setClosing(null); }, 140);
+  };
   const previews = groups.map((x) => x.preview);
   const total = groups.reduce((n, x) => n + x.tabs.length, 0);
   const [over, setOver] = useState<number | null>(null);
@@ -93,17 +99,17 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
             role="tab"
             aria-selected={id === g.active}
             draggable
-            className={`wb-tab-h ${id === g.active ? 'active' : ''} ${previews.includes(id) ? 'preview' : ''} ${over === i ? 'drop-before' : ''} ${drag === id ? 'dragging' : ''}`}
+            className={`wb-tab-h ${id === g.active ? 'active' : ''} ${previews.includes(id) ? 'preview' : ''} ${over === i ? 'drop-before' : ''} ${drag === id ? 'dragging' : ''} ${closing === id ? 'closing' : ''}`}
             onClick={() => activate(id)}
             onDoubleClick={() => pin(id)}
             onMouseDown={(e) => e.button === 1 && e.preventDefault()}
-            onAuxClick={(e) => e.button === 1 && close(id)}
+            onAuxClick={(e) => e.button === 1 && closeSoft(id)}
             onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); setDrag(id); }}
             onDragEnd={() => setDrag(null)}
           >
             {tabDef(id).icon}
             <span className="wb-label" title={tabDef(id).tip?.(ctx)}>{tabDef(id).title(ctx)}</span>
-            {!(id === 'plan' && total === 1) && <button className="wb-x" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); close(id); }}><Glyph d={GLYPHS.close} /></button>}
+            {!(id === 'plan' && total === 1) && <button className="wb-x" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); closeSoft(id); }}><Glyph d={GLYPHS.close} /></button>}
           </div>
         ))}
       </div>
