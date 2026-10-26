@@ -17,6 +17,7 @@ type ListContext = {
   folded: string[];
   fold: (key: string) => void;
   watch: Record<string, Proposal[]>;
+  fresh: Set<string>;
   ticks: Set<string> | null;
   cats: Record<string, FileCategory | undefined> | null | undefined;
 };
@@ -44,6 +45,7 @@ function FileRow({ file, label, hint, ctx }: { file: PrFile; label: string; hint
   return (
     <li className={`fl-file${filename === ctx.activePath ? ' on' : ''}${ctx.ticks?.has(filename) ? ' done' : ''}`} onClick={() => ctx.onOpen(filename, { preview: true })} onDoubleClick={() => ctx.onOpen(filename, { preview: false })}>
       <span className={`fl-name st-${status}`} title={cat ? `${filename}\n${cat.category}: ${cat.reason}` : filename}>{label}{hint && <span className="fl-hint"> {hint}/</span>}</span>
+      {ctx.fresh.has(filename) && <span className="dp-chip dp-warn" title="pushed after coco planned, placed by folder">new</span>}
       {watch > 0 && <span className="dp-count fl-wp" title="coco watch points">{watch}</span>}
       {count > 0 && <span className="dp-count dp-acc" title={`${count} comment${count > 1 ? 's' : ''}`}>{count}</span>}
       <span className="fl-stat"><span className="dp-add">+{additions}</span> <span className="dp-del">−{deletions}</span></span>
@@ -105,7 +107,7 @@ function Entries({ node, prefix, ctx }: { node: TreeDir; prefix: string; ctx: Li
 
 // files: [{ filename, status, additions, deletions }] · commentsByPath: { [path]: count } · follow: scroll the list to keep activePath visible
 // groups: [{ key, title, why, files }] shows a flat reading order instead of the tree · folded: keys of folded groups · watch: { [path]: coco watch points }
-// ticks: Set of reviewed paths · cats: { [path]: { category, reason } }
+// fresh: Set of paths pushed after the plan · ticks: Set of reviewed paths · cats: { [path]: { category, reason } }
 type Props = {
   files: RefFile[];
   activePath: string | null;
@@ -116,11 +118,12 @@ type Props = {
   folded?: string[];
   onFold?: (key: string) => void;
   watch?: Record<string, Proposal[]>;
+  fresh?: Set<string>;
   ticks?: Set<string> | null;
   cats?: ListContext['cats'];
 };
 
-export default function FileList({ files, activePath, commentsByPath, onOpen, follow = false, groups = null, folded = [], onFold = () => {}, watch = {}, ticks = null, cats = null }: Props) {
+export default function FileList({ files, activePath, commentsByPath, onOpen, follow = false, groups = null, folded = [], onFold = () => {}, watch = {}, fresh = new Set(), ticks = null, cats = null }: Props) {
   const [filter, setFilter] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -134,7 +137,7 @@ export default function FileList({ files, activePath, commentsByPath, onOpen, fo
       if (!next.delete(path)) next.add(path);
       return next;
     });
-  const ctx = { activePath, commentsByPath, onOpen, collapsed, toggle, folded: needle ? [] : folded, fold: onFold, watch, ticks, cats };
+  const ctx = { activePath, commentsByPath, onOpen, collapsed, toggle, folded: needle ? [] : folded, fold: onFold, watch, fresh, ticks, cats };
   useEffect(() => {
     if (!follow) return;
     const ul = rootRef.current?.querySelector<HTMLElement>(':scope > ul');

@@ -63,6 +63,7 @@ export type FileCategory = { category: string; reason?: string };
 export type ReviewPlanState = {
   plan: PlanBody | null;
   stale?: boolean;
+  placed?: Record<string, number>;
   headSha: string;
   ticks: string[];
   watch: Record<number, unknown>;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { classify, createClassifier, createReviewPlan, normalizePlan, splitDiff, suggestedOrder } from './review-plan.ts';
+import { classify, createClassifier, createReviewPlan, normalizePlan, placeUnplanned, splitDiff, suggestedOrder } from './review-plan.ts';
 import { readPrFindings, readReviewContext, reviewContextFile, slimWork, writeReviewContext } from './review-context.ts';
 import { DEFAULTS } from './config.ts';
 import type { Work } from './core-types.ts';
@@ -188,4 +188,22 @@ test('a plan change (a tick) is announced as a plan change of its work', async (
   let out: unknown;
   await plan.handle({ method: 'PUT' } as never, {} as never, ['works', 'csv', 'prs', '7', 'review-plan', 'ticks'], async () => JSON.stringify({ headSha: 'a'.repeat(40), path: 'src/a.ts', on: true }), (_r, _c, b) => (out = b));
   assert.deepEqual([events, out], [['csv:plan'], { ticks: ['src/a.ts'] }]);
+});
+
+test('placeUnplanned puts files pushed after the plan in the step of their old path, folder, then feature', () => {
+  const step = (...paths: string[]) => ({ files: paths.map((p) => ({ path: `${L}/invoices/${p}` })) });
+  const plan = { steps: [step('server/use-case/export-use-case.ts'), step('client/components/cell.tsx', 'client/components/new-cell.tsx')], skim: [{ path: `${L}/invoices/invoices.md` }] };
+  const pushed = [
+    { filename: `${L}/invoices/client/components/footer.tsx`, status: 'added', additions: 3, deletions: 0 },
+    { filename: `${L}/invoices/server/repository/invoice-repository.ts`, status: 'added', additions: 3, deletions: 0 },
+    { filename: `${L}/billing/renamed-cell.tsx`, status: 'renamed', previous: `${L}/invoices/client/components/cell.tsx`, additions: 1, deletions: 1 },
+    { filename: 'scripts/release.sh', status: 'added', additions: 1, deletions: 0 },
+  ];
+  assert.deepEqual(placeUnplanned(plan, pushed, classify(pushed, {})), {
+    [`${L}/invoices/client/components/footer.tsx`]: 1,
+    [`${L}/invoices/server/repository/invoice-repository.ts`]: 0,
+    [`${L}/billing/renamed-cell.tsx`]: 1,
+  });
+  const full = normalizePlan({ steps: [{ title: 'All', files: files.map((f) => ({ path: f.filename })) }] }, files, cats);
+  assert.deepEqual(placeUnplanned(full, files, cats), {});
 });

@@ -181,6 +181,28 @@ export function normalizePlan(raw: RawPlan, files: PrFile[], cats: Cats, lineCou
   return { summary: str(raw.summary, 1500), surface, personas: (raw.personas || []).map((x) => str(x, 40)).filter(Boolean).slice(0, 6), steps, skim, watchPoints };
 }
 
+type PlanPaths = { steps: { files: { path: string }[] }[]; skim: { path: string }[] };
+
+// Files the plan does not know (pushed after it) → the first step holding their old path, then their folder, then their feature
+export function placeUnplanned(plan: PlanPaths, files: PrFile[], cats: Cats) {
+  const stepOf = new Map<string, number>();
+  plan.steps.forEach((s, i) => s.files.forEach((f) => stepOf.set(f.path, i)));
+  const skimmed = new Set(plan.skim.map((x) => x.path));
+  const feature = (p: string) => cats[p]?.feature ?? featureOf(p);
+  const firstStep = (key: (p: string) => string, value: string) => [...stepOf].find(([p]) => key(p) === value)?.[1];
+  const out: Record<string, number> = {};
+  for (const f of files) {
+    const p = f.filename;
+    if (stepOf.has(p) || skimmed.has(p)) continue;
+    const own = feature(p);
+    const step = (f.previous ? stepOf.get(f.previous) : undefined)
+      ?? firstStep(path.dirname, path.dirname(p))
+      ?? (own && own !== '.' ? firstStep(feature, own) : undefined);
+    if (step !== undefined) out[p] = step;
+  }
+  return out;
+}
+
 const systemPrompt = (owner: string, repo: string) => `You are coco, the review copilot inside cocopilot, ${owner}'s local review tool. ${capitalize(owner)} reviews a pull request and asks you for a review plan: where to look, in which order, and what to check.
 Everything is a proposal: never edit, push, post or send. The working tree of ${repo} is on another branch: read PR code only through git at the given shas (git diff <mergeBase> <head>, git show <head>:<path>, git grep -n <term> <head> -- <pathspec>, git log). Never use the working tree.
 Method:
@@ -258,13 +280,15 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     const cats = await categories(refs, files);
     const data = read(slug, n);
     const run = live.get(`${slug}:${n}`) || data.run;
+    const stale = Boolean(data.plan && data.plan.headSha !== refs.headSha);
     return {
       headSha: refs.headSha,
       categories: cats,
       suggested: classifier.suggestedOrder(files, cats),
       run: run && { status: run.status, startedAt: run.startedAt, finishedAt: run.finishedAt, headSha: run.headSha, error: run.error, cost: run.cost, progress: run.progress.slice(-8), log: run.log || [] },
       plan: data.plan,
-      stale: Boolean(data.plan && data.plan.headSha !== refs.headSha),
+      stale,
+      placed: stale && data.plan ? placeUnplanned(data.plan, files, cats) : {},
       ticks: data.ticks[refs.headSha] || [],
       watch: data.plan?.headSha === refs.headSha ? data.watch : {},
     };

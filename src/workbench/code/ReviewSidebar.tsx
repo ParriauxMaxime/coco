@@ -13,6 +13,7 @@ export type OrderState = {
   folded: string[];
   onFold: (key: string) => void;
   watch: Record<string, Proposal[]>;
+  fresh: Set<string>;
   hidden: string[];
   onToggleCat: (category: string) => void;
   catCounts: Record<string, number>;
@@ -57,7 +58,7 @@ export default function ReviewSidebar({ files, shown, order, rv, activePath, onP
   const add = files.reduce((s, f) => s + f.additions, 0);
   const del = files.reduce((s, f) => s + f.deletions, 0);
   const bar = rv.plan && <OrderBar planned={Boolean(rv.plan.plan)} {...order} />;
-  const tree = rv.refs ? <FileList files={shown} groups={order.groups} folded={order.folded} onFold={order.onFold} watch={order.watch} ticks={order.ticks} cats={rv.plan?.categories} activePath={activePath} commentsByPath={rv.byPath} onOpen={(p) => onPick(p)} follow={!phone} /> : <span className="dp-xs dp-t3">{rv.error ? '' : 'Loading files…'}</span>;
+  const tree = rv.refs ? <FileList files={shown} groups={order.groups} folded={order.folded} onFold={order.onFold} watch={order.watch} fresh={order.fresh} ticks={order.ticks} cats={rv.plan?.categories} activePath={activePath} commentsByPath={rv.byPath} onOpen={(p) => onPick(p)} follow={!phone} /> : <span className="dp-xs dp-t3">{rv.error ? '' : 'Loading files…'}</span>;
   const reviewed = order.ticks.size > 0 ? files.filter((f) => order.ticks.has(f.filename)).length : 0;
   if (phone) return <Fold title={`Files · ${files.length}`} badge={`+${add} −${del}`}>{bar}{tree}</Fold>;
   return (

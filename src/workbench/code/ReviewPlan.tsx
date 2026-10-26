@@ -59,6 +59,7 @@ export default function ReviewPlan({ rv }: { rv: ReviewHandle }) {
   const { run, plan } = st;
   const running = run?.status === 'running';
   const failed = run?.status === 'error' && (!plan || run.startedAt > plan.createdAt);
+  const placed = Object.keys(st.placed || {}).length;
   const start = (guidance?: string) => {
     setBusy(true);
     rv.startPlan(guidance).catch((e: Error) => toast.error(e.message)).finally(() => setBusy(false));
@@ -68,7 +69,7 @@ export default function ReviewPlan({ rv }: { rv: ReviewHandle }) {
     <div className="rv-plan">
       <div className="rv-plan-h">
         <b>Review plan</b>
-        {plan && st.stale && <span className="dp-chip dp-warn" title={`planned on ${plan.headSha.slice(0, 7)}`}>head moved</span>}
+        {plan && st.stale && <button type="button" className="dp-chip dp-warn dp-chip-btn" disabled={busy || running} title={`planned on ${plan.headSha.slice(0, 7)}; files pushed since sit in the step holding their folder`} onClick={() => start()}>head moved{placed ? ` · ${placed} new` : ''} · re-plan</button>}
         <span className="dp-sp" />
         {plan && rv.slug && <ThreadToggle slug={rv.slug} threadKey={key} open={talking} label="ask or re-plan" onClick={() => setTalking(!talking)} />}
         {!running && <button type="button" className={`dp-btn dp-sm${plan && !st.stale ? '' : ' dp-primary'}${pendingClass(busy)}`} disabled={busy} onClick={() => start()}><Icon name={plan ? 'refresh' : 'sparkles'} size={12} />{plan ? 'Re-plan' : 'Plan this review'}</button>}

@@ -80,6 +80,7 @@ export default function Review({ tabId }: { tabId: string }) {
   const ticks = useMemo(() => new Set<string>(rv.plan?.ticks || []), [rv.plan?.ticks]);
   const notes = useMemo(() => planNotes(rv.plan?.plan), [rv.plan?.plan]);
   const watch = useMemo(() => watchByPath(rv.proposals), [rv.proposals]);
+  const fresh = useMemo(() => new Set(Object.keys(rv.plan?.placed || {})), [rv.plan?.placed]);
   const catCounts = useMemo(() => files.reduce<Record<string, number>>((acc, f) => {
     const c = cats?.[f.filename]?.category;
     if (c) acc[c] = (acc[c] || 0) + 1;
@@ -331,7 +332,7 @@ export default function Review({ tabId }: { tabId: string }) {
   const showSide = desktop && room - width - 6 - (showAct ? fitAct + 6 : 0) >= MAIN_MIN;
   const mainW = room - (showSide ? width + 6 : 0) - (showAct ? fitAct + 6 : 0);
   const columns = [showSide && `${width}px 6px`, 'minmax(0, 1fr)', showAct && `6px ${fitAct}px`].filter(Boolean).join(' ');
-  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, folded, onFold, watch, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
+  const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, folded, onFold, watch, fresh, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
   const activity = <ReviewActivity slug={slug} n={n} rv={rv} onJump={jump} />;
   const sbsOn = sbs && mainW >= SBS_MIN;
   const card = (f: RefFile) => (
@@ -347,6 +348,7 @@ export default function Review({ tabId }: { tabId: string }) {
       category={cats?.[f.filename]}
       note={notes[f.filename]}
       watch={watch[f.filename]}
+      fresh={fresh.has(f.filename)}
       reviewed={ticks.has(f.filename)}
       onTick={rv.plan ? onTick : null}
       sbs={sbsOn}

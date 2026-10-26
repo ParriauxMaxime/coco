@@ -123,6 +123,7 @@ type CardProps = {
   category?: FileCategory;
   note?: string;
   watch?: Proposal[];
+  fresh: boolean;
   reviewed: boolean;
   cardRef: (path: string, el: HTMLElement | null) => void;
   onToggle: (path: string) => void;
@@ -133,7 +134,7 @@ type CardProps = {
   onJump: (c: ReviewComment) => void;
 };
 
-function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, desktop, category, note, watch, reviewed, cardRef, onToggle, onTick, onOpenTab, onReveal, onHeight, onJump }: CardProps) {
+function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, desktop, category, note, watch, fresh, reviewed, cardRef, onToggle, onTick, onOpenTab, onReveal, onHeight, onJump }: CardProps) {
   const path = file.filename;
   const [anchor, setAnchor] = useState('');
   const github = useConfig((s) => s.repo.github);
@@ -157,6 +158,7 @@ function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, 
           <PathLabel path={path} />
         </span>
         {STATUS[file.status] && <span className={`dp-chip ${STATUS[file.status]}`}>{file.status}</span>}
+        {fresh && <span className="dp-chip dp-warn" title="pushed after coco planned, placed by folder">new</span>}
         {category && <span className={`dp-chip dp-tone rv-cat-${category.category}`} title={category.reason}>{category.category}</span>}
         <span className="rv-stat"><span className="dp-add">+{file.additions}</span> <span className="dp-del">−{file.deletions}</span></span>
         <span className="dp-sp" />
