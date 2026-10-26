@@ -123,7 +123,8 @@ export interface PrInfo {
   sha?: string;
   headOid?: string | null;
   ci?: string;
-  checks?: { name: string; status: string; conclusion: string }[];
+  checks?: { name: string; status: string; conclusion: string; url?: string }[];
+  unresolvedThreads?: number;
   reviewers?: { login: string; state: string }[];
   error?: string;
   [key: string]: unknown;

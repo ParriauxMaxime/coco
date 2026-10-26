@@ -12,7 +12,7 @@ import Collapsible from '../../components/Collapsible.tsx';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { orderGroups, planNotes } from '../code/review-order.ts';
 import { useLangProviders, useLangStatus, useLocal } from './Code.tsx';
-import { stateChip, stateLabel } from './Plan.tsx';
+import PrBadge, { stateChip, stateLabel } from '../../components/PrBadge.tsx';
 import { errorMessage } from '../../api.ts';
 import type { Reveal } from '../code/DiffView.tsx';
 import type { RefFile, ReviewComment } from '../types.ts';
@@ -257,7 +257,7 @@ export default function Review({ tabId }: { tabId: string }) {
     <CodeRefScope n={n}>
     <div className="rv">
       <div className="rv-bar">
-        {isLocalKey(n) ? <code className="pr-num" title="local branch, no PR yet">{keyLabel(n)}</code> : <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer">#{n}</a>}
+        {isLocalKey(n) ? <code className="pr-num" title="local branch, no PR yet">{keyLabel(n)}</code> : <PrBadge pr={pr} />}
         <span className="rv-title" title={title}>{title}</span>
         <span className={`chip ${stateChip(pr)}`}>{stateLabel(pr)}</span>
         {COUNTS.filter((k) => counts[k]).map((k) => <span key={k} className={`chip ${CHIP[k]}`}>{counts[k]} {k}</span>)}

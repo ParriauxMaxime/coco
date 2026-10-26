@@ -6,6 +6,7 @@ import { toast } from '../../components/Toast.tsx';
 import Markdown from '../../components/Markdown.tsx';
 import Blocks from '../../components/Blocks.tsx';
 import Collapsible from '../../components/Collapsible.tsx';
+import PrBadge, { stateChip, stateKey, stateLabel } from '../../components/PrBadge.tsx';
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { StackFixCard } from '../code/StackFix.tsx';
@@ -16,15 +17,11 @@ import { DevServerRow, DevServersSummary, useDevServers } from './DevServers.tsx
 import type { DevServerRowData, DevServersResponse, PersonaSuggestion, StackRow, WorkDetail } from '../../types.ts';
 import type { NotionState, PrKey, WhatsNextData, WorkPr } from '../types.ts';
 
-const STATE_LABELS: Record<string, string> = { merged: 'merged', closed: 'closed', draft: 'draft', approved: 'approved', changes: 'changes requested', ready: 'in review', planned: 'planned' };
 const isWhatsNext = (x: unknown): x is WhatsNextData => typeof x === 'object' && x !== null;
 
 const CI_CHIPS: Record<string, string> = { success: 'c-green', failure: 'c-red', pending: 'c-orange', none: 'c-grey' };
 const ciChip = (ci?: string) => (ci && CI_CHIPS[ci]) || 'c-grey';
-const stateKey = (pr: WorkPr) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
 const FOLDED_STATES = ['merged', 'closed', 'planned'];
-export const stateChip = (pr: WorkPr) => `st-chip st-${stateKey(pr)}`;
-export const stateLabel = (pr: WorkPr) => STATE_LABELS[stateKey(pr)];
 
 function userFacing(body = '') {
   const m = body.match(/## What changes for users\s*\n([\s\S]*?)(?=\n## |$)/i);
@@ -101,7 +98,7 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChang
       <div className="headline" onClick={onToggle}>
         <span className="step">{index + 1}</span>
         <div>
-          {pr.number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>#{pr.number}</a> : <span className="status">planned</span>} <b>{title}</b>
+          {pr.number ? <PrBadge pr={pr} /> : <span className="status">planned</span>} <b>{title}</b>
           {open && planned?.branch && !pr.number && <div className="status"><code>{planned.branch}</code></div>}
           {number && <DiffStat pr={pr} />}
         </div>
@@ -182,7 +179,7 @@ function ProgressDot({ w, pr, index, alignEnd, onJump, onDetails, onReview }: Pr
       <i />
       <span className={`dot-pop card${alignEnd ? ' end' : ''}`}>
         <span className="row">
-          {number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer">#{number} ↗</a> : <span className="status">PR {index + 1}</span>}
+          {number ? <PrBadge pr={pr} /> : <span className="status">PR {index + 1}</span>}
           <span className={`chip ${stateChip(pr)}`}>{stateLabel(pr)}</span>
           {number && pr.ci !== 'none' && <span className={`chip ${ciChip(pr.ci)}`}>CI {pr.ci}</span>}
         </span>

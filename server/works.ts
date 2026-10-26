@@ -51,8 +51,10 @@ interface GhCheck {
   status?: string;
   state?: string;
   conclusion?: string;
+  detailsUrl?: string | null;
+  targetUrl?: string | null;
 }
-const PR_FIELDS = 'number title url state isDraft reviewDecision headRefName baseRefName headRefOid additions deletions changedFiles mergedAt updatedAt body labels(first:20){nodes{name}} reviews(last:100){nodes{author{login} state}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}';
+const PR_FIELDS = 'number title url state isDraft reviewDecision headRefName baseRefName headRefOid additions deletions changedFiles mergedAt updatedAt body labels(first:20){nodes{name}} reviews(last:100){nodes{author{login} state}} reviewThreads(first:100){nodes{isResolved}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion detailsUrl} ... on StatusContext{context state targetUrl}}}}}}}';
 interface GhPr {
   number: number;
   body?: string;
@@ -71,6 +73,7 @@ interface GhPr {
   updatedAt: string;
   commits?: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: GhCheck[] } } | null } }[] };
   reviews?: { nodes: { author?: { login: string } | null; state: string }[] };
+  reviewThreads?: { nodes: { isResolved: boolean }[] };
   labels?: { nodes: { name: string }[] };
 }
 interface GhPrNode {
@@ -174,7 +177,11 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   }
   function toPrInfo(d: GhPr): PrInfo {
     const contexts = d.commits?.nodes[0]?.commit.statusCheckRollup?.contexts.nodes || [];
-    const checks = contexts.map((c) => ({ name: c.name || c.context || '', status: c.status || c.state || '', conclusion: c.conclusion || '' }));
+    // a status context has a state only: SUCCESS / FAILURE / ERROR are final, PENDING / EXPECTED run
+    const checks = contexts.map((c) => {
+      const final = c.state && !['PENDING', 'EXPECTED'].includes(c.state);
+      return { name: c.name || c.context || '', status: c.status || (final ? 'COMPLETED' : c.state || ''), conclusion: c.conclusion || (final ? (c.state === 'SUCCESS' ? 'SUCCESS' : 'FAILURE') : ''), url: c.detailsUrl || c.targetUrl || '' };
+    });
     return {
       number: d.number,
       title: d.title,
@@ -194,6 +201,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       labels: (d.labels?.nodes || []).map((l) => l.name),
       ci: checks.length === 0 ? 'none' : checks.some((c) => c.conclusion === 'FAILURE') ? 'failure' : checks.some((c) => c.status !== 'COMPLETED') ? 'pending' : 'success',
       checks,
+      unresolvedThreads: (d.reviewThreads?.nodes || []).filter((t) => !t.isResolved).length,
       reviewers: Object.entries((d.reviews?.nodes || []).reduce<Record<string, string>>((acc, rv) => ((acc[rv.author?.login || '?'] = rv.state), acc), {})).map(([login, state]) => ({ login, state })),
     };
   }

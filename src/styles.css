@@ -186,6 +186,15 @@ form.ritual label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; 
 .tree .st-added .name, .tree .name.st-added { color: var(--green); } .tree .name.st-removed { color: var(--red); text-decoration: line-through; }
 .diffstat { font-size: 11px; } .add { color: var(--green); } .del { color: var(--red); }
 .pr-num { font-weight: 700; color: var(--brand); }
+.pr-badge { display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--st-bg, var(--grey-bg)); color: var(--st, var(--brand)); text-decoration: none; vertical-align: 1px; }
+.pr-badge:hover { text-decoration: none; box-shadow: 0 0 0 2px var(--st, var(--brand)); }
+.pr-peek { position: fixed; z-index: 60; width: min(340px, calc(100vw - 16px)); margin: 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-hover); font-size: 13px; }
+.pr-peek-ci { font-weight: 600; } .pr-peek-ci.ok { color: var(--green); } .pr-peek-ci.fail { color: var(--red); } .pr-peek-ci.run { color: var(--amber); }
+.pr-peek-checks { margin: 0; padding: 0; list-style: none; max-height: 220px; overflow: auto; }
+.pr-peek-checks li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0 2px 8px; border-left: 2px solid var(--red); }
+.pr-peek-checks li.running { border-left-color: var(--amber); }
+.pr-peek-checks li a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-peek-threads { color: var(--mute); } .pr-peek-threads.open { color: var(--amber); font-weight: 600; }
 .step { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: var(--navy); color: #fff; font-size: 12px; font-weight: 700; }
 
 /* folds (collapsible sections) */

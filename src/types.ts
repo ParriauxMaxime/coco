@@ -175,7 +175,7 @@ export type Artifact = {
   meta?: { pr: string | null; kind: string | null; headSha: string | null; at: string };
 };
 
-export type PrCheck = { name: string; status: string; conclusion: string };
+export type PrCheck = { name: string; status: string; conclusion: string; url?: string };
 export type PrInfo = {
   number: number | null;
   title?: string;
@@ -194,6 +194,7 @@ export type PrInfo = {
   labels?: string[];
   ci?: string;
   checks?: PrCheck[];
+  unresolvedThreads?: number;
   reviewers?: { login: string; state: string }[];
   error?: string;
   key?: string | number;
