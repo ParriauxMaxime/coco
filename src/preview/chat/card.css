@@ -1,4 +1,4 @@
-.dp-card-q.dp-cd { font-size: 13px; margin: 2px 0; overflow: visible; }
+.dp-card-q.dp-cd { font-size: 13px; margin: 8px 0; overflow: visible; }
 .dp-cd > .dp-cq-h { border-radius: var(--dp-r3) var(--dp-r3) 0 0; min-width: 0; }
 .dp-cd > .dp-cq-h .dp-chip { flex: none; }
 .dp-cd-t { min-width: 0; font-weight: 600; color: var(--dp-t1); }

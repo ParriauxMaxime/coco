@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { api } from '../../api.ts';
+import { api, errorMessage } from '../../api.ts';
 import Blocks, { Inline } from '../../components/Blocks.tsx';
-import { pendingClass, useAction } from '../../components/action.ts';
+import { pendingClass } from '../../components/action.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
 import type { Card, CardAnswerBody, CardField, CardOption, CardValue, TableCell } from '../../types.ts';
@@ -48,7 +48,7 @@ const isValid = (c: Card, d: Draft) => {
   const other = hasOther(c) && d.other.trim() !== '';
   if (c.kind === 'choice') return d.picked.length > 0 || other;
   if (c.kind === 'rows') {
-    if (c.rowOptions?.length) return other || (c.rows ?? []).every((r) => d.rowPicks[r.key]);
+    if (c.rowOptions?.length) return other || Object.keys(d.rowPicks).length > 0;
     return other || (c.select === 'one' ? d.rows.length === 1 : d.rows.length > 0);
   }
   if (c.kind === 'form') return (c.fields ?? []).every((f) => !fieldError(f, d.values[f.key]));
@@ -175,7 +175,7 @@ function Rows({ c, d, set, ro }: Part) {
 function Field({ f, v, ro, shown, onChange, onBlur }: { f: CardField; v: CardValue | undefined; ro: boolean; shown: boolean; onChange: (v: CardValue) => void; onBlur: () => void }) {
   const err = shown && !ro ? fieldError(f, v) : '';
   const s = v == null ? '' : String(v);
-  const common = { disabled: ro, onBlur, 'aria-invalid': err ? true : undefined, placeholder: f.placeholder };
+  const common = { disabled: ro, onBlur, 'aria-invalid': err ? true : undefined, placeholder: ro ? undefined : f.placeholder };
   if (f.type === 'toggle') return (
     <label className={`dp-cd-tgl${v ? ' dp-on' : ''}${ro ? ' dp-cd-ro' : ''}`}>
       <input className="dp-vh" type="checkbox" checked={!!v} disabled={ro} onChange={(e) => onChange(e.target.checked)} />
@@ -234,7 +234,21 @@ const EDITABLE = ['INPUT', 'TEXTAREA', 'SELECT'];
 export default function CardView({ card: c, onCard, focus = false }: { card: Card; onCard?: (c: Card) => void; focus?: boolean }) {
   const [d, setD] = useState(() => draftOf(c));
   const [tried, setTried] = useState(false);
-  const { pending, busy, run } = useAction();
+  const [pending, setPending] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const busy = pending !== null;
+  const run = async (key: string, fn: () => Promise<Card>) => {
+    setPending(key);
+    setErr('');
+    try {
+      onCard?.(await fn());
+    } catch (e) {
+      setErr(errorMessage(e));
+      api.card(c.id).then((r) => r.status !== 'open' && onCard?.(r), () => {});
+    } finally {
+      setPending(null);
+    }
+  };
   const root = useRef<HTMLDivElement>(null);
   const open = c.status === 'open';
   const post = c.kind === 'post';
@@ -249,7 +263,7 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
   }, []);
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
   const ok = isValid(c, d);
-  const answer = (key: string, body: CardAnswerBody) => run(key, () => api.answerCard(c.id, body)).then((r) => r && onCard?.(r));
+  const answer = (key: string, body: CardAnswerBody) => run(key, () => api.answerCard(c.id, body));
   const submit = () => {
     setTried(true);
     if (ok && !busy) void answer('answer', answerOf(c, d));
@@ -293,14 +307,16 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
           ) : (
             <>
               <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'answer')}`} disabled={busy || (tried && !ok)} onClick={submit}>Send answer<kbd>↵</kbd></button>
-              {tried && !ok && <span className="dp-cd-err">{c.kind === 'form' ? 'Fix the fields above' : c.kind === 'rows' && c.rowOptions?.length ? 'Pick an option on every row, or write your own' : 'Pick one, or write your own'}</span>}
+              {tried && !ok && <span className="dp-cd-err">{c.kind === 'form' ? 'Fix the fields above' : c.kind === 'rows' && c.select === 'one' && !c.rowOptions?.length ? 'Tick one row, or write your own' : 'Pick one, or write your own'}</span>}
             </>
           )}
+          {err && <span className="dp-cd-err" role="alert">{err}</span>}
           <span className="dp-sp" />
-          <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question; the agent is told you dismissed it" onClick={() => void run('cancel', () => api.cancelCard(c.id)).then((r) => r && onCard?.(r))}>Dismiss</button>
+          <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question; the agent is told you dismissed it" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>
         </div>
       )}
       {!open && !post && <Status c={c} />}
+      {!open && err && <div className="dp-cd-st dp-cd-bad" role="alert"><Icon name="alert-triangle" size={12} />{err}</div>}
     </div>
   );
 }

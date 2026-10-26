@@ -121,6 +121,7 @@ export const api = {
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
   cards: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/cards`).then(jsonOrError<Card[]>),
+  card: (id: string) => fetch(`/api/cards/${encodeURIComponent(id)}`).then(jsonOrError<Card>),
   answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),
   cancelCard: (id: string) => postJson(`/api/cards/${encodeURIComponent(id)}/cancel`).then(jsonOrError<Card>),
   startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
