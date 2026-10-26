@@ -54,6 +54,14 @@ blocks. Inline text everywhere supports `**bold**`, `*italic*`, `` `code` ``,
 `<risk>…</risk>` `<warn>…</warn>` `<ok>…</ok>` `<note>…</note>`
 `<mute>…</mute>`. Mark the one phrase that matters, not whole sentences.
 
+Link everything a reader may want to open. coco turns these into links:
+- a file: its repo-relative path with the line, `` `src/billing/invoice.ts:42` ``,
+  never a bare name or a path relative to a module;
+- a PR: `#101`;
+- a commit: its sha in `` `code` ``.
+
+Anything else (a ticket, a doc, a log) goes in `sources` with its `url`.
+
 | Block | Use for | Shape |
 | --- | --- | --- |
 | `text` | 1-3 sentences of context. Split long prose into steps or a table. | `{ "type": "text", "text": "…" }` |

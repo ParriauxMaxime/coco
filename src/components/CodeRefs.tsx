@@ -2,12 +2,13 @@ import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, 
 import { createPortal } from 'react-dom';
 import { codeApi } from '../workbench/code/code-api.ts';
 import { errorMessage } from '../api.ts';
+import { useConfig } from '../config.ts';
 
 // `path/to/file.ext:12-34` in rendered markdown becomes a link that opens the editor at that line, with a code peek on hover.
 // The workbench sets the PR the paths are read at (the top stack row); a Review tab or a card tagged with `pr` narrows it.
 type PrKey = number | string;
 type OpenAt = (n: PrKey, path: string, line: number | null) => void;
-type CodeRefValue = { n: PrKey; openAt: OpenAt; open: (path: string, line: number | null) => void };
+type CodeRefValue = { n: PrKey; openAt: OpenAt; open: (path: string, line: number | null) => void; slug?: string; prs?: number[] };
 type PeekTarget = { path: string; start: number | null; end: number | null; rect: DOMRect };
 type PeekFile = { text?: string; tooLarge?: boolean; base?: boolean; error?: string };
 
@@ -21,12 +22,16 @@ export function CodeRefScope({ n, children }: { n?: PrKey; children?: React.Reac
 }
 
 // the workbench root: openAt(n, path, line) opens the editor tab of a PR at a line
-export function CodeRefRoot({ n, openAt, children }: { n?: PrKey | null; openAt: OpenAt; children?: React.ReactNode }) {
-  const value = useMemo(() => (n ? { n, openAt, open: (path: string, line: number | null) => openAt(n, path, line) } : null), [n, openAt]);
+export function CodeRefRoot({ n, openAt, slug, prs, children }: { n?: PrKey | null; openAt: OpenAt; slug: string; prs: number[]; children?: React.ReactNode }) {
+  const value = useMemo(() => (n ? { n, openAt, open: (path: string, line: number | null) => openAt(n, path, line), slug, prs } : null), [n, openAt, slug, prs]);
   return <CodeRefContext.Provider value={value}>{children}</CodeRefContext.Provider>;
 }
 
 const REF = /(?<![\w/.@-])((?:[\w@.-]+\/)+[\w@.-]+\.[A-Za-z0-9]+)(?::(\d+)(?:-(\d+))?)?(?![\w/])/g;
+// a bare file name links only as a whole `code` element, once the repo tree knows a single file by that name
+const BARE = /^([\w@.-]+\.(?:tsx?|jsx?|mjs|cjs|json|md|s?css|sh|ya?ml|html))(?::(\d+)(?:-(\d+))?)?$/;
+const PR_REF = /(?<![\w&/#])#(\d{2,6})\b/g;
+const isSha = (s: string) => /^[0-9a-f]{7,40}$/.test(s) && /\d/.test(s) && /[a-f]/.test(s);
 const SKIP = 'a, pre, .code-ref';
 
 const refLink = (doc: Document, path: string, start: string | undefined, end: string | undefined, text: string) => {
@@ -40,18 +45,28 @@ const refLink = (doc: Document, path: string, start: string | undefined, end: st
   return a;
 };
 
-// wraps code refs of a rendered markdown root in links: whole inline `code` elements, and refs inside text
-export function linkCodeRefs(root: HTMLElement) {
-  const doc = root.ownerDocument;
+const hrefLink = (doc: Document, href: string, text: string) => {
+  const a = doc.createElement('a');
+  a.href = href;
+  if (!href.startsWith('#')) Object.assign(a, { target: '_blank', rel: 'noreferrer' });
+  a.textContent = text;
+  return a;
+};
+
+// whole inline `code` elements whose text makes a link
+function wrapCode(root: HTMLElement, link: (text: string) => HTMLAnchorElement | null) {
   for (const code of root.querySelectorAll('code')) {
     if (code.closest(SKIP)) continue;
-    const m = new RegExp(`^${REF.source}$`).exec((code.textContent ?? '').trim());
-    if (!m) continue;
-    const a = refLink(doc, m[1], m[2], m[3], '');
+    const a = link((code.textContent ?? '').trim());
+    if (!a) continue;
     code.replaceWith(a);
     a.appendChild(code);
   }
-  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement?.closest(`${SKIP}, code`) || !t.nodeValue?.includes('/') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+}
+
+// matches of `re` in the text outside links and code
+function wrapText(root: HTMLElement, hint: string, re: RegExp, link: (m: RegExpMatchArray) => HTMLAnchorElement | null) {
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement?.closest(`${SKIP}, code`) || !t.nodeValue?.includes(hint) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
   const texts: Text[] = [];
   while (walker.nextNode()) {
     if (walker.currentNode instanceof Text) texts.push(walker.currentNode);
@@ -60,13 +75,67 @@ export function linkCodeRefs(root: HTMLElement) {
     const value = t.nodeValue ?? '';
     const parts: (string | HTMLAnchorElement)[] = [];
     let last = 0;
-    for (const m of value.matchAll(REF)) {
-      parts.push(value.slice(last, m.index), refLink(doc, m[1], m[2], m[3], m[0]));
-      last = m.index + m[0].length;
+    for (const m of value.matchAll(re)) {
+      const a = link(m);
+      if (!a) continue;
+      parts.push(value.slice(last, m.index), a);
+      last = (m.index ?? 0) + m[0].length;
     }
     if (!parts.length) continue;
     parts.push(value.slice(last));
     t.replaceWith(...parts.filter((p) => p !== ''));
+  }
+}
+
+// wraps code refs of a rendered markdown root in links: whole inline `code` elements, and refs inside text
+export function linkCodeRefs(root: HTMLElement) {
+  const doc = root.ownerDocument;
+  wrapCode(root, (text) => {
+    const m = new RegExp(`^${REF.source}$`).exec(text) || BARE.exec(text);
+    return m && refLink(doc, m[1], m[2], m[3], '');
+  });
+  wrapText(root, '/', REF, (m) => refLink(doc, m[1], m[2], m[3], m[0]));
+}
+
+// #123 opens the PR tab when the work stacks it, GitHub otherwise; a commit sha in `code` opens on GitHub
+export function linkGithubRefs(root: HTMLElement, github: string, work?: { slug?: string; prs?: number[] }) {
+  const doc = root.ownerDocument;
+  const prHref = (n: string) => (work?.slug && work.prs?.includes(Number(n)) ? `#/work/${work.slug}/pr-${n}` : github ? `https://github.com/${github}/pull/${n}` : null);
+  wrapCode(root, (text) => {
+    const href = isSha(text) && github ? `https://github.com/${github}/commit/${text}` : /^#\d+$/.test(text) ? prHref(text.slice(1)) : null;
+    return href ? hrefLink(doc, href, '') : null;
+  });
+  wrapText(root, '#', PR_REF, (m) => {
+    const href = prHref(m[1]);
+    return href ? hrefLink(doc, href, m[0]) : null;
+  });
+}
+
+const trees = new Map<PrKey, Promise<string[]>>();
+const treeAt = (n: PrKey) => {
+  const hit = trees.get(n);
+  if (hit) return hit;
+  const loaded = codeApi.tree(n).then((r: { files?: string[] }) => r.files || []).catch(() => []);
+  trees.set(n, loaded);
+  return loaded;
+};
+
+// module-relative or bare paths get their repo path; a path no file of the repo ends with stops being a link
+async function resolveCodeRefs(root: HTMLElement, n: PrKey) {
+  const refs = [...root.querySelectorAll<HTMLAnchorElement>('a.code-ref:not([data-resolved])')];
+  if (!refs.length) return;
+  const tree = await treeAt(n);
+  if (!tree.length) return;
+  const known = new Set(tree);
+  for (const a of refs) {
+    a.dataset.resolved = '1';
+    const path = a.dataset.path ?? '';
+    if (known.has(path)) continue;
+    const hits = tree.filter((f) => f.endsWith(`/${path}`));
+    if (hits.length === 1) {
+      a.dataset.path = hits[0];
+      a.title = hits[0];
+    } else a.replaceWith(...a.childNodes);
   }
 }
 
@@ -124,12 +193,15 @@ function Peek({ n, at: target, onEnter, onLeave }: PeekProps) {
 // click and hover handling for the code refs of one markdown root
 export function useCodeRefs(rootRef: React.RefObject<HTMLElement | null>, deps: unknown[]) {
   const ctx = useContext(CodeRefContext);
+  const github = useConfig((s) => s.repo.github);
   const [peek, setPeek] = useState<PeekTarget | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     const root = rootRef.current;
+    if (root) linkGithubRefs(root, github, ctx ?? undefined);
     if (!ctx || !root) return undefined;
     linkCodeRefs(root);
+    resolveCodeRefs(root, ctx.n);
     const refOf = (e: Event) => (e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a.code-ref') : null);
     const onClick = (e: MouseEvent) => {
       const a = refOf(e);
@@ -158,7 +230,7 @@ export function useCodeRefs(rootRef: React.RefObject<HTMLElement | null>, deps: 
       root.removeEventListener('mouseover', onOver);
       root.removeEventListener('mouseout', onOut);
     };
-  }, [ctx, ...deps]);
+  }, [ctx, github, ...deps]);
   if (!ctx || !peek) return null;
   return <Peek n={ctx.n} at={peek} onEnter={() => clearTimeout(timer.current)} onLeave={() => setPeek(null)} />;
 }

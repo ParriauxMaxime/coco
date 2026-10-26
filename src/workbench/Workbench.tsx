@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useWorkbench, layoutRects } from './workbench-store.ts';
 import { WorkContext, useWorkData } from './use-work.ts';
 import { startHashSync } from './hash.ts';
@@ -164,6 +164,8 @@ function Handle({ h }: { h: HandleData }) {
 export default function Workbench({ slug }: { slug: string }) {
   const data = useWorkData(slug);
   const loaded: WorkData | null = data.w ? { ...data, w: data.w } : null;
+  const prsKey = data.prs.map((p) => p.number).filter(Boolean).join(',');
+  const stackedPrs = useMemo(() => (prsKey ? prsKey.split(',').map(Number) : []), [prsKey]);
   const ready = useWorkbench((s) => s.slug === slug);
   const { layout, groups, focused, max, drag } = useWorkbench();
   const mobile = useMobile();
@@ -224,7 +226,7 @@ export default function Workbench({ slug }: { slug: string }) {
   }
   return (
     <WorkContext.Provider value={loaded}>
-      <CodeRefRoot n={(data.prs.findLast((p) => p.number) || data.prs.findLast((p) => p.key))?.key} openAt={openAt}>
+      <CodeRefRoot n={(data.prs.findLast((p) => p.number) || data.prs.findLast((p) => p.key))?.key} openAt={openAt} slug={slug} prs={stackedPrs}>
       <div ref={root} className={`wb-root ${max ? 'max' : ''} ${drag ? 'drag' : ''}`}>
         {shown.map((g) => <Group key={g.id} g={g} groups={groups} ctx={loaded} focused={merged || g.id === focused} merged={merged} max={max} rect={rects[g.id]} drag={drag} />)}
         {handles.map((h) => <Handle key={`${h.path.join('.')}:${h.i}`} h={h} />)}

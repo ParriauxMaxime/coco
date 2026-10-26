@@ -202,6 +202,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     `Blocks (full reference: "Blocks" in \`${BLOCKS_DOC}\`): \`text\` (1-3 sentences), \`steps\` ({ title, items, outcome }), \`table\` ({ caption, columns, rows; a cell may be { text, tone } }),`,
     '`suggestion` ({ path, startLine, endLine, lang, after }: the code you propose at those lines; cocopilot shows it as a diff), `code` ({ path, line, lang, code }), `diagram` ({ mermaid, caption }), `callout` ({ tone, title, text }).',
     'Inline text: **bold**, `code`, path/file.ts:12 refs and <risk>…</risk> <warn> <ok> <note> marks. Lead with the answer; short.',
+    'Link what the reader may open: files as repo-relative path:line (never a bare name), PRs as #123, commits as their sha in `code`, anything else in sources with its url.',
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
