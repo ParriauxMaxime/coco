@@ -16,14 +16,14 @@ import { DevServerRow, DevServersSummary, useDevServers } from './DevServers.tsx
 import type { DevServerRowData, DevServersResponse, PersonaSuggestion, StackRow, WorkDetail } from '../../types.ts';
 import type { NotionState, PrKey, WhatsNextData, WorkPr } from '../types.ts';
 
-const STATE_CHIPS: Record<string, string> = { merged: 'c-purple', closed: 'c-red', draft: 'c-grey', approved: 'c-green', changes: 'c-red', ready: 'c-blue', planned: 'c-grey' };
 const STATE_LABELS: Record<string, string> = { merged: 'merged', closed: 'closed', draft: 'draft', approved: 'approved', changes: 'changes requested', ready: 'in review', planned: 'planned' };
 const isWhatsNext = (x: unknown): x is WhatsNextData => typeof x === 'object' && x !== null;
 
 const CI_CHIPS: Record<string, string> = { success: 'c-green', failure: 'c-red', pending: 'c-orange', none: 'c-grey' };
 const ciChip = (ci?: string) => (ci && CI_CHIPS[ci]) || 'c-grey';
 const stateKey = (pr: WorkPr) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
-export const stateChip = (pr: WorkPr) => STATE_CHIPS[stateKey(pr)];
+const FOLDED_STATES = ['merged', 'closed', 'planned'];
+export const stateChip = (pr: WorkPr) => `st-chip st-${stateKey(pr)}`;
 export const stateLabel = (pr: WorkPr) => STATE_LABELS[stateKey(pr)];
 
 function userFacing(body = '') {
@@ -79,24 +79,28 @@ function PrCard({ work, pr, index, onStack, onDetails, onReview, dev, onDevChang
   const { key, number } = pr;
   const title = pr.title || planned?.title || `PR ${index + 1}`;
   const what = userFacing(pr.body) || planned?.scope || '';
+  const [open, setOpen] = useState(!FOLDED_STATES.includes(stateKey(pr)));
   return (
-    <section id={`pr-${pr.number || index}`} className="card pr-card plan-pr">
-      <div className="headline">
+    <section id={`pr-${pr.number || index}`} className={`card pr-card plan-pr st-${stateKey(pr)}${open ? '' : ' folded'}`}>
+      <div className="headline" onClick={() => setOpen(!open)}>
         <span className="step">{index + 1}</span>
         <div>
-          {pr.number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer">#{pr.number}</a> : <span className="status">planned</span>} <b>{title}</b>
-          {planned?.branch && !pr.number && <div className="status"><code>{planned.branch}</code></div>}
+          {pr.number ? <a className="pr-num" href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>#{pr.number}</a> : <span className="status">planned</span>} <b>{title}</b>
+          {open && planned?.branch && !pr.number && <div className="status"><code>{planned.branch}</code></div>}
         </div>
         <span className="row" style={{ justifyContent: 'flex-end' }}>
           <span className={`chip ${stateChip(pr)}`}>{stateLabel(pr)}</span>
           {pr.number && pr.ci !== 'none' && <span className={`chip ${ciChip(pr.ci)}`}>CI {pr.ci}</span>}
+          <span className="caret">{open ? '▾' : '▸'}</span>
         </span>
       </div>
-      {what && <div className="what"><Markdown text={what} /></div>}
-      {key && <KitLine slug={work.slug} n={key} />}
-      {dev && <DevServerRow slug={work.slug} row={dev} onChange={onDevChange} />}
-      {key && <GateRail slug={work.slug} n={key} onOpen={(kind) => onReview(key, kind)} />}
-      <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{key && <span className="row open-side"><button className="sm" onClick={() => onReview(key)}>review ▸</button><button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(key, 'brief')}>agent ▸</button>{number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}</span>}</div>
+      {open && <>
+        {what && <div className="what"><Markdown text={what} /></div>}
+        {key && <KitLine slug={work.slug} n={key} />}
+        {dev && <DevServerRow slug={work.slug} row={dev} onChange={onDevChange} />}
+        {key && <GateRail slug={work.slug} n={key} onOpen={(kind) => onReview(key, kind)} />}
+        <div className="owners row"><PersonaChips work={work} pr={pr} index={index} onChange={onStack} />{key && <span className="row open-side"><button className="sm" onClick={() => onReview(key)}>review ▸</button><button className="sm" onClick={() => onReview(key, 'findings')}>findings ▸</button><button className="sm" onClick={() => onReview(key, 'brief')}>agent ▸</button>{number && <button className="sm" onClick={() => onDetails(number)}>details ▸</button>}</span>}</div>
+      </>}
     </section>
   );
 }
@@ -160,17 +164,21 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers }
   const total = prs.reduce((a, p) => ({ add: a.add + (p.additions || 0), del: a.del + (p.deletions || 0), files: a.files + (p.changedFiles || 0) }), { add: 0, del: 0, files: 0 });
   const summary = w.summary || (w.notes || '').split('\n').find((l) => /^\d+\. /.test(l))?.replace(/^\d+\. /, '') || '';
   const owners = [...new Set((w.stack || []).flatMap((s) => s.personas || []).concat(w.personas || []))];
+  const [lead, ...more] = (w.description || '').split(/\n\s*\n/);
+  const planned = prs.filter((p) => stateKey(p) === 'planned').length;
   return (
     <div className="card hero" style={{ marginTop: 12 }}>
-      {w.description ? <div className="lead md-lead"><Markdown text={w.description} /></div> : summary ? <p className="lead">{summary}</p> : null}
-      <div className="progress" style={{ marginTop: 0 }}>{prs.map((p, i) => <i key={i} className={stateKey(p)} title={`#${p.number} ${stateLabel(p)}`} />)}</div>
+      {w.description ? <div className="lead md-lead"><Markdown text={lead} /></div> : summary ? <p className="lead">{summary}</p> : null}
+      {more.length > 0 && <div className="about"><Collapsible title="About this work" level="pm"><div className="md-lead"><Markdown text={more.join('\n\n')} /></div></Collapsible></div>}
+      <div className="progress">{prs.map((p, i) => <i key={i} className={`st-${stateKey(p)}`} title={`${p.number ? `#${p.number}` : `PR ${i + 1}`} ${stateLabel(p)}`} />)}</div>
       <div className="rail">
-        {prs.map((pr, i) => (
+        {prs.map((pr, i) => stateKey(pr) !== 'planned' && (
           <React.Fragment key={pr.number || i}>
             {i > 0 && <span style={{ color: 'var(--line)' }}>→</span>}
-            <a href="#" onClick={(e) => { e.preventDefault(); document.getElementById(`pr-${pr.number || i}`)?.scrollIntoView({ behavior: 'smooth' }); }} className={`pill ${stateKey(pr)}`}>{pr.number ? `#${pr.number}` : `PR ${i + 1}`} <small>{stateLabel(pr)}</small></a>
+            <a href="#" onClick={(e) => { e.preventDefault(); document.getElementById(`pr-${pr.number || i}`)?.scrollIntoView({ behavior: 'smooth' }); }} className={`pill st-${stateKey(pr)}`}>{pr.number ? `#${pr.number}` : `PR ${i + 1}`} <small>{stateLabel(pr)}</small></a>
           </React.Fragment>
         ))}
+        {planned > 0 && <><span style={{ color: 'var(--line)' }}>→</span><span className="pill st-planned">+{planned} <small>planned</small></span></>}
       </div>
       <div className="next"><b>Next</b> · {nextAction(prs)}</div>
       <dl className="meta">

@@ -42,12 +42,12 @@ function Section({ id, title, count, extra, defaultOpen = true, children }: Sect
 function WorkLink({ w, on, onClose }: { w: WorkSummary; on: boolean; onClose: () => void }) {
   const p: Partial<WorkProgress> = w.progress || {};
   const total = w.stack || 1;
-  const seg = (n: number | undefined, cls: string) => n !== undefined && n > 0 && <i className={cls} style={{ flex: n }} />;
+  const seg = (n: number | undefined, st: string) => Array.from({ length: n || 0 }, (_, i) => <i key={`${st}-${i}`} className={`st-${st}`} style={{ flex: 1 }} title={`${n} ${st}`} />);
   return (
     <a className={`nav work ${on ? 'on' : ''} ${w.archived ? 'archived' : ''}`} href={`#/work/${w.slug}`} onClick={onClose} title={w.title}>
       <span className="work-title">{p.attention && <span className="attn" title="changes requested or CI failing" />}{w.title}{p.restack && <span className="chip c-orange" title="a parent PR merged: its children still sit on the old base">restack</span>}</span>
       <span className="work-meta">
-        <span className="bar">{seg(p.merged, 'merged')}{seg(p.open, 'open')}{seg(p.closed, 'closed')}{seg(p.planned, 'planned')}{!w.stack && <i className="planned" style={{ flex: 1 }} />}</span>
+        <span className="bar">{seg(p.merged, 'merged')}{seg(p.ready, 'ready')}{seg(p.draft, 'draft')}{seg(p.planned, 'planned')}{seg(p.closed, 'closed')}{!w.stack && <i className="st-planned" style={{ flex: 1 }} />}</span>
         <span className="frac">{w.archived ? 'archived' : `${p.merged || 0}/${total - (p.closed || 0)}`}</span>
       </span>
     </a>

@@ -76,7 +76,7 @@ export type PaseoProject = {
 };
 export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgent & { cwdAbs: string })[]; error: string | null };
 
-export type WorkProgress = { merged: number; open: number; planned: number; closed: number; attention: boolean; restack: boolean };
+export type WorkProgress = { merged: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean };
 export type WorkSummary = { slug: string; title: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null };
 export type RitualRun = { ts: string; kind: string; title: string; prompt: string; agentId: string | null; ok: boolean; out: string };
 

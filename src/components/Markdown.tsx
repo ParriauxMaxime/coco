@@ -19,6 +19,11 @@ renderer.code = function (token) {
   return baseCode(token);
 };
 
+// nodes styled by the author (classDef, style) keep their colors
+const toneNodes = (root: HTMLElement) => Array.from(root.querySelectorAll('g.node'))
+  .filter((g) => g.classList.length <= 2 && !/fill/.test(g.querySelector('.label-container')?.getAttribute('style') || ''))
+  .forEach((g, i) => g.classList.add(`tone-${i % 6}`));
+
 export default function Markdown({ text }: { text?: string | null }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => marked.parse(text || '', { renderer, async: false }), [text]);
@@ -37,7 +42,7 @@ export default function Markdown({ text }: { text?: string | null }) {
     nodes.forEach((n) => { n.dataset.theme = resolved; });
     initMermaid(resolved);
     // mermaid sizes labels with the font loaded at run time; Inter arrives later from a webfont and clips them
-    fontsReady.then(() => mermaid.run({ nodes })).catch(() => {});
+    fontsReady.then(() => mermaid.run({ nodes })).then(() => nodes.forEach(toneNodes)).catch(() => {});
   }, [html, resolved]);
   useEffect(() => {
     const root = ref.current;

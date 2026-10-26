@@ -227,14 +227,15 @@ const fillRitual = (template: string | undefined, body: Record<string, unknown>)
 // sidebar progress from the last GitHub snapshot, no gh call per overview poll
 function workProgress(w: Work) {
   const snapFile = path.join(DATA, 'works', '.snapshots', `${w.slug}.json`);
-  const snap: Record<string, { state?: string; reviewDecision?: string | null; ci?: string }> = fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
-  const out = { merged: 0, open: 0, planned: 0, closed: 0, attention: false, restack: needsKeeping(w, snap) };
+  const snap: Record<string, { state?: string; isDraft?: boolean; reviewDecision?: string | null; ci?: string }> = fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
+  const out = { merged: 0, ready: 0, draft: 0, planned: 0, closed: 0, attention: false, restack: needsKeeping(w, snap) };
   for (const s of w.stack || []) {
     const st = s.number ? snap[s.number] : null;
     if (!s.number) out.planned += 1;
     else if (st?.state === 'MERGED') out.merged += 1;
     else if (st?.state === 'CLOSED') out.closed += 1;
-    else out.open += 1;
+    else if (st?.isDraft) out.draft += 1;
+    else out.ready += 1;
     if (st && (st.reviewDecision === 'CHANGES_REQUESTED' || st.ci === 'failure')) out.attention = true;
   }
   return out;
