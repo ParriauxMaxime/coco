@@ -40,7 +40,9 @@ type ResultEntry = { id?: string; status?: string; commit?: string | null; note?
 type LaunchAgents = { start(opts: Record<string, unknown>): Promise<{ agentId: string; createdWorkspace?: string | null }> };
 type Outcome = { status: 'fixed' | 'declined'; resolution: { commit?: string | null; note?: string } };
 type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; requestedBy?: unknown };
-type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents };
+// the row's own workspace for an agent that works on the PR's branch
+type RowPlacement = { place(scope: { kind: 'row'; slug: string; key: RowKey; edits: true }): Promise<{ workspaceId: string; cwd: string }> };
+type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents; placement?: RowPlacement };
 
 const defaultExec: Exec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
@@ -81,7 +83,7 @@ export const commentSection = (c: Pick<Comment, 'id' | 'path' | 'startLine' | 'e
   return [`${level} ${c.id} · ${c.path}:${c.startLine}-${c.endLine} (${c.side || 'head'})`, '', fenced(code), '', c.body, ''];
 };
 
-export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents() }: Deps) {
+export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents(), placement }: Deps) {
   const GH = config.repo.github;
   const SHARED_RULES = sharedRules(config);
   const reviewsDir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
@@ -249,12 +251,14 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     const worktree = worktrees[runner.mode] || null;
     if (AGENT_ID.test(String(requestedBy || ''))) all['paseo.parent-agent-id'] = requestedBy;
     let started: Awaited<ReturnType<LaunchAgents['start']>>;
+    const workSlug = labels?.work;
+    const onRow = placement && typeof workSlug === 'string' && workSlug && n != null && runner.mode !== 'branch-off';
     try {
-      started = await agents.start({ title, provider, thinking: 'high', prompt, labels: all, cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree });
+      const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : { cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree };
+      started = await agents.start({ title, provider, thinking: 'high', prompt, labels: all, ...where });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errorMessage(e).slice(0, 300)}`);
     }
-    const workSlug = labels?.work;
     if (started.createdWorkspace && typeof workSlug === 'string' && workSlug) timeline(workSlug, 'agent', `${worktree ? `new ${runner.mode} worktree` : `no Paseo workspace was open on ${runner.cwd}`}: created workspace ${started.createdWorkspace}`);
     return started.agentId;
   }

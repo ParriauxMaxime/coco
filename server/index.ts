@@ -73,7 +73,7 @@ const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
 works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
 const comments = createComments({ DATA, REPO, config, works });
-const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents });
+const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement });
 const lang = createLang({ REPO, config });
 const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents });
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent });
