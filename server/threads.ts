@@ -32,8 +32,8 @@ type ThreadPr = { head: string; sha: string; url?: string };
 type CardSuggestion = { kind: 'card'; fields: Record<string, unknown>; state: string; error?: string };
 type CommitSuggestion = { kind: 'commit'; commit: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string };
 type Suggestion = CardSuggestion | CommitSuggestion;
-// change: false when picking it leaves the code as is
-type Choice = { label: string; text: string; change: boolean };
+// change: false when picking it leaves the code as is · option: on a decision thread, the card option key picking it takes
+type Choice = { label: string; text: string; change: boolean; option?: string };
 type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion; choices?: Choice[]; picked?: number };
 type Asked = { msgId: string; replyPath: string; cardPath: string };
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
@@ -54,7 +54,12 @@ type ThreadsOptions = {
   DATA: string;
   REPO: string;
   config: SharedConfig & { owner: { name: string }; models: { fast: string; default: string } };
-  works: { get(slug: string): Work | null; list(): Work[]; upsertDecision(slug: string, decision: Partial<Decision> & { id: string }): unknown };
+  works: {
+    get(slug: string): Work | null;
+    list(): Work[];
+    upsertDecision(slug: string, decision: Partial<Decision> & { id: string }): unknown;
+    decide?(slug: string, input: { id: string; choice: string; rationale: string }): unknown;
+  };
   comments: { list(slug: string, n: RowKey): { comments?: Item[] }; update(slug: string, n: RowKey, id: string, patch: Record<string, unknown>): Promise<unknown> };
   reviewAgent: {
     rowPr(work: Work, index: number): Promise<ThreadPr>;
@@ -206,9 +211,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     '(each part optional; dismiss needs a reason). cocopilot applies it after your turn; accept or dismiss may end your session. Never on your own initiative,',
     `except one case: when ${OWNER} picks an option that leaves the code unchanged, dismiss the finding in that same reply with the option as reason, without asking.`,
   ].join(' ');
-  const choicesRule = [
-    `When you ask ${OWNER} to pick between options, also add \`"choices": [{ "label": "A", "text": "what picking it does, one line", "change": true | false }]\` to the reply JSON`,
+  const choicesRule = (kind: string) => [
+    `When you ask ${OWNER} to pick between options, also add \`"choices": [{ "label": "A", "text": "what picking it does, one line", "change": true | false${kind === 'decision' ? ', "option": "<card option key>"' : ''} }]\` to the reply JSON`,
     '(change: false when picking it leaves the code as is). cocopilot shows them as buttons; never end with "tell me which" or "say dismiss" without them.',
+    ...(kind === 'decision' ? [`A choice with \`option\` takes the decision on that card option when ${OWNER} clicks it: set it only when the card has that option key.`] : []),
   ].join(' ');
   const replyRule = (replyPath: string, kind: string) => [
     `Last step of your turn: write your reply to \`${replyPath}\` as JSON \`{ "blocks": [...] }\`, never markdown.`,
@@ -216,7 +222,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     '`suggestion` ({ path, startLine, endLine, lang, after }: the code you propose at those lines; cocopilot shows it as a diff), `code` ({ path, line, lang, code }), `diagram` ({ mermaid, caption }), `callout` ({ tone, title, text }).',
     'Inline text: **bold**, `code`, path/file.ts:12 refs and <risk>…</risk> <warn> <ok> <note> marks. Lead with the answer; short.',
     'Link what the reader may open: files as repo-relative path:line (never a bare name), PRs as #123, commits as their sha in `code`, anything else in sources with its url.',
-    choicesRule,
+    choicesRule(kind),
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
@@ -409,6 +415,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (thread.waiting) throw new HttpError(409, 'the agent is still working');
     asked.picked = index;
     const text = `${c.label}${c.text ? `: ${c.text}` : ''}`;
+    if (ref.kind === 'decision' && c.option && works.decide) {
+      if (!works.decide(slug, { id: ref.id, choice: c.option, rationale: `Picked ${text}`.slice(0, 300) })) throw new HttpError(400, `the card has no option "${c.option}"`);
+      thread.messages.push(message('user', text), message('system', `Decision taken: ${c.option}.`));
+      return write(slug, thread);
+    }
     if (c.change || ref.kind !== 'comment' || !findingActor) {
       write(slug, thread);
       return dispatch(slug, work, ref, key, { text, role: 'user' });
@@ -512,9 +523,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (!Array.isArray(raw)) return [];
     return raw.slice(0, MAX_CHOICES).flatMap((c) => {
       if (!c || typeof c !== 'object') return [];
-      const { label, text, change } = c as Record<string, unknown>;
+      const { label, text, change, option } = c as Record<string, unknown>;
       if (typeof label !== 'string' || !label.trim() || typeof text !== 'string') return [];
-      return [{ label: label.trim().slice(0, 40), text: text.trim().slice(0, 300), change: change !== false }];
+      return [{ label: label.trim().slice(0, 40), text: text.trim().slice(0, 300), change: change !== false, ...(typeof option === 'string' && option ? { option } : {}) }];
     });
   }
 

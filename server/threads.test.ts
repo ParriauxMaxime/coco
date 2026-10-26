@@ -102,14 +102,15 @@ function fakeDaemon() {
 function setup() {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
-  const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [] };
+  const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [{ id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] }] };
+  const decided: { id: string; choice: string; rationale: string }[] = [];
   const comment = (id: string, body: string) => ({ id, path: 'src/widgets.ts', startLine: 3, endLine: 4, side: 'head' as const, snippet: 'const w = null;', ctxBefore: [], ctxAfter: [], body });
   const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async () => [], timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
   const threads = createThreads({
     DATA,
     REPO,
     config,
-    works: { get: (slug: string) => (slug === SLUG ? work : null), list: () => [work], upsertDecision: () => {} },
+    works: { get: (slug: string) => (slug === SLUG ? work : null), list: () => [work], upsertDecision: () => {}, decide: (_slug, input) => (work.decisions[0].options.some((o) => o.key === input.choice) ? decided.push(input) : null) },
     comments: { list: () => ({ comments: [comment('aa11', 'Null check missing'), comment('bb22', 'Rename the helper')] }), update: async () => {} },
     reviewAgent,
     reviewPlan: { planOf: () => null },
@@ -128,7 +129,7 @@ function setup() {
     assert.ok(thread.waiting);
     return { ...thread, waiting: thread.waiting };
   };
-  return { threads, post, daemon, read, activity, reply };
+  return { threads, post, daemon, read, activity, reply, decided };
 }
 
 type Pending = { waiting: { replyPath: string; msgId: string; earlier?: { msgId: string }[] } | null };
@@ -265,4 +266,23 @@ test('a clicked option that keeps the code dismisses the finding without a new t
   assert.ok(picked.waiting);
   assert.equal(read(B).messages.at(-1)?.text, 'B: Scope the read');
   assert.equal(acted.length, 1);
+});
+
+test('a clicked option carrying a card option takes the decision without a new turn', async () => {
+  const { threads, post, daemon, read, decided } = setup();
+  const D = 'd.d1';
+  const t = await post(D, 'Cache it?');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  assert.match(daemon.calls.sent[0].text, /"option": "<card option key>"/);
+  fs.writeFileSync(t.waiting.replyPath, JSON.stringify({ blocks: [{ type: 'text', text: 'Cache or not?' }], choices: [{ label: 'A', text: 'Cache for 5 min', change: true, option: 'cache' }, { label: 'B', text: 'Bogus', option: 'nope' }] }));
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(D).waiting, 'reply');
+  const asked = read(D).messages.at(-1);
+  assert.ok(asked);
+
+  await assert.rejects(threads.post(SLUG, D, { choice: { msgId: asked.id, index: 1 } }), /no option "nope"/);
+  await threads.post(SLUG, D, { choice: { msgId: asked.id, index: 0 } });
+  assert.deepEqual(decided, [{ id: 'd1', choice: 'cache', rationale: 'Picked A: Cache for 5 min' }]);
+  assert.equal(daemon.calls.sent.length, 1);
+  assert.deepEqual(read(D).messages.slice(-2).map((m) => [m.role, m.text]), [['user', 'A: Cache for 5 min'], ['system', 'Decision taken: cache.']]);
 });

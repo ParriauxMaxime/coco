@@ -60,7 +60,7 @@ export type PersonaDetail = Persona & { md: string; json: PersonaJson | null; fe
 export type Skill = { name: string; description: string; argumentHint: string; userInvocable: boolean; mtime: string; files: string[] };
 export type SkillDetail = Skill & { md: string };
 
-export type PaseoAgent = { id: string; shortId: string; name: string; status: string; provider: string; thinking: string; created: string; cwd: string };
+export type PaseoAgent = { id: string; shortId: string; name: string; status: string; provider: string; thinking: string; created: string; cwd: string; usage?: { promptTokens?: number; systemTokens?: number; inputTokens?: number; costUsd?: number } | null };
 export type PaseoWorkspace = { workspaceId: string; project: string; name: string; cwd: string; isolation: string };
 export type AgentsResponse = { agents: PaseoAgent[]; workspaces: PaseoWorkspace[]; error: string | null };
 // an agent started by hand in a PR row workspace, linked to that row by the Paseo plugin
@@ -325,7 +325,7 @@ export type ThreadMessage = {
   choices?: ThreadChoice[];
   picked?: number;
 };
-export type ThreadChoice = { label: string; text: string; change: boolean };
+export type ThreadChoice = { label: string; text: string; change: boolean; option?: string };
 export type Thread = {
   messages: ThreadMessage[];
   waiting?: { msgId: string } | null;
@@ -490,7 +490,9 @@ export type AskRun = {
 export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: string | null; repoId?: string | null; nonce: string };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null };
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null } & AgentMetrics;
+// estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them
+export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
 export type WorkAgents = { agents: WorkAgent[]; serverId: string | null; error?: string };
 export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean; stackKept?: boolean };
 export type RepoProposal = { source: string; why?: string };

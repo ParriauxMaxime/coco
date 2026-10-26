@@ -42,8 +42,14 @@ export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle 
   return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 
-// options the agent asked to pick from: one click answers; an option that keeps the code as is closes a finding without a new turn
-function Choices({ m, open, pending, onPick }: { m: ThreadMessage; open: boolean; pending: number | null; onPick: (index: number) => void }) {
+// options the agent asked to pick from: one click answers (takes the decision for a card option); an option that keeps the code as is closes a finding without a new turn; Other answers in free text
+function Choices({ m, open, pending, onPick, onOther }: { m: ThreadMessage; open: boolean; pending: number | null; onPick: (index: number) => void; onOther: (text: string) => void }) {
+  const [other, setOther] = useState<string | null>(null);
+  const sendOther = () => {
+    if (!other?.trim()) return;
+    onOther(other.trim());
+    setOther(null);
+  };
   return (
     <div className="thread-choices">
       {(m.choices || []).map((c, i) => (
@@ -52,12 +58,33 @@ function Choices({ m, open, pending, onPick }: { m: ThreadMessage; open: boolean
           type="button"
           className={`thread-choice${m.picked === i ? ' on' : ''}${pendingClass(pending === i)}`}
           disabled={!open || pending !== null}
-          title={c.change ? 'Send this answer to the agent' : 'No code change: closes the finding'}
+          title={c.option ? `Take the decision: ${c.option}` : c.change ? 'Send this answer to the agent' : 'No code change: closes the finding'}
           onClick={() => onPick(i)}
         >
-          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{!c.change && <span className="chip c-grey">no change</span>}
+          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{c.option ? <span className="chip c-blue">decides</span> : !c.change && <span className="chip c-grey">no change</span>}
         </button>
       ))}
+      {open && other === null && <button type="button" className="thread-choice thread-choice-other" disabled={pending !== null} onClick={() => setOther('')}><b>Other…</b><span>answer in your own words</span></button>}
+      {open && other !== null && (
+        <div className="thread-choice-free">
+          <textarea
+            className="cc-textarea"
+            rows={2}
+            autoFocus
+            value={other}
+            placeholder="Your answer to the agent (markdown, ⌘↵)"
+            onChange={(e) => setOther(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendOther(); }
+              if (e.key === 'Escape') setOther(null);
+            }}
+          />
+          <div className="row" style={{ gap: 6 }}>
+            <button type="button" className="sm primary" disabled={!other.trim()} onClick={sendOther}>Send</button>
+            <button type="button" className="sm" onClick={() => setOther(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -241,6 +268,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
                     open={!waiting && m.picked === undefined && m.id === lastAgentId}
                     pending={pending?.startsWith(`${m.id}#`) ? Number(pending.split('#')[1]) : null}
                     onPick={(index) => act(`${m.id}#${index}`, () => api.postThread(slug, key, { choice: { msgId: m.id, index } }))}
+                    onOther={send}
                   />
                 )}
                 {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
