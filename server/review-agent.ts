@@ -254,7 +254,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     const workSlug = labels?.work;
     const onRow = placement && typeof workSlug === 'string' && workSlug && n != null && runner.mode !== 'branch-off';
     try {
-      const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : { cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree };
+      const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : runner.mode === 'workspace' ? { workspaceId: runner.workspaceId, cwd: runner.cwd } : { cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree };
       started = await agents.start({ title, provider, thinking: 'high', prompt, labels: all, ...where });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errorMessage(e).slice(0, 300)}`);

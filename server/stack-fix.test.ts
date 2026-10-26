@@ -12,7 +12,7 @@ const ME = 'e88d0ecc-0000-4000-8000-000000000000';
 type TestComment = { id: string; status: 'open'; path: string; startLine: number; endLine: number; body: string };
 type TestAgent = { id: string; cwd: string; status: string };
 
-function setup({ agents = [] }: { agents?: TestAgent[] } = {}) {
+function setup({ agents = [], place }: { agents?: TestAgent[]; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> } = {}) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-fix-'));
   const work: Work = { slug: 'w', title: 'W', stack: [{ number: 1 }, { number: 2 }] };
   const store: Record<string, TestComment[]> = {
@@ -58,9 +58,20 @@ function setup({ agents = [] }: { agents?: TestAgent[] } = {}) {
       timeline: () => {},
     },
     exec: async () => ({ ok: true, stdout: '', stderr: '' }),
+    place,
   });
   return { sf, DATA, launched, updates };
 }
+
+test('the agent runs in the workspace placement gives the work, not in the first row worktree', async () => {
+  const { sf, launched } = setup({ place: async (slug) => ({ workspaceId: `ws-${slug}`, cwd: '/plans/w' }) });
+  const run = await sf.start('w', {});
+  assert.deepEqual(launched[0].runner, { mode: 'workspace', workspaceId: 'ws-w', cwd: '/plans/w' });
+  assert.equal(run.cwd, '/plans/w');
+  const folder = setup();
+  await folder.sf.start('w', {});
+  assert.deepEqual(folder.launched[0].runner, { mode: 'cwd', cwd: WT });
+});
 
 test('select accepted sends only accepted open comments; the default still sends every open one', async () => {
   const a = setup();

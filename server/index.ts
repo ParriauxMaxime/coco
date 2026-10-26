@@ -77,7 +77,7 @@ const comments = createComments({ DATA, REPO, config, works });
 const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement });
 const lang = createLang({ REPO, config });
 const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
-const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent });
+const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, place: (slug) => placement.place({ kind: 'work', slug }) });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads });

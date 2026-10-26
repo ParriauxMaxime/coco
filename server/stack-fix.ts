@@ -35,6 +35,7 @@ type Deps = {
   code: { ensureRefs(key: RowKey): Promise<Pick<Refs, 'headSha' | 'mergeBase'>> };
   reviewAgent: FixAgent;
   exec?: Exec;
+  place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>;
 };
 
 const defaultExec: Exec = (cmd, args) =>
@@ -51,7 +52,7 @@ const parseJson = <T>(text: string, fallback: T): T => {
   }
 };
 
-export function createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, exec = defaultExec }: Deps) {
+export function createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, exec = defaultExec, place }: Deps) {
   const SHARED_RULES = sharedRules(config);
   const BASE = `origin/${config.repo.defaultBranch}`;
   const dir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
@@ -265,7 +266,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       const resultPath = resultFile(slug, id);
       fs.mkdirSync(dir(slug), { recursive: true });
       fs.writeFileSync(brief, buildBrief({ work, rows, id, commits, resultPath }));
-      const runner: Runner = rows[0].worktree ? { mode: 'cwd', cwd: rows[0].worktree } : { mode: 'checkout-branch' };
+      const runner: Runner = place ? { mode: 'workspace', ...(await place(slug)) } : rows[0].worktree ? { mode: 'cwd', cwd: rows[0].worktree } : { mode: 'checkout-branch' };
       const provider = input.provider || config.models.default;
       const agentId = await reviewAgent.launch(runner, { title: `Fix stack ${slug} (${total})`, provider, prompt: `Read ${brief} and follow it end to end.`, labels: { kind: 'stack-fix', run: id, work: slug, comments: total }, requestedBy: input.requestedBy, branch: rows[0].branch });
 
