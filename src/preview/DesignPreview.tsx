@@ -54,22 +54,24 @@ const useNarrow = () => {
   return narrow;
 };
 
-const progressOf = (w: WorkSummary) => {
-  const p = w.progress;
-  const total = Math.max(1, w.stack);
-  return { merged: (p.merged / total) * 100, open: ((p.draft + p.ready) / total) * 100, label: `${p.merged}/${w.stack}` };
-};
+const SEGMENTS: [keyof WorkSummary['progress'], string][] = [['merged', 'merged'], ['ready', 'review'], ['draft', 'draft'], ['planned', 'planned'], ['closed', 'closed']];
 
 function WorkRow({ w, on, views }: { w: WorkSummary; on: boolean; views?: React.ReactNode }) {
-  const pr = progressOf(w);
-  const st = w.progress.attention ? 'dp-st-changes' : w.progress.ready + w.progress.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow';
+  const p = w.progress;
+  const st = p.attention ? 'dp-st-changes' : p.ready + p.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow';
+  const segs = SEGMENTS.flatMap(([k, state]) => Array.from({ length: Number(p[k]) || 0 }, (_, i) => <i key={`${state}-${i}`} className={`dp-st-${state}`} />));
   return (
     <>
-      <a className={`dp-work${on ? ' dp-on' : ''}`} href={workHref(w.slug)}>
-        <span className={`dp-dot dp-lg ${st}`} />
-        <span className="dp-grow dp-ell">{w.title}</span>
-        <span className="dp-mini"><i style={{ width: `${pr.merged}%` }} /><i className="dp-d" style={{ width: `${pr.open}%` }} /></span>
-        <span className="dp-pc">{pr.label}</span>
+      <a className={`dp-work dp-work2${on ? ' dp-on' : ''}`} href={workHref(w.slug)} title={w.title}>
+        <span className="dp-work-top">
+          <span className={`dp-dot dp-lg ${st}`} />
+          <span className="dp-grow dp-ell">{w.title}</span>
+          {p.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}
+        </span>
+        <span className="dp-work-bar">
+          <span className="dp-segs dp-thin dp-grow">{segs.length ? segs : <i className="dp-st-planned" />}</span>
+          <span className="dp-pc">{w.archived ? 'archived' : `${p.merged}/${w.stack - p.closed}`}</span>
+        </span>
       </a>
       {on && views}
     </>

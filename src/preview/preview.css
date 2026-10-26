@@ -490,6 +490,14 @@ body.dp-on .pr-peek { padding: 10px 12px; font-size: 12.5px; }
 .dp-rail-av.dp-on { background: var(--dp-accent); color: var(--dp-on-accent); }
 .dp-legacy { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 40px; background: var(--dp-panel); }
 .dp-menu { display: none; }
+.dp a.dp-work { color: var(--dp-t2); }
+.dp a.dp-work:hover, .dp a.dp-work.dp-on { color: var(--dp-t1); }
+.dp-work.dp-work2 { height: auto; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px 7px 12px; }
+.dp-work-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dp-work-top .dp-chip { height: 18px; font-size: 10.5px; }
+.dp-work-bar { display: flex; align-items: center; gap: 8px; padding-left: 16px; }
+.dp-work-bar .dp-segs { height: 4px; }
+.dp-segs i.dp-st-closed { background: var(--dp-t4); }
 .dp-laymenu { position: relative; }
 .dp-laymenu > .dp-btn { max-width: 220px; }
 .dp-laymenu > .dp-btn.dp-on { background: var(--dp-active); }
