@@ -89,6 +89,7 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
             onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); setDrag(id); }}
             onDragEnd={() => setDrag(null)}
           >
+            {tabDef(id).icon}
             <span className="wb-label" title={tabDef(id).tip?.(ctx)}>{tabDef(id).title(ctx)}</span>
             {!(id === 'plan' && total === 1) && <button className="wb-x" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); close(id); }}>×</button>}
           </div>

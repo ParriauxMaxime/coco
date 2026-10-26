@@ -48,6 +48,18 @@ const applyPreset = (name: keyof typeof PRESETS) => {
 };
 const open = (id: string) => useWorkbench.getState().open(id);
 
+const NARROW = '(max-width: 900px)';
+const useNarrow = () => {
+  const [narrow, setNarrow] = useState(() => matchMedia(NARROW).matches);
+  useEffect(() => {
+    const mq = matchMedia(NARROW);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return narrow;
+};
+
 const progressOf = (w: WorkSummary) => {
   const p = w.progress;
   const total = Math.max(1, w.stack);
@@ -131,6 +143,12 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const { open: controls, toggle: toggleControls } = useBetaPanel();
   const [waitOpen, setWaitOpen] = useState(false);
   const [repo, setRepo] = useState<string | null>(null);
+  const [menu, setMenu] = useState(false);
+  const narrow = useNarrow();
+  useEffect(() => {
+    document.body.classList.add('dp-on');
+    return () => document.body.classList.remove('dp-on');
+  }, []);
 
   useEffect(() => { if (prefs.preset !== 'last') applyPreset(prefs.preset); }, [slug]);
 
@@ -138,7 +156,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const summary = ov?.works.find((w) => w.slug === slug);
   const repoId = repo || summary?.repo || ov?.repos.find((r) => r.works.includes(slug))?.id || null;
   const repoName = ov?.repos.find((r) => r.id === repoId)?.name;
-  const tabDetails = prefs.shell === 'C' || prefs.details === 'tab';
+  const tabDetails = narrow || prefs.shell === 'C' || prefs.details === 'tab';
   const showInspector = !tabDetails && inspector;
   const waiting = d.pending.filter((p) => !p.where || p.where.href.includes(slug));
   const counts = useMemo(() => {
@@ -205,6 +223,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     <PreviewContext.Provider value={{ d, selected, select: setSelected, openPr }}>
       <div className="dp-app">
         <header className="dp-titlebar">
+          <button type="button" className={`dp-ibtn dp-lg dp-menu${menu ? ' dp-on' : ''}`} title="Works and views" onClick={() => setMenu((m) => !m)}><Icon name="list" /></button>
           <span className="dp-brandmark">c</span>
           <div className="dp-crumbs">
             {repoName && <><span>{repoName}</span><span className="dp-sl">/</span></>}
@@ -247,7 +266,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
               <button type="button" className={`dp-ibtn${controls ? ' dp-on' : ''}`} title="Beta features  ⌘." onClick={toggleControls}><Icon name="settings" /></button>
             </div>
           )}
-          <nav className={`dp-sidebar${prefs.shell === 'B' ? ' dp-classic' : ''}`}>
+          <nav className={`dp-sidebar${prefs.shell === 'B' ? ' dp-classic' : ''}${menu ? ' dp-sb-open' : ''}`} onClick={(e) => { if (narrow && e.target instanceof Element && e.target.closest('a, .dp-view')) setMenu(false); }}>
             {prefs.shell === 'A' && <div className="dp-sb-head">Works</div>}
             {prefs.shell === 'C' && <div className="dp-sb-head">{repoName}<span className="dp-sp" /></div>}
             <div className="dp-sb-scroll">

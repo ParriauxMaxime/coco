@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { WorkData } from '../types.ts';
 import Plan from './Plan.tsx';
 import Pr from './Pr.tsx';
@@ -25,6 +25,7 @@ export type TabDef = {
   tip?: (ctx: WorkData) => string;
   Component: ComponentType<TabProps>;
   flush?: boolean;
+  icon?: ReactNode;
 };
 
 const Unknown = () => createElement('div', { className: 'sub' }, 'Unknown tab.');

@@ -3,6 +3,8 @@ import { PendingPermissions } from '../components/PermissionCard.tsx';
 import { tabDef } from '../workbench/tabs/index.ts';
 import type { TabDef } from '../workbench/tabs/index.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
+import Icon from './Icon.tsx';
+import type { IconName } from './Icon.tsx';
 import StackView from './StackView.tsx';
 import Inspector from './Inspector.tsx';
 import OverviewView from './OverviewView.tsx';
@@ -43,10 +45,17 @@ const VIEWS: Record<string, TabDef> = {
   stack: { title: (c) => `Stack (${c.prs.length})`, Component: StackTab, flush: true },
   findings: { title: () => 'Findings', Component: FindingsTab, flush: true },
   waiting: { title: () => 'Waiting on you', Component: WaitingTab },
+  ask: { ...tabDef('ask'), title: () => 'Ask coco' },
 };
 
+const ICONS: [RegExp, IconName][] = [
+  [/^plan$/, 'home'], [/^stack$/, 'list'], [/^findings/, 'flag'], [/^waiting$/, 'inbox'], [/^pr-/, 'git-pull-request'],
+  [/^ask$/, 'message-square'], [/^decisions$/, 'scale'], [/^timeline$/, 'history'], [/^notes$/, 'notebook'], [/^artifacts$/, 'folder'],
+  [/^rules$/, 'scale'], [/^review-/, 'eye'], [/^(diff|file|artifact)-/, 'file'], [/^(brief|agent)-/, 'bot'], [/^stack-/, 'git-branch'],
+];
+
 export function previewTabDef(id: string): TabDef {
-  if (VIEWS[id]) return VIEWS[id];
-  if (id.startsWith('pr-')) return { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true };
-  return tabDef(id);
+  const def = VIEWS[id] || (id.startsWith('pr-') ? { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
+  const icon = ICONS.find(([re]) => re.test(id))?.[1];
+  return icon ? { ...def, icon: <Icon name={icon} size={14} /> } : def;
 }

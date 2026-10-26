@@ -458,12 +458,48 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp .wb-act.on { background: var(--dp-accent-t2); color: var(--dp-accent); }
 .dp .wb-handle { background: var(--dp-line); border: 0; }
 .dp .wb-handle:hover, .dp .wb-handle.on { background: var(--dp-accent); }
-.dp .wb-pane { font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--dp-panel); }
+.dp .wb-pane, .dp .dp-legacy, body.dp-on .pr-peek, body.dp-on .code-peek {
+  --bg: var(--dp-panel); --card: var(--dp-panel); --ink: var(--dp-t1); --ink-2: var(--dp-t2); --mute: var(--dp-t3);
+  --line: var(--dp-line); --line-2: color-mix(in srgb, var(--dp-line) 60%, transparent); --grey-bg: var(--dp-subtle); --hatch: var(--dp-line-2);
+  --brand: var(--dp-accent); --brand-600: var(--dp-accent-2); --brand-700: var(--dp-accent); --brand-50: var(--dp-accent-t); --brand-100: var(--dp-accent-t2); --brand-shadow: var(--dp-focus);
+  --link: var(--dp-accent); --navy: var(--dp-accent); --navy-2: var(--dp-accent-2); --gradient: var(--dp-accent); --on-brand: var(--dp-on-accent);
+  --green: var(--dp-ok); --amber: var(--dp-warn); --red: var(--dp-bad); --blue: var(--dp-info); --violet: var(--dp-merged);
+  --green-bg: color-mix(in srgb, var(--dp-ok) 11%, transparent); --amber-bg: color-mix(in srgb, var(--dp-warn) 11%, transparent); --red-bg: color-mix(in srgb, var(--dp-bad) 11%, transparent);
+  --blue-bg: color-mix(in srgb, var(--dp-info) 11%, transparent); --violet-bg: color-mix(in srgb, var(--dp-merged) 11%, transparent);
+  --r-sm: var(--dp-r1); --r: var(--dp-r2); --r-md: var(--dp-r3); --r-lg: var(--dp-r3); --r-xl: var(--dp-r4);
+  --shadow: none; --shadow-hover: var(--dp-sh-2); --code-bg: var(--dp-code); --code-ink: var(--dp-t1); --scrim: var(--dp-scrim);
+  font: 13px/1.55 var(--dp-f); color: var(--dp-t1);
+}
+.dp .wb-pane { background: var(--dp-panel); padding: 16px 20px 60px; }
+.dp .wb-pane.flush { padding: 0; }
+.dp .wb-pane h1 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 12px; }
+.dp .wb-pane h2 { font-size: 14px; line-height: 20px; font-weight: 600; margin: 20px 0 8px; }
+.dp .wb-pane .card, .dp .dp-legacy .card { padding: 12px 14px; }
+.dp .wb-pane .chip, .dp .dp-legacy .chip { border-radius: var(--dp-r1); font-weight: 500; }
+.dp .wb-pane button:not([class*="dp-"]):not(.wb-x):not(.cc-link), .dp .dp-legacy button:not([class*="dp-"]) { font: 500 12.5px/18px var(--dp-f); padding: 4px 10px; box-shadow: var(--dp-sh-1); }
+.dp .wb-pane button.sm:not([class*="dp-"]), .dp .dp-legacy button.sm:not([class*="dp-"]) { padding: 2px 8px; font-size: 12px; }
+.dp .wb-pane input, .dp .wb-pane select, .dp .wb-pane textarea { font-family: var(--dp-f); }
+.dp .wb-pane input:focus, .dp .wb-pane select:focus, .dp .wb-pane textarea:focus { outline: none; border-color: var(--dp-accent); box-shadow: 0 0 0 3px var(--dp-focus); }
+.dp .wb-tab-h svg.dp-i { width: 14px; height: 14px; flex: none; }
 .dp-tabview { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: auto; font: 13px/20px var(--dp-f); color: var(--dp-t1); container-type: inline-size; }
 .dp-empty { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--dp-t3); }
 .dp a.dp-ibtn, .dp a.dp-sb-nav, .dp a.dp-work { text-decoration: none; }
 .dp-rail-av { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; background: var(--dp-active); color: var(--dp-t2); }
 .dp-rail-av.dp-on { background: var(--dp-accent); color: var(--dp-on-accent); }
-.dp-legacy { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 40px; font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--dp-panel); }
+.dp-legacy { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 40px; background: var(--dp-panel); }
+.dp-menu { display: none; }
+@media (max-width: 900px) {
+  .dp-app { grid-template-rows: 44px minmax(0, 1fr) 28px; }
+  .dp-titlebar .dp-cmdk, .dp-titlebar .dp-seg, .dp-titlebar .dp-seg + .dp-sep-v, .dp-titlebar .dp-xs, .dp-titlebar .dp-brandmark { display: none; }
+  .dp-menu { display: inline-flex; }
+  .dp-activity, .dp-inspector:not(.dp-as-tab) { display: none; }
+  .dp-sidebar { position: fixed; z-index: 60; top: 44px; bottom: 0; left: 0; width: min(300px, 85vw); box-shadow: var(--dp-sh-3); transform: translateX(-105%); transition: transform .18s; }
+  .dp-sidebar.dp-sb-open { transform: none; }
+  .dp-statusbar .dp-sbi:not(.dp-wait) { display: none; }
+  .dp-ctl { left: 8px; right: 8px; bottom: 36px; max-height: 70vh; overflow: auto; }
+  .dp-ctl-row { grid-template-columns: 1fr; gap: 2px; }
+  .dp-palette { width: calc(100vw - 16px); }
+  .dp-overlay { padding-top: 8vh; }
+}
 .dp-waitpop { position: fixed; bottom: 28px; right: 12px; width: 440px; max-height: 70vh; overflow: auto; }
 .dp-waitpop .dp-legacy { padding: 8px; background: transparent; }
