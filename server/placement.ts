@@ -10,7 +10,7 @@ export type RunResult = { ok: boolean; stdout: string; stderr: string };
 export type Exec = (cmd: string, args: string[]) => Promise<RunResult>;
 export type PaseoProject = { projectId: string; name: string; path: string };
 type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown };
-export type Scope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string } | { kind: 'row'; slug: string; key: RowKey; edits: boolean };
+export type Scope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string } | { kind: 'row'; slug: string; key: RowKey; edits: boolean } | { kind: 'pr'; repoId: string; number: number; edits: boolean };
 export type Placed = { workspaceId: string; cwd: string };
 type Deps = {
   repos: RepoConfig[];
@@ -98,14 +98,20 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
       return {};
     }
   };
+  const keptOwn = (key: string, entries: WorkspaceEntry[]) => {
+    const id = readOwn()[key];
+    return id ? entries.find((w) => w.id === id) : undefined;
+  };
+  const keepOwn = (key: string, workspaceId: string) => {
+    fs.mkdirSync(DATA, { recursive: true });
+    fs.writeFileSync(ownFile, JSON.stringify({ ...readOwn(), [key]: workspaceId }, null, 1));
+  };
   async function repoPlace(repo: RepoConfig) {
-    const own = readOwn();
-    const kept = own[`repo:${repo.id}`] && (await live()).find((w) => w.id === own[`repo:${repo.id}`]);
+    const kept = keptOwn(`repo:${repo.id}`, await live());
     if (kept) return { workspaceId: kept.id, cwd: kept.workspaceDirectory || repo.path };
     const p = await projectAt(repo.path);
     const placed = await createWorkspace(['--isolation', 'local', '--path', repo.path, '--project', p.projectId, '--title', REPO_WORKSPACE_TITLE], REPO_WORKSPACE_TITLE);
-    fs.mkdirSync(DATA, { recursive: true });
-    fs.writeFileSync(ownFile, JSON.stringify({ ...readOwn(), [`repo:${repo.id}`]: placed.workspaceId }, null, 1));
+    keepOwn(`repo:${repo.id}`, placed.workspaceId);
     return placed;
   }
 
@@ -178,6 +184,23 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     works?.save({ ...w, stack: (w.stack || []).map((s) => (rowKey(s) === key ? { ...s, workspaceId } : s)) }, { touch: false });
   };
 
+  // an editing agent on a PR no work stacks: the workspace remembered for it, an adopted worktree on its branch, else a PR checkout in the repo's project
+  async function loosePrPlace(repo: RepoConfig, number: number) {
+    const key = `pr:${repo.id}:${number}`;
+    const entries = await live();
+    const kept = keptOwn(key, entries);
+    if (kept?.workspaceDirectory) return { workspaceId: kept.id, cwd: kept.workspaceDirectory };
+    const p = await projectAt(repo.path);
+    const pr = json<{ title?: string; headRefName?: string } | null>(await exec('gh', ['pr', 'view', String(number), '--repo', repo.github, '--json', 'title,headRefName']), null);
+    const title = pr?.title || pr?.headRefName || String(number);
+    const adopted = pr?.headRefName ? await worktreeOf(repo.path, pr.headRefName) : null;
+    const placed = adopted
+      ? await workspaceOn(p.projectId, adopted, title, entries)
+      : await createWorkspace(['--isolation', 'worktree', '--path', repo.path, '--project', p.projectId, '--mode', 'checkout-pr', '--pr-number', String(number), '--title', title], title);
+    keepOwn(key, placed.workspaceId);
+    return placed;
+  }
+
   // a scratch branch for an agent that proposes commits without touching the PR's branch (finding fixes), in the work's project
   async function sideWorkspace(slug: string, { branch, base, title }: { branch: string; base: string; title: string }) {
     const work = works?.get(slug);
@@ -186,10 +209,11 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', base, '--title', title], title);
   }
 
-  // the Paseo workspace an agent of this scope runs in; read-only row agents share the work's
+  // the Paseo workspace an agent of this scope runs in; read-only row agents share the work's, read-only agents on a PR outside any work the repo's
   async function place(scope: Scope): Promise<Placed> {
     if (scope.kind === 'global') return repoPlace(appRepo());
     if (scope.kind === 'repo') return repoPlace(repoById(scope.repoId));
+    if (scope.kind === 'pr') return scope.edits ? loosePrPlace(repoById(scope.repoId), scope.number) : repoPlace(repoById(scope.repoId));
     const work = works?.get(scope.slug);
     if (!work) throw new Error(`unknown work ${scope.slug}`);
     if (scope.kind === 'row' && scope.edits) return rowPlace(work, scope.key);

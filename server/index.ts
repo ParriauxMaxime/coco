@@ -265,7 +265,9 @@ async function launchRitual(body: { kind: string; provider?: string; [key: strin
   let started: { agentId?: string | null; createdWorkspace?: string | null } = {};
   let error = '';
   try {
-    const where = await placement.place(spec.scope === 'global' ? { kind: 'global' } : { kind: 'repo', repoId: typeof body.repo === 'string' ? body.repo : config.repos[0].id });
+    const repoId = typeof body.repo === 'string' ? body.repo : config.repos[0].id;
+    const pr = Number(String(body.pr ?? '').replace(/^#/, ''));
+    const where = await placement.place(spec.scope === 'global' ? { kind: 'global' } : Number.isInteger(pr) && pr > 0 ? { kind: 'pr', repoId, number: pr, edits: false } : { kind: 'repo', repoId });
     started = await paseoAgents.start({ title, provider: body.provider || config.models.default, thinking: 'high', ...where, labels: { source: 'cockpit', ritual: body.kind }, prompt });
   } catch (e) {
     error = errorMessage(e);
