@@ -60,11 +60,10 @@ function Peek({ pr, rect, onEnter, onLeave }: { pr: PrInfo; rect: DOMRect; onEnt
   );
 }
 
-// the PR number as a badge: GitHub link colored by state, CI and unresolved threads on hover
-export default function PrBadge({ pr }: { pr: PrInfo }) {
+// CI and unresolved threads of a PR, shown while its badge is hovered or focused
+export function usePrPeek(pr: PrInfo) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  if (!pr.number) return null;
   const show = (e: React.SyntheticEvent<HTMLElement>) => {
     const target = e.currentTarget;
     clearTimeout(timer.current);
@@ -74,12 +73,21 @@ export default function PrBadge({ pr }: { pr: PrInfo }) {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setRect(null), 200);
   };
+  const bind = { onMouseEnter: show, onMouseLeave: hide, onFocus: show, onBlur: hide };
+  const peek = rect && pr.number ? <Peek pr={pr} rect={rect} onEnter={() => clearTimeout(timer.current)} onLeave={hide} /> : null;
+  return { bind, peek };
+}
+
+// the PR number as a badge: GitHub link colored by state, CI and unresolved threads on hover
+export default function PrBadge({ pr }: { pr: PrInfo }) {
+  const { bind, peek } = usePrPeek(pr);
+  if (!pr.number) return null;
   return (
     <>
-      <a className={`pr-badge st-${stateKey(pr)}`} href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
+      <a className={`pr-badge st-${stateKey(pr)}`} href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} {...bind}>
         #{pr.number}
       </a>
-      {rect && <Peek pr={pr} rect={rect} onEnter={() => clearTimeout(timer.current)} onLeave={hide} />}
+      {peek}
     </>
   );
 }

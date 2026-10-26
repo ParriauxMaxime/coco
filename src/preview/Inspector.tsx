@@ -12,7 +12,10 @@ import { Avatar, num, stateLabel } from './parts.tsx';
 import { agentsOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { ago, sevClass } from './format.ts';
+import { useWorkbench } from '../workbench/workbench-store.ts';
 import './stack.css';
+
+const openTab = (id: string) => useWorkbench.getState().open(id);
 
 const MAX_FINDINGS = 6;
 const CI_CHIP: Record<string, { tone: string; label: string }> = { success: { tone: 'dp-ok', label: 'CI passing' }, failure: { tone: 'dp-bad', label: 'CI failing' }, pending: { tone: 'dp-warn', label: 'CI running' } };
@@ -70,6 +73,13 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
         </div>
         <h2>{prTitle(pr)}</h2>
         {branch && <div className="dp-row dp-g4 dp-xs dp-t3"><Icon name="git-branch" size={12} /><span className="dp-ell dp-mono">{branch}</span>{pr.base && <span>→ {pr.base}</span>}</div>}
+        {numbered && (
+          <div className="dp-row dp-g4" style={{ marginTop: 8 }}>
+            <button type="button" className="dp-btn dp-sm dp-primary" onClick={() => openTab(`review-${pr.number}`)}><Icon name="file" size={14} />Review code</button>
+            <button type="button" className="dp-btn dp-sm" onClick={() => openTab(`findings-${pr.number}`)}><Icon name="flag" size={14} />Findings</button>
+            {!asTab && <button type="button" className="dp-btn dp-sm dp-ghost" title="Open as a tab  ⌘↵" onClick={() => openTab(`pr-${key}`)}>Open as tab</button>}
+          </div>
+        )}
       </div>
       <div className="dp-ins-scroll">
         {summary && <Sec title="Summary" wide><div className="dp-md"><Markdown text={summary} /></div></Sec>}
@@ -83,7 +93,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
           </Sec>
         )}
         {numbered && <Sec title="Review kit"><div className="dp-kit-box"><KitLine slug={d.slug} n={key} /></div></Sec>}
-        {numbered && <Sec title="Gates"><div className="dp-gates-box"><GateRail slug={d.slug} n={key} onOpen={() => {}} /></div></Sec>}
+        {numbered && <Sec title="Gates"><div className="dp-gates-box"><GateRail slug={d.slug} n={key} onOpen={openTab} /></div></Sec>}
         <Sec title="Owners" aside={owners.length + reviewers.length ? undefined : <span className="dp-t4" style={{ fontWeight: 400 }}>nobody yet</span>}>
           {owners.length > 0 && <div className="dp-row" style={{ flexWrap: 'wrap', marginBottom: reviewers.length ? 6 : 0 }}>{owners.map((p) => <PersonaChip key={p} login={p} href={null} />)}</div>}
           {reviewers.map((r) => (

@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useWorkbench, layoutRects } from './workbench-store.ts';
 import { WorkContext, useWorkData } from './use-work.ts';
+import type { LoadedWork } from './use-work.ts';
 import { startHashSync } from './hash.ts';
-import { tabDef } from './tabs/index.ts';
+import { tabDef as baseTabDef } from './tabs/index.ts';
+import type { TabDef } from './tabs/index.ts';
 import QuickOpen, { useQuickOpenShortcut } from './code/QuickOpen.tsx';
 import { codeApi } from './code/code-api.ts';
 import { prOfTab, codeTabId } from './code/ids.ts';
@@ -12,6 +14,9 @@ import { findRun, loadReview, useReviewStore } from './code/use-comments.ts';
 import type { Edge, Group as GroupData, Handle as HandleData, PrKey, Rect, RefFile, WorkData } from './types.ts';
 
 type Zone = Edge | 'center';
+
+const TabDefs = createContext<(id: string) => TabDef>(baseTabDef);
+const useTabDef = () => useContext(TabDefs);
 type Size = { width: number; height: number };
 
 const useMobile = () => {
@@ -51,6 +56,7 @@ const zoneAt = (e: React.DragEvent, el: HTMLElement): Zone => {
 
 function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: GroupData[]; ctx: WorkData; merged: boolean; max: boolean; drag: string | null }) {
   const { activate, close, pin, toggleMax, splitWith, moveTab, setDrag } = useWorkbench.getState();
+  const tabDef = useTabDef();
   const previews = groups.map((x) => x.preview);
   const total = groups.reduce((n, x) => n + x.tabs.length, 0);
   const [over, setOver] = useState<number | null>(null);
@@ -122,6 +128,7 @@ type GroupProps = { g: GroupData; groups: GroupData[]; ctx: WorkData; focused: b
 
 function Group({ g, groups, ctx, focused, merged, max, rect, drag }: GroupProps) {
   const { focus } = useWorkbench.getState();
+  const tabDef = useTabDef();
   return (
     <section className={`wb-group ${focused ? 'focus' : ''}`} style={rect && { left: rect.left, top: rect.top, width: rect.width, height: rect.height }} hidden={!rect} onMouseDownCapture={() => !merged && focus(g.id)}>
       <Strip g={g} groups={groups} ctx={ctx} merged={merged} max={max} drag={drag} />
@@ -162,7 +169,11 @@ function Handle({ h }: { h: HandleData }) {
 }
 
 export default function Workbench({ slug }: { slug: string }) {
-  const data = useWorkData(slug);
+  return <WorkbenchView slug={slug} data={useWorkData(slug)} />;
+}
+
+export function WorkbenchView({ slug, data, defs = baseTabDef }: { slug: string; data: LoadedWork; defs?: (id: string) => TabDef }) {
+  const tabDef = defs;
   const loaded: WorkData | null = data.w ? { ...data, w: data.w } : null;
   const prsKey = data.prs.map((p) => p.number).filter(Boolean).join(',');
   const stackedPrs = useMemo(() => (prsKey ? prsKey.split(',').map(Number) : []), [prsKey]);
@@ -226,6 +237,7 @@ export default function Workbench({ slug }: { slug: string }) {
   }
   return (
     <WorkContext.Provider value={loaded}>
+      <TabDefs.Provider value={defs}>
       <CodeRefRoot n={(data.prs.findLast((p) => p.number) || data.prs.findLast((p) => p.key))?.key} openAt={openAt} slug={slug} prs={stackedPrs}>
       <div ref={root} className={`wb-root ${max ? 'max' : ''} ${drag ? 'drag' : ''}`}>
         {shown.map((g) => <Group key={g.id} g={g} groups={groups} ctx={loaded} focused={merged || g.id === focused} merged={merged} max={max} rect={rects[g.id]} drag={drag} />)}
@@ -234,6 +246,7 @@ export default function Workbench({ slug }: { slug: string }) {
         {max && <button className="wb-exit" onClick={() => useWorkbench.getState().toggleMax()}>↙ exit</button>}
       </div>
       </CodeRefRoot>
+      </TabDefs.Provider>
     </WorkContext.Provider>
   );
 }

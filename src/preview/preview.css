@@ -444,6 +444,22 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp.dp-float { height: auto; overflow: visible; background: none; }
 .dp.dp-float .dp-ctl { bottom: 12px; }
 
+.dp .wb-root { flex: 1; min-width: 0; }
+.dp .wb-group { background: var(--dp-panel); }
+.dp .wb-strip { height: 34px; background: var(--dp-subtle); border-bottom: 1px solid var(--dp-line); }
+.dp .wb-tab-h { height: 34px; padding: 0 6px 0 12px; font: 500 12.5px var(--dp-f); color: var(--dp-t3); border-right: 1px solid var(--dp-line); border-bottom: 0; position: relative; }
+.dp .wb-tab-h:hover { background: transparent; color: var(--dp-t1); }
+.dp .wb-tab-h.active { background: var(--dp-panel); color: var(--dp-t1); box-shadow: 0 1px 0 var(--dp-panel); }
+.dp .wb-group.focus .wb-tab-h.active { box-shadow: inset 0 1.5px 0 var(--dp-accent), 0 1px 0 var(--dp-panel); }
+.dp .wb-x { color: var(--dp-t3); }
+.dp .wb-x:hover { background: var(--dp-hover); color: var(--dp-t1); }
+.dp .wb-act { color: var(--dp-t3); font: 12px var(--dp-f); }
+.dp .wb-act:hover { background: var(--dp-hover); color: var(--dp-t1); }
+.dp .wb-act.on { background: var(--dp-accent-t2); color: var(--dp-accent); }
+.dp .wb-handle { background: var(--dp-line); border: 0; }
+.dp .wb-handle:hover, .dp .wb-handle.on { background: var(--dp-accent); }
+.dp .wb-pane { font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--dp-panel); }
+.dp-tabview { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: auto; font: 13px/20px var(--dp-f); color: var(--dp-t1); container-type: inline-size; }
 .dp-empty { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--dp-t3); }
 .dp a.dp-ibtn, .dp a.dp-sb-nav, .dp a.dp-work { text-decoration: none; }
 .dp-rail-av { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; background: var(--dp-active); color: var(--dp-t2); }
