@@ -11,6 +11,7 @@ import { useWorkbench } from './workbench/workbench-store.ts';
 import Ask from './pages/Ask.tsx';
 import Rules from './components/Rules.tsx';
 import Inbox from './pages/Inbox.tsx';
+import Archive from './pages/Archive.tsx';
 import { api } from './api.ts';
 import Sidebar from './components/Sidebar.tsx';
 import type { Nav } from './components/Sidebar.tsx';
@@ -36,6 +37,7 @@ function crumbs(route: string, nav: Nav, tabTitle?: string | null) {
   if (root === 'ask') out.push(['#/ask', 'Ask coco']);
   if (root === 'rules') out.push(['#/rules', 'Rules']);
   if (root === 'inbox') out.push(['#/inbox', 'Inbox']);
+  if (root === 'archive') out.push(['#/archive', 'Archive']);
   if (root === 'work') {
     out.push(['#/projects', 'Projects']);
     const w = nav.works.find((x) => x.slug === a);
@@ -77,6 +79,7 @@ export default function App() {
   else if (root === 'work' && a) page = <Workbench key={a} slug={a} />;
   else if (root === 'ask') page = <Ask />;
   else if (root === 'inbox') page = <Inbox />;
+  else if (root === 'archive') page = <Archive />;
   else if (root === 'rules') page = <><h1>Rules</h1><Rules /></>;
   else if (root === 'agents') page = <Agents />;
   else if (root === 'rituals') page = <Rituals preset={a} />;

@@ -19,6 +19,7 @@ const ICONS = {
   rituals: ['M12 3v3', 'M12 18v3', 'M3 12h3', 'M18 12h3', 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z'],
   inbox: ['M22 12h-6l-2 3h-4l-2-3H2', 'M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'],
   rules: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
+  archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
 };
 
 const usePersisted = (key: string, initial: boolean): [boolean, () => void] => {
@@ -81,7 +82,6 @@ type SidebarProps = { route: string; open: boolean; onClose: () => void; nav: Na
 export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
   const [root, a] = route.split('/').filter(Boolean);
   const is = (r: string, x?: string) => root === r && (!x || a === x);
-  const [showArchived, toggleArchived] = usePersisted('showArchived', false);
   const Link = ({ href, on, icon, children }: { href: string; on: boolean; icon: React.ReactNode; children?: React.ReactNode }) => (
     <a className={`nav ${on ? 'on' : ''}`} href={href} onClick={onClose}>{icon}{children}</a>
   );
@@ -132,11 +132,12 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
         <Link href="#/agents" on={is('agents')} icon={<Icon d={ICONS.agents} />}>Agents {nav.running > 0 && <span className="n live"><span className="dot run" />{nav.running}</span>}</Link>
         {hasRituals && <Link href="#/rituals" on={is('rituals')} icon={<Icon d={ICONS.rituals} />}>Rituals</Link>}
         <Link href="#/rules" on={is('rules')} icon={<Icon d={ICONS.rules} />}>Rules</Link>
+        {archivedCount > 0 && <Link href="#/archive" on={is('archive')} icon={<Icon d={ICONS.archive} />}>Archive <span className="n">{archivedCount}</span></Link>}
         <a className={`nav ask ${is('ask') ? 'on' : ''}`} href="#/ask" onClick={onClose}><span className="ico emoji">🦜</span>Ask coco</a>
       </nav>
 
-      {groups.map((g, i) => {
-        const list = g.works.map((s) => bySlug.get(s)).filter((w): w is WorkSummary => Boolean(w) && (showArchived || !w?.archived));
+      {groups.map((g) => {
+        const list = g.works.map((s) => bySlug.get(s)).filter((w): w is WorkSummary => Boolean(w) && !w?.archived);
         return (
           <Section
             key={g.id}
@@ -145,7 +146,6 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
             count={list.length}
             className={over === `repo:${g.id}` ? 'drop-over' : ''}
             handle={{ draggable: true, title: g.github || g.name, ...dragProps({ kind: 'repo', id: g.id }, `repo:${g.id}`, () => dropRepo(g.id)) }}
-            extra={i === 0 && archivedCount > 0 && <span className="gtoggle" onClick={(e) => { e.stopPropagation(); toggleArchived(); }}>{showArchived ? 'hide archived' : `+${archivedCount} archived`}</span>}
           >
             {list.map((w) => <WorkLink key={w.slug} w={w} on={is('work', w.slug)} onClose={onClose} over={over === `work:${w.slug}`} drag={dragProps({ kind: 'work', repo: g.id, slug: w.slug }, `work:${w.slug}`, () => dropWork(g.id, w.slug))} />)}
             {list.length === 0 && <div className="nav-empty">No work yet</div>}

@@ -37,7 +37,7 @@ export default function Dashboard() {
 
       <h2>Works <a href="#/projects" className="sub">projects →</a></h2>
       <div className="grid">
-        {(data.works || []).filter((wk) => !wk.archived || localStorage.getItem('showArchived') === '1').map((wk) => (
+        {(data.works || []).filter((wk) => !wk.archived).map((wk) => (
           <a key={wk.slug} className="card" href={`#/work/${wk.slug}`}>
             <b style={{ color: 'var(--ink)' }}>{wk.title}</b>
             <div className="row" style={{ marginTop: 6 }}><span className="chip c-grey">{wk.projectName}</span><span className="chip c-blue">{wk.stack} PRs</span>{wk.archived && <span className="chip c-grey">archived</span>}<span className="status">{(wk.updatedAt || '').slice(0, 10)}</span></div>
