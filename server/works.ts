@@ -115,7 +115,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents }) {
-  const hooks: { onArchived?: (number: number) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> } = {};
+  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
@@ -331,7 +331,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       work.autoArchive = false;
       work.timeline.unshift({ ts: new Date().toISOString(), kind: 'archive', text: 'unarchived by hand; auto-archive off for this work' });
     }
-    return save(work);
+    const saved = save(work);
+    if (archived && reason === 'auto') hooks.onAutoArchived?.(saved);
+    return saved;
   }
 
   async function sweepArchive() {

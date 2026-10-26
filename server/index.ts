@@ -31,6 +31,7 @@ import { createFeatureFlags } from './feature-flags.ts';
 import { createPack } from './pack.ts';
 import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
+import { createWorktrees } from './worktrees.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents } from './paseo-agent.ts';
@@ -96,6 +97,8 @@ const setup = createSetup({ APP, config, works, personaCount: () => listPersonas
 const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
 const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json') });
 const devServers = createDevServers({ REPO, config, works });
+const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
+works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 ask.boot();
@@ -365,6 +368,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'stack-keeper') return stackKeeper.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
+    if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
     if (root === 'repos' && !a && req.method === 'POST') {
@@ -387,7 +391,7 @@ async function api(req: Req, res: Res, url: URL) {
       try { projectCount = JSON.parse(pj.stdout).length; } catch {}
       const read = (n: string) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');
       const summaries = works.list().map(summarize);
-      return send(res, 200, { projectCount, personas, skills, works: summaries, repos: repos.grouped(summaries).map((r) => ({ ...r, works: r.works.map((w) => w.slug) })), feedback: feedback.slice(-20).reverse(), feedbackCount: feedback.length, agents: ag.agents.slice(0, 12), agentsError: ag.error, backlog: read('backlog.md'), changelog: read('CHANGELOG.md'), rituals: readRituals().slice(0, 10) });
+      return send(res, 200, { projectCount, personas, skills, works: summaries, repos: repos.grouped(summaries).map((r) => ({ ...r, works: r.works.map((w) => w.slug) })), feedback: feedback.slice(-20).reverse(), feedbackCount: feedback.length, agents: ag.agents.slice(0, 12), agentsError: ag.error, backlog: read('backlog.md'), changelog: read('CHANGELOG.md'), rituals: readRituals().slice(0, 10), notices: worktrees.notices().length });
     }
     if (root === 'personas' && !a) return send(res, 200, listPersonas());
     if (root === 'personas' && a && b === 'files' && c) {

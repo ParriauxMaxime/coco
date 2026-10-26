@@ -1,7 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
 import { useConfig } from '../config.ts';
+import WorktreeChoice from '../components/WorktreeChoice.tsx';
 import { AskConversation, AskHistory, Proposal, useAskConversation } from './Ask.tsx';
+import type { WorktreeNotice } from '../types.ts';
+
+// works coco archived on its own whose worktrees wait for the owner's ticks
+function WorktreeNotices() {
+  const [notices, setNotices] = useState<WorktreeNotice[]>([]);
+  const load = () => api.notices().then(setNotices, () => setNotices([]));
+  useEffect(() => { load(); }, []);
+  return notices.map((n) => (
+    <div key={n.id} className="card keep">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <b><a href={`#/work/${n.slug}`}>{n.title}</a> was archived: every PR merged or closed</b>
+        <span className="status">{n.at.slice(0, 10)}</span>
+      </div>
+      <p className="sub">Its worktrees stay until you pick which ones go.</p>
+      <WorktreeChoice slug={n.slug} confirmLabel={(k) => `Remove ${k}`} secondary={{ label: 'Keep all', run: () => api.dismissNotice(n.id).then(load) }} onDone={load} />
+    </div>
+  ));
+}
 
 // a link in, a work scaffold proposal out; the work exists once Create work is pressed
 export default function Inbox() {
@@ -30,6 +49,7 @@ export default function Inbox() {
   return (
     <>
       <h1>Inbox</h1>
+      <WorktreeNotices />
       <p className="sub">Paste a Notion page, a {github || 'GitHub'} PR or issue, or a Slack permalink. Coco reads it (read-only Notion, gh and Slack tools), then proposes a work: tier, title, Surface | Before | After table, precedents, surfaces, personas, planned stack. Follow up to reshape it. Nothing is created until you press Create work.</p>
       <div className="card">
         <input style={{ width: '100%' }} value={url} placeholder={`https://www.notion.so/… · https://github.com/${github || 'acme/widgets'}/issues/… · https://example.slack.com/archives/…`} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && url.trim() && !reading && read()} />

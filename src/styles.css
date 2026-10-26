@@ -360,6 +360,9 @@ button.act-row:hover { background: var(--line-2); color: var(--ink-2); }
 .keep { border-left: 3px solid var(--amber); }
 .keep .row { flex-wrap: wrap; }
 .keep-cmd { align-items: flex-start; flex-wrap: nowrap !important; }
+.wt-row { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.wt-row input { margin-top: 3px; }
+.wt-row .status { display: block; font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
 .keep-cmd pre { flex: 1; min-width: 0; margin: 4px 0; padding: 6px 8px; overflow-x: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; background: var(--grey-bg); border-radius: var(--r-sm); }
 .work-title .chip { margin-left: 6px; }
 .kit-line { margin-top: 6px; gap: 4px; flex-wrap: wrap; }

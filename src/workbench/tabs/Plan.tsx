@@ -14,6 +14,7 @@ import GateRail from './Gates.tsx';
 import StackKeeper from './StackKeeper.tsx';
 import KitLine from './KitLine.tsx';
 import DispatchMenu from '../../components/DispatchMenu.tsx';
+import WorktreeChoice from '../../components/WorktreeChoice.tsx';
 import { DevServerRow, DevServersSummary, useDevServers } from './DevServers.tsx';
 import type { DevServerRowData, DevServersResponse, PersonaSuggestion, StackRow, WorkDetail } from '../../types.ts';
 import type { NotionState, PrKey, WhatsNextData, WorkPr } from '../types.ts';
@@ -201,9 +202,9 @@ function ProgressDot({ w, pr, index, alignEnd, onJump, onDetails, onReview }: Pr
   );
 }
 
-type HeroProps = PrActions & { w: WorkDetail; prs: WorkPr[]; refreshing: boolean; onRefresh: () => void; onAddLink: () => void; onChange: () => void; devServers: DevServersResponse | null };
+type HeroProps = PrActions & { w: WorkDetail; prs: WorkPr[]; refreshing: boolean; onRefresh: () => void; onAddLink: () => void; onChange: () => void; devServers: DevServersResponse | null; choosing: boolean; onChoose: () => void };
 
-function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers, onJump, onDetails, onReview }: HeroProps) {
+function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers, choosing, onChoose, onJump, onDetails, onReview }: HeroProps) {
   const { busy: archiving, run } = useAction();
   const merged = prs.filter((p) => stateKey(p) === 'merged').length;
   const total = prs.reduce((a, p) => ({ add: a.add + (p.additions || 0), del: a.del + (p.deletions || 0), files: a.files + (p.changedFiles || 0) }), { add: 0, del: 0, files: 0 });
@@ -235,8 +236,33 @@ function Hero({ w, prs, refreshing, onRefresh, onAddLink, onChange, devServers, 
       </dl>
       <div className="foot">
         <span>Paseo {w.projectName}{w.tier ? ` · ${w.tier} tier` : ''} · GitHub state {(w.fetchedAt || '').slice(11, 19)}, auto every 30 s</span>
-        <span className="row">{w.archived && <span className="chip c-grey">archived {w.archived.reason === 'auto' ? 'automatically' : 'by hand'} {w.archived.at.slice(0, 10)}</span>}<button className={`sm${pendingClass(archiving)}`} disabled={archiving} onClick={() => run('archive', () => api.archiveWork(w.slug, !w.archived).then(onChange))}>{w.archived ? 'Unarchive' : 'Archive'}</button><button className={`sm${pendingClass(refreshing)}`} onClick={onRefresh} disabled={refreshing}>↻</button></span>
+        <span className="row">
+          {w.archived && <span className="chip c-grey">archived {w.archived.reason === 'auto' ? 'automatically' : 'by hand'} {w.archived.at.slice(0, 10)}</span>}
+          {w.archived && <button className={`sm${choosing ? ' on' : ''}`} onClick={onChoose}>Worktrees…</button>}
+          {w.archived
+            ? <button className={`sm${pendingClass(archiving)}`} disabled={archiving} onClick={() => run('archive', () => api.archiveWork(w.slug, false).then(onChange))}>Unarchive</button>
+            : <button className={`sm${choosing ? ' on' : ''}`} onClick={onChoose}>Archive</button>}
+          <button className={`sm${pendingClass(refreshing)}`} onClick={onRefresh} disabled={refreshing}>↻</button>
+        </span>
       </div>
+    </div>
+  );
+}
+
+// archiving by hand, or cleaning up an archived work: the worktree checkbox list first, nothing removed before the confirm
+function ArchivePanel({ w, onClose, onChange }: { w: WorkDetail; onClose: () => void; onChange: () => void }) {
+  return (
+    <div className="card keep">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <b>{w.archived ? 'Remove worktrees of this archived work' : 'Archive this work'}</b>
+        <button className="sm" onClick={onClose}>Cancel</button>
+      </div>
+      <WorktreeChoice
+        slug={w.slug}
+        before={w.archived ? undefined : () => api.archiveWork(w.slug, true)}
+        confirmLabel={(n) => (w.archived ? `Remove ${n}` : n ? `Archive and remove ${n}` : 'Archive, keep the worktrees')}
+        onDone={() => { onClose(); onChange(); }}
+      />
     </div>
   );
 }
@@ -265,6 +291,7 @@ export default function Plan({ group }: { group: number }) {
   const opened = useWorkbench((s) => s.groups).flatMap((g) => g.tabs);
   const other = group === 1 ? 2 : 1;
   const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const [choosing, setChoosing] = useState(false);
   const isOpen = (i: number) => toggled[i] ?? !FOLDED_STATES.includes(stateKey(prs[i]));
   const onJump = (i: number) => {
     setToggled((t) => ({ ...t, [i]: true }));
@@ -281,7 +308,8 @@ export default function Plan({ group }: { group: number }) {
           {SIDE.map(([id, label]) => <button key={id} className={`sm ${opened.includes(id) ? 'on' : ''}`} onClick={() => open(id, { group: other })}>{label}</button>)}
         </div>
       </div>
-      <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} devServers={dev.data} onJump={onJump} onDetails={onDetails} onReview={onReview} />
+      <Hero w={w} prs={prs} refreshing={refreshing} onRefresh={() => load(true)} onAddLink={addLink} onChange={() => load()} devServers={dev.data} choosing={choosing} onChoose={() => setChoosing(!choosing)} onJump={onJump} onDetails={onDetails} onReview={onReview} />
+      {choosing && <ArchivePanel w={w} onClose={() => setChoosing(false)} onChange={() => load()} />}
       <WhatsNext next={w.next} />
       <NotionPreview w={w} onChange={() => load()} />
       <StackKeeper slug={w.slug} onChange={() => load()} />

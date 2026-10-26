@@ -5,7 +5,7 @@ import { useConfig } from '../config.ts';
 import { api } from '../api.ts';
 import type { Persona, RepoGroup, Skill, WorkProgress, WorkSummary } from '../types.ts';
 
-export type Nav = { works: WorkSummary[]; repos: RepoGroup[]; personas: Persona[]; skills: Skill[]; projects: number; running: number };
+export type Nav = { works: WorkSummary[]; repos: RepoGroup[]; personas: Persona[]; skills: Skill[]; projects: number; running: number; notices: number };
 
 const Icon = ({ d }: { d: string[] }) => (
   <svg className="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -143,7 +143,7 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
       <a className="brand" href="#/" onClick={onClose}><i>🦜</i> cocopilot</a>
       <nav className="primary">
         <Link href="#/" on={!root} icon={<Icon d={ICONS.dashboard} />}>Dashboard</Link>
-        <Link href="#/inbox" on={is('inbox')} icon={<Icon d={ICONS.inbox} />}>Inbox</Link>
+        <Link href="#/inbox" on={is('inbox')} icon={<Icon d={ICONS.inbox} />}>Inbox {nav.notices > 0 && <span className="n">{nav.notices}</span>}</Link>
         <Link href="#/projects" on={is('projects')} icon={<Icon d={ICONS.projects} />}>Projects <span className="n">{nav.projects}</span></Link>
         <Link href="#/agents" on={is('agents')} icon={<Icon d={ICONS.agents} />}>Agents {nav.running > 0 && <span className="n live"><span className="dot run" />{nav.running}</span>}</Link>
         {hasRituals && <Link href="#/rituals" on={is('rituals')} icon={<Icon d={ICONS.rituals} />}>Rituals</Link>}

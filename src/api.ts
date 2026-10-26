@@ -4,6 +4,7 @@ import type {
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
+  WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
 
 export type * from './types.ts';
@@ -74,6 +75,10 @@ export const api = {
   notionStatus: (slug: string) => get<NotionStatus>(`${works(slug)}/notion`),
   notionAction: (slug: string, body: Record<string, unknown>) => post<NotionResult>(`${works(slug)}/notion`, body),
   archiveWork: (slug: string, archived: boolean) => post<Work>(`${works(slug)}/archive`, { archived }),
+  worktrees: (slug: string) => get<WorkWorktree[]>(`${works(slug)}/worktrees`),
+  removeWorktrees: (slug: string, paths: string[]) => postJson(`${works(slug)}/worktrees/remove`, { paths }).then(jsonOrError<WorktreesRemoved>),
+  notices: () => get<WorktreeNotice[]>('/api/notices'),
+  dismissNotice: (id: string) => postEmpty<{ ok: boolean }>(`/api/notices/${encodeURIComponent(id)}/dismiss`),
   updateWork: (slug: string, body: WorkInput) => send<Work>('PUT', works(slug), body),
   addTimeline: (slug: string, body: { kind: string; text: string }) => post<TimelineEntry | Work>(`${works(slug)}/timeline`, body),
   threads: (slug: string) => get<Record<string, ThreadSummary>>(`${works(slug)}/threads`),
