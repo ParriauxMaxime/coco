@@ -83,8 +83,9 @@ function DesktopDiff({ n, rv, file, reveal, sbs, knownHeight, onReveal, onHeight
     folds.current?.setComments(mineRef.current);
   }, [commented]);
 
+  // before the diff is computed, folds are not applied yet and the line sits at its unfolded height
   useEffect(() => {
-    if (!reveal?.line || !diff || !contentH || revealed.current === reveal.at) return;
+    if (!reveal?.line || !diff || !contentH || !diff.getLineChanges() || revealed.current === reveal.at) return;
     revealed.current = reveal.at;
     const side = reveal.side === 'base' && sbs ? diff.getOriginalEditor() : diff.getModifiedEditor();
     onReveal((hostRef.current?.offsetTop || 0) + side.getTopForLineNumber(reveal.line), true);
