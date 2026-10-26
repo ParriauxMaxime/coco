@@ -45,6 +45,8 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
   const projects = async (): Promise<PaseoProject[]> => json(await exec('paseo', ['project', 'ls', '--json']), []);
   // a project rooted at a repo clone is that repo's, never a work's: it keeps its name
   const isRepoProject = (p: PaseoProject) => repos.some((r) => samePath(r.path, p.path));
+  // a work's project sits on a linked worktree; a main clone missing from the config is still a repo's
+  const isLinkedWorktree = async (dir: string) => /[\\/]worktrees[\\/]/.test((await exec('git', ['-C', dir, 'rev-parse', '--git-dir'])).stdout);
   const repoById = (id: string | undefined) => repos.find((r) => r.id === id) || repos[0];
   const appRepo = () => repos.find((r) => samePath(r.path, APP)) || repos[repos.length - 1];
   const plansDir = path.join(DATA, 'worktrees');
@@ -58,6 +60,10 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
       if (!p || !w.title || p.name === w.title) continue;
       if (isRepoProject(p)) {
         renames.push({ slug: w.slug, projectId: p.projectId, from: p.name, to: w.title, skipped: 'the repo’s own project' });
+        continue;
+      }
+      if (!(await isLinkedWorktree(p.path))) {
+        renames.push({ slug: w.slug, projectId: p.projectId, from: p.name, to: w.title, skipped: 'not on a worktree' });
         continue;
       }
       renames.push({ slug: w.slug, projectId: p.projectId, from: p.name, to: w.title });

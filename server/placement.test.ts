@@ -21,6 +21,7 @@ function world({ projects = [] as { projectId: string; name: string; path: strin
     calls.push([cmd, ...args]);
     const ok = (v: unknown) => ({ ok: true, stdout: typeof v === 'string' ? v : JSON.stringify(v), stderr: '' });
     if (cmd === 'git' && args.includes('worktree') && args.includes('list')) return ok(worktrees);
+    if (cmd === 'git' && args.includes('--git-dir')) return ok(args[1].startsWith('/wt/') ? '/src/widgets/.git/worktrees/x' : '.git');
     const ref = args.find((a) => a.startsWith('refs/heads/'));
     if (cmd === 'git' && ref && !branches.includes(ref.slice('refs/heads/'.length))) return { ok: false, stdout: '', stderr: '' };
     if (cmd === 'git') return ok('');
@@ -56,6 +57,14 @@ test('project names follow work titles; the repo project and matching names are 
   assert.deepEqual(w.calls.filter((a) => a[2] === 'rename'), [['paseo', 'project', 'rename', 'prj_inv', 'Invoice CSV export']]);
   await p.syncProjectNames([{ slug: 'inv', title: 'Other', projectId: 'prj_inv', stack: [] }], { dryRun: true });
   assert.equal(w.calls.filter((a) => a[2] === 'rename').length, 1);
+});
+
+test('a project on a main clone the config no longer lists is never renamed after a work', async () => {
+  const w = world({ projects: [{ projectId: 'prj_old', name: 'gadgets', path: '/src/gadgets' }] });
+  const p = createPlacement({ repos: REPOS, APP: '/apps/coco', DATA: DATA(), exec: w.exec });
+  const renames = await p.syncProjectNames([{ slug: 'g', title: 'Gadget sync', projectId: 'prj_old', stack: [] }]);
+  assert.deepEqual(renames.map((r) => r.skipped), ['not on a worktree']);
+  assert.equal(w.calls.filter((a) => a[2] === 'rename').length, 0);
 });
 
 test('global runs in the coco repo project, in a workspace titled cocopilot, made once even when the clone has others', async () => {
