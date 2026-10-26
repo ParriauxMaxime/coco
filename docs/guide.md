@@ -757,6 +757,22 @@ waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
 `data/cards/`; routes, shapes and delivery are in
 [agent-io.md](agent-io.md).
 
+## Attachments (images and files to an agent)
+
+Every agent composer (agent tabs, Ask conversations, new-agent tabs, the
+repo and Inbox panels) takes images and files: paste a screenshot, drop
+files on the composer, or pick them with the paperclip. Each uploads at once
+(`POST /api/uploads?name=…`, raw body, `Content-Type` the file's) to
+`data/uploads/<id>/<name>` and shows as a removable chip; images png, jpeg,
+gif or webp up to 5 MB, other files up to 20 MB, 8 per message, refusals
+inline. The message carries the upload ids: images reach Paseo as `images`
+(base64), other files as `uploaded_file` attachments the agent reads by path,
+on a follow-up or the message that starts an agent. Paseo's timeline keeps
+only the text, so the transcript shows the files from coco's own record: an
+Ask conversation's log, or `data/uploads/sent/<agent>.jsonl` for any other
+agent, paired by message id or text. `GET /api/uploads/<id>` serves a file
+back.
+
 ## Team pack (share with teammates)
 
 The **Team pack** card on the Dashboard zips what a teammate needs to work

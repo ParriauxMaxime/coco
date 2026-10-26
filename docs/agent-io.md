@@ -28,7 +28,9 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 2. Fold the old paths: `propose_*` become `confirm` cards whose approval runs
    the side effect; thread `choices` become `choice` cards; MCP
    `upsert_finding`, `upsert_decision`, `attach_media` replace curl in skills.
-3. Multimodal input in the composer.
+3. [x] Multimodal input in the composer: paste, drop or pick images and
+   files; `POST /api/uploads`, ids on the message, Paseo `images` and
+   `uploaded_file` attachments, files shown on the user message.
 
 ## Card
 
