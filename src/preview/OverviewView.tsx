@@ -83,7 +83,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             <h1 className="dp-h1">{w.title}</h1>
           </div>
           <button type="button" className="dp-btn dp-sm" onClick={() => onOpenTab('stack')}><Icon name="layers" size={14} />Stack</button>
-          <button type="button" className="dp-btn dp-sm" onClick={() => onOpenTab('ask')}><Icon name="message-square" size={14} />Ask coco{d.asks.length > 0 && <span className="dp-count">{d.asks.length}</span>}</button>
+          <button type="button" className="dp-btn dp-sm" onClick={() => onOpenTab('ask')}><Icon name="bot" size={14} />New agent</button>
         </div>
         {lead && <div className="dp-lead"><Markdown text={lead} /></div>}
         {w.summary && w.description && w.description !== w.summary && (

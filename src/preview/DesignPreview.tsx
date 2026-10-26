@@ -15,6 +15,8 @@ import { applyLayout } from './layouts.ts';
 import { CHOICES, useBetaPanel, usePrefs, workHref } from './prefs.ts';
 import type { PrefKey } from './prefs.ts';
 import { prKey, prState, prTitle, usePreviewData } from './data.ts';
+import AgentsSection from './AgentsSection.tsx';
+import { prLabel, useAgentList } from './agents.ts';
 import type { PreviewData } from './data.ts';
 import type { Overview, WorkSummary } from '../types.ts';
 import './preview.css';
@@ -24,7 +26,6 @@ type Command = { id: string; label: string; hint?: string; icon: IconName; run: 
 const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: 'plan', label: 'Overview', icon: 'home' },
   { id: 'stack', label: 'Stack', icon: 'list' },
-  { id: 'ask', label: 'Ask coco', icon: 'message-square' },
   { id: 'findings', label: 'Findings', icon: 'flag' },
   { id: 'decisions', label: 'Decisions', icon: 'scale' },
   { id: 'timeline', label: 'Timeline', icon: 'history' },
@@ -176,7 +177,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const ciRun = d.prs.filter((p) => p.ci === 'pending').length;
   const ciBad = d.prs.filter((p) => p.ci === 'failure').length;
   const openFindings = (d.findings?.rows || []).filter((f) => f.status === 'open').length;
-  const tabCount: Record<string, number | undefined> = { stack: d.prs.length, findings: openFindings || undefined, decisions: (d.work.w.decisions || []).length || undefined, ask: d.asks.length || undefined };
+  const tabCount: Record<string, number | undefined> = { stack: d.prs.length, findings: openFindings || undefined, decisions: (d.work.w.decisions || []).length || undefined };
+  const agents = useAgentList(slug) || [];
 
   const openPr = (key: string) => {
     setSelected(key);
@@ -191,6 +193,9 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
 
   const commands: Command[] = [
     ...VIEWS.map((v) => ({ id: `v-${v.id}`, label: v.label, hint: 'view', icon: v.icon, run: () => open(v.id) })),
+    { id: 'new-agent', label: 'New agent', hint: 'agents', icon: 'bot', run: () => open('ask') },
+    ...d.prs.map((p) => ({ id: `new-agent-${prKey(p)}`, label: `New agent on ${p.number ? `#${p.number}` : prLabel(prKey(p))} ${prTitle(p)}`, hint: 'agents', icon: 'bot' as const, run: () => open(`ask-new-${prKey(p)}`) })),
+    ...agents.map((a) => ({ id: `agent-${a.id}`, label: `Agent: ${a.title}`, hint: a.status, icon: 'bot' as const, run: () => open(a.id) })),
     ...layouts.list.map((l, i) => ({ id: `l-${l.id}`, label: `Layout: ${l.name}`, hint: i < 9 ? `⌥${i + 1}` : 'layout', icon: 'columns' as const, run: () => applyLayout(l) })),
     { id: 'split', label: 'Move the tab to the other pane', hint: '⌘\\', icon: 'columns', run: split },
     ...CHOICES.flatMap((c) => c.options.map((o) => ({ id: `c-${c.key}-${o.value}`, label: `${c.label}: ${o.label}`, hint: prefs[c.key] === o.value ? 'current' : 'variant', icon: 'eye' as const, run: () => prefs.set(c.key, o.value) }))),
@@ -222,10 +227,11 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         return (
           <div key={v.id} className={`dp-view${isOpen ? ' dp-open' : ''}`} onClick={() => { if (here) open(v.id); else location.hash = `${workHref(w.slug)}/${v.id}`; }}>
             <Icon name={v.icon} size={14} /><span>{v.label}</span>
-            {count !== undefined && <span className={`dp-count${here && v.id === 'ask' && waiting.length ? ' dp-acc' : ''}`}>{count}</span>}
+            {count !== undefined && <span className="dp-count">{count}</span>}
           </div>
         );
       })}
+      <AgentsSection slug={w.slug} live={w.slug === slug} prs={w.slug === slug ? d.prs : []} onOpen={(id) => { if (w.slug === slug) open(id); else location.hash = `${workHref(w.slug)}/${id}`; }} />
     </div>
   );
 

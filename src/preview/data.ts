@@ -4,7 +4,7 @@ import { usePendingPermissions } from '../components/PermissionCard.tsx';
 import { stateKey } from '../components/PrBadge.tsx';
 import { useWorkData } from '../workbench/use-work.ts';
 import type { LoadedWork } from '../workbench/use-work.ts';
-import type { AskRun, FindingsResponse, LinkedAgent, Overview, PendingPermission } from '../types.ts';
+import type { FindingsResponse, LinkedAgent, Overview, PendingPermission } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
 
 export type PreviewData = {
@@ -15,7 +15,6 @@ export type PreviewData = {
   findings: FindingsResponse | null;
   agents: LinkedAgent[];
   pending: PendingPermission[];
-  asks: AskRun[];
 };
 
 export const prKey = (pr: WorkPr) => String(pr.key ?? pr.number ?? pr.planned?.branch ?? pr.head ?? '');
@@ -37,17 +36,15 @@ export function usePreviewData(slug: string): PreviewData {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [findings, setFindings] = useState<FindingsResponse | null>(null);
   const [agents, setAgents] = useState<LinkedAgent[]>([]);
-  const [asks, setAsks] = useState<AskRun[]>([]);
   useEffect(() => {
     const load = () => {
       api.overview().then(setOverview, () => {});
       api.findings(slug, null).then(setFindings, () => {});
       api.linkedAgents(slug).then(setAgents, () => {});
-      api.asks(`work:${slug}`).then(setAsks, () => {});
     };
     load();
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [slug]);
-  return { slug, work, prs: work.prs, overview, findings, agents, pending, asks };
+  return { slug, work, prs: work.prs, overview, findings, agents, pending };
 }

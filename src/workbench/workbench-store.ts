@@ -17,6 +17,8 @@ type Actions = {
   load: (slug: string) => void;
   open: (tabId: string, options?: OpenOptions) => void;
   close: (tabId: string) => void;
+  // the tab keeps its place under a new id; with that id already open elsewhere it just closes
+  rename: (from: string, to: string) => void;
   activate: (tabId: string) => void;
   pin: (tabId: string) => void;
   moveTab: (tabId: string, to: number, index?: number | null) => void;
@@ -146,6 +148,12 @@ export const useWorkbench = create<WorkbenchState>()((set, get) => {
       const own = owner(s, tabId);
       if (!own || (tabId === 'plan' && s.groups.reduce((n, g) => n + g.tabs.length, 0) === 1)) return {};
       return { layout: patch(s.layout, own.id, (g) => without(g, tabId)) };
+    }),
+    rename: (from, to) => upd((s) => {
+      const own = owner(s, from);
+      if (!own || from === to) return {};
+      if (owner(s, to)) return { layout: patch(s.layout, own.id, (g) => without(g, from)) };
+      return { layout: patch(s.layout, own.id, (g) => ({ tabs: g.tabs.map((t) => (t === from ? to : t)), active: g.active === from ? to : g.active, preview: g.preview === from ? null : g.preview })) };
     }),
     activate: (tabId) => upd((s) => {
       const own = owner(s, tabId);

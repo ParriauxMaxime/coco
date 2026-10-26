@@ -2,10 +2,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { rowKey } from './stack.ts';
+import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, activityEvents, createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { AgentSession, Outcome } from './paseo-agent.ts';
-import type { PrInfo, ReadBody, Req, Res, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
+import type { PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
 import type { AddRepoResult } from './repos.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
@@ -50,6 +50,8 @@ type Conv = {
   prompt: string;
   scope: AskScope;
   workSlug: string | null;
+  // the stack row a work's conversation is about: its agent runs in that row's worktree
+  pr?: RowKey | null;
   kind: string;
   model: string | null;
   startedAt: string;
@@ -73,7 +75,7 @@ type Conv = {
   onEnd?: (conv: Conv) => void;
   once?: boolean;
 };
-const META = ['id', 'prompt', 'scope', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'dispatchProposal', 'repoProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
+const META = ['id', 'prompt', 'scope', 'workSlug', 'pr', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'dispatchProposal', 'repoProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; submitted?: Record<string, unknown>; text?: string; cost?: number | null };
 type AskWork = Work & { stack?: StackRow[]; timeline?: TimelineEntry[] };
@@ -86,7 +88,7 @@ type AskOptions = {
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
   // the Paseo workspace of a scope's agents; without it, the folder decides as before
-  place?: (scope: AskScope) => Promise<{ workspaceId: string; cwd: string }>;
+  place?: (scope: AskScope, pr?: RowKey | null) => Promise<{ workspaceId: string; cwd: string }>;
   // starts what a dispatch call proposed, once the owner confirms it
   dispatch?: (slug: string, input: { entry: string; key?: number | string; prompt?: string; persona?: string; edits?: boolean }) => Promise<{ title: string; agentId: string | null }>;
   // adds what a propose_repo call proposed, once the owner confirms it
@@ -95,10 +97,10 @@ type AskOptions = {
 
 export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo }: AskOptions) {
   const repos = config.repos || [];
-  const where = async (scope: AskScope) => {
-    if (place) return place(scope);
+  const where = async (scope: AskScope, pr: RowKey | null = null) => {
+    if (place) return place(scope, pr);
     const work = scope.kind === 'work' ? works.get(scope.slug) : null;
-    return { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, prInfo: works.prInfo }) : REPO };
+    return { workspaceId: null, cwd: work ? await workCwd({ repo: REPO, work, key: pr, prInfo: works.prInfo }) : REPO };
   };
   const DIR = path.join(DATA, 'asks');
   fs.mkdirSync(DIR, { recursive: true });
@@ -123,8 +125,8 @@ To start a Paseo agent (a local Claude Code session in a work's PR workspace, fr
 This is a conversation: ${OWNER} follows up in the same session, sometimes while you are still working; answer the latest message and keep what was already settled.`;
 
   // the inbox is global too but scaffolds works: only the global Ask page gets the global tier's line
-  const tierOf = ({ scope, kind }: Pick<Conv, 'scope' | 'kind'>) => {
-    if (scope.kind === 'work') return `\nCurrent work: ${scope.slug} (use get_work first).`;
+  const tierOf = ({ scope, kind, pr }: Pick<Conv, 'scope' | 'kind' | 'pr'>) => {
+    if (scope.kind === 'work') return `\nCurrent work: ${scope.slug} (use get_work first).${pr != null ? ` This conversation is about its PR ${keyLabel(pr)}; you run in that PR's worktree.` : ''}`;
     const repo = scope.kind === 'repo' ? repos.find((r) => r.id === scope.repoId) : null;
     if (repo) return `\nThis is the Ask coco of the ${repo.name} repo (${repo.github || 'no GitHub slug'}, clone at ${repo.path}): the works you scaffold belong to it.`;
     if (kind !== 'ask') return '';
@@ -190,7 +192,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         push(conv, { type: 'meta', text: `Paseo agent ${conv.agentId.slice(0, 8)} is gone: a new one starts with the conversation so far` });
       }
       if (!create) return null;
-      const { workspaceId, cwd } = await where(conv.scope);
+      const { workspaceId, cwd } = await where(conv.scope, conv.pr ?? null);
       const s = await agents.session({
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: SYSTEM + tierOf(conv),
@@ -198,7 +200,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         mode: 'auto',
         cwd,
         workspaceId,
-        labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
+        labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, pr: conv.pr == null ? null : fileKey(conv.pr), repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
         mcp: true,
         ...stream,
       });
@@ -293,9 +295,9 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   // onEnd(conv) fires after each turn; conv.rulesProposal holds a propose_rules call. once: the agent is archived after the first turn
   // the scope: the work's when there is one, else the repo's, else global
-  function start({ prompt, workSlug = null, repoId = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
+  function start({ prompt, workSlug = null, pr = null, repoId = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; pr?: RowKey | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
     const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
-    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, dispatchProposal: null, repoProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
+    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, pr: workSlug ? pr : null, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, dispatchProposal: null, repoProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
     Object.assign(conv, { onEnd, once });
     save(conv);
     say(conv, prompt, { nonce });
@@ -446,7 +448,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         const b = await body();
         if (!String(b.prompt || '').trim()) return send(res, 400, { error: 'prompt required' });
         if (b.repoId && !repos.some((r) => r.id === b.repoId)) return send(res, 400, { error: `unknown repo ${b.repoId}` });
-        const conv = start({ prompt: b.prompt.trim(), workSlug: b.workSlug || null, repoId: b.repoId || null, model: b.model || null, nonce: b.nonce });
+        const conv = start({ prompt: b.prompt.trim(), workSlug: b.workSlug || null, pr: parseKey(b.pr), repoId: b.repoId || null, model: b.model || null, nonce: b.nonce });
         return send(res, 200, { id: conv.id });
       }
       return send(res, 200, list(new URL(req.url || '/', 'http://coco').searchParams.get('scope')));
@@ -473,6 +475,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   return {
     handle,
+    list,
     start,
     say: (id: string, text: string, opts?: { nonce?: unknown }) => {
       const conv = load(id);

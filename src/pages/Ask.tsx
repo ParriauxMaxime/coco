@@ -58,7 +58,7 @@ export function Proposal({ run, onApplied, label = 'Apply' }: { run: Run; onAppl
   );
 }
 
-function AgentProposal({ run }: { run: Run }) {
+export function AgentProposal({ run }: { run: Run }) {
   const p = run.agentProposal;
   const [status, setStatus] = useState('');
   if (!p) return null;
@@ -80,7 +80,7 @@ function AgentProposal({ run }: { run: Run }) {
   );
 }
 
-function DispatchProposal({ run }: { run: Run }) {
+export function DispatchProposal({ run }: { run: Run }) {
   const p = run.dispatchProposal;
   const [status, setStatus] = useState('');
   if (!p) return null;
@@ -116,7 +116,7 @@ export async function addRepoAndOpen(add: () => Promise<AddRepoResult>) {
   return r;
 }
 
-function RepoProposal({ run }: { run: Run }) {
+export function RepoProposal({ run }: { run: Run }) {
   const p = run.repoProposal;
   const [status, setStatus] = useState('');
   if (!p) return null;

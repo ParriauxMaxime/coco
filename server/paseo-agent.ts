@@ -33,7 +33,7 @@ export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text:
 export type WaitResult = { status: string; error?: string | null; lastMessage?: string | null; final?: { lastUsage?: { totalCostUsd?: number } | null } | null };
 type Unsubscribe = (() => void) & { ready?: Promise<unknown> };
 type Cursor = { epoch: string; seq: number };
-type TimelinePage = { entries: { item?: { type: string; text?: string }; timestamp?: string }[]; startCursor?: Cursor | null; hasOlder?: boolean };
+type TimelinePage = { entries: { item?: TimelineItem; timestamp?: string }[]; startCursor?: Cursor | null; hasOlder?: boolean };
 export type DaemonAgent = {
   id: string;
   workspaceId?: string | null;
@@ -42,7 +42,7 @@ export type DaemonAgent = {
   timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string }): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null } | null } | null>;
   archive(): Promise<unknown>;
 } & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown };
@@ -86,6 +86,13 @@ export async function daemonUrl(exec: Exec = defaultExec) {
   const r = await exec('paseo', ['status', '--json'], { env: launcherEnv(), timeout: 15000 });
   const listen = r.ok ? parseJson(r.stdout, null)?.listen : null;
   return `ws://${/^[\w.[\]-]+:\d+$/.test(listen || '') ? listen : DEFAULT_LISTEN}/ws`;
+}
+
+// the local daemon's id, the host part of the Paseo app's deep links
+export async function daemonServerId(exec: Exec = defaultExec): Promise<string | null> {
+  const r = await exec('paseo', ['status', '--json'], { env: launcherEnv(), timeout: 15000 });
+  const id = r.ok ? parseJson(r.stdout, null)?.serverId : null;
+  return typeof id === 'string' && id ? id : null;
 }
 
 export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}): Promise<DaemonClient> {
@@ -261,6 +268,20 @@ export function activityEvents({ keep, live, deltaMs = 100 }: { keep: (ev: Activ
 
 const HISTORY_PAGE = 200;
 const HISTORY_PAGES = 20;
+
+// an agent's whole timeline, oldest first, deltas merged into their messages
+export async function timelineOf(agent: Pick<DaemonAgent, 'timeline'>, maxPages = HISTORY_PAGES) {
+  const { timeline } = agent;
+  if (!timeline.refetch) return [];
+  const pages: TimelinePage[] = [];
+  let page = await timeline.refetch({ direction: 'tail', limit: HISTORY_PAGE, projection: 'projected' });
+  pages.unshift(page);
+  while (page.hasOlder && page.startCursor && pages.length < maxPages) {
+    page = await timeline.refetch({ direction: 'before', cursor: page.startCursor, limit: HISTORY_PAGE, projection: 'projected' });
+    pages.unshift(page);
+  }
+  return pages.flatMap((p) => p.entries);
+}
 export type AgentHistory = { status: string | null; archived: boolean; updatedAt: string | null; userMessages: { text: string; at: string | null }[] };
 export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
@@ -348,19 +369,26 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     return Boolean(agent);
   }
 
+  // archives a one-off agent once its turn ends well; one still waiting on the owner, failed or out of time is left for them to see
+  async function archiveWhenDone(agentId: string, { timeoutMs = TIMEOUT_MS, pollMs = 5000 } = {}) {
+    const agent = await attach(agentId);
+    if (!agent) return false;
+    const deadline = Date.now() + timeoutMs;
+    for (let left; (left = deadline - Date.now()) > 0; ) {
+      const r = await agent.waitForFinish(left);
+      if (r.status === 'idle') return Boolean(await agent.archive());
+      if (r.status !== 'permission') return false;
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+    return false;
+  }
+
   // what the user sent an agent, oldest first (its first prompt included), archived agents too; null once the daemon no longer knows it
   async function history(agentId: string): Promise<AgentHistory | null> {
     const agent = (await client()).agents.ref(agentId);
     const found = (await agent.refresh())?.agent;
     if (!found || !agent.timeline.refetch) return null;
-    const pages: TimelinePage[] = [];
-    let page = await agent.timeline.refetch({ direction: 'tail', limit: HISTORY_PAGE, projection: 'projected' });
-    pages.unshift(page);
-    while (page.hasOlder && page.startCursor && pages.length < HISTORY_PAGES) {
-      page = await agent.timeline.refetch({ direction: 'before', cursor: page.startCursor, limit: HISTORY_PAGE, projection: 'projected' });
-      pages.unshift(page);
-    }
-    const userMessages = pages.flatMap((p) => p.entries).flatMap((e) => (e.item?.type === 'user_message' && e.item.text ? [{ text: e.item.text, at: e.timestamp || null }] : []));
+    const userMessages = (await timelineOf(agent)).flatMap((e) => (e.item?.type === 'user_message' && e.item.text ? [{ text: e.item.text, at: e.timestamp || null }] : []));
     return { status: found.status || null, archived: Boolean(found.archivedAt) || found.status === 'closed', updatedAt: found.updatedAt || null, userMessages };
   }
 
@@ -469,5 +497,5 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon }: { APP
     }
   }
 
-  return { start, run, session, attach, archive, history, workspaceFor, listWorkspaces, client };
+  return { start, run, session, attach, archive, archiveWhenDone, history, workspaceFor, listWorkspaces, client };
 }

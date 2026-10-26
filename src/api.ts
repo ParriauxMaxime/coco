@@ -4,7 +4,7 @@ import type {
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
-  WorktreeNotice, WorktreesRemoved, WorkWorktree,
+  WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
 
 export type * from './types.ts';
@@ -114,6 +114,8 @@ export const api = {
   ask: (body: AskStartBody) => post<{ id: string }>('/api/ask', body),
   askSay: (id: string, body: { text: string; nonce: string }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
+  workAgents: (slug: string) => get<WorkAgents>(`${works(slug)}/agents`),
+  agentSay: (agentId: string, text: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text }).then(jsonOrError<{ ok: boolean }>),
   startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
   askDispatch: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/dispatch`),
   askAddRepo: (id: string) => postJson(`/api/ask/${id}/add-repo`).then(jsonOrError<AddRepoResult>),

@@ -90,7 +90,7 @@ export function gateState(stored: Partial<GateRecord> | null | undefined, derive
   return derived ? 'done' : 'todo';
 }
 
-export function createGates({ DATA, config, works, reviewAgent, reviewPlan }: { DATA?: string; config: Config; works: GatesWorks; reviewAgent: ReviewAgentApi; reviewPlan: { planOf(slug: string, n: number | string): GateFacts['plan'] } }) {
+export function createGates({ DATA, config, works, reviewAgent, reviewPlan, agents }: { DATA?: string; config: Config; works: GatesWorks; reviewAgent: ReviewAgentApi; reviewPlan: { planOf(slug: string, n: number | string): GateFacts['plan'] }; agents?: { archiveWhenDone(agentId: string): Promise<boolean> } }) {
   const GATES = gatesFor(config);
   const remotes = swrCache<string | null>(REMOTE_TTL_MS, cacheFile(DATA, 'remote-heads'));
   const remoteOf = (n: number | string) => remotes(String(n), () => reviewAgent.remoteHead(n));
@@ -162,6 +162,7 @@ export function createGates({ DATA, config, works, reviewAgent, reviewPlan }: { 
       const prompt = `/${skill} ${String(args).trim() || (isLocal(n) ? '' : n)}`.trim();
       const agentId = await reviewAgent.launch(runner, { title: `${gate.label} ${keyLabel(n)}`, provider: config.models.default, prompt, labels: { kind: 'gate', gate: id, work: slug, pr: fileKey(n) }, n, branch: pr.head });
       saveGate(slug, index, id, { state: 'running', at, skill, agentId });
+      if (agentId && runner.mode !== 'send') agents?.archiveWhenDone(agentId).catch(() => {});
       reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ${id}: started ${prompt} in ${runner.mode} agent ${String(agentId || '').slice(0, 8)}`);
     } else if (action && ['done', 'skipped', 'todo'].includes(action)) {
       if (action === 'skipped' && !reason.trim()) throw new HttpError(400, 'a skip needs a reason');

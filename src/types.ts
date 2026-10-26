@@ -471,6 +471,7 @@ export type AskRun = {
   prompt: string;
   scope?: AskScope;
   workSlug?: string | null;
+  pr?: string | number | null;
   kind?: string | null;
   model?: string | null;
   startedAt: string;
@@ -484,7 +485,11 @@ export type AskRun = {
   agentId?: string | null;
   cost?: number | null;
 };
-export type AskStartBody = { prompt: string; workSlug?: string | null; repoId?: string | null; nonce: string };
+export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: string | null; repoId?: string | null; nonce: string };
+export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
+// one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null };
+export type WorkAgents = { agents: WorkAgent[]; serverId: string | null; error?: string };
 export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean; stackKept?: boolean };
 export type RepoProposal = { source: string; why?: string };
 export type AddRepoResult = {
