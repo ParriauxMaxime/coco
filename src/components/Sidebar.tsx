@@ -20,6 +20,7 @@ const ICONS = {
   inbox: ['M22 12h-6l-2 3h-4l-2-3H2', 'M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'],
   rules: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
   archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
+  plus: ['M12 5v14', 'M5 12h14'],
 };
 
 const usePersisted = (key: string, initial: boolean): [boolean, () => void] => {
@@ -168,6 +169,7 @@ export default function Sidebar({ route, open, onClose, nav }: SidebarProps) {
           </Section>
         );
       })}
+      <a className={`nav new-repo ${is('repos', 'new') ? 'on' : ''}`} href="#/repos/new" onClick={onClose}><Icon d={ICONS.plus} />New repo</a>
 
       <Section id="personas" title="Personas" count={reviewers.length}>
         <div className="people">

@@ -50,6 +50,7 @@ The server port and bind address are command-line arguments, not config:
 | `repo.rules` | `["AGENTS.md", "CLAUDE.md"]` | Repo-relative files or folders agents must read first; listed in every brief and review prompt. |
 | `repo.reviewsDir` | `".claude/reviews"` | Repo-relative folder where review pages (markdown) are written; read by the findings board. |
 | `repo.commitConvention` | `""` | One line describing the commit message format, quoted in briefs. Empty: no convention named. |
+| `cloneDir` | the folder holding the default repo's clone | Where "New repo" looks for a clone of a GitHub slug (by its `origin` remote), and clones it with `gh repo clone` when none matches. The new repo is appended to `repos` in this file. |
 
 ### Server and storage
 

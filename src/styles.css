@@ -60,6 +60,7 @@ a:hover { text-decoration: underline; }
 .sidebar a.nav.work { display: block; padding: 7px 10px 8px; }
 .sidebar a.nav.work.drop-over, .sidebar .nav-section.drop-over > .group { box-shadow: inset 0 2px 0 var(--brand); }
 .sidebar .nav-section > .group[draggable="true"] { cursor: grab; }
+.sidebar a.nav.new-repo { margin-top: 4px; color: var(--mute); font-size: 12.5px; }
 .sidebar a.nav.work.archived { opacity: .55; }
 .sidebar .work-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; line-height: 1.35; }
 .sidebar .work-title .attn { display: inline-block; margin-right: 6px; vertical-align: 1px; }

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 
 const HOME = os.homedir();
 const home = (p: string) => (typeof p === 'string' && p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
@@ -56,6 +57,8 @@ export interface Config {
   seedRules: [string, string?][];
   rituals: Ritual[];
   featureFlags: { provider?: string } | null;
+  // where a repo added by its GitHub slug is looked for, then cloned; empty: the folder holding the default repo's clone
+  cloneDir: string;
   devServers?: { api?: { bind?: string; port?: number } };
   file?: string | null;
 }
@@ -95,6 +98,7 @@ export const DEFAULTS: Config = {
   // [{ kind, label, hint, fields: ['login'|'pr'|'paths'|'text'], title, prompt }]; title and prompt fill {field}, {a|b}, {briefsDir}, {owner}
   rituals: [],
   featureFlags: null,
+  cloneDir: '',
 };
 
 export const skillFor = (config: Partial<Pick<Config, 'skillOverrides' | 'methodSkill'>> | null | undefined, name: string): string => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;
@@ -123,6 +127,7 @@ export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(AP
   c.repos = loadRepos(c, raw, APP);
   const { id: _id, name: _name, settings: _settings, ...first } = c.repos[0];
   c.repo = first;
+  c.cloneDir = home(c.cloneDir) || path.dirname(first.path || APP);
   return c;
 }
 
@@ -133,7 +138,7 @@ const identify = (r: RepoIdentity) => {
   r.defaultBranch ||= sh('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], r.path).replace(/^origin\//, '') || 'main';
   return r;
 };
-const repoId = (p: string, used: Set<string>) => {
+export const repoId = (p: string, used: Set<string>) => {
   const base = path.basename(p || 'repo').toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'repo';
   let id = base;
   for (let i = 2; used.has(id); i++) id = `${base}-${i}`;
@@ -165,6 +170,78 @@ export function personaLogins(files: string[], { ignore = [], companionSuffixes 
     .filter((f) => f.endsWith('.md') && !companion?.test(f))
     .map((f) => f.replace(/\.md$/, ''))
     .filter((n) => !ignore.includes(n));
+}
+
+export type RepoEntry = Partial<RepoConfig> & { id: string; name: string; path: string };
+
+const skipString = (t: string, i: number) => {
+  for (i++; i < t.length; i++) {
+    if (t[i] === '\\') i++;
+    else if (t[i] === '"') return i + 1;
+  }
+  return i;
+};
+const valueEnd = (t: string, i: number) => {
+  if (t[i] === '"') return skipString(t, i);
+  if (t[i] !== '{' && t[i] !== '[') return i + (/^[^,}\]\s]*/.exec(t.slice(i))?.[0].length || 0);
+  for (let depth = 0; i < t.length; i++) {
+    if (t[i] === '"') i = skipString(t, i) - 1;
+    else if (t[i] === '{' || t[i] === '[') depth++;
+    else if ((t[i] === '}' || t[i] === ']') && --depth === 0) return i + 1;
+  }
+  return i;
+};
+// where the value of a top-level key sits in JSON text, [start, end)
+const topLevelSpan = (t: string, key: string): [number, number] | null => {
+  let i = t.indexOf('{') + 1;
+  while (i > 0 && i < t.length) {
+    while (/[\s,]/.test(t[i] || '')) i++;
+    if (t[i] !== '"') return null;
+    const end = skipString(t, i);
+    const k = JSON.parse(t.slice(i, end));
+    i = t.indexOf(':', end) + 1;
+    while (/\s/.test(t[i] || '')) i++;
+    const v = valueEnd(t, i);
+    if (k === key) return [i, v];
+    i = v;
+  }
+  return null;
+};
+const inline = (v: unknown): string => (Array.isArray(v) ? `[${v.map(inline).join(', ')}]` : isObject(v) ? (Object.keys(v).length ? `{ ${Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${inline(x)}`).join(', ')} }` : '{}') : JSON.stringify(v));
+
+// the config file's text with `entry` appended to `repos`, every other key and line kept as written; a config with only `repo` gets `repos` listing `first` (that repo) ahead, so it stays the default
+export function withRepo(text: string, entry: RepoEntry, first: RepoEntry | null): string {
+  const raw = text.trim() ? JSON.parse(text) : {};
+  const listed = Array.isArray(raw.repos) && raw.repos.length > 0;
+  const seed = listed || !first ? [] : [{ ...first, ...(isObject(raw.repo) ? raw.repo : {}) }];
+  const added = [...seed, entry];
+  const expected = { ...raw, repos: [...(listed ? raw.repos : []), ...added] };
+  const indent = /\n([ \t]+)"/.exec(text)?.[1] || '  ';
+  const items = (list: unknown[]) => list.map((v) => `\n${indent}${indent}${inline(v)}`).join(',');
+  let out = '';
+  const span = text.trim() ? topLevelSpan(text, 'repos') : null;
+  if (span && Array.isArray(raw.repos)) {
+    const [s, e] = span;
+    const inner = text.slice(s + 1, e - 1);
+    out = listed ? `${text.slice(0, s + 1)}${inner.replace(/\s*$/, '')},${items(added)}\n${indent}]${text.slice(e)}` : `${text.slice(0, s)}[${items(added)}\n${indent}]${text.slice(e)}`;
+  } else if (text.trim() && !('repos' in raw)) {
+    const close = text.lastIndexOf('}');
+    const before = text.slice(0, close).replace(/\s*$/, '');
+    out = `${before}${before.endsWith('{') ? '' : ','}\n${indent}"repos": [${items(added)}\n${indent}]\n${text.slice(close)}`;
+  }
+  try {
+    if (out && isDeepStrictEqual(JSON.parse(out), expected)) return out;
+  } catch {}
+  return `${JSON.stringify(expected, null, 2)}\n`;
+}
+
+// written to a temporary file then renamed, so a crash never leaves half a config
+export function addRepoToConfigFile(file: string, entry: RepoEntry, first: RepoEntry | null) {
+  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const out = withRepo(text, entry, first);
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, out);
+  fs.renameSync(tmp, file);
 }
 
 function sh(cmd: string, args: string[], cwd: string): string {

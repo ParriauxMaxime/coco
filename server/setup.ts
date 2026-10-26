@@ -4,8 +4,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createPaseoAgents, launcherEnv } from './paseo-agent.ts';
 import type { ExecFileOptions } from 'node:child_process';
-import { skillFor } from './config.ts';
-import type { Config } from './config.ts';
+import { REPO_SETTINGS, skillFor } from './config.ts';
+import type { Config, RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, RunResult, Send } from './core-types.ts';
 
 interface SetupFacts {
@@ -138,10 +138,22 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
     return { agentId, createdWorkspace };
   }
 
+  // a repo just added: the setup run reads it and proposes its repo-shaped settings, written once the owner agrees
+  async function startRepoAgent(repo: RepoConfig) {
+    const keys = REPO_SETTINGS.filter((k) => k !== 'kitBody').join(', ');
+    const prompt = [
+      `A repo was just added to cocopilot: ${repo.name} (${repo.github || 'no GitHub slug'}), clone at ${repo.path}, default branch ${repo.defaultBranch}. Its entry, id "${repo.id}", is in the \`repos\` list of ${configFile}.`,
+      `Propose its repo config. Read the repo (its rule files such as AGENTS.md and CLAUDE.md, CI workflows, package scripts, folder layout) and the skills in ${config.skillsDir}, then compare with the top-level values of ${configFile}, which apply to every repo that sets nothing. Keys, all documented in ${path.join(APP, 'docs/configuration.md')}: ${keys} under the entry's \`settings\`; rules, tsconfig, commitConvention and reviewsDir on the entry itself. Propose only what differs from the top-level values, with one reason per key; gate skills must exist in ${config.skillsDir}, seed rules are one-line [rule, source] pairs.`,
+      `Show ${config.owner.name} the proposal as a table and write it into that entry only once they agree, keeping every other key and the file's formatting. Then tell them to restart the cocopilot server so the settings apply.`,
+    ].join('\n\n');
+    const where = place ? await place() : { cwd: APP };
+    return agents.start({ title: `Set up ${repo.name} in cocopilot`, provider: config.models.default, thinking: 'high', ...where, labels: { source: 'cocopilot', kind: 'setup', repo: repo.id }, prompt });
+  }
+
   async function handle(req: Req, res: Res, parts: string[], _readBody: ReadBody, send: Send) {
     if (req.method === 'POST' && parts[1] === 'agent') return send(res, 200, await startAgent());
     if (req.method === 'GET' && !parts[1]) return send(res, 200, await status());
     return send(res, 404, { error: 'no route' });
   }
-  return { handle, status };
+  return { handle, status, startRepoAgent };
 }

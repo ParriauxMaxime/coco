@@ -6,6 +6,7 @@ import { rowKey } from './stack.ts';
 import { UUID, activityEvents, createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { AgentSession, Outcome } from './paseo-agent.ts';
 import type { PrInfo, ReadBody, Req, Res, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
+import type { AddRepoResult } from './repos.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
 // past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
@@ -37,7 +38,8 @@ type Scaffold = {
 };
 type AgentProposal = { title: string; prompt: string; workspaceId?: string; cwd?: string; provider?: string; thinking?: string; mode?: string; workSlug?: string };
 type DispatchProposal = { entry: string; pr?: number | string; prompt?: string; persona?: string; edits?: boolean; workSlug?: string; why?: string };
-type Submitted = { propose_work_scaffold?: Scaffold; propose_paseo_agent?: AgentProposal; propose_rules?: { rules: { text: string; source: string }[] }; dispatch?: DispatchProposal };
+type RepoProposal = { source: string; why?: string };
+type Submitted = { propose_work_scaffold?: Scaffold; propose_paseo_agent?: AgentProposal; propose_rules?: { rules: { text: string; source: string }[] }; dispatch?: DispatchProposal; propose_repo?: RepoProposal };
 // the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan, stack and findings)
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export const scopeKey = (s: AskScope) => (s.kind === 'global' ? 'global' : s.kind === 'repo' ? `repo:${s.repoId}` : `work:${s.slug}`);
@@ -58,6 +60,7 @@ type Conv = {
   agentProposal: AgentProposal | null;
   rulesProposal: Submitted['propose_rules'] | null;
   dispatchProposal: DispatchProposal | null;
+  repoProposal: RepoProposal | null;
   text: string;
   agentId: string | null;
   cost: number | null;
@@ -70,7 +73,7 @@ type Conv = {
   onEnd?: (conv: Conv) => void;
   once?: boolean;
 };
-const META = ['id', 'prompt', 'scope', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'dispatchProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
+const META = ['id', 'prompt', 'scope', 'workSlug', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposal', 'agentProposal', 'rulesProposal', 'dispatchProposal', 'repoProposal', 'text', 'agentId', 'cost', 'costBase'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; submitted?: Record<string, unknown>; text?: string; cost?: number | null };
 type AskWork = Work & { stack?: StackRow[]; timeline?: TimelineEntry[] };
@@ -86,9 +89,11 @@ type AskOptions = {
   place?: (scope: AskScope) => Promise<{ workspaceId: string; cwd: string }>;
   // starts what a dispatch call proposed, once the owner confirms it
   dispatch?: (slug: string, input: { entry: string; key?: number | string; prompt?: string; persona?: string; edits?: boolean }) => Promise<{ title: string; agentId: string | null }>;
+  // adds what a propose_repo call proposed, once the owner confirms it
+  addRepo?: (source: string) => Promise<AddRepoResult>;
 };
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch }: AskOptions) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo }: AskOptions) {
   const repos = config.repos || [];
   const where = async (scope: AskScope) => {
     if (place) return place(scope);
@@ -124,7 +129,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (repo) return `\nThis is the Ask coco of the ${repo.name} repo (${repo.github || 'no GitHub slug'}, clone at ${repo.path}): the works you scaffold belong to it.`;
     if (kind !== 'ask') return '';
     const names = repos.map((r) => r.name).join(', ');
-    return `\nThis is the global Ask coco: questions across ${OWNER}'s repos${names ? ` (${names})` : ''}. A work belongs to one repo: for a new work, say which repo it belongs to and send ${OWNER} to that repo's page, whose Ask coco scaffolds it; do not call propose_work_scaffold here.`;
+    return `\nThis is the global Ask coco: questions across ${OWNER}'s repos${names ? ` (${names})` : ''}. A work belongs to one repo: for a new work, say which repo it belongs to and send ${OWNER} to that repo's page, whose Ask coco scaffolds it; do not call propose_work_scaffold here.${addRepo ? ` To add a repo to coco (its GitHub slug owner/name, or the absolute path of a local clone), end with one propose_repo call: once ${OWNER} confirms on the card, coco reuses a clone already on disk or clones it, adds its Paseo project and starts a setup run proposing its config.` : ''}`;
   };
 
   const providerFor = (model?: string | null) => (!model ? config.models.default : model.includes('/') ? model : `${config.models.default.split('/')[0]}/${model}`);
@@ -218,7 +223,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const said = events.slice(0, events.findLastIndex((e) => e.type === 'user')).filter((e) => e.type === 'user' || e.type === 'text');
     if (!said.length) return text;
     const all = said.map((e) => `**${e.type === 'user' ? OWNER : 'coco'}:** ${e.text}`).join('\n\n');
-    const proposed = [conv.proposal && `a work scaffold for \`${conv.proposal.slug}\``, conv.agentProposal && `a Paseo agent "${conv.agentProposal.title}"`, conv.dispatchProposal && `a dispatch of ${conv.dispatchProposal.entry}`].filter(Boolean);
+    const proposed = [conv.proposal && `a work scaffold for \`${conv.proposal.slug}\``, conv.agentProposal && `a Paseo agent "${conv.agentProposal.title}"`, conv.dispatchProposal && `a dispatch of ${conv.dispatchProposal.entry}`, conv.repoProposal && `adding the repo ${conv.repoProposal.source}`].filter(Boolean);
     return [
       `This continues an Ask conversation whose previous agent is gone. The conversation so far${all.length > HISTORY_MAX ? ' (oldest part cut)' : ''}:`,
       '',
@@ -241,11 +246,12 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     conv.agentProposal = sub.propose_paseo_agent || conv.agentProposal || null;
     conv.rulesProposal = sub.propose_rules || conv.rulesProposal || null;
     conv.dispatchProposal = sub.dispatch || conv.dispatchProposal || null;
+    conv.repoProposal = sub.propose_repo || conv.repoProposal || null;
     if (r.text) conv.text = r.text;
     if (r.cost != null) conv.cost = (conv.costBase || 0) + r.cost;
     conv.turns = (conv.turns || 0) + 1;
     if (open) conv.status = conv.session ? 'idle' : 'parked';
-    push(conv, { type: 'end', status: open ? r.status : 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, dispatchProposal: conv.dispatchProposal, cost: conv.cost, conversation: conv.status, agentId: conv.agentId });
+    push(conv, { type: 'end', status: open ? r.status : 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, dispatchProposal: conv.dispatchProposal, repoProposal: conv.repoProposal, cost: conv.cost, conversation: conv.status, agentId: conv.agentId });
     save(conv);
     conv.onEnd?.(conv);
     if (conv.once) close(conv.id).catch(() => {});
@@ -289,7 +295,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   // the scope: the work's when there is one, else the repo's, else global
   function start({ prompt, workSlug = null, repoId = null, model = null, kind = 'ask', nonce = null }: { prompt: string; workSlug?: string | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
     const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
-    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, dispatchProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
+    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposal: null, agentProposal: null, rulesProposal: null, dispatchProposal: null, repoProposal: null, text: '', agentId: null, cost: null, costBase: 0 });
     Object.assign(conv, { onEnd, once });
     save(conv);
     say(conv, prompt, { nonce });
@@ -332,7 +338,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         if (s) track(conv, s.resume({ timeoutMs: TIMEOUT_MS }));
         else {
           conv.status = 'parked';
-          push(conv, { type: 'end', status: 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, dispatchProposal: conv.dispatchProposal, cost: conv.cost, conversation: conv.status });
+          push(conv, { type: 'end', status: 'stopped', proposal: conv.proposal, agentProposal: conv.agentProposal, dispatchProposal: conv.dispatchProposal, repoProposal: conv.repoProposal, cost: conv.cost, conversation: conv.status });
           save(conv);
         }
       } catch {
@@ -410,6 +416,13 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     }
   }
 
+  async function startAddRepo(id: string): Promise<AddRepoResult> {
+    const conv = load(id);
+    if (!conv?.repoProposal) return { ok: false, error: 'no repo proposal on this run' };
+    if (!addRepo) return { ok: false, error: 'this coco cannot add repos' };
+    return addRepo(conv.repoProposal.source).catch((e) => ({ ok: false, error: (e instanceof Error ? e.message : String(e)).slice(0, 500) }));
+  }
+
   // the latest conversations, of one scope (its scopeKey) when given
   function list(scope?: string | null) {
     return metas().map((m) => meta(convs.get(m.id) ?? m)).filter((m) => !scope || scopeKey(m.scope) === scope).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 30);
@@ -450,6 +463,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (action === 'apply' && req.method === 'POST') return send(res, 200, apply(id, await body()));
     if (action === 'start-agent' && req.method === 'POST') return send(res, 200, await startAgent(id));
     if (action === 'dispatch' && req.method === 'POST') return send(res, 200, await startDispatch(id));
+    if (action === 'add-repo' && req.method === 'POST') {
+      const r = await startAddRepo(id);
+      return send(res, r.ok ? 200 : 400, r);
+    }
     return send(res, 200, meta(conv));
   }
 

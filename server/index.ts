@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import type { ExecFileOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createWorks } from './works.ts';
-import { createRepos } from './repos.ts';
+import { createRepoAdder, createRepos } from './repos.ts';
 import { createPlacement } from './placement.ts';
 import { createAsk } from './ask.ts';
 import { createCode } from './code.ts';
@@ -70,7 +70,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope) => placement.place(scope), dispatch: (slug, input) => dispatch.start(slug, input) });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope) => placement.place(scope), dispatch: (slug, input) => dispatch.start(slug, input), addRepo: (source) => repoAdder.add(source) });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -93,6 +93,7 @@ const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
+const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
 const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json') });
 const devServers = createDevServers({ REPO, config, works });
 works.sweepArchive().catch(() => {});
@@ -341,7 +342,7 @@ async function api(req: Req, res: Res, url: URL) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1);
   const [root, a, b, c] = parts;
   try {
-    if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider) });
+    if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider), cloneDir: config.cloneDir });
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());
@@ -366,6 +367,12 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
+    if (root === 'repos' && !a && req.method === 'POST') {
+      const { source } = JSON.parse((await readBody(req)) || '{}');
+      if (!String(source || '').trim()) return send(res, 400, { error: 'source required: a GitHub slug or a folder' });
+      const r = await repoAdder.add(String(source));
+      return send(res, r.ok ? 200 : 400, r);
+    }
     if (root === 'repos' && a) {
       const repo = repos.byId(a);
       return repo ? send(res, 200, await repoPage(repo, url.searchParams.has('fresh'))) : send(res, 404, { error: 'no such repo' });

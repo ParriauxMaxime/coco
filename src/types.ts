@@ -13,6 +13,7 @@ export type Config = {
   kitKinds: string[];
   rituals: Ritual[];
   featureFlags: boolean;
+  cloneDir?: string;
 };
 
 export type Persona = {
@@ -286,6 +287,7 @@ export type ActivityEvent = {
   proposal?: AskProposal | null;
   agentProposal?: AgentProposal | null;
   dispatchProposal?: DispatchProposal | null;
+  repoProposal?: RepoProposal | null;
   agentId?: string;
 };
 
@@ -464,11 +466,22 @@ export type AskRun = {
   proposal?: AskProposal | null;
   agentProposal?: AgentProposal | null;
   dispatchProposal?: DispatchProposal | null;
+  repoProposal?: RepoProposal | null;
   agentId?: string | null;
   cost?: number | null;
 };
 export type AskStartBody = { prompt: string; workSlug?: string | null; repoId?: string | null; nonce: string };
 export type AskApplyResult = { ok?: boolean; error?: string; slug?: string; created?: boolean };
+export type RepoProposal = { source: string; why?: string };
+export type AddRepoResult = {
+  ok: boolean;
+  error?: string;
+  existing?: string;
+  repo?: { id: string; name: string; path: string; github: string; defaultBranch: string };
+  how?: 'folder' | 'found' | 'cloned';
+  project?: { projectId?: string; name?: string; error?: string };
+  setup?: { agentId?: string | null; error?: string };
+};
 export type AskStartAgentResult = { ok?: boolean; error?: string; agentId?: string; out?: string };
 
 export type OverviewRituals = { kinds: string[]; rituals: Ritual[]; history: RitualRun[] };

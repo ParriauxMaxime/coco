@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
-import Ask from './Ask.tsx';
+import Ask, { addRepoAndOpen } from './Ask.tsx';
+import { useConfig } from '../config.ts';
 import Rules from '../components/Rules.tsx';
 import { WorkBar } from '../components/Sidebar.tsx';
 import { stateKey, stateLabel } from '../components/PrBadge.tsx';
@@ -54,6 +55,35 @@ function NewWork({ repo, onCancel }: { repo: string; onCancel: () => void }) {
       </form>
       <p className="sub" style={{ margin: '8px 0 0' }}>Or describe it to this repo’s Ask coco below: it proposes a full scaffold (stack, personas, open questions) you apply.</p>
     </div>
+  );
+}
+
+// a GitHub slug or a local clone becomes a repo of coco
+export function NewRepo() {
+  const cloneDir = useConfig((s) => s.cloneDir);
+  const [source, setSource] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const add = async () => {
+    setBusy(true);
+    setError('');
+    await addRepoAndOpen(() => api.addRepo(source.trim())).catch((e) => setError(errorMessage(e)));
+    setBusy(false);
+  };
+  return (
+    <>
+      <h1>New repo</h1>
+      <p className="sub">A GitHub slug is looked for among the clones in <code>{cloneDir || 'the clone folder'}</code> by their origin remote, and cloned there with <code>gh</code> when none matches. coco then lists the repo in your config, adds its Paseo project and starts a setup run that proposes its config. The global Ask coco can add one too.</p>
+      <div className="card">
+        <form className="ritual" onSubmit={(e) => { e.preventDefault(); if (source.trim() && !busy) add(); }}>
+          <label>GitHub slug or folder<input autoFocus value={source} onChange={(e) => setSource(e.target.value)} placeholder="acme/widgets or ~/code/widgets" /></label>
+          <div className="row">
+            <button className="primary" type="submit" disabled={!source.trim() || busy}>{busy ? 'Adding…' : 'Add repo'}</button>
+            <span className="status danger">{error}</span>
+          </div>
+        </form>
+      </div>
+    </>
   );
 }
 

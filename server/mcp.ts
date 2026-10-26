@@ -120,6 +120,11 @@ server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of
   why: z.string().describe('one sentence: what the agent will do and why'),
 }, async (p) => text({ recorded: true, proposal: p }));
 
+server.tool('propose_repo', `Propose adding a repo to coco. Nothing happens until ${OWNER} confirms on the card: then coco reuses a clone already on disk (matched by its origin remote) or clones it with gh, lists it in the config, adds a Paseo project named after it and starts a setup run proposing its config. Call it once, at the end.`, {
+  source: z.string().describe('GitHub slug "owner/name", or the absolute path of a local clone'),
+  why: z.string().describe('one sentence: why this repo'),
+}, async (p) => text({ recorded: true, proposal: p }));
+
 server.tool('propose_rules', `Submit candidate rules for ${OWNER}'s rules ledger, distilled from a chat excerpt or an agent thread. Nothing is kept: each lands as "proposed" and ${OWNER} keeps or drops it. Call it once, at the end.`, {
   rules: z.array(z.object({
     text: z.string().max(200).describe('one line, plain English, imperative, reusable beyond this PR: "TL;DR collapsed in PR bodies", "No low-value tests that will not survive a moving codebase"'),

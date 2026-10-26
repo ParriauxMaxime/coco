@@ -1,5 +1,5 @@
 import type {
-  AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
+  AddRepoResult, AgentLog, AgentsResponse, AskApplyResult, AskRun, AskStartAgentResult, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
@@ -48,6 +48,7 @@ export const api = {
   config: () => get<Partial<Config>>('/api/config'),
   overview: () => get<Overview>('/api/overview'),
   saveLayout: (body: { repos: string[] } | { repo: string; works: string[] }) => send<unknown>('PUT', '/api/layout', body),
+  addRepo: (source: string) => postJson('/api/repos', { source }).then(jsonOrError<AddRepoResult>),
   repo: (id: string, fresh?: boolean) => get<RepoPage>(`/api/repos/${encodeURIComponent(id)}${fresh ? '?fresh=1' : ''}`),
   setup: () => get<SetupStatus>('/api/setup'),
   setupAgent: () => postEmpty<StartedAgent>('/api/setup/agent'),
@@ -108,6 +109,7 @@ export const api = {
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
   startAskAgent: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/start-agent`),
   askDispatch: (id: string) => postEmpty<AskStartAgentResult>(`/api/ask/${id}/dispatch`),
+  askAddRepo: (id: string) => postJson(`/api/ask/${id}/add-repo`).then(jsonOrError<AddRepoResult>),
   applyAsk: (id: string, body?: { replaceStack: boolean }) => post<AskApplyResult>(`/api/ask/${id}/apply`, body || {}),
   packContents: () => get<PackContents>('/api/pack/contents'),
   exportPack: async (body: PackExportBody) => {

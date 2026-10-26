@@ -75,6 +75,16 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return made;
   }
 
+  // a repo's own project: the one already on its clone as it is, else a new one named after the repo
+  async function repoProject(repo: RepoConfig): Promise<PaseoProject> {
+    const hit = (await projects()).find((p) => samePath(p.path, repo.path));
+    if (hit) return hit;
+    const made = await projectAt(repo.path);
+    if (made.name === repo.name) return made;
+    const r = await exec('paseo', ['project', 'rename', made.projectId, repo.name]);
+    return r.ok ? { ...made, name: repo.name } : made;
+  }
+
   const live = async () => (await listWorkspaces()).filter((w) => !w.archivingAt);
   const createWorkspace = async (args: string[], what: string): Promise<Placed> => {
     const r = await exec('paseo', ['workspace', 'create', ...args, '--json']);
@@ -220,5 +230,5 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return workPlace(work);
   }
 
-  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace };
+  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace, repoProject };
 }

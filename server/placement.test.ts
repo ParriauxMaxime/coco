@@ -134,6 +134,16 @@ test('an editing agent on a PR outside any work gets a PR checkout in the repo p
   assert.equal(w.calls.filter((a) => a[1] === 'workspace' && a[2] === 'create').length, 1);
 });
 
+test('a new repo gets a project named after it, and a project already on its clone is kept as it is', async () => {
+  const gadgets = { ...repo('gadgets', '/src/gadget-clone'), name: 'gadgets' };
+  const w = world({ projects: [{ ...REPO_PROJECT, name: 'Widgets main' }] });
+  const p = createPlacement({ repos: [...REPOS, gadgets], APP: '/apps/coco', DATA: DATA(), exec: w.exec });
+  assert.deepEqual(await p.repoProject(gadgets), { projectId: 'prj_1', name: 'gadgets', path: '/src/gadget-clone' });
+  assert.deepEqual(w.calls.find((a) => a[2] === 'rename'), ['paseo', 'project', 'rename', 'prj_1', 'gadgets']);
+  assert.equal((await p.repoProject(REPOS[0])).name, 'Widgets main');
+  assert.equal(w.calls.filter((a) => a[2] === 'rename').length, 1);
+});
+
 test('an editing agent on a PR outside any work adopts a worktree already on its branch, and a workspace archived since is replaced', async () => {
   const w = world({ projects: [REPO_PROJECT], prs: { '42': { title: 'Round invoice totals', headRefName: 'fix/rounding' } }, worktrees: 'worktree /src/widgets\nbranch refs/heads/main\n\nworktree /old/rounding\nbranch refs/heads/fix/rounding\n' });
   const p = createPlacement({ repos: REPOS, APP: '/apps/coco', DATA: DATA(), exec: w.exec, listWorkspaces: w.listWorkspaces });

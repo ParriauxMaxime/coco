@@ -5,7 +5,7 @@ import AgentActivity from '../components/AgentActivity.tsx';
 import { ThreadComposer } from '../components/Thread.tsx';
 import { toast } from '../components/Toast.tsx';
 import { pendingClass } from '../components/action.ts';
-import type { ActivityEvent, AskRun, AskScope } from '../types.ts';
+import type { ActivityEvent, AddRepoResult, AskRun, AskScope } from '../types.ts';
 
 export type Run = Partial<AskRun> & { id: string };
 type Pending = { nonce: string; text: string };
@@ -14,6 +14,7 @@ type StartFn = (prompt: string, nonce: string) => Promise<{ id: string }>;
 const GLOBAL_EXAMPLES = [
   'Which works across my repos are blocked, and on what?',
   'Which repo does a CSV export of invoices belong in, and is there a precedent work for it?',
+  'Add the acme/widgets repo to coco.',
 ];
 const REPO_EXAMPLES = [
   'Scaffold a work for adding CSV export to the invoices page, mirroring the PDF export stack. Who reviews each PR?',
@@ -94,6 +95,40 @@ function DispatchProposal({ run }: { run: Run }) {
       </div>
       {p.why && <p style={{ marginTop: 8 }}>{p.why}</p>}
       {p.prompt && <details style={{ marginTop: 6 }}><summary>Prompt</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{p.prompt}</pre></details>}
+    </div>
+  );
+}
+
+export const repoAdded = (r: AddRepoResult) => [
+  `${r.repo?.name} ${r.how === 'cloned' ? 'cloned into' : r.how === 'found' ? 'found at' : 'at'} ${r.repo?.path}`,
+  r.project?.error ? `no Paseo project: ${r.project.error}` : r.project ? `Paseo project ${r.project.name}` : null,
+  r.setup?.error ? `setup run failed: ${r.setup.error}` : r.setup?.agentId ? `setup run ${r.setup.agentId.slice(0, 8)} proposes its config` : null,
+].filter(Boolean).join(' · ');
+
+// adds the repo, then opens its page: the overview reload that comes with the route shows its sidebar section
+export async function addRepoAndOpen(add: () => Promise<AddRepoResult>) {
+  const r = await add();
+  toast.success(repoAdded(r));
+  if (r.repo) location.hash = `#/repo/${r.repo.id}`;
+  return r;
+}
+
+function RepoProposal({ run }: { run: Run }) {
+  const p = run.repoProposal;
+  const [status, setStatus] = useState('');
+  if (!p) return null;
+  const confirm = async () => {
+    setStatus('adding…');
+    await addRepoAndOpen(() => api.askAddRepo(run.id)).then(() => setStatus('added'), (e) => setStatus(errorMessage(e)));
+  };
+  return (
+    <div className="card" style={{ borderColor: 'var(--brand)', boxShadow: '0 0 0 3px var(--brand-100)' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span><span className="chip c-blue">new repo</span> <code>{p.source}</code></span>
+        <span className="row"><button className="primary" onClick={confirm} disabled={status === 'adding…' || status === 'added'}>Add repo</button><span className="status">{status}</span></span>
+      </div>
+      {p.why && <p style={{ marginTop: 8 }}>{p.why}</p>}
+      <div className="status">coco reuses a clone already on disk or clones it, lists it in your config, adds its Paseo project and starts a setup run proposing its config.</div>
     </div>
   );
 }
@@ -190,7 +225,7 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
       setEvents((prev) => [...prev, ev]);
       if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
       if (ev.type === 'end' || ev.type === 'closed') {
-        setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, dispatchProposal: ev.dispatchProposal || r.dispatchProposal, agentId: ev.agentId || r.agentId });
+        setRun((r) => r && { ...r, status: ev.conversation || ev.status, proposal: ev.proposal || r.proposal, agentProposal: ev.agentProposal || r.agentProposal, dispatchProposal: ev.dispatchProposal || r.dispatchProposal, repoProposal: ev.repoProposal || r.repoProposal, agentId: ev.agentId || r.agentId });
         loadHistory();
       }
     };
@@ -310,7 +345,7 @@ export default function Ask({ workSlug, repoId, repoName }: { workSlug?: string;
     <>
       {scope.kind === 'global' && <h1>Ask coco 🦜</h1>}
       <p className="sub">
-        {scope.kind === 'global' ? `The global coco, on cocopilot's own folder with its MCP server (works, personas, Paseo, gh): questions across your repos. A new work starts from its repo's page. ${SAFE}`
+        {scope.kind === 'global' ? `The global coco, on cocopilot's own folder with its MCP server (works, personas, Paseo, gh): questions across your repos, and new repos. A new work starts from its repo's page. ${SAFE}`
           : scope.kind === 'repo' ? `Coco for ${repo}, on its main checkout: scaffolds new works in this repo and answers about its code and PRs. ${SAFE}`
           : `Coco for this work, in its Plan workspace: the plan, the stack and the findings. ${SAFE}`}
       </p>
@@ -325,6 +360,7 @@ export default function Ask({ workSlug, repoId, repoName }: { workSlug?: string;
           <Proposal run={run} onApplied={(slug) => { location.hash = `#/work/${slug}`; }} />
           <AgentProposal run={run} />
           <DispatchProposal run={run} />
+          <RepoProposal run={run} />
         </>
       )}
       <AskHistory title={workSlug ? 'Earlier conversations on this work' : repoId ? `Earlier conversations on ${repo}` : 'Previous conversations'} history={convo.history} onOpen={open} />
