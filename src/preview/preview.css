@@ -530,8 +530,8 @@ body.dp-on .pr-peek { padding: 10px 12px; font-size: 12.5px; }
   .dp-pop.dp-on, .dp-palette, body.dp-on .pr-peek, body.dp-on .code-peek { animation: dp-pop-in .14s ease-out; transform-origin: top; }
   .dp-overlay.dp-on { animation: dp-fade-in .14s ease-out; }
   .dp-ctl { animation: dp-rise-in .18s ease-out; }
-  .wb-settled .dp-inspector:not(.dp-as-tab) { animation: dp-slide-in .2s ease-out; }
-  .dp .wb-settled .wb-pane:not([hidden]) { animation: dp-fade-in .16s ease-out; }
+  .dp-inspector:not(.dp-as-tab) { animation: dp-slide-in .2s ease-out; }
+  .dp .wb-pane:not([hidden]) { animation: dp-fade-in .16s ease-out; }
   .dp .wb-settled .wb-group { transition: left .2s ease, top .2s ease, width .2s ease, height .2s ease; }
   .dp .wb-root:has(.wb-handle.on) .wb-group { transition: none; }
   .dp-view, .dp-work, .dp-ibtn, .dp-btn, .dp-tab, .dp .wb-tab-h, .dp .wb-act, .dp .wb-x, .dp-mi { transition: background .12s, color .12s, box-shadow .12s; }
