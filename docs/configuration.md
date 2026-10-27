@@ -77,6 +77,7 @@ The server port and bind address are command-line arguments, not config:
 | `models.fast` | `"claude/claude-sonnet-5-5"` | Paseo provider/model for small scoped thread agents. |
 | `importRoots` | `["/tmp", "/private/tmp", "~/.paseo/worktrees"]` | Folders files may be imported from as work artifacts. Add your repo or another scratch folder if agents write kit files there. |
 | `agentWorktree` | `null` | How coco readies the worktree of a code-writing agent and checks its commits; per repo too (`repos[].settings`). See [Agent worktrees](#agent-worktrees). |
+| `preflight` | `null` | Checks shown on a kit-video dispatch and injected in its brief; per repo too. See [Preflight](#preflight). |
 | `rituals` | `[]` | Buttons on the Rituals page, each starting a Paseo agent in your repo. Item: `{ "kind", "label", "prompt", "hint"?, "fields"? }`. `prompt` may hold `{login}`, `{pr}`, `{paths}`, `{text}` placeholders, which become form fields unless `fields` lists them. |
 
 ### Checklist and kit
@@ -155,6 +156,29 @@ worktrees"). Commands are argv arrays run without a shell; wrap one in
 | `checks[].fix` | The command the brief gives to fix what the check reports. |
 | `checks[].cwd` | Folder the check runs in, relative to the worktree. Default: the worktree root. |
 | `checks[].timeoutSeconds` | Default 600. |
+
+## Preflight
+
+`preflight` (also per repo, `repos[].settings`) configures the checks run before a
+kit-video dispatch (behavior: docs/guide.md, "Preflight"). Worktree deps and the dev server are always
+checked. Default `null`: no extra check. The example is illustrative: use the MCP URL, settings
+file and key names your app really uses. The key's value is never read or shown, only whether it exists.
+
+```json
+"preflight": {
+  "mcp": [{ "name": "lemlist-dev MCP", "url": "http://localhost:8000/mcp", "fix": "start the local app" }],
+  "settingsFile": "lemapp/settings-local.json",
+  "llmKey": { "env": ["ANTHROPIC_API_KEY"], "paths": ["anthropic.apiKey"], "fix": "set the key on the local server" },
+  "probes": [{ "name": "Campaign has leads", "command": ["mongosh", "--quiet", "--eval", "if (!db.leads.countDocuments()) quit(1)"], "timeoutSeconds": 10, "fix": "seed leads in SETUP" }]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `mcp[]` | `{ name, url, fix? }`: an `http(s)` URL (any answer counts) or `tcp://host:port`, 2.5 s timeout. |
+| `settingsFile` | Worktree-relative file that must exist (and holds the `paths`). |
+| `llmKey` | Passes when one `env` var is non-empty in the server env, or one dotted `paths` entry of `settingsFile` holds a value. |
+| `probes[]` | `{ name, command, cwd?, timeoutSeconds?, fix? }`: argv run without a shell in the worktree, ok on exit 0. Default none; run only when listed. |
 
 ## Dev servers
 

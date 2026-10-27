@@ -12,7 +12,7 @@ type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[]) => Promise<ExecResult>;
 type DevServersConfig = { devServers?: { api?: { bind?: string; port?: number } } } | null;
 type Lease = { kind: string; holderId: string | null };
-type PluginServer = { running: boolean; leases: Lease[]; worktree: { path: string; branch?: string | null } };
+type PluginServer = { running: boolean; state?: string; lastError?: string; leases: Lease[]; worktree: { path: string; branch?: string | null } };
 type ApiBody = { servers?: PluginServer[]; error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 type Reply = { status: number; body?: ApiBody } | { down: string };
 type Holder = { kind: 'coco'; id: string; title: string };

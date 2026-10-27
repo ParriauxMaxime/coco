@@ -507,7 +507,8 @@ export type DevServerLogs = { lines: string[] };
 // the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan)
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export type DispatchEntry = { id: string; kind: string; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
-export type DispatchBody = { entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] } & ModelChoice;
+export type PreflightResult = { checks: { name: string; ok: boolean; detail: string; fix: string }[]; at?: string };
+export type DispatchBody ={ entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] } & ModelChoice;
 export type DispatchResult = { kind: string; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };

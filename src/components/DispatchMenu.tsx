@@ -4,7 +4,7 @@ import { useAction } from './action.ts';
 import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
-import type { DispatchEntry, DispatchResult } from '../types.ts';
+import type { DispatchEntry, DispatchResult, PreflightResult } from '../types.ts';
 import './parts.css';
 
 type Key = string | number;
@@ -46,6 +46,13 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
     catalogOf(slug).then(setEntries, (e) => toast.error(errorMessage(e)));
     personaLogins().then(setKnown);
   }, [slug]);
+  const video = id.startsWith('gate:kit-video:') && key !== '';
+  const [pre, setPre] = useState<PreflightResult | null>(null);
+  useEffect(() => {
+    setPre(null);
+    if (video) api.preflight(slug, id, key).then(setPre, () => setPre(null));
+  }, [slug, id, key, video]);
+  const red = Boolean(pre?.checks.some((c) => !c.ok));
   if (!entries) return <div className="dp-dsp dp-dsp-load">Loading the catalog…</div>;
   const entry = entries.find((e) => e.id === id) || entries[0];
   const onPr = key !== '';
@@ -83,6 +90,11 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
           <datalist id={`dispatch-personas-${slug}`}>{[...new Set([...personas, ...known])].map((p) => <option key={p} value={p} />)}</datalist>
         </div>
       )}
+      {video && (
+        <ul className="dp-dsp-pre" aria-label="Preflight">
+          {pre ? pre.checks.map((c) => <li key={c.name} className={c.ok ? 'dp-ok' : 'dp-bad'}>{c.ok ? '✓' : '✕'} <b>{c.name}</b> {c.detail}{!c.ok && c.fix ? ` · fix: ${c.fix}` : ''}</li>) : <li>Checking…</li>}
+        </ul>
+      )}
       {entry.ask && <input className="dp-inp" value={answer} placeholder={entry.ask} onChange={(e) => setAnswer(e.target.value)} />}
       {entry.kind === 'prompt' && onPr && <label className="dp-dsp-chk"><input type="checkbox" checked={edits} onChange={(e) => setEdits(e.target.checked)} />works on the PR branch</label>}
       <Composer
@@ -95,7 +107,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
         note={`${entry.kind === 'fix-findings' ? `${picked.length ? `${picked.length} picked finding${picked.length > 1 ? 's' : ''}` : 'every open finding of the PR'} · ` : ''}${writesBranch ? 'runs in the PR’s own workspace' : 'read-only, runs in the work’s Plan workspace'}`}
         busy={missing}
         sending={busy}
-        sendLabel={busy ? 'Writing the brief…' : 'Start agent'}
+        sendLabel={busy ? 'Writing the brief…' : red ? 'Start anyway' : 'Start agent'}
         tools={<ModelControls choice={model.choice} onPick={model.pick} hint="for the agent this starts" />}
         actions={() => <button type="button" className="dp-btn dp-sm dp-ghost" onClick={onClose}>Cancel</button>}
         onSend={async (text) => (await go(text)) !== undefined}
