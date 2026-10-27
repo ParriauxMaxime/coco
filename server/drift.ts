@@ -17,7 +17,7 @@ export type Drift = { drift: DriftItem[]; next: DriftItem[]; at: string };
 type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 type Rows = { key: RowKey; number: number | null; pr: PrInfo | null; branch: string | null; tip: string | null; personas: string[]; gates: Work['stack'][number]['gates'] };
 type Deps = {
-  config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: { github?: string; defaultBranch?: string } };
+  config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: { path?: string; github?: string; defaultBranch?: string } };
   DATA?: string;
   works: { get(slug: string): Work | null; prInfo(n: number | null | undefined): Promise<PrInfo> };
   kit: { view(slug: string, key: string): Promise<{ pieces: KitPiece[] }> };
@@ -32,7 +32,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
   const GH = config.repo.github || '';
   const cached = swrCache<Drift>(TTL_MS, cacheFile(DATA, 'drift'));
   const openPrs = swrCache<{ number: number; base: string; head: string }[]>(TTL_MS, cacheFile(DATA, 'open-prs'));
-  const git = (args: string[]) => reviewAgent.exec('git', args);
+  const git = (args: string[]) => reviewAgent.exec('git', ['-C', config.repo.path || '.', ...args]);
 
   const listOpen = (): Promise<{ number: number; base: string; head: string }[]> =>
     openPrs('open', async () => {

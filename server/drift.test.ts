@@ -11,13 +11,14 @@ const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = 
   const work = { slug: 'w', title: 'W', stack: stack || [{ number: 1, personas: ['alice'] }], personas } as unknown as Work;
   const info = (n: number): PrInfo => ({ number: n, state: 'OPEN', head: `b${n}`, base: 'main', headOid: `remote${n}`, ...prs[n] });
   return createDrift({
-    config: { repo: { github: 'o/r', defaultBranch: 'main' }, kitKinds: ['body', 'diagram', 'video'], gateSkills: { 'kit-body': ['lem-pr'], 'kit-video': ['lem-demo-video'] } } as never,
+    config: { repo: { path: '/repo', github: 'o/r', defaultBranch: 'main' }, kitKinds: ['body', 'diagram', 'video'], gateSkills: { 'kit-body': ['lem-pr'], 'kit-video': ['lem-demo-video'] } } as never,
     works: { get: () => work, prInfo: async (n) => info(n as number) },
     kit: { view: async () => ({ pieces }) },
     reviewAgent: {
       branchSha: async (b) => tips[b] ?? null,
       exec: async (cmd, args) => {
         if (cmd === 'gh') return { ok: true, stdout: JSON.stringify(open), stderr: '' };
+        assert.deepEqual(args.slice(0, 2), ['-C', '/repo']);
         if (args.includes('rev-list')) return { ok: true, stdout: String(ahead[args.at(-1)?.split('..')[0] ?? ''] ?? 0), stderr: '' };
         const [a, b] = args.slice(-2);
         const n = ahead[a];
