@@ -71,10 +71,11 @@ function Other({ value, ro, single, onChange }: { value: string; ro: boolean; si
   return <input className={`dp-inp dp-cd-other${value ? ' dp-on' : ''}`} value={value} disabled={ro} placeholder={single ? 'Other… your own answer instead' : 'Other… add your own words'} aria-label="Other" onChange={(e) => onChange(e.target.value)} />;
 }
 
+const pickIn = (c: Card, d: Draft, k: string): Partial<Draft> => (c.multi ? { picked: d.picked.includes(k) ? d.picked.filter((x) => x !== k) : [...d.picked, k] } : { picked: [k], other: '' });
+
 function Choice({ c, d, set, ro }: Part) {
-  const pick = (k: string) => set(c.multi ? { picked: d.picked.includes(k) ? d.picked.filter((x) => x !== k) : [...d.picked, k] } : { picked: [k], other: '' });
   return (
-    <OptionPicker name={`${c.id}-opt`} label={c.title} options={c.options ?? []} picked={d.picked} multi={c.multi} ro={ro} onPick={pick}>
+    <OptionPicker name={`${c.id}-opt`} label={c.title} options={c.options ?? []} picked={d.picked} multi={c.multi} ro={ro} numbered={!ro} onPick={(k) => set(pickIn(c, d, k))}>
       {hasOther(c) && <Other value={d.other} ro={ro} single={!c.multi} onChange={(v) => set(c.multi || !v ? { other: v } : { other: v, picked: [] })} />}
     </OptionPicker>
   );
@@ -168,6 +169,7 @@ const outcome = (c: Card): [string, string] => {
 };
 
 const EDITABLE = ['INPUT', 'TEXTAREA', 'SELECT'];
+const typing = (t: EventTarget) => t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && t.type !== 'radio' && t.type !== 'checkbox') || (t instanceof HTMLElement && t.isContentEditable);
 
 // one card an agent posted: the question and its context, the controls of its kind, then the answer once given
 export default function CardView({ card: c, onCard, focus = false }: { card: Card; onCard?: (c: Card) => void; focus?: boolean }) {
@@ -215,7 +217,13 @@ export default function CardView({ card: c, onCard, focus = false }: { card: Car
     void answer('yes', { approved: true, ...(c.fields?.length ? { values: valuesOf(c, d) } : {}), other: note });
   };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || !open || c.kind === 'confirm') return;
+    const option = /^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && c.kind === 'choice' && !ro ? c.options?.[Number(e.key) - 1] : undefined;
+    if (option && (e.altKey || !typing(e.target))) {
+      e.preventDefault();
+      set(pickIn(c, d, option.key));
+      return;
+    }
+    if (e.key !== 'Enter'|| e.shiftKey || e.nativeEvent.isComposing || !open || c.kind === 'confirm') return;
     const t = e.target as HTMLElement;
     if (t.tagName === 'BUTTON' || (t.tagName === 'TEXTAREA' && !(e.metaKey || e.ctrlKey))) return;
     e.preventDefault();

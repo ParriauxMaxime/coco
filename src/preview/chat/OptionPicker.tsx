@@ -24,9 +24,9 @@ export function MoreButton({ open, onToggle, children = 'details' }: { open: boo
   );
 }
 
-type OptionProps = { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void; open?: boolean; markdown?: boolean };
+type OptionProps = { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void; open?: boolean; markdown?: boolean; n?: number };
 
-function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdown }: OptionProps) {
+function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdown, n }: OptionProps) {
   const [open, setOpen] = useState(initial);
   return (
     <div className="dp-cd-opt">
@@ -38,6 +38,7 @@ function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdow
         <Sure value={o.confidence} />
         {o.effect && <span className="dp-chip dp-info dp-cd-eff" title="Picking it acts in coco at once, without a new turn of the agent">{o.effect.type === 'take_decision' ? 'takes the decision' : 'dismisses the finding'}</span>}
         {o.details && <MoreButton open={open} onToggle={() => setOpen(!open)} />}
+        {n !== undefined && <kbd className="dp-cd-key" title={`Press ${n} to pick it (⌥${n} while typing)`}>{n}</kbd>}
       </label>
       {o.details && open && <Details text={o.details} markdown={markdown} />}
     </div>
@@ -55,14 +56,16 @@ type Props = {
   openRecommended?: boolean;
   markdown?: boolean;
   done?: boolean;
+  // shows 1-9 on the first nine options, the keys the card picks them with
+  numbered?: boolean;
   children?: ReactNode;
 };
 
 // one list of options to pick from, radio or checkbox, with recommended and "NN% sure" chips and folded details
-export default function OptionPicker({ name, label, options, picked, multi, ro, onPick, openRecommended, markdown, done, children }: Props) {
+export default function OptionPicker({ name, label, options, picked, multi, ro, onPick, openRecommended, markdown, done, numbered, children }: Props) {
   return (
     <div className={`dp-cd-opts${done ? ' dp-cd-done' : ''}`} role={multi ? 'group' : 'radiogroup'} aria-label={label}>
-      {options.map((o) => <Option key={o.key} o={o} on={picked.includes(o.key)} multi={multi} name={name} ro={ro} onPick={() => onPick(o.key)} open={openRecommended && o.recommended} markdown={markdown} />)}
+      {options.map((o, i) => <Option key={o.key} o={o} on={picked.includes(o.key)} multi={multi} name={name} ro={ro} onPick={() => onPick(o.key)} open={openRecommended && o.recommended} markdown={markdown} n={numbered && i < 9 ? i + 1 : undefined} />)}
       {children}
     </div>
   );

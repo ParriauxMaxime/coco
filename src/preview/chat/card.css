@@ -19,6 +19,7 @@
 .dp-cd-done .dp-opt:not(.dp-on) { color: var(--dp-t3); }
 .dp-cd-done .dp-opt.dp-on .dp-ol { font-weight: 600; }
 .dp-btn.dp-cd-more { height: 20px; padding: 0 6px; color: var(--dp-t3); }
+.dp-cd-opt .dp-cd-key { margin-left: auto; flex: none; }
 .dp-btn.dp-cd-more svg.dp-i { transition: transform .16s ease; }
 .dp-btn.dp-cd-more.dp-open svg.dp-i { transform: rotate(90deg); }
 .dp-btn.dp-cd-fold { align-self: flex-start; margin-left: -6px; }
