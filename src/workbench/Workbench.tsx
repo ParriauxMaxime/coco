@@ -10,6 +10,7 @@ import { codeApi } from './code/code-api.ts';
 import { prOfTab, codeTabId } from './code/ids.ts';
 import { openCodeAt } from './tabs/Code.tsx';
 import { CodeRefRoot } from '../components/CodeRefs.tsx';
+import { ErrorNote, Loading } from '../preview/pages/Page.tsx';
 import { findRun, loadReview, useReviewStore } from './code/use-comments.ts';
 import type { Edge, Group as GroupData, Handle as HandleData, PrKey, Rect, RefFile, WorkData } from './types.ts';
 
@@ -246,8 +247,8 @@ export function WorkbenchView({ slug, data, defs }: { slug: string; data: Loaded
   const title = ready && loaded && focusedActive ? tabDef(focusedActive).title(loaded) : '';
   useEffect(() => { useWorkbench.getState().setTitle(title); }, [title]);
   const openAt = useCallback((n: PrKey, path: string, line: number | null) => openCodeAt(data.slug, n, path, line, { group: useWorkbench.getState().otherGroup() }), [data.slug]);
-  if (data.err) return <div className="card danger">{data.err}</div>;
-  if (!loaded || !ready) return <div className="sub" style={{ padding: 20 }}>Loading…</div>;
+  if (data.err) return <ErrorNote>{data.err}</ErrorNote>;
+  if (!loaded || !ready) return <Loading />;
 
   const merged = mobile && groups.length > 1;
   const full: Rect = { left: 0, top: 0, ...size };

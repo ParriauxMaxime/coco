@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { create } from 'zustand';
 import { api } from '../../api.ts';
+import { subscribe } from '../../live.ts';
 import Markdown from '../../components/Markdown.tsx';
-import { usePendingPermissions } from '../../components/PermissionCard.tsx';
 import { pendingClass, useAction } from '../../components/action.ts';
 import { toolLabel } from '../../components/activity.ts';
 import { actionResponse, actionsOf, answerSummary, buildAnswers, isAnswered, parseQuestions, planText, questionResponse, toolSummary } from '../../components/permission.ts';
@@ -11,7 +12,18 @@ import type { IconName } from '../Icon.tsx';
 import type { PendingPermission, PermissionAction, PermissionRequest, PermissionResponse } from '../../types.ts';
 import './chat.css';
 
-export { usePendingPermissions };
+// every request coco's agents wait on, pushed by the server on each change; one stream for the whole page
+const usePending = create<{ pending: PendingPermission[]; ready: boolean }>(() => ({ pending: [], ready: false }));
+let following = false;
+const connect = () => {
+  if (following) return;
+  following = true;
+  subscribe('permissions', { message: (d: { pending?: PendingPermission[] }) => usePending.setState({ pending: d.pending || [], ready: true }) });
+};
+export function usePendingPermissions() {
+  useEffect(connect, []);
+  return usePending();
+}
 
 const KIND: Record<string, [string, IconName]> = { question: ['question', 'message-square'], plan: ['plan to approve', 'list'], tool: ['permission', 'terminal'], mode: ['mode change', 'settings'] };
 const VARIANT: Record<string, string> = { primary: ' dp-primary', danger: ' dp-danger' };

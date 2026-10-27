@@ -46,7 +46,6 @@
 .cc-lines { margin-left: auto; }
 .cc-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px 12px; }
 .cc-body > .md { font-size: 13px; }
-.cc-body > .thread { margin-top: 0; }
 .cc-zone .dp-composer { padding: 8px; }
 .cc-zone .dp-composer-in { max-width: none; }
 .cc-note { padding-top: 8px; border-top: 1px solid var(--dp-line); color: var(--dp-t2); font-size: 12px; }
@@ -55,10 +54,7 @@
 .cc-pa .dp-ibtn:disabled { opacity: .45; cursor: default; }
 .cc-ib.ok:hover { color: var(--dp-ok); background: color-mix(in srgb, var(--dp-ok) 12%, transparent); }
 .cc-ib.no:hover { color: var(--dp-bad); background: color-mix(in srgb, var(--dp-bad) 12%, transparent); }
-.cc-pa .dp-thread-toggle, .rv-plan-h .dp-thread-toggle { box-sizing: border-box; height: 24px; margin-left: 4px; padding: 0 8px; gap: 5px; border-radius: var(--dp-r2); border: 1px solid var(--dp-line); background: var(--dp-panel); color: var(--dp-t2); font: 500 12px/1 var(--dp-f); box-shadow: none; }
-.cc-pa .dp-thread-toggle:hover, .rv-plan-h .dp-thread-toggle:hover { background: var(--dp-hover); color: var(--dp-t1); border-color: var(--dp-line-2); }
-.cc-pa .dp-thread-toggle.on, .rv-plan-h .dp-thread-toggle.on, .cc-pa .dp-thread-toggle.hot, .rv-plan-h .dp-thread-toggle.hot { background: var(--dp-accent-t); color: var(--dp-accent); border-color: color-mix(in srgb, var(--dp-accent) 35%, transparent); }
-.cc-pa .dp-thread-toggle.hot, .rv-plan-h .dp-thread-toggle.hot { font-weight: 600; }
+.cc-pa .dp-thread-toggle, .rv-plan-h .dp-thread-toggle { margin-left: 4px; }
 
 /* phone unified diff */
 .lite-diff { margin: 0; padding: 0; overflow-x: auto; color: var(--dp-t1); font: 12px/1.6 var(--dp-mono); background: var(--dp-panel); border: 1px solid var(--dp-line); border-radius: var(--dp-r3); white-space: pre; }

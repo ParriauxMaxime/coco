@@ -1,7 +1,6 @@
 import type { FileGroup, PlanBody, RefFile, ReviewPlanState } from '../types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
-export const CAT_CHIP: Record<string, string> = { core: 'c-blue', refactor: 'c-purple', wiring: 'c-grey', tests: 'c-green', other: 'c-grey' };
 
 // Reading groups: coco's plan steps then Skim, or the deterministic categories before any plan
 export function orderGroups(files: RefFile[], st: ReviewPlanState): FileGroup[] {

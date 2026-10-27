@@ -13,7 +13,7 @@
 .dp-dc-tally { white-space: nowrap; }
 .dp-dc-detail { display: flex; flex-direction: column; gap: 0; }
 .dp-dc-detail > * { max-width: 760px; }
-.dp-dc-title { font-size: 16px; line-height: 24px; margin: 10px 0 2px; }
+.dp-h1.dp-dc-title { font-size: 16px; line-height: 24px; margin: 10px 0 2px; }
 .dp-dc-q { margin: 12px 0 0; font-size: 13.5px; line-height: 21px; color: var(--dp-t1); }
 .dp-dc-sec { margin-top: 14px; display: flex; flex-direction: column; align-items: stretch; }
 .dp-dc-sec > .dp-cd-more { align-self: flex-start; margin-left: -6px; }

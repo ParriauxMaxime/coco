@@ -3,6 +3,8 @@ import { api, errorMessage } from '../../api.ts';
 import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import Checks from '../../components/Checks.tsx';
+import Icon from '../../preview/Icon.tsx';
+import '../../components/parts.css';
 import type { PrKey } from '../types.ts';
 
 const POLL_MS = 60000;
@@ -39,50 +41,50 @@ export default function GateRail({ slug, n, onOpen }: { slug: string; n: PrKey; 
     if (reason) act(id, { action: 'skipped', reason });
   };
 
-  if (!data) return error ? <div className="status danger">{error}</div> : null;
+  if (!data) return error ? <div className="dp-gt-err">{error}</div> : null;
   const gate = data.gates.find((g) => g.id === picked);
   const next = data.gates.find((g) => g.state === 'todo');
   const checks = data.agentChecks;
   return (
-    <div className="gates">
-      <div className="gate-rail">
+    <div className="dp-gt">
+      <div className="dp-gt-rail">
         {checks && (
-          <button type="button" className={`gate checks-${checks.state} ${picked === CHECKS ? 'on' : ''}`} title={`coco's checks on the last agent commit ${checks.head.slice(0, 7)}: ${checks.state}`} onClick={() => setPicked(picked === CHECKS ? null : CHECKS)}>
+          <button type="button" className={`dp-gt-p dp-gt-checks-${checks.state}${picked === CHECKS ? ' dp-on' : ''}`} aria-expanded={picked === CHECKS} title={`coco's checks on the last agent commit ${checks.head.slice(0, 7)}: ${checks.state}`} onClick={() => setPicked(picked === CHECKS ? null : CHECKS)}>
             {CHECK_MARK[checks.state] || '○'} checks
           </button>
         )}
         {data.gates.map((g) => (
-          <button key={g.id} type="button" className={`gate ${g.state} ${picked === g.id ? 'on' : ''} ${next === g ? 'next' : ''}`} title={`${g.label}: ${g.state}${g.reason ? ` (${g.reason})` : ''}${g.derived != null ? ' · derived from GitHub/git' : ''}`} onClick={() => setPicked(picked === g.id ? null : g.id)}>
-            {g.state === 'running' ? <span className="spinner" aria-hidden /> : MARK[g.state]} {g.label}
+          <button key={g.id} type="button" className={`dp-gt-p dp-gt-${g.state}${picked === g.id ? ' dp-on' : ''}${next === g ? ' dp-gt-next' : ''}`} aria-expanded={picked === g.id} title={`${g.label}: ${g.state}${g.reason ? ` (${g.reason})` : ''}${g.derived != null ? ' · derived from GitHub/git' : ''}`} onClick={() => setPicked(picked === g.id ? null : g.id)}>
+            {g.state === 'running' ? <span className="dp-ag-dot dp-ag-running dp-gt-spin" aria-hidden /> : MARK[g.state]} {g.label}
           </button>
         ))}
       </div>
       {checks && picked === CHECKS && (
-        <div className="gate-detail">
-          <div className="row">
+        <div className="dp-gt-d">
+          <div className="dp-gt-dh">
             <b>checks</b>
-            <span className="status">coco's run on agent {checks.agentId.slice(0, 8)}'s commits up to {checks.head.slice(0, 7)} · {checks.at.slice(0, 16).replace('T', ' ')}</span>
+            <span>coco's run on agent {checks.agentId.slice(0, 8)}'s commits up to {checks.head.slice(0, 7)} · {checks.at.slice(0, 16).replace('T', ' ')}</span>
           </div>
           <Checks run={checks} />
         </div>
       )}
       {gate && (
-        <div className="gate-detail">
-          <div className="row">
+        <div className="dp-gt-d">
+          <div className="dp-gt-dh">
             <b>{gate.label}</b>
-            <span className="status">{gate.state}{gate.reason ? `: ${gate.reason}` : ''}{gate.at ? ` · ${gate.at.slice(0, 16).replace('T', ' ')}` : ''}{gate.derived != null ? ` · GitHub/git says ${gate.derived ? 'done' : 'not yet'}` : ''}</span>
+            <span>{gate.state}{gate.reason ? `: ${gate.reason}` : ''}{gate.at ? ` · ${gate.at.slice(0, 16).replace('T', ' ')}` : ''}{gate.derived != null ? ` · GitHub/git says ${gate.derived ? 'done' : 'not yet'}` : ''}</span>
           </div>
-          {gate.command && <div className="row"><code className="gate-cmd">{gate.command}</code><button type="button" className="sm" onClick={() => navigator.clipboard?.writeText(gate.command ?? '')}>copy</button></div>}
-          <div className="row">
-            {gate.skills.map((s) => <button key={skillSpec(s).name} type="button" className={`sm primary${spin(gate.id, 'run')}`} disabled={busy || gate.state === 'running'} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => run(gate.id, s)}>/{skillSpec(s).name}</button>)}
-            {gate.tab && <button type="button" className="sm" onClick={() => onOpen(gate.tab ?? '')}>open {gate.tab} ▸</button>}
-            {gate.state !== 'done' && <button type="button" className={`sm${spin(gate.id, 'done')}`} disabled={busy} onClick={() => act(gate.id, { action: 'done' })}>✓ done</button>}
-            {gate.state !== 'skipped' && <button type="button" className={`sm${spin(gate.id, 'skipped')}`} disabled={busy} onClick={() => skip(gate.id)}>skip…</button>}
-            {(gate.state === 'skipped' || (gate.state === 'done' && gate.at)) && <button type="button" className={`sm${spin(gate.id, 'todo')}`} disabled={busy} onClick={() => act(gate.id, { action: 'todo' })}>↺ reset</button>}
+          {gate.command && <div className="dp-gt-cmd"><code className="dp-ell">{gate.command}</code><button type="button" className="dp-ibtn" title="Copy the command" aria-label="Copy the command" onClick={() => navigator.clipboard?.writeText(gate.command ?? '')}><Icon name="copy" size={12} /></button></div>}
+          <div className="dp-gt-f">
+            {gate.skills.map((s) => <button key={skillSpec(s).name} type="button" className={`dp-btn dp-sm dp-primary${spin(gate.id, 'run')}`} disabled={busy || gate.state === 'running'} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => run(gate.id, s)}>/{skillSpec(s).name}</button>)}
+            {gate.tab && <button type="button" className="dp-btn dp-sm" onClick={() => onOpen(gate.tab ?? '')}>Open {gate.tab}<Icon name="chevron-right" size={12} /></button>}
+            {gate.state !== 'done' && <button type="button" className={`dp-btn dp-sm${spin(gate.id, 'done')}`} disabled={busy} onClick={() => act(gate.id, { action: 'done' })}><Icon name="check" size={12} />Done</button>}
+            {gate.state !== 'skipped' && <button type="button" className={`dp-btn dp-sm dp-ghost${spin(gate.id, 'skipped')}`} disabled={busy} onClick={() => skip(gate.id)}>Skip…</button>}
+            {(gate.state === 'skipped' || (gate.state === 'done' && gate.at)) && <button type="button" className={`dp-btn dp-sm dp-ghost${spin(gate.id, 'todo')}`} disabled={busy} onClick={() => act(gate.id, { action: 'todo' })}><Icon name="refresh" size={12} />Reset</button>}
           </div>
         </div>
       )}
-      {error && <div className="status danger">{error}</div>}
+      {error && <div className="dp-gt-err">{error}</div>}
     </div>
   );
 }

@@ -51,6 +51,20 @@ export const useModelPicks = create<{ picks: Record<string, ModelPickPref>; reme
   },
 }));
 
+// the model menu lists the newest model of each family; all: every model Paseo offers, 1M-context variants included
+const ALL_MODELS = 'cc.model-all';
+const readAll = () => {
+  try { return localStorage.getItem(ALL_MODELS) === '1'; } catch { return false; }
+};
+export const useModelList = create<{ all: boolean; toggle: () => void }>()((set, get) => ({
+  all: readAll(),
+  toggle: () => {
+    const all = !get().all;
+    set({ all });
+    try { localStorage.setItem(ALL_MODELS, all ? '1' : '0'); } catch {}
+  },
+}));
+
 export const useBetaPanel = create<{ open: boolean; toggle: () => void; close: () => void }>()((set) => ({
   open: false,
   toggle: () => set((s) => ({ open: !s.open })),

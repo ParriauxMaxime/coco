@@ -88,10 +88,10 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
           { icon: 'check', title: 'Accept: becomes an open comment', cls: 'ok', on: () => accept(wp) },
           { icon: 'x', title: 'Dismiss', cls: 'no', on: () => dismiss(wp) },
         ]}
-        extra={rv.slug && <button type="button" className={`thread-toggle dp-thread-toggle ${talking ? 'on' : ''}`} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}>💬 ask an agent</button>}
+        extra={rv.slug && <button type="button" className={`dp-btn dp-sm dp-thread-toggle${talking ? ' dp-on' : ''}`} aria-expanded={talking} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}><Icon name="message-square" size={12} />ask an agent</button>}
       />
       {talking && (
-        <div className="thread">
+        <div className="dp-thr">
           <ThreadComposer
             autoFocus
             busy={busy}

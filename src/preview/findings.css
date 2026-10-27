@@ -10,7 +10,7 @@ button.dp-prb { cursor: pointer; }
 .dp-fi-by { flex: none; width: 64px; text-align: right; }
 .dp-fi-age { flex: none; width: 38px; text-align: right; }
 .dp-fi-none { padding: 16px 12px; font-size: 12.5px; }
-.dp-fi-title { font-size: 16px; line-height: 24px; margin: 10px 0 2px; }
+.dp-h1.dp-fi-title { font-size: 16px; line-height: 24px; margin: 10px 0 2px; }
 .dp-fi-place { font-size: 11px; }
 .dp-fi-body { margin: 12px 0 14px; max-width: 680px; font-size: 13px; line-height: 20px; }
 .dp-fi-body p { margin: 0 0 8px; }
@@ -41,7 +41,6 @@ button.dp-prb { cursor: pointer; }
 button.dp-fi-place { all: unset; cursor: pointer; font: 11px var(--dp-mono); }
 button.dp-fi-place:hover { color: var(--dp-accent); text-decoration: underline; }
 .dp-fi-thread { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--dp-line); max-width: 760px; }
-.dp-fi-thread .thread-group select { max-width: 220px; min-width: 0; }
 .dp-inp.dp-fi-reason { width: 100%; box-sizing: border-box; }
 .dp-sf-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .dp-sf-rows li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dp-t1); min-width: 0; }

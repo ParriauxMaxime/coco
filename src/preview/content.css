@@ -34,9 +34,6 @@
 .dp svg .node.tone-3 > .label-container { fill: color-mix(in srgb, var(--dp-ok) 12%, var(--dp-panel)) !important; stroke: var(--dp-ok) !important; }
 .dp svg .node.tone-4 > .label-container { fill: color-mix(in srgb, var(--dp-warn) 12%, var(--dp-panel)) !important; stroke: var(--dp-warn) !important; }
 .dp svg .node.tone-5 > .label-container { fill: color-mix(in srgb, var(--dp-bad) 12%, var(--dp-panel)) !important; stroke: var(--dp-bad) !important; }
-.dp .diagram-viewer { background: var(--dp-panel); color: var(--dp-t1); font-family: var(--dp-f); }
-.dp .diagram-toolbar { border-color: var(--dp-line); }
-.dp .diagram-stage { background: var(--dp-subtle); }
 
 .dp-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .dp label:has(> .dp-vh) { position: relative; }

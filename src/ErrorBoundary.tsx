@@ -28,7 +28,7 @@ export default class ErrorBoundary extends React.Component<Props, { error: Error
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
-    return (
+    const note = (
       <div className={`dp-crash${this.props.inline ? ' dp-crash-inline' : ''}`} role="alert">
         <b>{this.props.inline ? 'This part failed to render' : 'coco crashed'}</b>
         <code>{error.message}</code>
@@ -38,5 +38,6 @@ export default class ErrorBoundary extends React.Component<Props, { error: Error
         </span>
       </div>
     );
+    return this.props.inline ? note : <div className="dp dp-float">{note}</div>;
   }
 }

@@ -916,7 +916,10 @@ Every agent composer shows, next to the paperclip, the model (Sonnet 5.5),
 the thinking level (High, or the model's default) and an **auto** chip.
 Each opens a small menu: the models Paseo lists for the providers your
 `models.default` and `models.fast` use (`default` and `fast` tagged), and the
-thinking levels of the picked model. The mode is not a choice: every coco
+thinking levels of the picked model. The model menu lists the newest release
+of each family (Opus, Sonnet, Fable, Haiku…), plus the defaults and your
+current pick even when older; **Show all models** at its foot adds the older
+releases and the 1M-context variants, and is remembered in this browser. The mode is not a choice: every coco
 agent runs in Paseo's auto mode, and a brief saying not to touch code is what
 keeps one read-only.
 
@@ -1035,7 +1038,7 @@ node --test server/*.test.ts
 ## Design notes
 
 Theme: `system` (default, follows `prefers-color-scheme`), `light` or `dark`, stored in `localStorage` `cc.theme` and applied as `data-theme` on `<html>` before first paint; switch it in the Beta panel (Cmd/Ctrl+.) or with Cmd/Ctrl+Shift+L.
-Colours go through the CSS variables in `src/styles.css` (dark values under `html[data-theme="dark"]`); Monaco (`cocopilot-dark`) and mermaid follow via `src/theme.ts`.
+Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/preview.css` (dark values under `html[data-theme="dark"] .dp`); everything renders inside a `.dp`, portals (PR and code peeks, the diagram viewer) and toasts included through a `.dp.dp-float` wrapper; `src/styles.css` only keeps element defaults on those tokens. Monaco (`cocopilot-dark`) and mermaid follow via `src/theme.ts`.
 
 ## Pages
 

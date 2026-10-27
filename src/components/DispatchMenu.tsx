@@ -5,6 +5,7 @@ import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import type { DispatchEntry, DispatchResult } from '../types.ts';
+import './parts.css';
 
 type Key = string | number;
 type Props = {
@@ -45,7 +46,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
     catalogOf(slug).then(setEntries, (e) => toast.error(errorMessage(e)));
     personaLogins().then(setKnown);
   }, [slug]);
-  if (!entries) return <div className="gate-detail status">Loading the catalog…</div>;
+  if (!entries) return <div className="dp-dsp dp-dsp-load">Loading the catalog…</div>;
   const entry = entries.find((e) => e.id === id) || entries[0];
   const onPr = key !== '';
   const picked = onPr && entry.kind === 'fix-findings' ? commentIdsFor?.(key) || [] : [];
@@ -61,29 +62,29 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   });
   const group = (edit: boolean) => entries.filter((e) => e.edits === edit && e.kind !== 'prompt');
   return (
-    <div className="gate-detail dispatch-menu" onClick={(e) => e.stopPropagation()}>
-      <div className="row">
+    <div className="dp-dsp" onClick={(e) => e.stopPropagation()}>
+      <div className="dp-dsp-r">
         <b>New agent</b>
-        <select value={entry.id} onChange={(e) => setId(e.target.value)}>
+        <select className="dp-inp" value={entry.id} aria-label="Agent" onChange={(e) => setId(e.target.value)}>
           <optgroup label="Read-only, Plan workspace">{group(false).map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</optgroup>
           <optgroup label="On the PR branch, its own workspace">{group(true).map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</optgroup>
           {entries.filter((e) => e.kind === 'prompt').map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
         </select>
         {prKey == null && rows.length > 0 && (
-          <select value={key} onChange={(e) => setKey(e.target.value)}>
+          <select className="dp-inp" value={key} aria-label="PR" onChange={(e) => setKey(e.target.value)}>
             {!entry.needsPr && <option value="">whole work</option>}
             {rows.map((r) => <option key={r.key} value={String(r.key)}>{r.label}</option>)}
           </select>
         )}
       </div>
       {entry.needsPersona && (
-        <div className="row">
-          <input list={`dispatch-personas-${slug}`} value={persona} placeholder="persona login" onChange={(e) => setPersona(e.target.value)} />
+        <div className="dp-dsp-r">
+          <input className="dp-inp" list={`dispatch-personas-${slug}`} value={persona} placeholder="persona login" onChange={(e) => setPersona(e.target.value)} />
           <datalist id={`dispatch-personas-${slug}`}>{[...new Set([...personas, ...known])].map((p) => <option key={p} value={p} />)}</datalist>
         </div>
       )}
-      {entry.ask && <input value={answer} placeholder={entry.ask} onChange={(e) => setAnswer(e.target.value)} />}
-      {entry.kind === 'prompt' && onPr && <label className="row status"><input type="checkbox" checked={edits} onChange={(e) => setEdits(e.target.checked)} /> works on the PR branch</label>}
+      {entry.ask && <input className="dp-inp" value={answer} placeholder={entry.ask} onChange={(e) => setAnswer(e.target.value)} />}
+      {entry.kind === 'prompt' && onPr && <label className="dp-dsp-chk"><input type="checkbox" checked={edits} onChange={(e) => setEdits(e.target.checked)} />works on the PR branch</label>}
       <Composer
         key={entry.id}
         autoFocus

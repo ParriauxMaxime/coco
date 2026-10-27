@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Icon from '../preview/Icon.tsx';
+import './parts.css';
 
 const MIN = 0.1;
 const MAX = 8;
@@ -115,20 +117,23 @@ export default function DiagramViewer({ svg, onClose }: { svg: string; onClose: 
   const onUp = (e: React.PointerEvent<HTMLDivElement>) => { pointers.current.delete(e.pointerId); if (pointers.current.size < 2) pinch.current = null; drag.current = null; };
 
   return createPortal(
-    <div className="diagram-viewer" role="dialog" aria-modal="true">
-      <div className="diagram-toolbar">
-        <button className="sm" onClick={() => zoomBy(0.8)} title="Zoom out (-)">−</button>
-        <span className="status">{Math.round(view.k * 100)}%</span>
-        <button className="sm" onClick={() => zoomBy(1.25)} title="Zoom in (+)">+</button>
-        <button className="sm" onClick={fit} title="Fit (0)">Fit</button>
-        <button className="sm" onClick={() => setRot((r) => !r)} title="Rotate 90°" aria-label="Rotate">⟳</button>
-        <button className="sm hint-desktop" onClick={() => setView((v) => ({ ...v, k: 1 }))}>100%</button>
-        <span className="status hint-desktop">drag to pan · wheel to zoom · Esc to close</span>
-        <span className="status hint-touch">pinch · drag</span>
-        <button className="sm" onClick={onClose} style={{ marginLeft: 'auto' }} aria-label="Close">×</button>
-      </div>
-      <div ref={stage} className="diagram-stage" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={(e) => !(e.nativeEvent instanceof PointerEvent && e.nativeEvent.pointerType === 'touch') && fit()}>
-        <div ref={inner} style={{ transform: `translate(${view.x + (rot ? size.h * view.k : 0)}px, ${view.y}px) scale(${view.k})${rot ? ' rotate(90deg)' : ''}`, transformOrigin: '0 0' }} dangerouslySetInnerHTML={{ __html: svg }} />
+    <div className="dp dp-float">
+      <div className="dp-dv" role="dialog" aria-modal="true">
+        <div className="dp-dv-bar">
+          <button type="button" className="dp-btn dp-sm" onClick={() => zoomBy(0.8)} title="Zoom out (-)">−</button>
+          <span className="dp-dv-k">{Math.round(view.k * 100)}%</span>
+          <button type="button" className="dp-btn dp-sm" onClick={() => zoomBy(1.25)} title="Zoom in (+)">+</button>
+          <button type="button" className="dp-btn dp-sm" onClick={fit} title="Fit (0)">Fit</button>
+          <button type="button" className="dp-btn dp-sm" onClick={() => setRot((r) => !r)} title="Rotate 90°" aria-label="Rotate"><Icon name="refresh" size={12} /></button>
+          <button type="button" className="dp-btn dp-sm dp-dv-desk" onClick={() => setView((v) => ({ ...v, k: 1 }))}>100%</button>
+          <span className="dp-dv-hint dp-dv-desk">drag to pan · wheel to zoom · Esc to close</span>
+          <span className="dp-dv-hint dp-dv-touch">pinch · drag</span>
+          <span className="dp-sp" />
+          <button type="button" className="dp-ibtn" onClick={onClose} title="Close (Esc)" aria-label="Close"><Icon name="x" size={14} /></button>
+        </div>
+        <div ref={stage} className="dp-dv-stage" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={(e) => !(e.nativeEvent instanceof PointerEvent && e.nativeEvent.pointerType === 'touch') && fit()}>
+          <div ref={inner} style={{ transform: `translate(${view.x + (rot ? size.h * view.k : 0)}px, ${view.y}px) scale(${view.k})${rot ? ' rotate(90deg)' : ''}`, transformOrigin: '0 0' }} dangerouslySetInnerHTML={{ __html: svg }} />
+        </div>
       </div>
     </div>,
     document.body,

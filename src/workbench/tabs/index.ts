@@ -14,7 +14,7 @@ export type TabDef = {
   icon?: ReactNode;
 };
 
-const Unknown = () => createElement('div', { className: 'sub' }, 'Unknown tab.');
+const Unknown = () => createElement('div', { className: 'dp-empty' }, 'Unknown tab.');
 
 export function tabDef(id: string): TabDef {
   const review = reviewKeyOfTab(id);

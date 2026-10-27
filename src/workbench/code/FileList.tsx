@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { buildTree, collapse } from '../../components/FileTree.tsx';
-import type { TreeDir } from '../../components/FileTree.tsx';
+import { buildTree, collapse } from './file-tree.ts';
+import type { TreeDir } from './file-tree.ts';
 import Icon from '../../preview/Icon.tsx';
 import type { PrFile } from '../../types.ts';
 import type { FileCategory, FileGroup, RefFile } from '../types.ts';

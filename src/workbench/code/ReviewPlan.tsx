@@ -77,7 +77,7 @@ export default function ReviewPlan({ rv }: { rv: ReviewHandle }) {
       {!plan && !running && !failed && <div className="rv-empty">coco reads the diff and the PR, then proposes a reading path and watch points (1 to 3 min).</div>}
       {running && (
         <div className="rv-plan-run">
-          <button ref={liveRef} type="button" className={`dp-rv-live${thinking ? ' dp-on' : ''}`} aria-expanded={thinking} title="See what coco is thinking" onClick={() => setThinking(!thinking)}><span className="spinner" aria-hidden /> coco is planning · {ago(run.startedAt)} <span className={`dp-caret${thinking ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span></button>
+          <button ref={liveRef} type="button" className={`dp-rv-live${thinking ? ' dp-on' : ''}`} aria-expanded={thinking} title="See what coco is thinking" onClick={() => setThinking(!thinking)}><span className="dp-ag-dot dp-ag-running" aria-hidden /> coco is planning · {ago(run.startedAt)} <span className={`dp-caret${thinking ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span></button>
           {run.progress.at(-1) && <code className="rv-plan-step" title={run.progress.join('\n')}>{run.progress.at(-1)}</code>}
           {thinking && liveRef.current && <PlanningLog log={run.log || []} anchor={liveRef.current} onClose={closeThinking} />}
         </div>

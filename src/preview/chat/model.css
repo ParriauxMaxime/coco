@@ -13,6 +13,8 @@
 .dp-mdl-tag { height: 16px; font-size: 10.5px; padding: 0 4px; flex: none; }
 .dp-mdl-err { display: flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--dp-warn); }
 .dp-mdl-pop .dp-mdl-foot { padding: 6px 10px; line-height: 16px; }
+.dp-mdl-pop .dp-mdl-all { position: sticky; bottom: 0; padding: 4px 0; box-shadow: 0 -1px 0 var(--dp-line); background: var(--dp-panel); }
+.dp-mdl-all .dp-mi .dp-r { color: var(--dp-t3); }
 @container (max-width: 420px) {
   .dp-mdl-mode, .dp-mdl-th .dp-mdl-v { display: none; }
 }

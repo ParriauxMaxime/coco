@@ -203,10 +203,6 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const [menu, setMenu] = useState(false);
   const narrow = useNarrow();
   useEffect(() => {
-    document.body.classList.add('dp-on');
-    return () => document.body.classList.remove('dp-on');
-  }, []);
-  useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => !p); }
     };

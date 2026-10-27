@@ -3,11 +3,12 @@ import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import Blocks from './Blocks.tsx';
 import Checks from './Checks.tsx';
-import AgentActivity from './AgentActivity.tsx';
 import { api, errorMessage } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
 import { toast } from './Toast.tsx';
 import { pendingClass } from './action.ts';
+import Icon from '../preview/Icon.tsx';
+import Activity from '../preview/chat/Activity.tsx';
 import CardView from '../preview/chat/Card.tsx';
 import { mergeCards } from '../preview/chat/cards.ts';
 import { Composer } from '../preview/chat/Composer.tsx';
@@ -15,13 +16,14 @@ import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { SentFiles } from '../preview/chat/Attachments.tsx';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
 import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef } from '../types.ts';
+import './thread.css';
 
 const POLL_MS = 10000;
 // a long thread shows its last turns (a turn starts at one of your messages); earlier ones load by threes when scrolled to
 const SHOWN_TURNS = 3;
 const MORE_TURNS = 3;
 const OPEN = ['pending', 'queued', 'conflict'];
-const STATE_CHIP: Record<string, string> = { pending: 'c-blue', queued: 'c-orange', conflict: 'c-red', applied: 'c-green', dismissed: 'c-grey' };
+const STATE_CHIP: Record<string, string> = { pending: 'dp-info', queued: 'dp-warn', conflict: 'dp-bad', applied: 'dp-ok', dismissed: '' };
 const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch' };
 
 type ThreadsOf = { summaries: Record<string, ThreadSummary>; groups: ThreadGroup[] };
@@ -51,16 +53,16 @@ type ToggleProps ={ slug: string; threadKey: string; open?: boolean; onClick: ()
 export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'ask an agent' }: ToggleProps) {
   const s = useThreadSummary(slug, key);
   const label = threadLabel(s, idle);
-  return <button type="button" className={`thread-toggle dp-thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: ask a scoped agent about it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
+  return <button type="button" className={`dp-btn dp-sm dp-thread-toggle${open ? ' dp-on' : ''}${s?.open || s?.asks ? ' dp-hot' : ''}`} aria-expanded={open} title="One box: ask a scoped agent about it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="dp-ag-dot dp-ag-running dp-thr-spin" aria-hidden /> : <Icon name="message-square" size={12} />}{label}</button>;
 }
 
 // options of a reply written before agents asked through cards: shown as they were, read-only
 function OldChoices({ m }: { m: ThreadMessage }) {
   return (
-    <ul className="thread-choices thread-choices-ro">
+    <ul className="dp-thr-choices">
       {(m.choices || []).map((c, i) => (
-        <li key={i} className={`thread-choice${m.picked === i ? ' on' : ''}`}>
-          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{m.picked === i && <span className="chip c-blue">picked</span>}
+        <li key={i} className={`dp-thr-choice${m.picked === i ? ' dp-on' : ''}`}>
+          <b>{c.label}</b>{c.text && <span>{c.text}</span>}{m.picked === i && <span className="dp-chip dp-acc">picked</span>}
         </li>
       ))}
     </ul>
@@ -85,24 +87,24 @@ function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
   const open = OPEN.includes(s.state);
   const red = s.checks?.state === 'failed';
   return (
-    <div className="thread-sugg">
-      <div className="row" style={{ gap: 6 }}>
-        <span className={`chip ${STATE_CHIP[s.state] || 'c-grey'}`}>{s.state}</span>
-        {s.kind === 'commit' ? <code>{s.commit.slice(0, 7)}</code> : <span className="status">card change</span>}
-        {s.kind === 'commit' && <span className="status">{s.files.map((f) => f.split('/').pop()).join(', ')}</span>}
-        {s.appliedCommit && <span className="status">→ {s.appliedCommit.slice(0, 7)}</span>}
-        {STATE_NOTE[s.state] && <span className="status">{STATE_NOTE[s.state]}</span>}
+    <div className="dp-thr-sugg">
+      <div className="dp-thr-sugg-h">
+        <span className={`dp-chip ${STATE_CHIP[s.state] ?? ''}`}>{s.state}</span>
+        {s.kind === 'commit' ? <code>{s.commit.slice(0, 7)}</code> : <span>card change</span>}
+        {s.kind === 'commit' && <span className="dp-ell">{s.files.map((f) => f.split('/').pop()).join(', ')}</span>}
+        {s.appliedCommit && <span>→ <code>{s.appliedCommit.slice(0, 7)}</code></span>}
+        {STATE_NOTE[s.state] && <span>{STATE_NOTE[s.state]}</span>}
       </div>
       <details open={open}>
-        <summary className="status">{s.kind === 'commit' ? 'diff' : 'fields'}</summary>
+        <summary>{s.kind === 'commit' ? 'Diff' : 'Fields'}</summary>
         <Markdown text={s.kind === 'commit' ? `\`\`\`diff\n${s.diff}\n\`\`\`` : `\`\`\`json\n${JSON.stringify(s.fields, null, 1)}\n\`\`\``} />
       </details>
       {s.checks && <Checks run={s.checks} />}
-      {s.error && <div className="danger status">{s.error}</div>}
+      {s.error && <div className="dp-thr-err">{s.error}</div>}
       {open && (
-        <div className="row" style={{ gap: 6 }}>
-          {s.state !== 'queued' && <button type="button" className={`sm primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}>{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}</button>}
-          <button type="button" className={`sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}>Dismiss</button>
+        <div className="dp-thr-sugg-f">
+          {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}</button>}
+          <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}><Icon name="x" size={12} />Dismiss</button>
         </div>
       )}
     </div>
@@ -167,7 +169,7 @@ function EarlierTurns({ hidden, onMore }: { hidden: number; onMore: () => void }
     io.observe(el);
     return () => io.disconnect();
   }, [hidden]);
-  return <button ref={ref} type="button" className="thread-earlier" onClick={onMore}>↑ {hidden} earlier message{hidden > 1 ? 's' : ''}</button>;
+  return <button ref={ref} type="button" className="dp-btn dp-sm dp-ghost dp-thr-more" onClick={onMore}><Icon name="history" size={12} />{hidden} earlier message{hidden > 1 ? 's' : ''}</button>;
 }
 
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
@@ -245,7 +247,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     return true;
   };
 
-  if (!thread) return <div className="thread status">{error || 'Loading thread…'}</div>;
+  if (!thread) return <div className={`dp-thr ${error ? 'dp-thr-err' : 'dp-thr-load'}`}>{error || 'Loading thread…'}</div>;
   const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
   const cards = thread.cards ?? [];
@@ -258,23 +260,25 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const asks = thread.messages.flatMap((m, i) => (m.role === 'user' ? [i] : []));
   const from = asks.length > turns ? asks[asks.length - turns] : 0;
   return (
-    <div className="thread">
-      <div className="row thread-group">
-        <span className="status">{group ? `group ${groupLabel(group)}` : thread.newGroup ? 'a new agent group on the next message' : decision || plan ? 'no agent yet: the first message starts one' : 'no group yet: joins the one on the same file, or starts one'}</span>
+    <div className="dp-thr">
+      <div className="dp-thr-h">
+        <span className="dp-ell">{group ? `Group ${groupLabel(group)}` : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (
-          <span className={`chip ${thread.agent.live ? 'c-green' : 'c-grey'}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
-            {thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
+          <span className={`dp-chip${thread.agent.live ? ' dp-ok' : ''}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
+            <span className="dp-d" />{thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
           </span>
         )}
+        <span className="dp-thr-hx">
         {!waiting && (group || others.length > 0) && (
-          <select value="" disabled={busy} onChange={(e) => act('regroup', () => api.regroup(slug, key, e.target.value))}>
-            <option value="" disabled>regroup…</option>
+          <select className="dp-inp" value="" disabled={busy} aria-label="Regroup" onChange={(e) => act('regroup', () => api.regroup(slug, key, e.target.value))}>
+            <option value="" disabled>Regroup…</option>
             {others.map((g) => <option key={g.id} value={g.id}>{groupLabel(g)}</option>)}
-            <option value="new">a new group</option>
+            <option value="new">A new group</option>
           </select>
         )}
-        {thread.messages.length > 1 && <button type="button" className={`sm${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}>🦜 rules</button>}
-        {!waiting && group?.status === 'active' && <button type="button" className={`sm${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}>prune agent</button>}
+        {thread.messages.length > 1 && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}><Icon name="book" size={12} />Rules</button>}
+        {!waiting && group?.status === 'active' && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}><Icon name="archive" size={12} />Prune agent</button>}
+        </span>
       </div>
       {from > 0 && <EarlierTurns hidden={from} onMore={() => setTurns((t) => t + MORE_TURNS)} />}
       {thread.messages.map((m, i) => {
@@ -283,25 +287,30 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         return (
           <React.Fragment key={m.id}>
             {cardsAt(i)}
-            {answered ? <CardMessage verb={answered[2]} title={titles.get(answered[1])} /> : (
-              <div className={`thread-msg ${m.role}`}>
-                {m.role === 'system' && !m.agentId ? <span className="status">{m.text}</span> : (
-                  <>
-                    <b>{m.role === 'user' ? `You${m.model ? ` · ${m.model}` : ''}${m.steer ? ' · while it worked' : m.turn === 'follow-up' ? ' · new turn' : ''}` : m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</b>
-                    {m.files?.length ? <SentFiles files={m.files} /> : null}
-                    {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
-                    {m.choices && <OldChoices m={m} />}
-                    {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
-                  </>
-                )}
+            {answered ? <CardMessage verb={answered[2]} title={titles.get(answered[1])} /> : m.role === 'system' && !m.agentId ? <div className="dp-thr-sys">{m.text}</div> : m.role === 'user' ? (
+              <div className="dp-msg-u dp-cv-u">
+                {(m.model || m.steer || m.turn === 'follow-up') && <div className="dp-cv-unote">{[m.model, m.steer ? 'while it worked' : m.turn === 'follow-up' ? 'new turn' : ''].filter(Boolean).join(' · ')}</div>}
+                {m.files?.length ? <SentFiles files={m.files} /> : null}
+                {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+              </div>
+            ) : (
+              <div className="dp-msg-a">
+                {m.role === 'system' ? <span className="dp-cocoav">c</span> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
+                <div className="dp-thr-body">
+                  <div className="dp-who">{m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>
+                  {m.files?.length ? <SentFiles files={m.files} /> : null}
+                  {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+                  {m.choices && <OldChoices m={m} />}
+                  {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
+                </div>
               </div>
             )}
-            {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="thread-activity"><AgentActivity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} /></div>}
+            {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="dp-thr-acts"><Activity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} /></div>}
           </React.Fragment>
         );
       })}
       {cardsAt(thread.messages.length)}
-      {sending.map((p) => <div key={p.nonce} className="thread-msg user" style={{ opacity: 0.6 }}><b>You · sending…</b>{p.files.length > 0 && <SentFiles files={p.files} />}<Markdown text={p.text} /></div>)}
+      {sending.map((p) => <div key={p.nonce} className="dp-msg-u dp-cv-u dp-cv-sending"><div className="dp-cv-unote">sending…</div>{p.files.length > 0 && <SentFiles files={p.files} />}<Markdown text={p.text} /></div>)}
       <ThreadComposer
         busy={false}
         pending={pending}
@@ -313,8 +322,8 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         onSend={send}
         onStop={thread.waiting?.agentId ? () => api.agentStop(thread.waiting?.agentId ?? '') : undefined}
       />
-      {error && <div className="danger status">{error}</div>}
-      {note && <div className="status">{note}</div>}
+      {error && <div className="dp-thr-err">{error}</div>}
+      {note && <div className="dp-thr-note">{note}</div>}
     </div>
   );
 }

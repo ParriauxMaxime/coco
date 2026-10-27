@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { api, errorMessage } from '../../api.ts';
 import Icon from '../Icon.tsx';
-import { useModelPicks } from '../prefs.ts';
+import { useModelList, useModelPicks } from '../prefs.ts';
 import type { ModelPickPref } from '../prefs.ts';
+import { latestModels } from './model-view.ts';
 import type { ModelCatalog, ModelChoice } from '../../types.ts';
 import './model.css';
 
@@ -83,8 +84,12 @@ export function ModelControls({ choice, onPick, hint, disabled = false }: { choi
       removeEventListener('keydown', esc, true);
     };
   }, [open]);
+  const { all, toggle: toggleAll } = useModelList();
   const model = modelOf(catalog, choice?.provider);
-  const providers = catalog?.providers.filter((p) => p.models.length) ?? [];
+  const kept = [model, modelOf(catalog, catalog?.defaults.default), modelOf(catalog, catalog?.defaults.fast)].flatMap((m) => (m ? [m.id] : []));
+  const offered = catalog?.providers.filter((p) => p.models.length) ?? [];
+  const providers = all ? offered : offered.map((p) => ({ ...p, models: latestModels(p.models, kept) }));
+  const hidden = offered.reduce((n, p) => n + p.models.length, 0) - providers.reduce((n, p) => n + p.models.length, 0);
   const failed = error || catalog?.providers.map((p) => p.error && `${p.id}: ${p.error}`).filter(Boolean).join(' · ');
   const tag = (id: string) => (catalog?.defaults.default === id ? 'default' : catalog?.defaults.fast === id ? 'fast' : null);
   const level = (id: string | null | undefined) => model?.thinking.find((t) => t.id === id)?.label ?? id;
@@ -126,6 +131,15 @@ export function ModelControls({ choice, onPick, hint, disabled = false }: { choi
               })}
             </div>
           ))}
+          {(all || hidden > 0) && (
+            <div className="dp-pop-s dp-mdl-all">
+              <div role="menuitemcheckbox" aria-checked={all} className="dp-mi" title="Older releases and 1M-context variants" onClick={toggleAll}>
+                <span className={`dp-check${all ? ' dp-on' : ''}`} />
+                <span>Show all models</span>
+                {!all && <span className="dp-r">{hidden} more</span>}
+              </div>
+            </div>
+          )}
         </div>
       )}
       {open === 'thinking' && choice && (

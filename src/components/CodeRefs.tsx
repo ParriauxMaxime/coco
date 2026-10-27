@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { codeApi } from '../workbench/code/code-api.ts';
 import { errorMessage } from '../api.ts';
 import { useConfig } from '../config.ts';
+import './parts.css';
 
 // `path/to/file.ext:12-34` in rendered markdown becomes a link that opens the editor at that line, with a code peek on hover.
 // The workbench sets the PR the paths are read at (the top stack row); a Review tab or a card tagged with `pr` narrows it.
@@ -171,20 +172,22 @@ function Peek({ n, at: target, onEnter, onLeave }: PeekProps) {
   const from = start ? Math.max(1, start - CONTEXT) : 1;
   const to = Math.min(lines.length, start ? (end || start) + CONTEXT : 2 * CONTEXT + 4);
   return createPortal(
-    <div ref={box} className="code-peek card" style={pos || { visibility: 'hidden' }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
-      <div className="code-peek-h"><b>{path}</b>{start && <span className="status">L{start}{end ? `–${end}` : ''}</span>}<span className="status">{typeof n === 'number' ? `#${n}` : String(n).slice(2).replaceAll(':', '/')} {file?.base ? 'base (not at head)' : 'head'} · click opens the editor</span></div>
-      {!file && <div className="status">Loading…</div>}
-      {file?.error && <div className="status">Not found in this PR ({file.error.replace(/^\d+ /, '').slice(0, 120)}).</div>}
-      {file?.tooLarge && <div className="status">File too large to preview.</div>}
-      {lines.length > 0 && (
-        <pre className="code-peek-body">
-          {lines.slice(from - 1, to).map((l, i) => {
-            const no = from + i;
-            const on = start && no >= start && no <= (end || start);
-            return <div key={no} className={on ? 'on' : ''}><span className="code-peek-no">{no}</span>{l || ' '}</div>;
-          })}
-        </pre>
-      )}
+    <div className="dp dp-float">
+      <div ref={box} className="dp-cpeek" style={pos || { visibility: 'hidden' }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+        <div className="dp-cpeek-h"><b>{path}</b>{start && <span>L{start}{end ? `–${end}` : ''}</span>}<span className="dp-cpeek-at">{typeof n === 'number' ? `#${n}` : String(n).slice(2).replaceAll(':', '/')} {file?.base ? 'base (not at head)' : 'head'} · click opens the editor</span></div>
+        {!file && <div className="dp-cpeek-note">Loading…</div>}
+        {file?.error && <div className="dp-cpeek-note">Not found in this PR ({file.error.replace(/^\d+ /, '').slice(0, 120)}).</div>}
+        {file?.tooLarge && <div className="dp-cpeek-note">File too large to preview.</div>}
+        {lines.length > 0 && (
+          <pre className="dp-cpeek-body">
+            {lines.slice(from - 1, to).map((l, i) => {
+              const no = from + i;
+              const on = start && no >= start && no <= (end || start);
+              return <div key={no} className={on ? 'dp-on' : undefined}><span className="dp-cpeek-no">{no}</span>{l || ' '}</div>;
+            })}
+          </pre>
+        )}
+      </div>
     </div>,
     document.body,
   );

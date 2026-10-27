@@ -1,5 +1,7 @@
 import React from 'react';
 import { create } from 'zustand';
+import Icon from '../preview/Icon.tsx';
+import './parts.css';
 
 type ToastKind = 'error' | 'success';
 type ToastItem = { id: number; kind: ToastKind; text: string; undo?: () => unknown };
@@ -25,13 +27,16 @@ export default function Toasts() {
   const list = useToasts((s) => s.list);
   if (!list.length) return null;
   return (
-    <div className="toasts" role="status" aria-live="polite">
-      {list.map((t) => (
-        <div key={t.id} className={`toast ${t.kind}`} onClick={() => drop(t.id)}>
-          <span className="toast-text">{t.text}</span>
-          {t.undo && <button type="button" className="toast-undo" onClick={(e) => { e.stopPropagation(); drop(t.id); t.undo?.(); }}>Undo</button>}
-        </div>
-      ))}
+    <div className="dp dp-float">
+      <div className="dp-tsts" role="status" aria-live="polite">
+        {list.map((t) => (
+          <div key={t.id} className={`dp-tst dp-tst-${t.kind}`} onClick={() => drop(t.id)}>
+            <Icon name={t.kind === 'error' ? 'alert-triangle' : 'check'} size={14} />
+            <span className="dp-tst-t">{t.text}</span>
+            {t.undo && <button type="button" className="dp-btn dp-sm dp-ghost dp-tst-undo" onClick={(e) => { e.stopPropagation(); drop(t.id); t.undo?.(); }}>Undo</button>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import Markdown from './Markdown.tsx';
 import { useCodeRefs } from './CodeRefs.tsx';
+import Icon from '../preview/Icon.tsx';
 import type { Block, Source, TableCell } from '../types.ts';
 import './blocks.css';
 
@@ -54,12 +55,12 @@ function Suggestion({ b }: { b: Extract<Block, { type: 'suggestion' }> }) {
       <figcaption>
         <span className="bk-h">Suggested change</span>
         <code>{where(b.path, b.startLine, b.endLine)}</code>
-        <span className="cc-spacer" />
-        <button type="button" className="sm" onClick={copy}>{copied ? 'copied' : 'copy'}</button>
+        <span className="dp-sp" />
+        <button type="button" className="dp-btn dp-sm dp-ghost" onClick={copy}><Icon name={copied ? 'check' : 'copy'} size={12} />{copied ? 'Copied' : 'Copy'}</button>
       </figcaption>
       <pre>
-        {before.map((l, i) => <div key={`b${i}`} className="del"><span className="gut">{b.startLine + i}</span><span className="sign">-</span>{l || ' '}</div>)}
-        {after.map((l, i) => <div key={`a${i}`} className="add"><span className="gut" /><span className="sign">+</span>{l || ' '}</div>)}
+        {before.map((l, i) => <div key={`b${i}`} className="bk-del"><span className="bk-gut">{b.startLine + i}</span><span className="bk-sign">-</span>{l || ' '}</div>)}
+        {after.map((l, i) => <div key={`a${i}`} className="bk-add"><span className="bk-gut" /><span className="bk-sign">+</span>{l || ' '}</div>)}
       </pre>
       <Caption text={b.caption} />
     </figure>
