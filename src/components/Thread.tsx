@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import Blocks from './Blocks.tsx';
-import Checks from './Checks.tsx';
+import Checks, { VerifyChips } from './Checks.tsx';
 import { api, errorMessage } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
 import { toast } from './Toast.tsx';
@@ -15,7 +15,7 @@ import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { SentFiles } from '../preview/chat/Attachments.tsx';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
-import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef } from '../types.ts';
+import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
 import './thread.css';
 
 const POLL_MS = 10000;
@@ -82,8 +82,12 @@ function cardSlots(messages: ThreadMessage[], cards: Card[]) {
 }
 
 // pending: 'approve' | 'dismiss' while that decision is in flight
-type SuggestionProps = { s: SuggestionData; onDecide: (action: SuggestionAction) => void; busy: boolean; pending: string | null };
-function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
+type SuggestionProps = { s: SuggestionData; onDecide: (action: SuggestionAction) => void; busy: boolean; pending: string | null; verify?: VerifyRun; onVerify: () => void };
+const VERIFIED_TAG: Record<string, string> = { pass: ' · verified ✓', fail: ' · checks failed' };
+function VerifyButton({ run, busy, pending, onClick }: { run?: VerifyRun; busy: boolean; pending: boolean; onClick: () => void }) {
+  return <button type="button" className={`dp-btn dp-sm${pendingClass(pending)}`} disabled={busy || run?.status === 'running'} title="Run the repo's lint, format, type check and nearby tests on this commit before you approve" onClick={onClick}><Icon name="check" size={12} />{run?.status === 'running' ? 'Verifying…' : run ? 'Verify again' : 'Verify'}</button>;
+}
+function Suggestion({ s, onDecide, busy, pending, verify, onVerify }: SuggestionProps) {
   const open = OPEN.includes(s.state);
   const red = s.checks?.state === 'failed';
   return (
@@ -100,10 +104,12 @@ function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
         <Markdown text={s.kind === 'commit' ? `\`\`\`diff\n${s.diff}\n\`\`\`` : `\`\`\`json\n${JSON.stringify(s.fields, null, 1)}\n\`\`\``} />
       </details>
       {s.checks && <Checks run={s.checks} />}
+      {verify && <VerifyChips run={verify} />}
       {s.error && <div className="dp-thr-err">{s.error}</div>}
       {open && (
         <div className="dp-thr-sugg-f">
-          {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}</button>}
+          {s.kind === 'commit' && <VerifyButton run={verify} busy={busy} pending={pending === 'verify'} onClick={onVerify} />}
+          {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>}
           <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}><Icon name="x" size={12} />Dismiss</button>
         </div>
       )}
@@ -231,6 +237,10 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       setPending(null);
     }
   };
+  const verify = (commit: string) => {
+    setPending('verify');
+    api.verifyThread(slug, key, commit).then(reload, (e) => toast.error(errorMessage(e))).finally(() => setPending(null));
+  };
   const group = groups.find((g) => g.id === thread?.groupId);
   // shown at once, confirmed by the server; while the agent works the message steers its turn
   const send = (text: string, model?: string, files: UploadRef[] = [], thinking?: string) => {
@@ -251,6 +261,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
   const cards = thread.cards ?? [];
+  const verifyRun = thread.ready ? thread.verifies?.[thread.ready.commit] : undefined;
   const slots = cardSlots(thread.messages, cards);
   const titles = new Map(cards.map((c) => [c.id, c.title]));
   const newest = cards.findLast((c) => c.status === 'open' && c.kind !== 'post')?.id;
@@ -283,6 +294,8 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       {thread.ready && (
         <div className="dp-thr-sys dp-thr-ready">
           commit <code>{thread.ready.commit.slice(0, 7)}</code> ready{thread.ready.approve ? <>: <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => document.getElementById(`thr-${thread.ready?.approve}`)?.scrollIntoView({ block: 'center' })}>Approve</button></> : ', no Approve offered yet'} · {thread.ready.subject}{thread.ready.stat && <span className="dp-thr-stat"> · {thread.ready.stat}</span>}
+          <VerifyButton run={verifyRun} busy={busy} pending={pending === 'verify'} onClick={() => verify(thread.ready!.commit)} />
+          {verifyRun && !thread.ready.approve && <VerifyChips run={verifyRun} />}
         </div>
       )}
       {from > 0 && <EarlierTurns hidden={from} onMore={() => setTurns((t) => t + MORE_TURNS)} />}
@@ -306,7 +319,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
                   {m.files?.length ? <SentFiles files={m.files} /> : null}
                   {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
                   {m.choices && <OldChoices m={m} />}
-                  {m.suggestion && <Suggestion s={m.suggestion} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
+                  {m.suggestion && <Suggestion s={m.suggestion} verify={thread.verifies?.[m.suggestion.commit]} onVerify={() => verify(m.suggestion!.commit)} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
                 </div>
               </div>
             )}

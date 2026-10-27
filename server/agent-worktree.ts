@@ -15,7 +15,7 @@ export type Run = (cmd: string, args: string[], opts: { cwd: string; timeoutMs: 
 export type DepState = { path: string; mode: 'linked' | 'own' | 'installing' | 'missing'; note?: string };
 export type CheckState = { id: string; label: string; command: string; fix?: string; available: boolean; why?: string };
 export type Readiness = { state: 'off' | 'ready' | 'preparing' | 'failed'; root: string; deps: DepState[]; checks: CheckState[]; error?: string };
-export type CheckResult = { id: string; label: string; state: 'passed' | 'failed' | 'skipped'; command?: string; output?: string; why?: string };
+export type CheckResult = { id: string; label: string; state: 'passed' | 'failed' | 'skipped'; command?: string; output?: string; why?: string; ms?: number };
 export type Verification = { state: 'passed' | 'failed' | 'unavailable'; at: string; head: string; files: string[]; results: CheckResult[]; why?: string };
 
 const APP_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -327,7 +327,7 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
   }
 
   // coco's own run of the checks on an agent's change (base..head), one at a time per worktree
-  function verify(root: string, { base, head }: { base: string; head: string }): Promise<Verification | null> {
+  function verify(root: string, { base, head, onCheck }: { base: string; head: string; onCheck?: (r: CheckResult) => void }): Promise<Verification | null> {
     root = path.resolve(expandHome(root));
     return serial(root, async () => {
       const at = new Date().toISOString();
@@ -342,15 +342,19 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
         const why = r.checks.find((x) => x.id === c.id && !x.available)?.why;
         if (why) {
           results.push({ id: c.id, label: c.label, state: 'skipped', why });
+          onCheck?.(results[results.length - 1]);
           continue;
         }
         const plan = expandCheck(root, c, files);
         if ('skip' in plan) {
           results.push({ id: c.id, label: c.label, state: 'skipped', why: plan.skip });
+          onCheck?.(results[results.length - 1]);
           continue;
         }
+        const t0 = Date.now();
         const out = await run(plan.argv[0], plan.argv.slice(1), { cwd: plan.cwd, timeoutMs: (c.timeoutSeconds ?? CHECK_MS / 1000) * 1000 });
-        results.push({ id: c.id, label: c.label, state: out.ok ? 'passed' : 'failed', command: shown(plan.argv), ...(out.ok ? {} : { output: tail(out.output) }) });
+        results.push({ id: c.id, label: c.label, state: out.ok ? 'passed' : 'failed', command: shown(plan.argv), ms: Date.now() - t0, ...(out.ok ? {} : { output: tail(out.output) }) });
+        onCheck?.(results[results.length - 1]);
       }
       return { state: results.some((x) => x.state === 'failed') ? 'failed' : 'passed', at, head, files, results };
     });
