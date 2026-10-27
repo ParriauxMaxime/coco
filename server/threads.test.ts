@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createPaseoAgents } from './paseo-agent.ts';
-import type { Req, Res } from './core-types.ts';
+import type { Exec, Req, Res } from './core-types.ts';
 import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
 import { createThreads } from './threads.ts';
 import { createCards } from './cards.ts';
@@ -104,12 +104,21 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: () => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models']) {
+function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: () => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models'], exec: Exec = async () => ({ ok: false, stdout: '', stderr: '' })) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
-  const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [{ id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] }] };
+  const work = {
+    slug: SLUG,
+    title: 'Widgets',
+    notes: '## Do not revisit\n- No new dependency for caching',
+    stack: [{ number: 7 }],
+    decisions: [
+      { id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] },
+      { id: 'd2', title: 'Eviction', status: 'taken', choice: 'lru', options: [{ key: 'lru', label: 'LRU' }, { key: 'ttl', label: 'TTL' }] },
+    ],
+  };
   const decided: { id: string; choice: string; rationale: string }[] = [];
-  const comment = (id: string, body: string) => ({ id, path: 'src/widgets.ts', startLine: 3, endLine: 4, side: 'head' as const, snippet: 'const w = null;', ctxBefore: [], ctxAfter: [], body });
+  const comment = (id: string, body: string) => ({ id, path: 'src/widgets.ts', startLine: 3, endLine: 4, side: 'head' as const, snippet: 'const w = null;', ctxBefore: [], ctxAfter: [], body, status: id === 'bb22' ? 'declined' : 'open' });
   const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async () => trailers(), timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
   const threads = createThreads({
     DATA,
@@ -119,7 +128,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
     comments: { list: () => ({ comments: [comment('aa11', 'Null check missing'), comment('bb22', 'Rename the helper')] }), update: async () => {} },
     reviewAgent,
     reviewPlan: { planOf: () => null },
-    exec: async () => ({ ok: false, stdout: '', stderr: '' }),
+    exec,
     agents: createPaseoAgents({ APP, connect: daemon.connect }),
     uploads,
     worktrees,
@@ -408,4 +417,71 @@ test('a thread’s first message starts its group agent on the picked model and 
   assert.deepEqual(configs.map((c) => [c.provider, c.thinkingOptionId]), [['claude/claude-opus-5-5', 'max'], [config.models.fast, 'high']]);
   assert.equal(read(A).messages[0].model, 'claude/claude-opus-5-5');
   assert.equal(checked.length, 2);
+});
+
+test('the first prompt of a code group carries the settled decisions, the other findings on the file, the Approve mechanics and the question rule; a follow-up is a short delta', async () => {
+  const { post, daemon, read, reply } = setup();
+  const a1 = await post(A, 'Why is this null?');
+  await until(() => daemon.calls.sent.length === 1, 'first dispatch');
+  const first = daemon.calls.sent[0].text;
+  assert.match(first, /## Settled, don't revisit\n\n- Eviction: LRU\.\n- No new dependency for caching/);
+  assert.match(first, /## Other findings on src\/widgets\.ts \(this PR\)\n\n- Rename the helper \(src\/widgets\.ts:3, declined\)\n/);
+  assert.doesNotMatch(first, /- Null check missing \(/);
+  assert.match(first, /Recommendation is a hypothesis, not a decision/);
+  assert.match(first, /trailer `Cc-Comment: aa11`[\s\S]*Alice presses Approve, which cherry-picks that commit onto the PR worktree[\s\S]*Never cherry-pick, merge or push onto the PR branch yourself[\s\S]*"dismissed" is Alice's call, not a failure/);
+  assert.match(first, /message is a question[\s\S]*`ask` card with your recommendation marked\. Do not commit/);
+  assert.match(first, /Blocks \(full reference/);
+
+  reply(a1.waiting.replyPath, 'Because of the cache.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  const a2 = await post(A, 'Options?');
+  await until(() => daemon.calls.sent.length === 2, 'follow-up');
+  const next = daemon.calls.sent[1].text;
+  assert.match(next, /Same rules as your first turn\. Write your reply to `[^`]+-reply\.json` as JSON/);
+  assert.ok(next.includes(a2.waiting.replyPath));
+  assert.doesNotMatch(next, /Blocks \(full reference|Settled, don't revisit/);
+  assert.ok(next.length < first.length / 2, `follow-up ${next.length} vs first ${first.length}`);
+});
+
+test('a thread shows the agent commit that carries its comment trailer until it is on the PR branch, by trailer or by patch-id, and points at its Approve', async () => {
+  const commit = 'f'.repeat(40);
+  const git = { cherry: '', grep: '' };
+  const exec: Exec = async (_cmd, args) => {
+    const out = (stdout: string) => ({ ok: true, stdout, stderr: '' });
+    if (args.includes('cherry')) return out(git.cherry);
+    if (args.includes('--grep')) return out(git.grep);
+    if (args.includes('--no-patch')) return out('Guard the null\n');
+    if (args.includes('--shortstat')) return out(' 1 file changed, 2 insertions(+)\n');
+    if (args.includes('--name-only')) return out('src/widgets.ts\n');
+    if (args.includes('rev-parse')) return out('abc999\n');
+    return out('diff');
+  };
+  const { threads, post, daemon, read, reply } = setup(undefined, undefined, () => [{ id: 'aa11', commit }], undefined, exec);
+  const get = async () => {
+    let body: { ready?: { commit: string; subject: string; stat: string; approve?: string } | null } = {};
+    const req = { method: 'GET', url: `/api/works/${SLUG}/threads/${A}`, on: () => {} } as unknown as Req;
+    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A], async () => '', (_res, _status, json) => void (body = json as typeof body));
+    return body.ready;
+  };
+  assert.equal(await get(), null, 'no thread yet');
+
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  const msg = read(A).messages.findLast((m) => m.suggestion);
+  assert.deepEqual(await get(), { commit, subject: 'Guard the null', stat: '1 file changed, 2 insertions(+)', approve: msg?.id });
+
+  git.cherry = `- ${commit} Guard the null\n`;
+  assert.equal(await get(), null, 'same patch-id on the PR branch');
+  git.cherry = `+ ${commit} Guard the null\n`;
+  git.grep = 'a'.repeat(40);
+  assert.equal(await get(), null, 'same trailer on the PR branch');
+  git.grep = '';
+  await threads.decideSuggestion(SLUG, A, msg!.id, 'dismiss');
+  const dismissed = await get();
+  assert.equal(dismissed?.commit, commit);
+  assert.equal(dismissed?.approve, undefined, 'a dismissed suggestion has no Approve to point at');
 });

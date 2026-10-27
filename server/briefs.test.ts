@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBrief, renderHandoff } from './briefs.ts';
+import { findingLine, renderBrief, renderHandoff, settledLines } from './briefs.ts';
 import { DEFAULTS } from './config.ts';
 
 const config = { ...DEFAULTS, personasDir: '/personas', repo: { ...DEFAULTS.repo, defaultBranch: 'main' } };
@@ -17,6 +17,16 @@ const work = {
   stack: [{ number: 1, planned: { title: 'Export endpoint', branch: 'feat/a' } }, { number: 2, planned: { title: 'Export button', scope: 'Add the Export CSV button', branch: 'feat/b' }, personas: ['bob'], kit: { video: false } }],
 };
 const pr = { head: 'feat/b', base: 'feat/a', sha: 'abc' };
+
+test('the settled lines are the taken decisions of the PR and the do-not-revisit notes, and a brief renders them', () => {
+  assert.deepEqual(settledLines(work, 2), ['- D1: Yes.', '- CSV only for v1.']);
+  assert.match(renderBrief({ work, index: 1, pr, worktree: null, config }), /## Decisions \(settled, do not revisit\)\n\n- D1: Yes\.\n- CSV only for v1\./);
+});
+
+test('a finding line gives title, place and status; a title-less one falls back to its first body line', () => {
+  assert.equal(findingLine({ title: 'Missing await', path: 'a.ts', startLine: 4, status: 'fixed' }), '- Missing await (a.ts:4, fixed)');
+  assert.equal(findingLine({ body: 'Null check\nmore', status: 'open' }), '- Null check (open)');
+});
 
 test('a brief keeps the decisions of its own PR, drops empty sections and follows the row kit', () => {
   const text = renderBrief({ work, index: 1, pr, worktree: null, rules: [{ text: 'TL;DR collapsed in PR bodies.' }], config });

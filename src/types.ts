@@ -387,6 +387,8 @@ export type Thread = {
   newGroup?: boolean;
   agent?: { live: boolean; status: string } | null;
   cards?: Card[];
+  // a commit of the group agent for this comment, not on the PR branch yet; approve: the message holding its Approve
+  ready?: { commit: string; subject: string; stat: string; approve?: string } | null;
 };
 export type ThreadSummary = { count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number };
 export type ThreadGroup = { id: string; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number };
@@ -450,7 +452,10 @@ export type BriefActionResult = { name?: string; path?: string; agentId?: string
 
 export type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 export type KitBetaFlag = { code: string; name?: string; why?: string; enable?: string; inBody?: boolean; mode?: string };
-export type KitResponse = { key: string | number; head: { sha: string | null; at: string | null }; betaFlags: KitBetaFlag[]; pieces: KitPiece[] };
+export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
+export type DriftItem = { id: string; key: string | number | null; kind: string; text: string; action: DriftAction | null };
+export type DriftResponse = { drift: DriftItem[]; next: DriftItem[]; at: string };
+export type KitResponse ={ key: string | number; head: { sha: string | null; at: string | null }; betaFlags: KitBetaFlag[]; pieces: KitPiece[] };
 
 export type KeepStep = {
   key: string | number;

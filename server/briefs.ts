@@ -94,6 +94,15 @@ export const notesSection = (notes: string | null | undefined, heading: string) 
   return out;
 };
 
+// the work's taken decisions (its own and the PR's) and its "Do not revisit" notes, one bullet each
+export const settledLines = (work: Work, key: RowKey | null) => [
+  ...(work.decisions || []).filter((d) => d.status === 'taken' && isLive(d) && (!d.pr || String(d.pr) === String(key))).map((d) => `- ${d.title}: ${decisionSummary(d)}${d.rationale && !d.rationale.includes('\n') ? ` (${d.rationale})` : ''}${d.decidedAt ? `, ${d.decidedAt.slice(0, 10)}` : ''}.`),
+  ...notesSection(work.notes, 'Do not revisit').map((l) => `- ${l}`),
+];
+
+// a finding on one line: title, where, how it stands
+export const findingLine = (c: { title?: string; body?: string; path?: string; startLine?: number; status?: string }) => `- ${c.title || String(c.body || '').split('\n')[0].slice(0, 120)} (${c.path ? `${c.path}:${c.startLine}, ` : ''}${c.status})`;
+
 const precedentCommands = (lines: string[]) => {
   const shas = [...new Set(lines.flatMap((l) => [...l.matchAll(/\b[0-9a-f]{9,40}\b/g)].map((m) => m[0])))];
   const prs = [...new Set(lines.flatMap((l) => [...l.matchAll(/#(\d{3,6})\b/g)].map((m) => m[1])))];
@@ -152,12 +161,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
     ...(forbidden.length ? ['', `Forbidden sources: ${forbidden.join('; ')}.`] : []),
   ]);
 
-  const key = rowKey(row);
-  const taken = (work.decisions || []).filter((d) => d.status === 'taken' && isLive(d) && (!d.pr || String(d.pr) === String(key)));
-  section('Decisions (settled, do not revisit)', [
-    ...taken.map((d) => `- ${d.title}: ${decisionSummary(d)}${d.rationale && !d.rationale.includes('\n') ? ` (${d.rationale})` : ''}${d.decidedAt ? `, ${d.decidedAt.slice(0, 10)}` : ''}.`),
-    ...notesSection(work.notes, 'Do not revisit').map((l) => `- ${l}`),
-  ]);
+  section('Decisions (settled, do not revisit)', settledLines(work, rowKey(row)));
 
   const ruleLines = [...rules.map((r) => `- ${r.text}`), ...notesSection(work.notes, 'Rules').map((l) => `- ${l}`)];
   const repoRules = listText((config.repo.rules || []).map((r) => `\`${r}\``));

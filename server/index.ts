@@ -28,6 +28,7 @@ import { createBriefWriter } from './brief-writer.ts';
 import { createStackKeeper, needsKeeping } from './stack-keeper.ts';
 import { createInbox } from './inbox.ts';
 import { createKit } from './kit.ts';
+import { createDrift } from './drift.ts';
 import { createFeatureFlags } from './feature-flags.ts';
 import { createPack } from './pack.ts';
 import { createSetup } from './setup.ts';
@@ -124,6 +125,8 @@ const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
+const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan });
+works.hooks.drift = (slug) => drift.view(slug).catch(() => null);
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
 const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
@@ -444,6 +447,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'media') return media.handle(req, res, parts, send);
     if (root === 'works' && b === 'briefs') return briefs.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'kit') return kit.handle(req, res, parts, readBody, send);
+    if (root === 'works' && b === 'drift') return drift.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'stack-keeper') return stackKeeper.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
     if (root === 'cards' || (root === 'agent-chat' && b === 'cards')) return cards.handle(req, res, parts, readBody, send);

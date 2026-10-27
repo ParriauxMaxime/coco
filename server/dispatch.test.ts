@@ -43,7 +43,7 @@ function setup({ contextFails = false, writerFails = false, models = undefined a
       start: async (_slug, key, input) => (fixes.push({ key, commentIds: input.commentIds, prompt: input.wrap ? input.wrap('Read brief.md') : '', provider: input.provider, thinking: input.thinking }), { runId: 'r1', agentId: AGENT }),
       timeline: (_slug, _kind, text) => timeline.push(text),
     },
-    comments: { list: () => ({ comments: [{ id: 'c1', status: 'open' }, { id: 'c2', status: 'fixed' }, { id: 'c3', status: 'open' }] }) },
+    comments: { list: () => ({ comments: [{ id: 'c1', status: 'open', title: 'Unbounded export', path: 'a.ts', startLine: 4 }, { id: 'c2', status: 'fixed', title: 'Missing await', path: 'b.ts', startLine: 9 }, { id: 'c3', status: 'open', title: 'Rename helper', path: 'a.ts', startLine: 20 }] }) },
     models,
   });
   return { dispatch, placed, started, fixes, timeline, writes, tracked, work: () => work };
@@ -106,7 +106,8 @@ test('a persona review fills the review-as ritual and stays read-only', async ()
   await dispatch.start('csv', { entry: 'persona-review', key: 101, persona: 'bob' });
   assert.deepEqual(placed, [{ kind: 'row', slug: 'csv', key: 101, edits: false }]);
   assert.match(String(started[0].prompt), /\n\/review-as bob 101\n/);
-  assert.match(String(started[0].prompt), /call get_pr_findings with pr "101" and work "csv"\. Never raise again what it lists/);
+  assert.match(String(started[0].prompt), /call get_pr_findings with pr "101" and work "csv" for their resolutions and threads\. Never raise again what it lists/);
+  assert.match(String(started[0].prompt), /Already raised on this PR[^\n]*\n- Unbounded export \(a\.ts:4, open\)\n- Missing await \(b\.ts:9, fixed\)\n- Rename helper \(a\.ts:20, open\)\n/);
   assert.equal(writes[0].d.persona, 'bob');
 });
 

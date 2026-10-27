@@ -11,7 +11,8 @@ import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import { catalog } from './dispatch.ts';
 import { rowKey } from './stack.ts';
-import { readPrFindings, readReviewContext } from './review-context.ts';
+import { WORK_SECTIONS, readPrFindings, readReviewContext, slimWork } from './review-context.ts';
+import type { PrFacts } from './review-context.ts';
 
 const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const config = loadConfig({ APP });
@@ -29,12 +30,15 @@ const listWorks = () => (fs.existsSync(WORKS) ? fs.readdirSync(WORKS).filter((f)
 const server = new McpServer({ name: 'cocopilot', version: '0.1.0' });
 
 server.tool('list_works', 'Works = long-term context per PR stack (slug, title, Paseo project, stack, personas, links).', {}, async () => text(listWorks().map((w) => ({ slug: w.slug, title: w.title, projectName: w.projectName, stack: (w.stack || []).map((s: { number?: number; personas?: string[] }) => ({ number: s.number, personas: s.personas })), personas: w.personas, links: w.links, updatedAt: w.updatedAt }))));
-server.tool('get_work', 'Full work JSON: notes, timeline, stack, links, artifacts list.', { slug: z.string() }, async ({ slug }) => {
+server.tool('get_work', `A work, slim by default (a full one runs to 150k characters): summary, stack rows (number, branch, title, state, notionPage), decisions in one line each, notes (clipped) and the last note entries. \`sections\` adds the rest: ${WORK_SECTIONS.join(', ')} (full = the whole record).`, { slug: z.string(), sections: z.array(z.enum(WORK_SECTIONS)).optional() }, async ({ slug, sections }) => {
   const f = path.join(WORKS, `${slug}.json`);
   if (!fs.existsSync(f)) return text({ error: 'no such work' });
   const w = JSON.parse(fs.readFileSync(f, 'utf8'));
   const art = path.join(WORKS, slug, 'artifacts');
-  return text({ ...w, artifacts: fs.existsSync(art) ? fs.readdirSync(art) : [] });
+  const facts: Record<string, PrFacts> = {};
+  const live = await coco('GET', `/api/works/${encodeURIComponent(slug)}`);
+  for (const p of (live.ok && Array.isArray(live.data.prs) ? live.data.prs : []) as { number?: number; head?: string; title?: string; state?: string }[]) if (p?.number) facts[p.number] = { branch: p.head, title: p.title, state: p.state };
+  return text(slimWork(w, sections, facts, fs.existsSync(art) ? fs.readdirSync(art) : []));
 });
 server.tool('get_review_context', `What a review plan on a PR runs under: ${OWNER}'s guidance for its latest run (it overrides your defaults), ${OWNER}'s rules (global, then work, then PR; code breaking one is a watch point) and the owner personas of its paths with hit counts.`, { pr: z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet'), work: z.string().optional().describe('work slug; omit to take the latest run on that PR in any work') }, async ({ pr, work }) => text(readReviewContext(config.dataDir, { pr, work })));
 server.tool('get_pr_findings', `What is already raised on a PR, so a review does not raise it again: every finding (any author) with its status (open, sent, fixed, declined, outdated), resolution note and fix commit, and the end of its thread where ${OWNER} and an agent settled it; plus the review plan watch points ${OWNER} dismissed, with their note.`, { pr: z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet'), work: z.string().optional().describe('work slug; omit to take the work that last reviewed that PR') }, async ({ pr, work }) => text(readPrFindings(config.dataDir, { pr, work })));
@@ -398,6 +402,13 @@ server.tool('import_artifact', `Copy a file or folder (PR body draft, diagram, d
   if (!t.slug) return refused(NO_WORK);
   const r = await coco('POST', `/api/works/${t.slug}/artifacts`, { ...body, ...(t.pr ? { pr: t.pr } : {}) });
   return r.ok ? text(r.data) : refused(`artifact refused: ${r.error}`);
+});
+
+server.tool('get_drift', `What moved on the work's PRs since they were last pushed or written: unpushed local commits, a stale PR body, diagram or video, a GitHub stack that differs from the work's, plus the next steps ${OWNER} can click. Read only: ${OWNER} starts any fix.`, { work: workArg }, async ({ work: slugIn }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  const r = await coco('GET', `/api/works/${t.slug}/drift`);
+  return r.ok ? text(r.data) : refused(`drift refused: ${r.error}`);
 });
 
 server.tool('set_next', `Write the work's "What's next": ${OWNER}'s to-do as of now (review, merge, answer, push), shown first on the Plan tab. Not what agents are doing. clear: true removes it.`, {

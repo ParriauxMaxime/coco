@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, commentSection, fenced, sharedRules } from './review-agent.ts';
+import { findingLine, settledLines } from './briefs.ts';
 import { blocksToMarkdown, salvageBlocks } from './blocks.ts';
 import { activityEvents, createPaseoAgents } from './paseo-agent.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
@@ -72,7 +73,7 @@ type ThreadsOptions = {
     upsertDecision(slug: string, decision: Partial<Decision> & { id: string }): unknown;
     decide?(slug: string, input: { id: string; choice: string; rationale: string }): unknown;
   };
-  comments: { list(slug: string, n: RowKey): { comments?: Item[] }; update(slug: string, n: RowKey, id: string, patch: Record<string, unknown>): Promise<unknown> };
+  comments: { list(slug: string, n: RowKey): { comments?: (Item & { status?: string })[] }; update(slug: string, n: RowKey, id: string, patch: Record<string, unknown>): Promise<unknown> };
   reviewAgent: {
     rowPr(work: Work, index: number): Promise<ThreadPr>;
     timeline?(slug: string, kind: string, text: string): void;
@@ -242,7 +243,21 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const about = {
       decision: () => ({ title: `decision "${item.title}"`, section: ['## Decision card', '', fenced(JSON.stringify(item, null, 1), 'json')] }),
       plan: () => ({ title: `review plan of ${label}`, section: ['## Review plan (coco)', '', fenced(JSON.stringify(item, null, 1), 'json')] }),
-      comment: () => ({ title: `review comment on ${item.path}:${item.startLine}-${item.endLine}, ${label}`, section: ['## Comment', '', ...commentSection(item), `PR branch \`${pr?.head}\`${pr?.url ? ` · ${pr.url}` : ''}.`] }),
+      comment: () => {
+        const settled = settledLines(work, ref.kind === 'comment' ? ref.n : null);
+        const related = (comments.list(work.slug, ref.kind === 'comment' ? ref.n : '').comments || []).filter((c) => c.id !== item.id && c.path === item.path).map(findingLine);
+        return {
+          title: `review comment on ${item.path}:${item.startLine}-${item.endLine}, ${label}`,
+          section: [
+            '## Comment',
+            '',
+            ...commentSection(item),
+            `PR branch \`${pr?.head}\`${pr?.url ? ` · ${pr.url}` : ''}. A finding's Recommendation is a hypothesis, not a decision.`,
+            ...(settled.length ? ['', `## Settled, don't revisit`, '', ...settled] : []),
+            ...(related.length ? ['', `## Other findings on ${item.path} (this PR)`, '', ...related, 'Do not contradict them without saying so.'] : []),
+          ],
+        };
+      },
     }[ref.kind]();
     const rules = {
       decision: [
@@ -255,7 +270,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         SHARED_RULES[0],
       ],
       comment: [
-        `- You work in your own worktree on branch \`${group.branch}\`, branched off the PR head; stay on it. To suggest a change, make it and commit ONE commit with the trailer \`Cc-Comment: ${item.id}\`. On Approve cocopilot cherry-picks that commit onto \`${pr?.head}\`, so keep it self-contained. When you disagree, say why instead of changing it.`,
+        `- You work in your own worktree on branch \`${group.branch}\`, branched off the PR head; stay on it. To suggest a change, make it and commit ONE commit with the trailer \`Cc-Comment: ${item.id}\`, self-contained. ${Owner} presses Approve, which cherry-picks that commit onto the PR worktree (\`${pr?.head}\`). Never cherry-pick, merge or push onto the PR branch yourself. A suggestion shown as "dismissed" is ${Owner}'s call, not a failure. When you disagree, say why instead of changing it.`,
+        `- When ${Owner}'s message is a question ("what do you recommend?", "why?", "options?"), answer it and, with options, offer an \`ask\` card with your recommendation marked. Do not commit.`,
         ...SHARED_RULES,
       ],
     }[ref.kind];
@@ -298,7 +314,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       text,
       '',
       ...(steer ? ['Take it into account in the work in flight. A reply you already wrote for the previous message stays; this message gets its own reply file below.', ''] : []),
-      `Same rules as before${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}. ${replyRule(replyPath, ref.kind, thread.key)}`,
+      `Same rules as your first turn. Write your reply to \`${replyPath}\` as JSON \`{ "blocks": [...] }\`${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}.`,
       '',
       ...(setup.length ? [setup[0].replace('## ', '## Changed since: '), ...setup.slice(1)] : []),
     ].join('\n');
@@ -708,6 +724,26 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     });
   }
 
+  // the commit a code group's agent left for this comment (its trailer) that is not on the PR branch yet, by trailer or patch-id; information only, Approve stays the owner's
+  async function readyOf(slug: string, work: Work, ref: Ref, thread: Thread) {
+    const group = ref.kind === 'comment' && thread.groupId ? readGroup(slug, thread.groupId) : null;
+    if (ref.kind !== 'comment' || group?.kind !== 'code' || group.status !== 'active') return null;
+    const pr = await prOf(work, ref.n).catch(() => null);
+    if (!pr) return null;
+    const fix = (await reviewAgent.trailersBetween(REPO, pr.sha, `refs/heads/${group.branch}`)).find((t) => t.id === ref.id);
+    if (!fix) return null;
+    const tip = (await branchHead(pr.head)) || pr.sha;
+    const [cherry, same, shown, stat] = await Promise.all([
+      git(REPO, ['cherry', tip, fix.commit]),
+      git(REPO, ['log', '-n1', '--format=%H', '-F', '--grep', `Cc-Comment: ${ref.id}`, tip]),
+      git(REPO, ['show', '--no-patch', '--format=%s', fix.commit]),
+      git(REPO, ['show', '--format=', '--shortstat', fix.commit]),
+    ]);
+    if (same.stdout.trim() || cherry.stdout.split('\n').some((l) => l.startsWith(`- ${fix.commit}`))) return null;
+    const approve = thread.messages.findLast((m) => m.suggestion?.kind === 'commit' && m.suggestion.commit === fix.commit && isOpenSuggestion(m.suggestion));
+    return { commit: fix.commit, subject: shown.stdout.trim(), stat: stat.stdout.trim(), ...(approve ? { approve: approve.id } : {}) };
+  }
+
   // the PR worktree can take a cherry-pick when it has no tracked change and no agent is mid-turn in it
   async function prTarget(pr: ThreadPr) {
     const wt = await reviewAgent.worktreeFor(pr.head);
@@ -912,7 +948,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       follow(slug, key).catch(() => {});
       const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
-      return send(res, 200, { ...thread, cards: cardsOf(slug, key), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
+      const { work, ref } = check(slug, key);
+      return send(res, 200, { ...thread, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
     } catch (e) {
       return send(res, httpStatus(e), { error: errText(e) });
     }

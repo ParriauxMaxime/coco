@@ -384,7 +384,9 @@ one comment per finding with `title`,
 `severity`, `confidence`; author `as-<login>` shows as a persona. A persona
 review dispatched from coco gets the review plan's rule in its task: call
 `get_pr_findings` before reviewing and never raise again what it lists unless
-the code it judged changed. Comments
+the code it judged changed. The task also lists the findings already on the PR
+(title, place, status: open, fixed, declined…), and `get_pr_findings` returns
+resolved and declined ones with their status too. Comments
 without a title get their claim from the body, skipping `Class:` /
 `Severity:` / `Recommendation:` header lines; a `Confidence: N%` in a body is
 read too.
@@ -478,6 +480,31 @@ shows where it comes from, the head it was made for and the current head.
 - A custom kind with no imported artifact (a docs companion PR, say): the
   companion PR in the work's links, its `updatedAt`. Notion:
   `work.notion.syncedAt`.
+
+### Drift
+
+The Drift block on the work page (`server/drift.ts`, `GET
+/api/works/<slug>/drift`, also `drift` in the work payload and the MCP
+`get_drift`) lists what moved on the open PRs, recomputed on read and cached
+30 s (`?fresh=1` skips the cache). Each line has one button that you click;
+coco starts nothing by itself.
+
+- Unpushed: the local branch is ahead of the PR head on GitHub ("3 local
+  commits not pushed", or "differs from GitHub" after a rebase). The button
+  copies the push command.
+- A stale kit piece (body, diagram, video, by the freshness rules above)
+  starts that kit gate's skill, for example `/lem-pr` for the body.
+- The GitHub stack differs: a PR's base is not the row below it (or the
+  default branch for the first open row), or an open PR sits on a row's
+  branch but is not in the work. The button copies the `gh pr edit --base`
+  line or opens the Stack.
+- PR title format is not checked: no title convention is configured.
+
+Below them, suggested next steps: "Update PR body" when an imported video
+is newer than the body, and "Persona review as <login>" (the row's first
+persona) for a pushed head with no `as-<login>` finding, review-pr plan or
+ticked review-pr gate at that head. They are computed, not written to
+`next`.
 
 ## Checklist rail
 
@@ -641,6 +668,22 @@ orchestration layer (`server/threads.ts`):
   applied commit turns the comment `fixed`. For a card the agent writes the
   fields to change as JSON; Approve writes them to the card (status, choice,
   rationale and decidedAt stay yours).
+- Ready commit. When the group agent's branch holds a commit with the
+  thread's `Cc-Comment` trailer that is not on the PR branch yet (neither the
+  same trailer nor the same patch-id there), the thread payload carries `ready`
+  (`commit`, `subject`, `stat`, `approve` = the message holding its Approve) and
+  the thread shows "commit abc1234 ready: Approve" above the messages, with the
+  subject and diffstat. It only shows information; it applies nothing.
+- The brief. The first turn of a code group carries the work's settled
+  decisions (the "Decisions (settled, do not revisit)" lines of the PR brief),
+  the other findings of the same PR on the same file (title, place, status),
+  a note that a finding's Recommendation is a hypothesis, how a fix is
+  delivered (one commit with the `Cc-Comment` trailer, Approve cherry-picks it,
+  never cherry-pick or push onto the PR branch, a "dismissed" suggestion is not
+  a failure) and the rule that a question gets an answer and an `ask` card with
+  a marked recommendation, not a commit. A follow-up turn is a delta: what
+  changed since the last answer, the reply file and "same rules as your first
+  turn".
 - Replies. The agent writes typed blocks to `threads/<key>-<msg>-reply.json`
   (see the Findings board above); cocopilot reads it on the thread poll (3 s while waiting) and when the
   Paseo plugin reports the agent's turn ended. One message at a time per
@@ -859,7 +902,11 @@ workspace, or the work's stack worktree workspace when asked from a work,
 with the cocopilot MCP server in its config (`server/mcp.ts`, stdio:
 `list_works`, `get_work`, `list_personas`, `read_persona`,
 `suggest_personas`, `read_skill`, `list_paseo`, `github_pr`,
-`github_search`, `propose_work_scaffold`). It is a normal Paseo agent: every
+`github_search`, `propose_work_scaffold`). `get_work` is slim by default (summary,
+stack rows with number, branch, title, state and Notion page, decisions in one line each,
+clipped notes, the last note entries); its `sections` argument (`notes`, `timeline`,
+`artifacts`, `decisions`, `full`) adds the rest. The Ask brief ends with the
+agent's own model and thinking level. It is a normal Paseo agent: every
 MCP server and Paseo's permissions apply. coco follows its timeline live
 and streams text as it is written, then each tool call with its input and
 result, over SSE to the Ask page; a permission the agent waits on shows as a

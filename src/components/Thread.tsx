@@ -280,6 +280,11 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         {!waiting && group?.status === 'active' && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}><Icon name="archive" size={12} />Prune agent</button>}
         </span>
       </div>
+      {thread.ready && (
+        <div className="dp-thr-sys dp-thr-ready">
+          commit <code>{thread.ready.commit.slice(0, 7)}</code> ready{thread.ready.approve ? <>: <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => document.getElementById(`thr-${thread.ready?.approve}`)?.scrollIntoView({ block: 'center' })}>Approve</button></> : ', no Approve offered yet'} · {thread.ready.subject}{thread.ready.stat && <span className="dp-thr-stat"> · {thread.ready.stat}</span>}
+        </div>
+      )}
       {from > 0 && <EarlierTurns hidden={from} onMore={() => setTurns((t) => t + MORE_TURNS)} />}
       {thread.messages.map((m, i) => {
         if (i < from) return slots.get(i)?.some((c) => c.status === 'open') ? <React.Fragment key={m.id}>{cardsAt(i)}</React.Fragment> : null;
@@ -294,7 +299,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
                 {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
               </div>
             ) : (
-              <div className="dp-msg-a">
+              <div className="dp-msg-a" id={`thr-${m.id}`}>
                 {m.role === 'system' ? <span className="dp-cocoav">c</span> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
                 <div className="dp-thr-body">
                   <div className="dp-who">{m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>

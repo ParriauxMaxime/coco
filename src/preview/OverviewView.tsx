@@ -6,6 +6,7 @@ import Icon from './Icon.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prState, prTitle } from './data.ts';
+import DriftPanel from '../workbench/tabs/DriftPanel.tsx';
 import { DevServersLine } from './widgets/DevServer.tsx';
 import { openDecision } from './DecisionsView.tsx';
 import type { PreviewData } from './data.ts';
@@ -109,6 +110,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
               </div>
             </div>
             <Next prs={prs} onOpenPr={onOpenPr} />
+            <DriftPanel slug={d.slug} />
 
             {next && (
               <div className="dp-block" style={{ marginTop: 16 }}>

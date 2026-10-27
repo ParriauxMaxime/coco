@@ -101,7 +101,7 @@ const defaultExec: Exec = (cmd, args, cwd) =>
     execFile(cmd, args, { maxBuffer: 8 * 1024 * 1024, timeout: 60000, cwd }, (err, stdout, stderr) => resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || '') }));
   });
 
-const sameSha = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
+export const sameSha = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
 const latest = (dates: (string | null | undefined)[]) => dates.filter((d): d is string => Boolean(d)).sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
 
 // missing, off (not expected), fresh, stale, or present (made, but nothing tells for which change)

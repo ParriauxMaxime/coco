@@ -282,7 +282,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       const { workspaceId, cwd } = await where(conv.scope, conv.pr ?? null);
       const s = await agents.session({
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
-        systemPrompt: SYSTEM + tierOf(conv),
+        systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${providerFor(conv.model)}${conv.thinking ? `, thinking ${conv.thinking}` : ''}.`,
         provider: providerFor(conv.model),
         ...(conv.thinking ? { thinking: conv.thinking } : {}),
         cwd,

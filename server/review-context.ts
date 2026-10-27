@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileKey, keyLabel, parseKey } from './stack.ts';
-import type { Comment, Persona, RowKey } from './core-types.ts';
+import { decisionSummary } from './decisions.ts';
+import type { Comment, Persona, RowKey, Work } from './core-types.ts';
 
 export type ReviewContext = { guidance: string; rules: string[]; personas: Persona[]; headSha?: string; at?: string };
 export type DismissedWatch = { plan: string | null; index: number; headSha: string; path: string; startLine: number; endLine: number; body: string; note?: string; at: string };
@@ -49,6 +50,32 @@ export function readReviewContext(DATA: string, { pr, work }: { pr: unknown; wor
   if (!slug) return { error: `no review plan run recorded for ${keyLabel(n)}${work ? ` in work ${work}` : ''}` };
   const ctx: Partial<ReviewContext> = JSON.parse(fs.readFileSync(reviewContextFile(DATA, slug, n), 'utf8'));
   return { guidance: ctx.guidance || '', rules: ctx.rules || [], personas: ctx.personas || [], ...(ctx.headSha ? { headSha: ctx.headSha } : {}), ...(ctx.at ? { at: ctx.at } : {}) };
+}
+
+export type PrFacts = { branch?: string | null; title?: string | null; state?: string | null };
+const SLIM_NOTES = 6000;
+const SLIM_RECENT = 5;
+export const WORK_SECTIONS = ['notes', 'timeline', 'artifacts', 'decisions', 'full'] as const;
+
+// get_work by default: the summary, the stack rows, the decisions in one line each, the notes (clipped) and the last note entries; `sections` adds the rest
+export function slimWork(w: Work, sections: string[] = [], facts: Record<string, PrFacts> = {}, artifacts: string[] = []) {
+  const has = (s: string) => sections.includes(s) || sections.includes('full');
+  const notes = w.notes || '';
+  const stack = (w.stack || []).map((s) => {
+    const f = facts[String(s.number)] || {};
+    return { number: s.number ?? null, branch: f.branch ?? s.planned?.branch ?? null, title: f.title ?? s.planned?.title ?? null, state: f.state ?? null, notionPage: s.notionPage ?? null, ...(has('full') ? { row: s } : {}) };
+  });
+  const decisions = (w.decisions || []).map((d) => ({ id: d.id, title: d.title, status: d.status ?? 'open', ...(d.status === 'taken' ? { summary: decisionSummary(d) } : {}), ...(d.archivedAt ? { archived: true } : {}), ...(has('decisions') ? { decision: d } : {}) }));
+  const { stack: _s, notes: _n, timeline = [], decisions: _d, ...head } = w;
+  return {
+    ...(has('full') ? w : head),
+    stack,
+    decisions,
+    notes: has('notes') || notes.length <= SLIM_NOTES ? notes : `${notes.slice(0, SLIM_NOTES)}\n[…${notes.length - SLIM_NOTES} more characters: sections ["notes"]]`,
+    recentNotes: timeline.filter((t) => t.kind === 'note').slice(-SLIM_RECENT),
+    ...(has('timeline') ? { timeline } : { timelineEntries: timeline.length }),
+    ...(has('artifacts') ? { artifacts } : { artifactCount: artifacts.length }),
+  };
 }
 
 // every finding on a PR with how it was settled (status, resolution, the end of its thread), plus the watch points the owner dismissed

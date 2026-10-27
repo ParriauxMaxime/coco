@@ -231,6 +231,11 @@ A picked option whose effect did the work is not delivered.
 - `propose_pr_reply({ pr?, replyTo?, body, resolve?, github?, why? })`: same
   return; every agent drafts a PR comment reply through it (Ask prompt, cards
   line, fix and review briefs) instead of refusing or handing back a command.
+- `get_work({ slug, sections? })`: a slim view by default (summary, stack rows
+  with `number`, `branch`, `title`, `state`, `notionPage`, decisions in one
+  line, clipped notes, the last note entries). `sections` (`notes`, `timeline`,
+  `artifacts`, `decisions`, `full`) adds the rest. `get_pr_findings` returns
+  every finding of the PR with its status, resolved and declined included.
 - `own_deps({ paths? })`: a code-writing agent's worktree gets its own copy of
   the dependency folders that link to the main checkout
   (`POST /api/agent-worktree/own-deps` with the agent's cwd and id). Returns
@@ -248,6 +253,7 @@ own work); a refusal comes back as a tool error naming the field.
 | `upsert_decision` | `PUT /api/works/<slug>/decisions/<id>`; no `status`, `choice`, `rationale` or `decidedAt` in its schema |
 | `attach_media` | `POST /api/works/<slug>/media` with a file on disk; returns `src` and a `media` block |
 | `import_artifact` | `POST /api/works/<slug>/artifacts` |
+| `get_drift` | `GET /api/works/<slug>/drift`: `{ drift, next }` items with `kind`, `text` and the owner's action; read only |
 | `set_next` | `PUT /api/works/<slug>` with `{ next }`, `clear` sends `null` |
 
 The MCP server learns its agent from `PASEO_AGENT_ID` in its environment
@@ -256,7 +262,8 @@ it) and posts to the running coco server at `baseUrl` from the config. A
 refused card comes back as a tool error naming the bad field, so the agent can
 fix it and retry. Every coco agent's system prompt carries one line
 (`CARDS_LINE` in `server/paseo-agent.ts`): ask the user only through
-`cocopilot.ask`; show rich results with `post_blocks`.
+`cocopilot.ask`; show rich results with `post_blocks`; edit code only with the
+Edit or Write tools after a Read, never with sed, python or heredocs.
 
 `AskUserQuestion` is off through Paseo's Claude provider options: the agent
 config carries `options: { disallowedTools: ['AskUserQuestion'] }` (Paseo

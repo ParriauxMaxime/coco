@@ -4,7 +4,7 @@
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { gatesFor, skillName } from './gates.ts';
 import { repoSetting } from './config.ts';
-import { renderBrief } from './briefs.ts';
+import { findingLine, renderBrief } from './briefs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { BriefDispatch, Written } from './brief-writer.ts';
 import type { Readier } from './review-agent.ts';
@@ -27,7 +27,7 @@ type Deps = {
   agents: { start(opts: Record<string, unknown>): Promise<{ agentId: string; workspaceId?: string | null }> };
   briefs: { context(slug: string, raw: string): Promise<BriefContext> };
   reviewAgent: { start(slug: string, key: unknown, input: { commentIds: string[]; provider?: string; thinking?: string; wrap?: (prompt: string) => string }): Promise<{ runId: string; agentId: string }>; timeline(slug: string, kind: string, text: string): void };
-  comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string; kind?: string }[] } };
+  comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string; kind?: string; title?: string; body?: string; path?: string; startLine?: number }[] } };
   writer: { write(d: BriefDispatch, facts: string | null): Promise<Written>; track(run: { agentId: string | null | undefined; slug: string; repoId: string | null; title: string; message: string }): void };
   repoOf?: (work: Work) => RepoConfig | null | undefined;
   readier?: Readier;
@@ -101,7 +101,8 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
       const ritual = config.rituals.find((r) => r.kind === 'review-as' && r.prompt);
       const review = ritual?.prompt ? fill(ritual.prompt, { login: persona, pr, owner: config.owner.name }).trim() : `Review this PR as ${persona} would: read \`${persona}.md\` in ${config.personasDir} ("What they check"), then report each finding with its file, line, severity and confidence.`;
       const owner = config.owner.name;
-      return `${review}\nBefore reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}". Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
+      const known = key === null ? [] : (comments.list(slug, key).comments || []).map(findingLine);
+      return `${review}\n${known.length ? `Already raised on this PR (title, where, status):\n${known.join('\n')}\n` : ''}Before reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}" for their resolutions and threads. Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
     }
     if (entry.kind === 'gate') {
       if (!entry.skill) return `Test this PR by hand: run it locally, exercise every surface it changes, and report pass or fail per scenario with what you saw.${prompt ? `\n\n${prompt}` : ''}`;

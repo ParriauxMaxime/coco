@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { classify, createClassifier, createReviewPlan, normalizePlan, splitDiff, suggestedOrder } from './review-plan.ts';
-import { readPrFindings, readReviewContext, reviewContextFile, writeReviewContext } from './review-context.ts';
+import { readPrFindings, readReviewContext, reviewContextFile, slimWork, writeReviewContext } from './review-context.ts';
 import { DEFAULTS } from './config.ts';
 import type { Work } from './core-types.ts';
 
@@ -118,7 +118,7 @@ test('get_pr_findings lists settled findings with their thread end and dismissed
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-seen-'));
   const reviews = path.join(DATA, 'works', 'csv', 'reviews');
   const write = (file: string, data: unknown) => (fs.mkdirSync(path.dirname(file), { recursive: true }), fs.writeFileSync(file, JSON.stringify(data)));
-  write(path.join(DATA, 'works', 'csv', 'comments', 'pr-7.json'), { number: 7, comments: [{ id: 'c1', path: 'src/a.ts', sha: 'a'.repeat(40), startLine: 4, endLine: 4, body: 'Partial write on a hidden invoice', author: 'alice', status: 'declined', resolution: { note: 'Kept on purpose' } }] });
+  write(path.join(DATA, 'works', 'csv', 'comments', 'pr-7.json'), { number: 7, comments: [{ id: 'c1', path: 'src/a.ts', sha: 'a'.repeat(40), startLine: 4, endLine: 4, body: 'Partial write on a hidden invoice', author: 'alice', status: 'declined', resolution: { note: 'Kept on purpose' } }, { id: 'c2', path: 'src/c.ts', sha: 'a'.repeat(40), startLine: 8, endLine: 9, body: 'Missing await', author: 'alice', status: 'fixed', resolution: { commit: 'd'.repeat(40) } }] });
   write(path.join(DATA, 'works', 'csv', 'threads', 'c.7.c1.json'), { messages: [{ role: 'user', text: 'why?' }, { role: 'agent', text: 'Accept the gap until the REST PR.' }] });
   write(path.join(reviews, 'pr-7-plan.json'), { run: null, ticks: {}, watch: {}, plan: { headSha: 'b'.repeat(40), createdAt: 'p1', watchPoints: [{ path: 'src/b.ts', startLine: 2, endLine: 3, body: 'Polled method now reads twice', severity: 'minor' }] } });
   const plan = createReviewPlan({ DATA, REPO: DATA, config: DEFAULTS, code: { ensureRefs: async () => assert.fail(), prFilesFromGit: async () => [] }, works: { get: () => null, prInfo: async () => assert.fail(), personasForPaths: () => [], remark: () => null } });
@@ -128,8 +128,40 @@ test('get_pr_findings lists settled findings with their thread end and dismissed
   const seen = readPrFindings(DATA, { pr: 7 });
   assert.ok(!('error' in seen));
   assert.equal(seen.work, 'csv');
-  assert.deepEqual(seen.findings.map((f) => [f.status, f.title, f.resolution?.note, f.thread?.at(-1)?.text]), [['declined', 'Partial write on a hidden invoice', 'Kept on purpose', 'Accept the gap until the REST PR.']]);
+  assert.deepEqual(seen.findings.map((f) => [f.status, f.title, f.resolution?.note, f.thread?.at(-1)?.text]), [['declined', 'Partial write on a hidden invoice', 'Kept on purpose', 'Accept the gap until the REST PR.'], ['fixed', 'Missing await', undefined, undefined]]);
   assert.deepEqual(seen.dismissedWatchPoints.map((d) => [d.path, d.lines, d.note]), [['src/b.ts', '2-3', 'cheap enough']]);
+});
+
+test('get_work is slim by default: summary, stack rows with branch and title, decisions in one line, clipped notes, the last note entries; sections add the rest', () => {
+  const timeline = Array.from({ length: 40 }, (_, i) => ({ ts: `t${i}`, kind: i % 2 ? 'github' : 'note', text: `entry ${i}` }));
+  const work = {
+    slug: 'csv',
+    title: 'CSV export',
+    summary: 'Export invoices',
+    notes: 'n'.repeat(9000),
+    stack: [{ number: 5, planned: { branch: 'feat/a', title: 'Endpoint' }, notionPage: { url: 'https://n/1', title: 'PR 1' } }, { number: 6, personas: ['bob'] }],
+    decisions: [{ id: 'd1', title: 'Format', status: 'taken', choice: 'csv', options: [{ key: 'csv', label: 'CSV' }], details: 'long '.repeat(500) }, { id: 'd2', title: 'Eviction', options: [] }],
+    timeline,
+  } as unknown as Work;
+  const facts = { 6: { branch: 'feat/b', title: 'Button', state: 'OPEN' } };
+  const slim = slimWork(work, [], facts, ['brief.md']);
+  assert.deepEqual(slim.stack, [
+    { number: 5, branch: 'feat/a', title: 'Endpoint', state: null, notionPage: { url: 'https://n/1', title: 'PR 1' } },
+    { number: 6, branch: 'feat/b', title: 'Button', state: 'OPEN', notionPage: null },
+  ]);
+  assert.deepEqual(slim.decisions, [{ id: 'd1', title: 'Format', status: 'taken', summary: 'CSV' }, { id: 'd2', title: 'Eviction', status: 'open' }]);
+  assert.equal(slim.recentNotes.length, 5);
+  assert.equal(slim.recentNotes.at(-1)?.text, 'entry 38');
+  assert.match(slim.notes, /\[…3000 more characters: sections \["notes"\]\]$/);
+  const keys = (o: object) => o as Record<string, unknown>;
+  assert.ok(!('timeline' in slim) && keys(slim).timelineEntries === 40 && keys(slim).artifactCount === 1);
+  assert.ok(JSON.stringify(slim).length < 12000);
+  const more = slimWork(work, ['timeline', 'artifacts', 'notes'], facts, ['brief.md']);
+  assert.equal((keys(more).timeline as unknown[]).length, 40);
+  assert.deepEqual(keys(more).artifacts, ['brief.md']);
+  assert.equal(more.notes.length, 9000);
+  const full = slimWork(work, ['full'], facts, []);
+  assert.ok('decision' in full.decisions[0] && 'row' in full.stack[0]);
 });
 
 test('get_review_context reads the latest run on a PR, in the given work or any', () => {

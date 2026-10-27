@@ -399,6 +399,7 @@ test('the composer’s model and thinking start the agent, switch the live one o
   const [first] = daemon.calls.created;
   assert.deepEqual([first.config.provider, first.config.thinkingOptionId], ['claude/claude-sonnet-5-5', 'low']);
   assert.match(String(first.config.systemPrompt), /subagents on the fast model claude-sonnet-5-5/);
+  assert.match(String(first.config.systemPrompt), /\nYou run as claude\/claude-sonnet-5-5, thinking low\./);
   const conv = ask.load(String(body.id));
   assert.ok(conv);
   daemon.finish(first.id, 'Done.');

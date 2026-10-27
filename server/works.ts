@@ -117,7 +117,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents }) {
-  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> } = {};
+  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; drift?: (slug: string) => Promise<unknown> } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
@@ -363,7 +363,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     const artifacts = listArtifacts(slug);
     if (!work.archived && work.autoArchive !== false && isDone(work, prs)) setArchived(slug, true, 'auto');
     const current = (events.length || get(slug)?.archived !== work.archived ? get(slug) : work) ?? work;
-    return { ...current, prs, artifacts, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
+    return { ...current, prs, artifacts, drift: (await hooks.drift?.(slug)) ?? null, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
   }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
