@@ -679,6 +679,19 @@ orchestration layer (`server/threads.ts`):
   (`commit`, `subject`, `stat`, `approve` = the message holding its Approve) and
   the thread shows "commit abc1234 ready: Approve" above the messages, with the
   subject and diffstat. It only shows information; it applies nothing.
+- Verify before Approve. **Verify** beside the ready line (`POST
+  /api/works/<slug>/threads/<key>/verify`) runs the repo's `agentWorktree`
+  checks (lint, format, type check, tests next to the changed files) on the
+  files of the ready commit, or the open suggestion's, in the group's worktree,
+  in the background. The run is stored per sha in the thread
+  (`verifies[sha]`: `status` running | pass | fail | deps-pending, `checks`
+  with `name`, `ok`, `ms` and the last 40 lines of a failure) and streams on the
+  thread's SSE; a pass or fail is reused until a new commit. With
+  `node_modules` missing or installing the status is `deps-pending` with what
+  is happening, nothing runs and nothing is installed (a lockfile identical to
+  the main checkout's is linked; otherwise `own_deps` does the install); the
+  next click tries again. Approve shows "verified ✓" or "checks failed" and
+  stays clickable.
 - The brief. The first turn of a code group carries the work's settled
   decisions (the "Decisions (settled, do not revisit)" lines of the PR brief),
   the other findings of the same PR on the same file (title, place, status),

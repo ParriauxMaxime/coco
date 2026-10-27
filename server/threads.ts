@@ -24,6 +24,8 @@ import type { ActionContext, Card, CardBody, CardEffect, ThreadHook } from './ca
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
 import { failureText } from './agent-worktree.ts';
 import type { AgentWorktrees, Verification } from './agent-worktree.ts';
+import { reusable, verifyCommit } from './verify.ts';
+import type { VerifyRun } from './verify.ts';
 import type { Models } from './models.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
@@ -49,7 +51,8 @@ type Message = { id: string; role: string; text: string; ts: string; model?: str
 type Asked = { msgId: string; replyPath: string; cardPath: string };
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
 // sentBack: a failed check already went back to the agent since the owner's last message
-type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean; sentBack?: boolean };
+// verifies: the owner's Verify runs by commit sha
+type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean; sentBack?: boolean; verifies?: Record<string, VerifyRun> };
 type GroupBase = { id: string; model: string; thinking?: string | null; agentId: string | null; items: string[]; status: string; createdAt: string; updatedAt?: string };
 type DecisionGroup = GroupBase & { kind: 'decision'; decisionId: string; n?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
@@ -744,6 +747,35 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return { commit: fix.commit, subject: shown.stdout.trim(), stat: stat.stdout.trim(), ...(approve ? { approve: approve.id } : {}) };
   }
 
+  // the owner's Verify: the repo checks on the ready commit (else the open suggestion's) in the group's worktree, in the background; a run is kept per sha in the thread
+  // and reused until a new commit comes, except a deps-pending one, which the next click tries again
+  const verifying = new Set<string>();
+  async function verifyThread(slug: string, key: string): Promise<VerifyRun> {
+    const { work, ref } = check(slug, key);
+    if (!worktrees?.verify) throw new HttpError(400, 'coco runs no checks here');
+    const thread = read(slug, key);
+    const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
+    if (ref.kind !== 'comment' || group?.kind !== 'code' || !group.worktree) throw new HttpError(400, 'this thread has no agent worktree');
+    const open = thread.messages.findLast((m) => m.suggestion?.kind === 'commit' && isOpenSuggestion(m.suggestion))?.suggestion;
+    const commit = (await readyOf(slug, work, ref, thread))?.commit ?? (open?.kind === 'commit' ? open.commit : null);
+    if (!commit) throw new HttpError(400, 'no commit to verify');
+    const id = `${slug}:${key}:${commit}`;
+    const cached = thread.verifies?.[commit];
+    if (reusable(cached, verifying.has(id))) return cached;
+    const save = (run: VerifyRun) => withLock(`${slug}:${key}`, () => {
+      const t = read(slug, key);
+      t.verifies = { ...t.verifies, [commit]: { ...run } };
+      write(slug, t);
+    });
+    const first: VerifyRun = { commit, startedAt: new Date().toISOString(), status: 'running', checks: [] };
+    verifying.add(id);
+    await save(first);
+    verifyCommit({ prepare: worktrees.prepare, verify: worktrees.verify }, group.worktree, commit, save)
+      .catch((e) => save({ ...first, finishedAt: new Date().toISOString(), status: 'fail', note: `coco could not run the checks: ${errText(e)}`.slice(0, 500) }))
+      .finally(() => verifying.delete(id));
+    return first;
+  }
+
   // the PR worktree can take a cherry-pick when it has no tracked change and no agent is mid-turn in it
   async function prTarget(pr: ThreadPr) {
     const wt = await reviewAgent.worktreeFor(pr.head);
@@ -937,6 +969,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         await drainQueue(slug);
         return send(res, 200, summaries(slug));
       }
+      if (sub === 'verify' && req.method === 'POST') return send(res, 200, await verifyThread(slug, key));
       if (sub === 'suggestions' && req.method === 'POST') return send(res, 200, await decideSuggestion(slug, key, msgId, (await body()).action));
       if (sub === 'events' && req.method === 'GET') {
         check(slug, key);

@@ -485,3 +485,52 @@ test('a thread shows the agent commit that carries its comment trailer until it 
   assert.equal(dismissed?.commit, commit);
   assert.equal(dismissed?.approve, undefined, 'a dismissed suggestion has no Approve to point at');
 });
+
+test("the owner's Verify runs the checks on the ready commit in the group worktree: deps-pending is not cached and tries again, a finished run is reused for its sha, a new commit runs anew", async () => {
+  let commit = 'f'.repeat(40);
+  let deps: Readiness['state'] = 'preparing';
+  const exec: Exec = async (_cmd, args) => ({ ok: true, stdout: args.includes('cherry') ? '+ x\n' : args.includes('--grep') ? '' : args.includes('--no-patch') ? 'Guard\n' : args.includes('rev-parse') ? 'abc999\n' : args.includes('--name-only') ? 'src/widgets.ts\n' : '', stderr: '' });
+  const ran: string[] = [];
+  const ok = (head: string): Verification => ({ state: 'passed', at: 'now', head, files: ['src/widgets.ts'], results: [{ id: 'lint', label: 'Lint', state: 'passed', command: 'lint src/widgets.ts', ms: 12 }] });
+  const { threads, post, daemon, read, reply } = setup(undefined, {
+    prepare: async () => ({ state: deps, root: '/wt/cc-group', deps: [{ path: 'node_modules', mode: deps === 'ready' ? 'linked' : 'installing' }], checks: [] }),
+    whenReady: () => {},
+    briefLines: (r) => briefLines(r),
+    verify: async (root, { head }) => (ran.push(`${root} ${head}`), ok(head)),
+  }, () => [{ id: 'aa11', commit }], undefined, exec);
+  const call = async (method: string, sub = 'verify') => {
+    let out: { code: number; body: Record<string, unknown> } = { code: 0, body: {} };
+    const req = { method, url: `/api/works/${SLUG}/threads/${A}/${sub}`, on: () => {} } as unknown as Req;
+    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A, sub], async () => '{}', (_res, code, body) => void (out = { code, body: body as typeof out.body }));
+    return out;
+  };
+  const stored = () => (read(A) as unknown as { verifies?: Record<string, { status: string; note?: string; checks: { name: string; ok: boolean; ms: number }[] }> }).verifies;
+
+  assert.equal((await call('POST')).code, 400, 'no thread, no commit');
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  ran.length = 0;
+
+  assert.equal((await call('POST')).body.status, 'running');
+  await until(() => stored()?.[commit]?.status === 'deps-pending', 'deps-pending');
+  assert.match(stored()![commit].note ?? '', /installing the dependencies: node_modules installing/);
+  assert.deepEqual(ran, [], 'nothing ran while the deps install');
+
+  deps = 'ready';
+  await call('POST');
+  await until(() => stored()?.[commit]?.status === 'pass', 'pass');
+  assert.deepEqual(stored()![commit].checks.map((c) => [c.name, c.ok, c.ms]), [['Lint', true, 12]]);
+  assert.deepEqual(ran, [`/wt/cc-group ${commit}`]);
+
+  assert.equal((await call('POST')).body.status, 'pass');
+  assert.equal(ran.length, 1, 'cached by sha');
+
+  commit = 'e'.repeat(40);
+  await call('POST');
+  await until(() => stored()?.[commit]?.status === 'pass', 'new commit');
+  assert.equal(ran.length, 2);
+  assert.equal(Object.keys(stored()!).length, 2);
+});

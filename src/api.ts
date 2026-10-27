@@ -3,7 +3,7 @@ import type {
   DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
-  StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, Work, WorkDetail, WorkInput, WorkPlan,
+  StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
 import type { Card, CardAnswerBody, DriftResponse } from './types.ts';
@@ -91,6 +91,7 @@ export const api = {
   postThread: (slug: string, key: string, body: ThreadPostBody) => post<Thread>(`${works(slug)}/threads/${key}`, body),
   regroup: (slug: string, key: string, groupId: string) => send<Thread>('PUT', `${works(slug)}/threads/${key}`, { groupId }).then(asThread),
   suggestion: (slug: string, key: string, msgId: string, action: SuggestionAction) => post<Thread>(`${works(slug)}/threads/${key}/suggestions/${msgId}`, { action }).then(asThread),
+  verifyThread: (slug: string, key: string) => postEmpty<VerifyRun>(`${works(slug)}/threads/${key}/verify`),
   groups: (slug: string) => get<ThreadGroup[]>(`${works(slug)}/groups`),
   closeGroup: (slug: string, id: string) => postEmpty<unknown>(`${works(slug)}/groups/${id}/close`),
   findings: (slug: string, pr: string | null, fresh?: boolean, stale?: boolean) => get<FindingsResponse>(`${works(slug)}/findings?${new URLSearchParams({ ...(pr ? { pr } : {}), ...(fresh ? { fresh: '1' } : {}), ...(stale ? { stale: '1' } : {}) })}`),
