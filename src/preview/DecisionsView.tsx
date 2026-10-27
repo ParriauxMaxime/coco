@@ -152,7 +152,7 @@ export function DecisionDetail({ d, slug, pr, onOpenPr, onDecide, onReload, talk
 
 type Group = { id: string; pr?: WorkPr; rows: DecisionView[] };
 
-export default function DecisionsView({ d, onOpenPr }: { d: PreviewData; onOpenPr: (key: string) => void }) {
+export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: PreviewData; onOpenPr: (key: string) => void; onCurrentPr?: (key: string | null) => void }) {
   const all = (d.work.w?.decisions || []) as DecisionView[];
   const { summaries } = useThreadsOf(d.slug);
   const focus = useFocus((s) => s.focus);
@@ -214,6 +214,8 @@ export default function DecisionsView({ d, onOpenPr }: { d: PreviewData; onOpenP
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, current]);
+  const currentPr = current ? prOf(current) || null : null;
+  useEffect(() => { onCurrentPr?.(currentPr); }, [currentPr]);
 
   const copy = async () => {
     const ok = await navigator.clipboard.writeText(takenMarkdown(all)).then(() => true, () => false);

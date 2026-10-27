@@ -8,6 +8,7 @@ import { isLocalKey, keyLabel, reviewKeyOfTab } from '../code/ids.ts';
 import ReviewSidebar, { CHIP } from '../code/ReviewSidebar.tsx';
 import ReviewFileCard from '../code/ReviewFileCard.tsx';
 import ReviewActivity from '../code/ReviewActivity.tsx';
+import { useInspector } from '../../preview/inspector-state.ts';
 import Collapsible from '../../components/Collapsible.tsx';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { orderGroups, planNotes } from '../code/review-order.ts';
@@ -52,6 +53,8 @@ export default function Review({ tabId }: { tabId: string }) {
   const rv = useComments(slug, n);
   const desktop = useMemo(isDesktop, []);
   const active = useWorkbench((s) => s.groups.some((g) => g.active === tabId));
+  const hosted = useInspector((s) => s.hostedReview === tabId);
+  const asked = useInspector((s) => (s.jump && String(s.jump.n) === String(n) ? s.jump : null));
   const [sbs, setSbs] = useLocal('cc.sbs', innerWidth >= 1300);
   const [width, setWidth] = useLocal('cc.rv.w', 280);
   const [actWidth, setActWidth] = useLocal('cc.rv.aw', 380);
@@ -270,6 +273,11 @@ export default function Review({ tabId }: { tabId: string }) {
     goTo(path);
     setReveal({ path, line: c.startLine, side: c.side, at: Date.now() });
   }, [goTo]);
+  useEffect(() => {
+    if (!asked || !opened) return;
+    useInspector.setState({ jump: null });
+    jump(asked.c);
+  }, [asked, Boolean(opened)]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -304,7 +312,8 @@ export default function Review({ tabId }: { tabId: string }) {
   // panes that fit the group's width (a split halves it): the activity pane shrinks, then folds into the main column, then the file list does
   const room = boxW || innerWidth;
   const fitAct = Math.min(actWidth, room - width - 12 - MAIN_MIN);
-  const showAct = desktop && fitAct >= ACT_MIN;
+  const showAct = desktop && !hosted && fitAct >= ACT_MIN;
+  const foldAct = !hosted && !showAct;
   const showSide = desktop && room - width - 6 - (showAct ? fitAct + 6 : 0) >= MAIN_MIN;
   const mainW = room - (showSide ? width + 6 : 0) - (showAct ? fitAct + 6 : 0);
   const columns = [showSide && `${width}px 6px`, 'minmax(0, 1fr)', showAct && `6px ${fitAct}px`].filter(Boolean).join(' ');
@@ -331,7 +340,7 @@ export default function Review({ tabId }: { tabId: string }) {
         {showSide && sidebar}
         {showSide && handle('left')}
         <div className="rv-main" ref={mainRef} onScroll={onScroll}>
-          {!(showSide && showAct) && <div className="rv-side-m">{!showSide && sidebar}{!showAct && <Collapsible level="pm" title="Plan and activity">{activity}</Collapsible>}</div>}
+          {(!showSide || foldAct) && <div className="rv-side-m">{!showSide && sidebar}{foldAct && <Collapsible level="pm" title="Plan and activity">{activity}</Collapsible>}</div>}
           {!rv.refs && <div className="sub">{rv.error ? '' : 'Loading files…'}</div>}
           {opened && order.map((f) => (
             <ReviewFileCard

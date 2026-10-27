@@ -4,7 +4,8 @@ import { useWorkbench } from '../workbench/workbench-store.ts';
 import { WorkContext } from '../workbench/use-work.ts';
 import { api } from '../api.ts';
 import Icon from './Icon.tsx';
-import Inspector from './Inspector.tsx';
+import Inspector, { inspectorFor } from './Inspector.tsx';
+import { useInspector } from './inspector-state.ts';
 import { PreviewContext, previewTabDef } from './tabs.tsx';
 import LayoutMenu, { useWorkLayouts } from './LayoutMenu.tsx';
 import { applyLayout } from './layouts.ts';
@@ -22,6 +23,7 @@ const open = (id: string) => useWorkbench.getState().open(id);
 function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewData['work']['w']> } }; slug: string }) {
   const prefs = usePrefs();
   const groups = useWorkbench((s) => (s.slug === slug ? s.groups : []));
+  const focusedTab = useWorkbench((s) => (s.slug === slug ? s.groups.find((g) => g.id === s.focused)?.active : null)) || '';
   const [selected, setSelected] = useState<string | null>(() => {
     const first = d.prs.find((p) => !['merged', 'closed'].includes(prState(p))) || d.prs[0];
     return first ? prKey(first) : null;
@@ -51,7 +53,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
 
   const openPr = (key: string) => {
     setSelected(key);
-    if (tabDetails) open(`pr-${key}`);
+    const shown = inspectorFor(focusedTab, d.prs, key, useInspector.getState().pickedPr);
+    if (tabDetails || shown.kind !== 'pr' || shown.key !== key) open(`pr-${key}`);
     else setInspector(true);
   };
   const split = () => {
@@ -135,7 +138,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         onWaitingTab={() => open('waiting')}
       >
         <div className="dp-wb"><WorkbenchView slug={slug} data={d.work} defs={previewTabDef} /></div>
-        {showInspector && <Inspector d={d} prKey={selected} onClose={() => setInspector(false)} />}
+        {showInspector && <Inspector d={d} tabId={focusedTab} selected={selected} onClose={() => setInspector(false)} />}
       </Shell>
     </PreviewContext.Provider>
   );

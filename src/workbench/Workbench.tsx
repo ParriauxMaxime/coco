@@ -158,7 +158,7 @@ function Group({ g, groups, ctx, focused, merged, max, rect, drag }: GroupProps)
       <div className="wb-body">
         {g.tabs.map((id) => {
           const d = tabDef(id);
-          return <div key={id} className={`wb-pane ${d.flush ? 'flush' : ''}`} hidden={id !== g.active}><d.Component tabId={id} group={g.id} /></div>;
+          return <div key={id} className={`wb-pane ${d.flush ? 'flush' : ''}`} data-tab={id} hidden={id !== g.active}><d.Component tabId={id} group={g.id} /></div>;
         })}
         {drag && <DropZone g={g} drag={drag} />}
       </div>

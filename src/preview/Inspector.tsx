@@ -1,19 +1,32 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { api } from '../api.ts';
 import DispatchMenu from '../components/DispatchMenu.tsx';
 import Markdown from '../components/Markdown.tsx';
-import { PendingPermissions } from './chat/Permission.tsx';
+import { CodeRefRoot } from '../components/CodeRefs.tsx';
+import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import { focusOldestCard } from './chat/Card.tsx';
 import { PersonaChip } from '../components/PersonaChip.tsx';
 import GateRail from '../workbench/tabs/Gates.tsx';
 import KitLine from '../workbench/tabs/KitLine.tsx';
+import { briefKeyOfTab } from '../workbench/tabs/Brief.tsx';
+import { openCodeAt } from '../workbench/tabs/Code.tsx';
+import ReviewActivity from '../workbench/code/ReviewActivity.tsx';
+import { useComments } from '../workbench/code/use-comments.ts';
+import { findingsKeyOfTab, isLocalKey, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
+import type { PrKey, WorkPr } from '../workbench/types.ts';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
+import { AgentDot } from './AgentsSection.tsx';
+import { newAgentPr } from './AgentTab.tsx';
+import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import { Avatar, num, stateLabel } from './parts.tsx';
 import { DevServerPanel } from './widgets/DevServer.tsx';
 import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
-import { ago, sevClass } from './format.ts';
+import { ago, sevClass, usageLine, usageTitle } from './format.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
+import { hostReview, requestJump, useInspector } from './inspector-state.ts';
 import { isLive } from '../../server/decisions.ts';
 import { openDecision, openDecisionsOf } from './DecisionsView.tsx';
 import './stack.css';
@@ -40,18 +53,10 @@ function Sec({ title, aside, wide, children }: { title?: string; aside?: ReactNo
   );
 }
 
-export default function Inspector({ d, prKey: key, onClose, asTab }: { d: PreviewData; prKey: string | null; onClose?: () => void; asTab?: boolean }) {
+export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: string | null; asTab?: boolean }) {
   const [dispatching, setDispatching] = useState(false);
   const pr = key === null ? undefined : d.prs.find((p) => prKey(p) === key);
-  const cls = `dp-inspector${asTab ? ' dp-as-tab' : ''}`;
-  if (!pr || key === null) {
-    return (
-      <aside className={cls}>
-        {onClose && <div className="dp-ins-head"><div className="dp-row dp-g4"><span className="dp-sp" /><button type="button" className="dp-ibtn" title="Hide inspector" onClick={onClose}><Icon name="x" size={14} /></button></div></div>}
-        <div className="dp-ins-empty">Select a PR</div>
-      </aside>
-    );
-  }
+  if (!pr || key === null) return <div className="dp-ins-empty">Select a PR</div>;
   const state = prState(pr);
   const numbered = Boolean(pr.number);
   const ci = pr.ci ? CI_CHIP[pr.ci] : undefined;
@@ -66,7 +71,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
   const owners = pr.personas || [];
   const agentStatus = (id: string) => d.overview?.agents.find((a) => a.id === id)?.status;
   return (
-    <aside className={cls}>
+    <>
       <div className="dp-ins-head">
         <div className="dp-row dp-g4">
           <PrChip pr={pr} />
@@ -74,7 +79,6 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
           {ci && <span className={`dp-chip ${ci.tone}`}>{ci.label}</span>}
           <span className="dp-sp" />
           {pr.url && <a className="dp-ibtn" href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub"><Icon name="external-link" size={14} /></a>}
-          {onClose && <button type="button" className="dp-ibtn" title="Hide inspector" onClick={onClose}><Icon name="x" size={14} /></button>}
         </div>
         <h2>{prTitle(pr)}</h2>
         {branch && <div className="dp-row dp-g4 dp-xs dp-t3"><Icon name="git-branch" size={12} /><span className="dp-ell dp-mono">{branch}</span>{pr.base && <span>→ {pr.base}</span>}</div>}
@@ -157,6 +161,141 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
           </div>
         )}
       </div>
+    </>
+  );
+}
+
+function useGateCount(slug: string, n: PrKey) {
+  const [count, setCount] = useState<{ done: number; total: number } | null>(null);
+  useEffect(() => {
+    setCount(null);
+    api.gates(slug, n).then((r) => setCount({ done: r.gates.filter((g) => g.state === 'done' || g.state === 'skipped').length, total: r.gates.length }), () => {});
+  }, [slug, n]);
+  return count;
+}
+
+function PrLine({ d, n }: { d: PreviewData; n: PrKey }) {
+  const pr = d.prs.find((p) => prKey(p) === String(n));
+  const gates = useGateCount(d.slug, n);
+  const ci = pr?.ci ? CI_CHIP[pr.ci] : undefined;
+  const details = () => openTab(`pr-${n}`);
+  return (
+    <div className="dp-ins-prline">
+      {pr ? <PrChip pr={pr} onOpen={details} /> : <span className="dp-prb">{keyLabel(n)}</span>}
+      {pr && <span className={`dp-chip dp-tone dp-st-${prState(pr)}`}><span className="dp-d" />{stateLabel(pr)}</span>}
+      {ci && <span className={`dp-chip ${ci.tone}`}>{ci.label}</span>}
+      {gates && gates.total > 0 && <span className={`dp-chip${gates.done === gates.total ? ' dp-ok' : ''}`} title="Gates cleared: done or skipped">{gates.done}/{gates.total} gates</span>}
+      <span className="dp-sp" />
+      <button type="button" className="dp-linkbtn dp-ins-details" title="The PR's details in a tab" onClick={details}>Details</button>
+    </div>
+  );
+}
+
+function ReviewBody({ d, n, host }: { d: PreviewData; n: PrKey; host?: string }) {
+  const rv = useComments(d.slug, n);
+  const stacked = useMemo(() => d.prs.flatMap((p) => (typeof p.number === 'number' ? [p.number] : [])), [d.prs]);
+  const openAt = useCallback((k: PrKey, path: string, line: number | null) => openCodeAt(d.slug, k, path, line, { group: useWorkbench.getState().otherGroup() }), [d.slug]);
+  useEffect(() => {
+    if (!host) return undefined;
+    hostReview(host);
+    return () => hostReview(null);
+  }, [host]);
+  return (
+    <CodeRefRoot n={n} openAt={openAt} slug={d.slug} prs={stacked}>
+      <PrLine d={d} n={n} />
+      <div className="dp-ins-rv"><ReviewActivity slug={d.slug} n={n} rv={rv} onJump={(c) => requestJump(n, c)} /></div>
+    </CodeRefRoot>
+  );
+}
+
+function AgentBody({ d, tabId }: { d: PreviewData; tabId: string }) {
+  const agent = useWorkAgent(d.slug, tabId);
+  const serverId = useServerId(d.slug);
+  const { pending } = usePendingPermissions();
+  if (!agent) return <div className="dp-ins-empty">This agent is not listed in the work yet</div>;
+  const state = stateOf(agent, pending);
+  const paseo = d.overview?.agents.find((a) => a.id === agent.agentId);
+  const model = paseo ? [paseo.provider, paseo.thinking].filter(Boolean).join(' · ') : '';
+  const usage = usageLine(agent);
+  const pr = agent.pr === null ? undefined : d.prs.find((p) => prKey(p) === agent.pr);
+  const href = paseoLink(serverId, agent.agentId);
+  return (
+    <>
+      <div className="dp-ins-head">
+        <div className="dp-row dp-g4">
+          <AgentDot state={state} />
+          <span className="dp-chip">{agent.kind}</span>
+        </div>
+        <h2>{agent.title}</h2>
+      </div>
+      <div className="dp-ins-scroll">
+        <Sec>
+          <dl className="dp-kv" style={{ margin: 0 }}>
+            <dt>Status</dt><dd>{STATE_LABEL[state]}{agent.updatedAt && <span className="dp-t3"> · {ago(agent.updatedAt)}</span>}</dd>
+            {model && <><dt>Model</dt><dd className="dp-mono">{model}</dd></>}
+            {usage && <><dt>Usage</dt><dd title={usageTitle(agent)}>{usage}</dd></>}
+            <dt>Works on</dt>
+            <dd className="dp-ins-on">
+              {pr ? <><PrChip pr={pr} onOpen={(k) => openTab(`pr-${k}`)} /><span className="dp-ell">{prTitle(pr)}</span></>
+                : agent.pr ? prLabel(agent.pr)
+                  : <button type="button" className="dp-linkbtn dp-ins-work" onClick={() => openTab('plan')}>the whole work</button>}
+            </dd>
+          </dl>
+        </Sec>
+        <Sec title="Questions" aside={agent.openCards ? <span className="dp-count">{agent.openCards}</span> : <span className="dp-t4" style={{ fontWeight: 400 }}>none waiting</span>}>
+          {agent.openCards > 0 && <button type="button" className="dp-btn dp-sm dp-ins-oldest" onClick={() => focusOldestCard(tabId)}><span className="dp-ag-dot dp-ag-waiting" />Jump to the oldest<Icon name="chevron-down" size={12} /></button>}
+        </Sec>
+      </div>
+      {href && <div className="dp-ins-actions"><a className="dp-btn" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} />Open in Paseo</a></div>}
+    </>
+  );
+}
+
+export type Subject = { title: string } & (
+  | { kind: 'pr'; key: string | null }
+  | { kind: 'review'; n: PrKey; host?: string }
+  | { kind: 'agent'; tabId: string }
+  | { kind: 'note'; text: string }
+);
+
+const isAgentTab = (id: string) => id.startsWith('ag-') || (id.startsWith('ask-') && !newAgentPr(id));
+
+export function inspectorFor(tabId: string, prs: WorkPr[], selected: string | null, picked: Record<string, string | null>): Subject {
+  const review = reviewKeyOfTab(tabId);
+  if (review !== null) return { kind: 'review', title: 'Review activity', n: review, host: tabId };
+  if (isAgentTab(tabId)) return { kind: 'agent', title: 'Agent', tabId };
+  if (tabId.startsWith('pr-')) {
+    const n = reviewKeyOfTab(`review-${tabId.slice(3)}`);
+    const row = prs.find((p) => prKey(p) === tabId.slice(3));
+    if (n !== null && (row?.number || isLocalKey(n))) return { kind: 'review', title: 'Review activity', n };
+    return { kind: 'note', title: 'PR', text: 'Not opened yet: the tab holds all there is' };
+  }
+  const list = tabId === 'findings' || tabId === 'decisions' ? picked[tabId] : null;
+  if (list) return { kind: 'pr', title: tabId === 'findings' ? 'PR of the selected finding' : 'PR of the selected decision', key: list };
+  const own = prOfTab(tabId) ?? findingsKeyOfTab(tabId) ?? newAgentPr(tabId) ?? (tabId.startsWith('brief-') ? briefKeyOfTab(tabId) : null);
+  if (own !== null) return { kind: 'pr', title: 'PR of this tab', key: String(own) };
+  return { kind: 'pr', title: 'Selected in the stack', key: selected };
+}
+
+function Body({ d, s }: { d: PreviewData; s: Subject }) {
+  if (s.kind === 'review') return <ReviewBody d={d} n={s.n} host={s.host} />;
+  if (s.kind === 'agent') return <AgentBody d={d} tabId={s.tabId} />;
+  if (s.kind === 'note') return <div className="dp-ins-empty">{s.text}</div>;
+  return <PrDetails d={d} prKey={s.key} />;
+}
+
+export default function Inspector({ d, tabId, selected, onClose }: { d: PreviewData; tabId: string; selected: string | null; onClose: () => void }) {
+  const picked = useInspector((s) => s.pickedPr);
+  const subject = inspectorFor(tabId, d.prs, selected, picked);
+  const key = subject.kind === 'pr' ? `pr:${subject.key}` : subject.kind === 'review' ? `rv:${subject.n}:${subject.host}` : tabId;
+  return (
+    <aside className="dp-inspector">
+      <div className="dp-ins-bar">
+        <span className="dp-ell">{subject.title}</span>
+        <span className="dp-sp" />
+        <button type="button" className="dp-ibtn dp-ins-close" title="Hide inspector  ⌘I" onClick={onClose}><Icon name="x" size={14} /></button>
+      </div>
+      <Body key={key} d={d} s={subject} />
     </aside>
   );
 }

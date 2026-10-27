@@ -86,7 +86,7 @@ function Detail({ r, bucket, pr, onAct, busy, pending }: { r: FindingRow; bucket
   );
 }
 
-export default function FindingsView({ d, onOpenPr, onReload }: { d: PreviewData; onOpenPr: (key: string) => void; onReload: () => void }) {
+export default function FindingsView({ d, onOpenPr, onReload, onCurrentPr }: { d: PreviewData; onOpenPr: (key: string) => void; onReload: () => void; onCurrentPr?: (key: string | null) => void }) {
   const rows = d.findings?.rows || [];
   const left = d.findings?.left || ['new', 'open', 'sent', 'outdated'];
   const [status, setStatus] = useState<Bucket>('open');
@@ -141,6 +141,8 @@ export default function FindingsView({ d, onOpenPr, onReload }: { d: PreviewData
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, current, busy, importing]);
+  const currentPr = current ? nOf(current) || null : null;
+  useEffect(() => { onCurrentPr?.(currentPr); }, [currentPr]);
 
   const prFilterIds = Object.keys(prCounts).sort((a, b) => d.prs.findIndex((p) => prKey(p) === a) - d.prs.findIndex((p) => prKey(p) === b));
 

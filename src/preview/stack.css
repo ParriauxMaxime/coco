@@ -35,6 +35,14 @@
 .dp-inspector .dp-ins-actions { position: relative; }
 .dp-inspector .dp-ins-actions .dp-pop { right: 14px; bottom: 50px; left: 14px; width: auto; display: block; padding: 8px; }
 .dp-inspector .dp-gates-box, .dp-inspector .dp-kit-box { min-width: 0; }
+.dp-ins-bar { flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--dp-line); font-size: 11.5px; font-weight: 600; color: var(--dp-t3); }
+.dp-ins-prline { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 14px; border-bottom: 1px solid var(--dp-line); }
+.dp-ins-prline > * { flex: none; }
+.dp-ins-prline > .dp-sp { flex: 1; }
+.dp-ins-rv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dp-ins-rv .rv-act { flex: 1; min-height: 0; padding: 10px 14px; background: none; }
+.dp-inspector .dp-kv .dp-ins-on { display: flex; align-items: center; gap: 6px; }
+.dp-ins-oldest { gap: 6px; }
 
 .dp-inspector.dp-as-tab { width: auto; flex: 1; border-left: 0; height: 100%; }
 .dp-inspector.dp-as-tab .dp-ins-head { padding: 16px 24px 12px; }

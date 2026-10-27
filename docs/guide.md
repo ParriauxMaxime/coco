@@ -117,7 +117,8 @@ one pick per row, the rationale box, Take decision or Reopen, Archive or
 Unarchive, and its thread with the thread agent's cards. "Copy taken as
 markdown" sits in the header. An Overview open decision opens it there, and
 the PR inspector lists the PR's decisions (its count opens the view filtered
-to that PR). The Review tab's activity pane shows the same detail inline.
+to that PR). The Review tab's activity feed (in the inspector, or its own
+pane) shows the same detail inline.
 
 `title`, `question` and option `label` stay short plain text: they are the
 scannable view. The explanation goes in the card, not in the Plan
@@ -992,6 +993,20 @@ Colours go through the CSS variables in `src/styles.css` (dark values under `htm
     group. `#/work/<slug>` restores the saved layout. The layout tree (splits,
     sizes, groups, focus, max) is saved per work in `localStorage`
     `cc.wb.<slug>`; the older two-group format is migrated on load.
+  - Inspector (right panel, `Cmd/Ctrl+I` or × hides it): it follows the
+    focused group's active tab, its bar naming what it shows. `review-<n>`:
+    a one-line PR header (#n, state and CI chips, gates cleared as "3/12
+    gates", Details opens `pr-<n>`) over the review plan and activity feed,
+    and the Review tab drops its own activity pane so the diff takes the
+    width; a location in the feed opens that Review tab at the line.
+    `pr-<n>` (the details already fill the tab): the same plan and feed, the
+    one thing the tab lacks. Agent tabs (`ag-…`, `ask-…`): status, model,
+    usage, the PR it works on, its open questions with a jump to the oldest,
+    Open in Paseo. `diff-`, `file-`, `findings-<n>`, `brief-<n>` and
+    `ask-new-<n>`: that PR. Findings and Decisions: the PR of the selected
+    item. Anything else, or a whole-work item: the PR selected in the Stack.
+    Hidden, or with details as tabs (narrow window, "PR details: Tab"), the
+    Review tab shows its activity pane again.
   - Notes: title (100 characters), description and notes in markdown
     (Write or Preview; double-click a preview to edit), and the stack order
     as PR numbers in merge order, planned rows kept after them. Each section

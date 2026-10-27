@@ -287,15 +287,17 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
   );
 }
 
+export const focusCard = (el: Element | null) => {
+  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el?.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button')?.focus({ preventScroll: true });
+};
+export const focusOldestCard = (tabId: string) => focusCard(document.querySelector(`.wb-pane[data-tab="${CSS.escape(tabId)}"] .dp-cd.dp-attn`));
+
 // the open cards of a view, as one pointer by the composer that scrolls to the oldest
 export function CardsWaiting({ cards }: { cards: Card[] }) {
   const open = cards.filter((c) => c.status === 'open' && c.kind !== 'post');
   if (!open.length) return null;
-  const go = () => {
-    const el = document.getElementById(cardDomId(open[0].id));
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el?.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button')?.focus({ preventScroll: true });
-  };
+  const go = () => focusCard(document.getElementById(cardDomId(open[0].id)));
   return (
     <div className="dp-cd-wait">
       <button type="button" className="dp-btn dp-sm dp-cd-waitb" onClick={go}>

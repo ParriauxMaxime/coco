@@ -13,7 +13,8 @@ import { agentOf, prLabel, stateOf, useWorkAgent } from './agents.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import StackView from './StackView.tsx';
-import Inspector from './Inspector.tsx';
+import { PrDetails } from './Inspector.tsx';
+import { pickPr } from './inspector-state.ts';
 import OverviewView from './OverviewView.tsx';
 import FindingsView from './FindingsView.tsx';
 import DecisionsView, { decisionCounts } from './DecisionsView.tsx';
@@ -42,11 +43,11 @@ function StackTab() {
 }
 function FindingsTab() {
   const { d, openPr } = usePreview();
-  return <div className="dp-tabview"><FindingsView d={d} onOpenPr={openPr} onReload={() => { d.work.load(); }} /></div>;
+  return <div className="dp-tabview"><FindingsView d={d} onOpenPr={(k) => { pickPr('findings', k); openPr(k); }} onCurrentPr={(k) => pickPr('findings', k)} onReload={() => { d.work.load(); }} /></div>;
 }
 function DecisionsTab() {
   const { d, openPr } = usePreview();
-  return <div className="dp-tabview"><DecisionsView d={d} onOpenPr={openPr} /></div>;
+  return <div className="dp-tabview"><DecisionsView d={d} onOpenPr={(k) => { pickPr('decisions', k); openPr(k); }} onCurrentPr={(k) => pickPr('decisions', k)} /></div>;
 }
 function NotesTab() {
   const { d } = usePreview();
@@ -58,7 +59,7 @@ function ArtifactsTab({ group }: { group: number }) {
 }
 function PrTab({ tabId }: { tabId: string }) {
   const { d } = usePreview();
-  return <div className="dp-tabview"><Inspector d={d} prKey={tabId.slice(3)} asTab /></div>;
+  return <div className="dp-tabview"><aside className="dp-inspector dp-as-tab"><PrDetails d={d} prKey={tabId.slice(3)} asTab /></aside></div>;
 }
 const WaitingTab = () => <PendingPermissions withWhere />;
 
