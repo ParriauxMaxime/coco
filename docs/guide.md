@@ -797,6 +797,21 @@ config (docs/configuration.md); without it nothing changes.
   worktrees of active code groups and tracked agents, so an install a
   restart cut short starts over and its agent hears when done.
 
+### Preflight (kit-video dispatches)
+
+A `gate:kit-video:*` dispatch first runs cheap checks (`server/preflight.ts`):
+the PR worktree's deps, its dev server (crashed, or running mid
+`node_modules` swap), the configured MCP endpoints, the LLM key and
+`settings-local.json`, and any configured fixture probes. The Dispatch menu
+and the Ask dispatch card show it before you approve: ticks, or red lines with
+the fix, and the button reads "Start anyway". Red checks go in the agent's
+first message as "Known blockers" with a pointer to the skill's "When a beat
+is blocked" ladder. It only reports: nothing is fixed or started, and the key
+is checked for existence, never read. Cached 60 s per PR.
+`GET /api/works/<slug>/preflight?entry=&key=[&fresh=1]` returns
+`{ checks: [{ name, ok, detail, fix }], at }`. Settings: `preflight`
+([configuration.md](configuration.md#preflight)).
+
 ## Review runs
 
 Agents (and, before threads, the hub) start a run with

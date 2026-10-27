@@ -105,6 +105,8 @@ type AskOptions = {
   place?: (scope: AskScope, pr?: RowKey | null) => Promise<{ workspaceId: string; cwd: string }>;
   // starts what a dispatch call proposed, once the owner confirms it
   dispatch?: (slug: string, input: { entry: string; key?: number | string; prompt?: string; persona?: string; edits?: boolean }) => Promise<{ title: string; agentId: string | null }>;
+  // the preflight of a dispatch (null: none for this entry), shown on its card before the owner approves
+  preflight?: (slug: string, entry: string, key: RowKey) => Promise<{ checks: { name: string; ok: boolean; detail: string; fix: string }[] } | null>;
   // adds what a propose_repo call proposed, once the owner confirms it
   addRepo?: (source: string) => Promise<AddRepoResult>;
   uploads?: Uploads;
@@ -178,7 +180,7 @@ const repoAdded = (r: AddRepoResult) => [
   r.setup?.error ? `setup run failed: ${r.setup.error}` : r.setup?.agentId ? `setup run ${r.setup.agentId.slice(0, 8)} proposes its config` : null,
 ].filter(Boolean).join(' · ');
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo, uploads = createUploads({ DATA }), cards, models }: AskOptions) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, preflight, addRepo, uploads = createUploads({ DATA }), cards, models }: AskOptions) {
   const repos = config.repos || [];
   const where = async (scope: AskScope, pr: RowKey | null = null) => {
     if (place) return place(scope, pr);
@@ -558,7 +560,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       posted: (card) => proposed(card, { kind: 'agent', title: String(card.action?.input.title) }),
     },
     dispatch: {
-      card: (raw, ctx) => {
+      card: async (raw, ctx) => {
         const slug = convOf(ctx.agentId)?.workSlug || opt(raw.workSlug, 80, 'workSlug') || ctx.work;
         if (!dispatch) throw new Error('this coco cannot dispatch');
         if (!slug) throw new Error('a dispatch needs a work: pass workSlug');
@@ -568,7 +570,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         const on = p.pr == null ? 'the whole work' : key == null ? String(p.pr) : keyLabel(key);
         const blocks: Raw[] = [{ type: 'text', text: `work \`${slug}\` · on ${on}${p.persona ? ` · as \`${p.persona}\`` : ''}${p.edits ? ' · works on the PR branch' : ''}` }];
         if (p.prompt) blocks.push({ type: 'code', code: cut(p.prompt, 4000), caption: 'Prompt' });
-        return { input: p, card: { kind: 'confirm', title: cut(`Start agent: ${p.entry} on ${on}`, 120), question: p.why, blocks, confirmLabel: 'Start agent' } };
+        const pre = key == null ? null : await preflight?.(slug, p.entry, key).catch(() => null);
+        if (pre?.checks.length) blocks.push({ type: 'table', caption: 'Preflight', columns: ['', 'Check', 'Detail'], rows: pre.checks.map((c) => [{ text: c.ok ? '✓' : '✕', tone: c.ok ? 'ok' : 'risk' }, c.name, c.ok ? c.detail : `${c.detail}. Fix: ${c.fix}`]) });
+        const red = pre?.checks.some((c) => !c.ok);
+        return { input: p, card: { kind: 'confirm', title: cut(`Start agent: ${p.entry} on ${on}`, 120), question: p.why, blocks, confirmLabel: red ? 'Start anyway' : 'Start agent' } };
       },
       run: async (card) => {
         const p = dispatchOf(card.action?.input ?? {}, String(card.action?.input.workSlug));

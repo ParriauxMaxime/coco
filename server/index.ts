@@ -25,6 +25,8 @@ import { createBriefs, renderBrief } from './briefs.ts';
 import { createRules } from './rules.ts';
 import { createGates, gatesFor, skillName } from './gates.ts';
 import { createDispatch } from './dispatch.ts';
+import { createPreflight, isVideoEntry } from './preflight.ts';
+import { parseKey } from './stack.ts';
 import { createBriefWriter } from './brief-writer.ts';
 import { createStackKeeper, needsKeeping } from './stack-keeper.ts';
 import { createInbox } from './inbox.ts';
@@ -94,7 +96,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), preflight: async (slug, entry, key) => (isVideoEntry(entry) ? preflight.run(slug, key) : null), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -126,7 +128,8 @@ const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan, agents: paseoAgents });
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
-const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models });
+const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
+const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan });
@@ -469,6 +472,12 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'agent-chat' && b === 'subagents') return subagents.handle(req, res, parts, send);
     if ((root === 'works' && b === 'agents') || root === 'agent-chat') return workAgents.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
+    if (root === 'works' && b === 'preflight' && req.method === 'GET') {
+      const key = parseKey(url.searchParams.get('key'));
+      const entry = url.searchParams.get('entry') || '';
+      if (key === null || !isVideoEntry(entry)) return send(res, 200, { checks: [] });
+      return send(res, 200, await preflight.run(a, key, { fresh: url.searchParams.has('fresh') }));
+    }
     if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);
     if (root === 'purge') return purge.handle(req, res, parts, readBody, send);
     if (root === 'agent-worktree' && a === 'own-deps' && req.method === 'POST') {

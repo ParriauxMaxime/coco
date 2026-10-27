@@ -1,6 +1,6 @@
 import type {
   AddRepoResult, AgentLog, AgentsResponse, AskRun, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
-  DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
+  DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, PreflightResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, LinkedAgent, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
@@ -105,6 +105,7 @@ export const api = {
   gates: (slug: string, n: string | number) => get<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}`),
   gateAction: (slug: string, n: string | number, id: string, body: GateActionBody) => post<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}/${id}`, body),
   dispatchCatalog: (slug: string) => get<{ catalog: DispatchEntry[] }>(`${works(slug)}/dispatch`),
+  preflight: (slug: string, entry: string, key: string | number, fresh = false) => get<PreflightResult>(`${works(slug)}/preflight?entry=${encodeURIComponent(entry)}&key=${encodeURIComponent(String(key))}${fresh ? '&fresh=1' : ''}`),
   dispatch: (slug: string, body: DispatchBody) => postJson(`${works(slug)}/dispatch`, body).then(jsonOrError<DispatchResult>),
   stackKeeper: (slug: string) => get<KeepPlan>(`${works(slug)}/stack-keeper`),
   stackKeeperAction: (slug: string, action: string) => postEmpty<KeepApplied & KeepPlan>(`${works(slug)}/stack-keeper/${action}`),

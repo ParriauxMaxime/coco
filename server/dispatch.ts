@@ -11,6 +11,8 @@ import type { Readier } from './review-agent.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 import type { Models } from './models.ts';
+import { isVideoEntry } from './preflight.ts';
+import type { Preflight } from './preflight.ts';
 
 export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'gate' | 'prompt';
 export type CatalogEntry = { id: string; kind: DispatchKind; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
@@ -32,6 +34,8 @@ type Deps = {
   repoOf?: (work: Work) => RepoConfig | null | undefined;
   readier?: Readier;
   models?: Pick<Models, 'check'>;
+  // a kit-video run's known blockers go in its first message (server/preflight.ts)
+  preflight?: Pick<Preflight, 'run' | 'briefLines'>;
 };
 
 const PROMPT_MAX = 8000;
@@ -72,7 +76,7 @@ export function firstMessage({ title, task, edits, brief, read }: { title: strin
   return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
-export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models }: Deps) {
+export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models, preflight }: Deps) {
   const repoFor = (work: Work) => repoOf?.(work) || null;
   const repoIdOf = (work: Work) => repoFor(work)?.id || work.repo || null;
   const entriesFor = (work: Work) => catalog(config, repoFor(work));
@@ -172,7 +176,8 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const task = taskOf(entry, slug, key, { prompt, persona, args });
     const { brief, read, written } = await briefOf(work, { key, title, label: entry.label, edits, task, ...(entry.kind === 'persona-review' ? { persona } : {}) });
     const setup = edits && readier ? await readier.ready(placed.cwd).catch(() => []) : [];
-    const message = [firstMessage({ title, task, edits, brief, read }), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();
+    const known = preflight && key !== null && isVideoEntry(entry.id) ? await preflight.run(slug, key).then((r) => preflight.briefLines(r, entry.skill || ''), () => []) : [];
+    const message = [firstMessage({ title, task, edits, brief, read }), ...(known.length ? ['', ...known] : []), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();
     const labels: Record<string, unknown> = { source: 'cocopilot', kind: 'dispatch', dispatch: entry.id, work: slug, ...(key === null ? {} : { pr: fileKey(key) }) };
     const started = await agents.start({ title, provider, thinking, prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
     if (edits) readier?.started(started.agentId, placed.cwd, { slug, key });

@@ -33,10 +33,18 @@ export type DepsEntry = { path: string; lockfile?: string; install?: string[]; o
 // needs: worktree paths without which the check cannot run
 export type CheckDef = { id: string; label: string; command: string[]; fix?: string[]; cwd?: string; files?: string; needs?: string[]; timeoutSeconds?: number };
 export type AgentWorktreeConfig = { mainCheckout?: string; deps: DepsEntry[]; checks: CheckDef[] };
+// the preflight run before a kit-video dispatch (docs/configuration.md, "Preflight"): mcp = endpoints that must answer (http(s) URL or tcp://host:port);
+// llmKey = env vars, else a settings file's dotted paths, one of which must hold a value (only its existence is read); probes = argv commands, none by default
+export type PreflightConfig = {
+  mcp?: { name: string; url: string; fix?: string }[];
+  settingsFile?: string;
+  llmKey?: { env?: string[]; paths?: string[]; fix?: string };
+  probes?: { name: string; command: string[]; cwd?: string; timeoutSeconds?: number; fix?: string }[];
+};
 
 export type RepoIdentity ={ path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
 // settings that belong to a repo; one left out falls back to the top-level value
-export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree'] as const;
+export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree', 'preflight'] as const;
 export type RepoSettings = Partial<Pick<Config, (typeof REPO_SETTINGS)[number]>>;
 export type RepoConfig = RepoIdentity & { id: string; name: string; settings: RepoSettings };
 
@@ -67,6 +75,8 @@ export interface Config {
   featureFlags: { provider?: string } | null;
   // how coco readies the worktree of an agent that writes code, and the checks it runs on its commits (docs/guide.md, "Agent worktrees")
   agentWorktree: AgentWorktreeConfig | null;
+  // checks shown on a kit-video dispatch and injected in its brief as known blockers; null: the built-in ones (lemlist repos get lemlist defaults)
+  preflight: PreflightConfig | null;
   // where a repo added by its GitHub slug is looked for, then cloned; empty: the folder holding the default repo's clone
   cloneDir: string;
   // the work that owns cocopilot itself, where flag_coco_issue files the changes users ask of coco; empty: the work whose repo is cocopilot
@@ -111,6 +121,7 @@ export const DEFAULTS: Config = {
   rituals: [],
   featureFlags: null,
   agentWorktree: null,
+  preflight: null,
   cloneDir: '',
   cocoWork: '',
 };
