@@ -39,6 +39,8 @@
 .dp .diagram-stage { background: var(--dp-subtle); }
 
 .dp-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.dp label:has(> .dp-vh) { position: relative; }
+html:has(> body .dp) { overflow: hidden; }
 .dp label:has(> .dp-vh:focus-visible) { box-shadow: inset 0 0 0 2px var(--dp-focus); }
 
 .dp .dp-btn.pending { position: relative; color: transparent; pointer-events: none; }
