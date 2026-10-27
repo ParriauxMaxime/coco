@@ -72,7 +72,7 @@ export function loadReview(slug: string, n: PrKey, { fresh = false }: { fresh?: 
         await reviewApi.reanchor(slug, n, { headSha: refs.headSha, mergeBase: refs.mergeBase });
         data = await reviewApi.comments(slug, n);
       }
-      put(slug, n, () => ({ refs, plan, comments: data.comments, headSha: data.headSha, mergeBase: data.mergeBase, runs: runs.runs || [], error: '', loaded: true }));
+      put(slug, n, () => ({ refs, plan, comments: data.comments.filter((c: ReviewComment) => !c.kind), headSha: data.headSha, mergeBase: data.mergeBase, runs: runs.runs || [], error: '', loaded: true }));
     } catch (e) {
       put(slug, n, () => ({ error: e instanceof Error ? e.message : String(e), loaded: true }));
     } finally {

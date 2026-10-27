@@ -7,14 +7,16 @@ const dec = (s: string) => { try { return decodeURIComponent(s); } catch { retur
 
 export const toHash = (slug: string, tabId: string, max: boolean) => `#/work/${slug}/${encodeURIComponent(tabId)}${max ? '/max' : ''}`;
 
-type ParsedHash = { slug: string; legacy?: string; tabId?: string; max?: boolean };
+type ParsedHash = { slug: string; legacy?: string; tabId?: string; max?: boolean; finding?: string };
 
+// #/work/<slug>/<tabId>[/max][/f-<commentId>]: the Findings tab opens with that finding selected
 export function parseHash(hash: string): ParsedHash | null {
-  const [root, slug, t, x] = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(dec);
+  const [root, slug, t, ...rest] = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(dec);
+  const x = rest[0];
   if (root !== 'work' || !slug || slug === 'new') return null;
   if (t === 'plan' && PANE.test(x || '')) return { slug, legacy: x };
   if (!TAB.test(t || '')) return { slug };
-  return { slug, tabId: t, max: x === 'max' };
+  return { slug, tabId: t, max: rest.includes('max'), finding: rest.find((p) => p.startsWith('f-'))?.slice(2) };
 }
 
 const focusedTab = (s: WorkbenchState) => s.groups.find((g) => g.id === s.focused)?.active || 'plan';

@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import { catalog } from './dispatch.ts';
+import { rowKey } from './stack.ts';
 import { readPrFindings, readReviewContext } from './review-context.ts';
 
 const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -314,6 +315,35 @@ server.tool('upsert_finding', `Post one code-review finding to ${OWNER}'s Findin
   if (!at) return refused(`no sha: cannot read the refs of ${t.pr}; pass sha`);
   const r = await coco('POST', base, { path: file, side, sha: at, startLine, endLine, ...fields });
   return r.ok ? text({ id: r.data.id, created: true, sha: r.data.sha, board }) : refused(`finding refused: ${r.error}`);
+});
+
+server.tool('flag_coco_issue', `Flag a change ${OWNER} asks of cocopilot itself ("coco should read local head, not origin") as a finding on the cocopilot work, then answer with the returned url. Use it instead of saying another session owns it; change no coco code from another work. The same title updates the existing finding. A refused finding names the bad field.`, {
+  title: z.string().max(100).describe('row label, ~70 chars: what coco should do differently'),
+  severity: z.enum(['blocking', 'major', 'minor', 'nit']).describe('blocking: coco unusable · major: wrong behaviour hit often · minor: friction · nit: polish'),
+  summary: z.string().max(400).describe('the change asked, one or two sentences: current behaviour, wanted behaviour'),
+  quote: z.string().max(600).describe(`${OWNER}'s own words, verbatim`),
+}, async ({ quote, ...fields }) => {
+  const w = listWorks().find((x) => (config.cocoWork ? x.slug === config.cocoWork : x.repo === 'cocopilot'));
+  const row = rowKey(w?.stack?.[0]);
+  if (!w || !row) return refused(`no cocopilot work with a first row: ${config.cocoWork ? `cocoWork "${config.cocoWork}" not found` : 'set cocoWork in coco.config.json'}`);
+  const here = await myPlace();
+  const rich = {
+    ...fields,
+    blocks: [{ type: 'callout', tone: 'note', title: `${OWNER} said`, text: quote }],
+    sources: [{ label: `Reported by agent ${AGENT_ID?.slice(0, 8) ?? '?'}${here.work ? ` in ${here.work}${here.pr ? ` ${here.pr}` : ''}` : ''}`, ...(here.work && AGENT_ID ? { url: `#/work/${here.work}/ag-${AGENT_ID}` } : {}) }],
+  };
+  const base = `/api/works/${encodeURIComponent(w.slug)}/prs/${rowParam(row)}/comments`;
+  const link = (id: string) => `${config.baseUrl}/#/work/${w.slug}/findings-${row}/f-${id}`;
+  const list = await coco('GET', base);
+  if (!list.ok) return refused(`issue refused: ${list.error}`);
+  const stored = Array.isArray(list.data.comments) ? (list.data.comments as { id: string; kind?: string; title?: string }[]) : [];
+  const existing = stored.find((c) => c.kind === 'issue' && c.title?.trim() === fields.title.trim())?.id;
+  if (existing) {
+    const r = await coco('PUT', `${base}/${encodeURIComponent(existing)}`, rich);
+    return r.ok ? text({ id: existing, updated: true, url: link(existing) }) : refused(`issue refused: ${r.error}`);
+  }
+  const r = await coco('POST', base, { kind: 'issue', author: 'coco-issue', from: { agent: AGENT_ID, work: here.work, pr: here.pr }, ...rich });
+  return r.ok ? text({ id: r.data.id, created: true, url: link(String(r.data.id)) }) : refused(`issue refused: ${r.error}`);
 });
 
 server.tool('upsert_decision', `Write a decision card on a work: an open product or tech choice with options that ${OWNER} takes on the Decisions tab, instead of asking in chat. Merged into the card with that id, or added as a new pending card; a choice ${OWNER} already took stays. Evidence goes in summary, blocks and sources like a finding. A refused card names the bad field.`, {

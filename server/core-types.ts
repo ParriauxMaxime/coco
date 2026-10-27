@@ -191,6 +191,9 @@ export type Comment = {
   recommendation?: string | null;
   blocks?: Block[] | null;
   sources?: Source[];
+  // an unanchored finding (flag_coco_issue): no path, sha or lines; from is the agent that raised it
+  kind?: 'issue';
+  from?: { agent: string | null; work: string | null; pr: string | null };
 };
 export type CommentFile = { number: RowKey; headSha: string | null; mergeBase: string | null; comments: Comment[] };
 export type CommentUpdate = { status?: CommentStatus; runId?: string | number | null; resolution?: Resolution | null };
@@ -216,7 +219,7 @@ export type AgentComment = {
 };
 
 export type Refs = { number: RowKey; branch?: string; headSha: string; baseSha: string; mergeBase: string };
-export type RefsOptions = { headSha?: string; baseSha?: string; baseRef?: string; fresh?: boolean };
+export type RefsOptions = { headSha?: string; baseSha?: string; baseRef?: string; headRef?: string; fresh?: boolean };
 export type PrFile = { filename: string; status: string; previous?: string; additions: number; deletions: number };
 
 export type Works = Pick<ReturnType<typeof createWorks>, 'get' | 'list' | 'save' | 'prInfo' | 'remark' | 'personasForPaths'>;

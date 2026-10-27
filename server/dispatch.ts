@@ -27,7 +27,7 @@ type Deps = {
   agents: { start(opts: Record<string, unknown>): Promise<{ agentId: string; workspaceId?: string | null }> };
   briefs: { context(slug: string, raw: string): Promise<BriefContext> };
   reviewAgent: { start(slug: string, key: unknown, input: { commentIds: string[]; provider?: string; thinking?: string; wrap?: (prompt: string) => string }): Promise<{ runId: string; agentId: string }>; timeline(slug: string, kind: string, text: string): void };
-  comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string }[] } };
+  comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string; kind?: string }[] } };
   writer: { write(d: BriefDispatch, facts: string | null): Promise<Written>; track(run: { agentId: string | null | undefined; slug: string; repoId: string | null; title: string; message: string }): void };
   repoOf?: (work: Work) => RepoConfig | null | undefined;
   readier?: Readier;
@@ -156,7 +156,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
 
     if (entry.kind === 'fix-findings' && key !== null) {
       const given = Array.isArray(input.commentIds) ? input.commentIds.filter((x): x is string => typeof x === 'string') : [];
-      const commentIds = given.length ? given : (comments.list(slug, key).comments || []).filter((c) => c.status === 'open').map((c) => c.id);
+      const commentIds = given.length ? given : (comments.list(slug, key).comments || []).filter((c) => c.status === 'open' && !c.kind).map((c) => c.id);
       if (!commentIds.length) throw new HttpError(400, `no open finding to fix on ${keyLabel(key)}`);
       const task = `Fix the review findings ${commentIds.join(', ')} of ${keyLabel(key)}; their text comes with the task.`;
       const { brief, written } = await briefOf(work, { key, title, label: entry.label, edits: true, task });

@@ -9,6 +9,7 @@ import { toast } from '../components/Toast.tsx';
 import { pendingClass } from '../components/action.ts';
 import { api, errorMessage } from '../api.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
+import { parseHash } from '../workbench/hash.ts';
 import { openCodeAt, useLocal } from '../workbench/tabs/Code.tsx';
 import Icon from './Icon.tsx';
 import ImportReview from './ImportReview.tsx';
@@ -320,6 +321,25 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     setPick(text);
     setPicked(new Set(parsePick(text).flatMap((i) => order[i - 1]?.key ?? [])));
   };
+
+  // a deep link (#/work/<slug>/findings-<pr>/f-<commentId>) selects that finding once, and again when the link changes
+  const linked = useRef<string | null>(null);
+  useEffect(() => {
+    const go = () => {
+      const id = parseHash(location.hash)?.finding;
+      const r = id && id !== linked.current ? rows.find((x) => x.commentId === id) : undefined;
+      if (!r) return;
+      linked.current = r.commentId ?? null;
+      if (hidden.includes(r.source)) setHidden(hidden.filter((s) => s !== r.source));
+      setPrFilter((p) => (p === null ? p : nOf(r)));
+      setStatus(bucketOf(r, left));
+      setSel(r.key);
+    };
+    const relink = () => { linked.current = null; go(); };
+    go();
+    addEventListener('hashchange', relink);
+    return () => removeEventListener('hashchange', relink);
+  }, [rows]);
 
   useEffect(() => {
     const list = root.current?.querySelector('.dp-fi-list');

@@ -172,7 +172,44 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
   const twin = (c: Parameters<typeof blocksToMarkdown>[0]) => blocksToMarkdown(c).slice(0, MAX_BODY);
 
   const isLine = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 1;
+  // an unanchored finding (flag_coco_issue): no path, sha or lines, so reanchor and the code view leave it alone
+  async function addIssue(slug: string, n: unknown, input: Input) {
+    const { title, from, author = ME } = input;
+    if (typeof title !== 'string' || !title.trim() || title.length > MAX_TITLE) throw new HttpError(400, `title must be 1-${MAX_TITLE} chars`);
+    const rich = await richOf(input, '');
+    const body = rich.blocks && !input.body ? twin(rich) : input.body;
+    if (typeof body !== 'string' || !body.trim() || body.length > MAX_BODY) throw new HttpError(400, `body or blocks required, ${MAX_BODY} chars at most`);
+    const f = (from && typeof from === 'object' ? from : {}) as Record<string, unknown>;
+    const str = (x: unknown) => (typeof x === 'string' && x ? x.slice(0, 200) : null);
+    const now = new Date().toISOString();
+    const comment: Comment = {
+      id: crypto.randomBytes(6).toString('hex'),
+      kind: 'issue',
+      path: '',
+      side: 'head',
+      sha: '',
+      startLine: 0,
+      endLine: 0,
+      snippet: '',
+      ctxBefore: [],
+      ctxAfter: [],
+      body,
+      author: typeof author === 'string' && /^[\w.-]{1,40}$/.test(author) ? author : ME,
+      createdAt: now,
+      updatedAt: now,
+      status: 'open',
+      runId: null,
+      resolution: null,
+      title: title.trim(),
+      from: { agent: str(f.agent), work: str(f.work), pr: str(f.pr) },
+      ...(isSeverity(input.severity) ? { severity: input.severity } : {}),
+      ...rich,
+    };
+    return mutate(slug, n, (data) => (data.comments.push(comment), comment));
+  }
+
   async function add(slug: string, n: unknown, input: Input = {}) {
+    if (input.kind === 'issue') return addIssue(slug, n, input);
     const { path: p, side = 'head', sha, startLine, endLine, author = ME } = input;
     if (typeof p !== 'string' || !p) throw new HttpError(400, 'path required');
     if (side !== 'head' && side !== 'base') throw new HttpError(400, 'side must be head or base');
@@ -369,7 +406,7 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
       const counts = { updated: 0, outdated: 0, unchanged: 0 };
       for (const c of data.comments) {
         const newSha = target[c.side];
-        if (!newSha || (await resolveSha(c.sha)) === newSha) {
+        if (c.kind === 'issue' || !newSha || (await resolveSha(c.sha)) === newSha) {
           counts.unchanged++;
           continue;
         }

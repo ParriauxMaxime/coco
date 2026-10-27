@@ -55,7 +55,8 @@ Routes: `GET /api/setup` (steps, `done`, `restart`), `POST /api/setup/agent`.
 - Feedback: `data/feedback.jsonl`.
 - Reviews: `<repo>/<repo.reviewsDir>/`.
 - Git refs: `refs/cocopilot/head/<n>` and `refs/cocopilot/base/<n>` in the
-  repo (fetched from `pull/<n>/head` and the PR base; dropped when the work
+  repo (fetched from `pull/<n>/head` and the PR base, the head moved to the
+  local branch tip when that holds unpushed commits; dropped when the work
   is archived). Code is read with `git show`, `git ls-tree`, `git diff` and
   `git grep` on those shas, never from the working tree.
 - Review comments: `data/works/<slug>/comments/` (one file per PR).
@@ -927,6 +928,15 @@ The same MCP carries the agents' writes to the work, in place of curl:
 `upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact` and
 `set_next`, each defaulting to the agent's work and row; the HTTP routes stay
 for you, scripts and sessions without the MCP.
+
+When you ask any coco agent for a change to coco itself ("read local head, not
+origin"), it calls `flag_coco_issue` instead of saying another session owns it:
+a finding with no file or line lands on the cocopilot work's first row (the work
+whose repo is `cocopilot`, or `cocoWork` in the config) with your words, the
+agent and work that raised it, and the agent answers with its link
+(`#/work/<slug>/findings-<row>/f-<id>`, opening the Findings tab on it). The same
+title updates the finding. Nothing is dispatched; no fix agent starts and the
+Fix accepted run skips these findings.
 
 ## Model, thinking and mode (composer)
 

@@ -244,6 +244,7 @@ own work); a refusal comes back as a tool error naming the field.
 | Tool | Route |
 | --- | --- |
 | `upsert_finding` | `POST /api/works/<slug>/prs/<n>/comments`, or `PUT …/comments/<id>` for an id or the same author, path and title; `sha` defaults to the PR head (`GET /api/code/pr/<n>/refs?fresh=1`) |
+| `flag_coco_issue` | `POST /api/works/<cocoWork>/prs/<first row>/comments` with `kind: "issue"` (no path, sha or lines; `title`, `severity`, `summary`, the user's words as a callout, `from` the agent id, work and PR, a source link to the agent's tab), or `PUT …/comments/<id>` for an issue of the same title; returns `{ id, created or updated, url }`, `url` the finding's deep link `#/work/<slug>/findings-<row>/f-<id>`. The work is `cocoWork`, else the one whose `repo` is `cocopilot` |
 | `upsert_decision` | `PUT /api/works/<slug>/decisions/<id>`; no `status`, `choice`, `rationale` or `decidedAt` in its schema |
 | `attach_media` | `POST /api/works/<slug>/media` with a file on disk; returns `src` and a `media` block |
 | `import_artifact` | `POST /api/works/<slug>/artifacts` |

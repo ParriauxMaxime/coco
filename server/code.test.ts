@@ -82,3 +82,14 @@ test('file: 404 outside tree, binary flag, text, traversal', async () => {
   assert.equal((await seed('/api/code/pr/2/nope')).status, 404);
   await code.dropRefs(2);
 });
+
+test('head: local branch tip when ahead of GitHub, GitHub head otherwise', async () => {
+  const ahead = git('commit-tree', `${head}^{tree}`, '-p', head, '-m', 'unpushed');
+  git('update-ref', 'refs/heads/feat', ahead);
+  git('update-ref', 'refs/heads/stale', base);
+  assert.equal((await code.ensureRefs(3, { headSha: head, baseSha: base, headRef: 'feat' })).headSha, ahead);
+  assert.equal(git('rev-parse', 'refs/cocopilot/head/3'), ahead);
+  assert.equal((await code.ensureRefs(4, { headSha: head, baseSha: base, headRef: 'stale' })).headSha, head);
+  assert.equal((await code.ensureRefs(5, { headSha: head, baseSha: base, headRef: 'missing' })).headSha, head);
+  await Promise.all([3, 4, 5].map((n) => code.dropRefs(n)));
+});

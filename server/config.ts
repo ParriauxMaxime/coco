@@ -69,6 +69,8 @@ export interface Config {
   agentWorktree: AgentWorktreeConfig | null;
   // where a repo added by its GitHub slug is looked for, then cloned; empty: the folder holding the default repo's clone
   cloneDir: string;
+  // the work that owns cocopilot itself, where flag_coco_issue files the changes users ask of coco; empty: the work whose repo is cocopilot
+  cocoWork: string;
   devServers?: { api?: { bind?: string; port?: number } };
   file?: string | null;
 }
@@ -110,6 +112,7 @@ export const DEFAULTS: Config = {
   featureFlags: null,
   agentWorktree: null,
   cloneDir: '',
+  cocoWork: '',
 };
 
 export const skillFor = (config: Partial<Pick<Config, 'skillOverrides' | 'methodSkill'>> | null | undefined, name: string): string => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;

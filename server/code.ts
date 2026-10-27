@@ -1,4 +1,4 @@
-// Code source: serves PR content from the local git clone of the repo (never the working tree).
+// Code source: serves PR content from the local git clone of the repo (never the working tree); a PR's head is its local branch tip when that is ahead of GitHub.
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import type { PrFile, ReadBody, Refs, RefsOptions, Req, Res, RowKey, Send, Works
 
 type GitResult<T extends string | Buffer = string> = { ok: boolean; code: string | number; stdout: T; stderr: string };
 type GitOptions = { timeout?: number; cwd?: string };
-type PrShas = { headSha: string; baseSha: string; baseRef?: string };
+type PrShas = { headSha: string; baseSha: string; baseRef?: string; headRef?: string };
 type FileBlob = { sha: string | null; path: string; text: string; size: number; binary: boolean; tooLarge?: boolean; external?: boolean };
 type Deps = { REPO: string; config?: { repo?: { github?: string; defaultBranch?: string } }; works: Pick<Works, 'get' | 'list'> };
 
@@ -93,13 +93,13 @@ export function createCode({ REPO, config, works }: Deps) {
   function loadShas(number: number): Promise<PrShas> {
     return (async (): Promise<PrShas> => {
       if (!GITHUB) throw new HttpError(503, 'no GitHub repo configured (repo.github)');
-      const r = await exec('gh', ['pr', 'view', String(number), '--repo', GITHUB, '--json', 'headRefOid,baseRefOid,baseRefName']);
-      let d: { headRefOid?: string; baseRefOid: string; baseRefName: string } | null = null;
+      const r = await exec('gh', ['pr', 'view', String(number), '--repo', GITHUB, '--json', 'headRefOid,headRefName,baseRefOid,baseRefName']);
+      let d: { headRefOid?: string; headRefName?: string; baseRefOid: string; baseRefName: string } | null = null;
       try {
         d = JSON.parse(r.stdout);
       } catch {}
       if (!d?.headRefOid) throw new HttpError(/Could not resolve|not found/i.test(r.stderr) ? 404 : 500, `gh pr view ${number}: ${r.stderr.trim().slice(0, 200) || 'no data'}`);
-      return { headSha: d.headRefOid, baseSha: d.baseRefOid, baseRef: d.baseRefName };
+      return { headSha: d.headRefOid, baseSha: d.baseRefOid, baseRef: d.baseRefName, headRef: d.headRefName };
     })();
   }
 
@@ -129,23 +129,32 @@ export function createCode({ REPO, config, works }: Deps) {
     return { number: key, branch, headSha, baseSha, mergeBase: await mergeBaseOf(baseSha, headSha) };
   }
 
+  // commits made in the PR's worktree and not pushed yet
+  async function localAhead(branch: string, remote: string) {
+    if (!/^[\w][\w./-]*$/.test(branch)) return null;
+    const tip = await revParse(`refs/heads/${branch}`);
+    return tip && tip !== remote && (await git(['merge-base', '--is-ancestor', remote, tip])).ok ? tip : null;
+  }
+
   async function ensureRefs(key: RowKey, opts: RefsOptions = {}): Promise<Refs> {
     if (!REPO) throw new HttpError(503, 'no repo configured (repo.path)');
     if (isLocal(key)) return localRefs(key);
     const number = Number(key);
     if (!Number.isInteger(number) || number <= 0) throw new HttpError(400, 'bad pr number');
-    let { headSha, baseSha, baseRef } = opts;
-    if (headSha && baseSha && SHA_RE.test(headSha) && SHA_RE.test(baseSha)) infoCache.set(number, { at: Date.now(), promise: Promise.resolve({ headSha, baseSha, baseRef }) });
+    let { headSha, baseSha, baseRef, headRef } = opts;
+    if (headSha && baseSha && SHA_RE.test(headSha) && SHA_RE.test(baseSha)) infoCache.set(number, { at: Date.now(), promise: Promise.resolve({ headSha, baseSha, baseRef, headRef }) });
     const needGh = !SHA_RE.test(headSha || '') || !SHA_RE.test(baseSha || '') || (!baseRef && !(await hasCommit(baseSha ?? '')));
     if (needGh) {
       const info = await prShas(number, Boolean(opts.fresh));
       headSha = SHA_RE.test(headSha || '') ? headSha : info.headSha;
       baseSha = SHA_RE.test(baseSha || '') ? baseSha : info.baseSha;
       baseRef = baseRef || info.baseRef;
+      headRef = headRef || info.headRef;
     }
     return withLock(async () => {
       let head = headSha ?? '';
       let base: string | null = baseSha ?? '';
+      if (headRef && (await hasCommit(head))) head = (await localAhead(headRef, head)) || head;
       if ((await revParse(headRefName(number))) !== head) {
         if (await hasCommit(head)) await setRef(headRefName(number), head);
         else {

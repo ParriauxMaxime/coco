@@ -125,6 +125,20 @@ test('fixed comments are left alone unless they still anchor', async () => {
   assert.equal([y.status, y.sha].join(), `declined,${c3}`);
 });
 
+test('an unanchored issue is listed, updated by title, and reanchor skips it', async () => {
+  const { comments } = setup();
+  const issue = await comments.add('w', 1, { kind: 'issue', title: 'Read local head', severity: 'major', summary: 'coco reads origin', blocks: [{ type: 'callout', tone: 'note', title: 'You said', text: 'read local head' }], from: { agent: 'a1', work: 'w', pr: '1' } });
+  assert.deepEqual([issue.kind, issue.path, issue.sha, issue.startLine, issue.status, issue.from], ['issue', '', '', 0, 'open', { agent: 'a1', work: 'w', pr: '1' }]);
+  const anchored = await mk(comments, 1, 1);
+  assert.equal(comments.list('w', 1).comments.length, 2);
+  await comments.update('w', 1, issue.id, { severity: 'minor', summary: 'again' });
+  assert.deepEqual(await comments.reanchor('w', 1, { headSha: c2 }), { updated: 1, outdated: 0, unchanged: 1 });
+  const after = comments.list('w', 1).comments.find((c) => c.id === issue.id);
+  assert.deepEqual([after?.severity, after?.summary, after?.sha, after?.status], ['minor', 'again', '', 'open']);
+  assert.equal(comments.list('w', 1).comments.find((c) => c.id === anchored.id)?.sha, c2);
+  await assert.rejects(comments.add('w', 1, { kind: 'issue', body: 'no title' }), HttpError);
+});
+
 test('reanchor twice gives the same result', async () => {
   const { comments, DATA } = setup();
   await mk(comments, 3, 4);

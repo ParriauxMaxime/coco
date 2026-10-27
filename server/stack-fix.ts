@@ -140,7 +140,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     for (const [index, s] of (work.stack || []).entries()) {
       const key = rowKey(s);
       if (!key) throw new HttpError(400, `row ${index + 1} has neither a PR number nor a planned branch`);
-      const open = (comments.list(work.slug, key).comments || []).filter((c) => c.status === 'open' && picked(key, c));
+      const open = (comments.list(work.slug, key).comments || []).filter((c) => c.status === 'open' && !c.kind && picked(key, c));
       if (!rows.length && !open.length) continue;
       const pr = await reviewAgent.rowPr(work, index);
       if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue;
@@ -376,7 +376,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       const open = (works.get(slug)?.stack || []).flatMap((s) => {
         const key = rowKey(s);
         if (!key) return [];
-        const cs = (comments.list(slug, key).comments || []).filter((c) => c.status === 'open');
+        const cs = (comments.list(slug, key).comments || []).filter((c) => c.status === 'open' && !c.kind);
         return [{ key, count: cs.length, accepted: cs.filter((c) => accepted.has(c.id)).length }];
       });
       return { runs: list(slug), open };

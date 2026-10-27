@@ -34,6 +34,7 @@ export type ReviewComment = LineRange & {
   snippet?: string;
   draft?: boolean;
   proposal?: boolean;
+  kind?: 'issue';
   index?: number;
   createdAt?: string;
   updatedAt?: string;

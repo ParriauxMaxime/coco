@@ -28,6 +28,12 @@ test("the owner's own comments are local, anyone else's are not", () => {
   assert.deepEqual(rows.map((r) => r.source), ['local', 'local:bob']);
 });
 
+test('an unanchored issue is a board row without a file', () => {
+  const issue = { id: 'c1', kind: 'issue', path: '', startLine: 0, endLine: 0, title: 'Read local head', body: 'coco reads origin', status: 'open', author: 'coco-issue', createdAt: '2026-10-27' };
+  const [row] = settle([], { comments: [issue], me: 'alice' });
+  assert.deepEqual([row.claim, row.status, row.commentId, row.path, row.source], ['Read local head', 'open', 'c1', '', 'local:coco-issue']);
+});
+
 test('claims and severities from both review page shapes', () => {
   assert.equal(claimOf('1. **Check 4 (silent failure)**, `x/y.js:2574`\n   > Silent error for the customer, is that okay?'), 'Check 4 (silent failure): Silent error for the customer, is that okay?');
   assert.equal(severityOf('**Non-blocking.** The export still downloads'), 'minor');
