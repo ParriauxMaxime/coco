@@ -14,6 +14,7 @@ import type { Exec } from './placement.ts';
 import { randomUUID } from 'node:crypto';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
+import type { Models } from './models.ts';
 
 const PAGE = 200;
 const SETTLE_MS = 500;
@@ -44,6 +45,8 @@ type Options = {
   // lines added to the owner's follow-up of a code-writing agent: its readied worktree, when that changed
   beforeTurn?: (agentId: string) => Promise<string[]>;
   closeAsk?: (id: string) => Promise<unknown>;
+  // a follow-up's model or thinking pick, applied to the agent before the message
+  models?: Pick<Models, 'apply'>;
 };
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
@@ -52,7 +55,7 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, models }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -207,10 +210,11 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       if (root === 'agent-chat' && a && b === 'place' && req.method === 'GET') return send(res, 200, await placeOf(a));
       if (root === 'agent-chat' && a && b === 'stop' && req.method === 'POST') return send(res, 200, await stop(a));
       if (root === 'agent-chat' && a && b === 'messages' && req.method === 'POST') {
-        const { text, attachments } = JSON.parse((await readBody(req)) || '{}');
+        const { text, attachments, provider, thinking } = JSON.parse((await readBody(req)) || '{}');
         const files = uploads?.resolve(attachments) ?? [];
         const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
         if (!said) throw new HttpError(400, 'text required');
+        if (models && (provider != null || thinking != null)) await models.apply(a, { provider, thinking });
         const setup = (await beforeTurn?.(a).catch(() => [])) ?? [];
         return send(res, 200, await say(a, setup.length ? `${said}\n\n${setup.join('\n')}` : said, files));
       }

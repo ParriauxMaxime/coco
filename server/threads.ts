@@ -23,6 +23,7 @@ import type { ActionContext, Card, CardBody, CardEffect, ThreadHook } from './ca
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
 import { failureText } from './agent-worktree.ts';
 import type { AgentWorktrees, Verification } from './agent-worktree.ts';
+import type { Models } from './models.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const SETTLE_MS = 15000;
@@ -48,7 +49,7 @@ type Asked = { msgId: string; replyPath: string; cardPath: string };
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
 // sentBack: a failed check already went back to the agent since the owner's last message
 type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean; sentBack?: boolean };
-type GroupBase = { id: string; model: string; agentId: string | null; items: string[]; status: string; createdAt: string; updatedAt?: string };
+type GroupBase = { id: string; model: string; thinking?: string | null; agentId: string | null; items: string[]; status: string; createdAt: string; updatedAt?: string };
 type DecisionGroup = GroupBase & { kind: 'decision'; decisionId: string; n?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 // briefed: the worktree section its agent was last told, sent again only once it changes
@@ -92,6 +93,8 @@ type ThreadsOptions = {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
     sideWorkspace(slug: string, opts: { branch: string; base: string; title: string }): Promise<{ workspaceId: string; cwd: string }>;
   };
+  // checks a model and thinking picked in the composer beyond the sonnet / opus shorthands
+  models?: Pick<Models, 'check'>;
 };
 
 const isOpenSuggestion = (s?: Suggestion) => (s ? OPEN_SUGGESTION.includes(s.state) : false);
@@ -123,7 +126,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -192,7 +195,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // the group a dispatch goes to: the one asked for, the thread's own, else for a comment the open group of that PR touching its file, for a card the card's group
-  function pickGroup(slug: string, ref: Ref, item: Item, thread: Thread, { groupId, model }: { groupId?: string | null; model?: string | null }): Group {
+  function pickGroup(slug: string, ref: Ref, item: Item, thread: Thread, { groupId, model, thinking }: { groupId?: string | null; model?: string | null; thinking?: string | null }): Group {
     const open = listGroups(slug).filter((g) => g.status === 'active');
     const sameModel = (g: Group) => !model || g.model === model;
     if (groupId && groupId !== 'new') {
@@ -206,7 +209,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const subject = open.find((g) => sameModel(g) && (ref.kind === 'decision' ? g.kind === 'decision' && g.decisionId === ref.id : ref.kind === 'plan' ? g.kind === 'plan' && g.n === ref.n : g.kind === 'code' && g.n === ref.n && g.files.includes(item.path)));
       if (subject) return subject;
     }
-    const base = { id: hex(3), model: model || 'sonnet', agentId: null, items: [], status: 'active', createdAt: new Date().toISOString() };
+    const base = { id: hex(3), model: model || 'sonnet', ...(thinking ? { thinking } : {}), agentId: null, items: [], status: 'active', createdAt: new Date().toISOString() };
     if (ref.kind === 'decision') return { ...base, kind: 'decision', decisionId: ref.id };
     if (ref.kind === 'plan') return { ...base, kind: 'plan', n: ref.n };
     return { ...base, kind: 'code', n: ref.n, branch: `cocopilot/${base.id}`, worktree: null, files: [item.path] };
@@ -393,7 +396,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
           ? await placement.sideWorkspace(slug, { branch: worktree.newBranch, base: String(worktree.base || ''), title: `Finding fixes on ${fileName}` })
           : await placement.place({ kind: 'work', slug });
       if (group.kind === 'code' && 'workspaceId' in where && where.cwd) group.worktree = expandHome(where.cwd);
-      s = await agents.session({ title, provider: MODELS[group.model], thinking: 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
+      s = await agents.session({ title, provider: MODELS[group.model] || group.model, thinking: group.thinking || 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
     }
@@ -435,25 +438,28 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (s && !following.has(s.agentId)) track(slug, group.id, s, s.resume({ timeoutMs: TURN_MS }));
   }
 
-  function post(slug: string, key: string, { text, model, groupId, attachments }: { text?: string; model?: string | null; groupId?: string | null; attachments?: unknown } = {}) {
+  async function post(slug: string, key: string, { text, model, thinking, groupId, attachments }: { text?: string; model?: string | null; thinking?: string | null; groupId?: string | null; attachments?: unknown } = {}) {
     const { work, ref } = check(slug, key);
     const files = uploads?.resolve(attachments) ?? [];
     const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
     if (!said) throw new HttpError(400, 'text required');
-    if (model && !MODELS[model]) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
-    return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model, groupId, role: 'user', files }));
+    const short = Boolean(model && MODELS[model]);
+    if (model && !short && !models) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
+    const picked = models && (thinking || (model && !short)) ? await models.check({ provider: short ? MODELS[model || ''] : model, thinking }, MODELS[model || 'sonnet']) : {};
+    const chosen = short ? model : picked.provider || model;
+    return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files }));
   }
 
   // a message (the owner's, a card answer, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight;
   // a card answer only reaches the agent that asked it, never a new one
-  type Sending = { text: string; model?: string | null; groupId?: string | null; role: string; files?: Upload[]; card?: Card };
-  async function dispatch(slug: string, work: Work, ref: Ref, key: string, { text, model, groupId, role, files = [], card }: Sending): Promise<Thread> {
+  type Sending = { text: string; model?: string | null; thinking?: string | null; groupId?: string | null; role: string; files?: Upload[]; card?: Card };
+  async function dispatch(slug: string, work: Work, ref: Ref, key: string, { text, model, thinking, groupId, role, files = [], card }: Sending): Promise<Thread> {
     const thread = read(slug, key);
     const item = itemOf(slug, work, ref);
     if (!item) throw new HttpError(404, `no such ${ref.kind}`);
     const prior = thread.waiting;
     const held = prior && readGroup(slug, prior.groupId);
-    const group = held?.status === 'active' ? held : pickGroup(slug, ref, item, thread, { groupId, model });
+    const group = held?.status === 'active' ? held : pickGroup(slug, ref, item, thread, { groupId, model, thinking });
     const live = await groupSession(slug, group);
     if (card && live?.agentId !== card.agentId) throw new Error('the agent that asked is gone');
     const pr = ref.kind === 'comment' ? await prOf(work, ref.n) : null;

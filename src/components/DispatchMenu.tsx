@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api.ts';
 import { useAction } from './action.ts';
 import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
+import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import type { DispatchEntry, DispatchResult } from '../types.ts';
 
 type Key = string | number;
@@ -39,6 +40,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const [answer, setAnswer] = useState('');
   const [edits, setEdits] = useState(false);
   const { busy, run } = useAction();
+  const model = useModelChoice(`dispatch-${id}`, { fast: id === 'persona-review' });
   useEffect(() => {
     catalogOf(slug).then(setEntries, (e) => toast.error(errorMessage(e)));
     personaLogins().then(setKnown);
@@ -51,7 +53,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const noText = entry.kind === 'fix-findings' || entry.kind === 'persona-review';
   const missing = (entry.needsPr && !onPr) || (entry.needsPersona && !persona.trim()) || Boolean(entry.ask && !answer.trim());
   const go = (prompt: string) => run('dispatch', async () => {
-    const r = await api.dispatch(slug, { entry: entry.id, key: onPr ? key : null, prompt: noText ? '' : prompt, persona, edits, ...(entry.ask ? { args: `${answer.trim()} ${key}` } : {}), ...(picked.length ? { commentIds: picked } : {}) });
+    const r = await api.dispatch(slug, { entry: entry.id, key: onPr ? key : null, prompt: noText ? '' : prompt, persona, edits, ...(entry.ask ? { args: `${answer.trim()} ${key}` } : {}), ...(picked.length ? { commentIds: picked } : {}), ...model.body() });
     toast.success(`Started ${r.title} in the ${r.edits ? 'PR' : 'Plan'} workspace${r.brief === 'template' ? ', with the template brief: the brief writer failed' : ''}`);
     onStarted?.(r);
     onClose();
@@ -93,6 +95,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
         busy={missing}
         sending={busy}
         sendLabel={busy ? 'Writing the brief…' : 'Start agent'}
+        tools={<ModelControls choice={model.choice} onPick={model.pick} hint="for the agent this starts" />}
         actions={() => <button type="button" className="dp-btn dp-sm dp-ghost" onClick={onClose}>Cancel</button>}
         onSend={async (text) => (await go(text)) !== undefined}
       />

@@ -1,0 +1,18 @@
+.dp-mdl { position: relative; display: inline-flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto; }
+.dp-comp-f .dp-mdl-btn { flex: 0 1 auto; min-width: 0; max-width: 150px; gap: 4px; padding: 0 6px; color: var(--dp-t2); }
+.dp-mdl-btn.dp-on { background: var(--dp-active); color: var(--dp-t1); }
+.dp-mdl-btn .dp-i { color: var(--dp-t3); flex: none; }
+.dp-mdl-mode { flex: none; height: 18px; font-size: 11px; margin-left: 2px; cursor: default; }
+.dp-mdl-pop { left: 0; bottom: calc(100% + 6px); width: 340px; max-height: min(420px, 60vh); overflow: auto; }
+.dp-mdl-tpop { width: 240px; }
+.dp-mdl-pop .dp-pop-h { position: sticky; top: 0; background: var(--dp-panel); z-index: 1; }
+.dp-mdl-pop .dp-pop-h b { flex: none; }
+.dp-mdl-pop .dp-pop-h .dp-ell { min-width: 0; margin-left: auto; }
+.dp-mdl-pop .dp-mi .dp-r { max-width: 150px; min-width: 0; }
+.dp-mdl-sp { width: 14px; flex: none; }
+.dp-mdl-tag { height: 16px; font-size: 10.5px; padding: 0 4px; flex: none; }
+.dp-mdl-err { display: flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--dp-warn); }
+.dp-mdl-pop .dp-mdl-foot { padding: 6px 10px; line-height: 16px; }
+@container (max-width: 420px) {
+  .dp-mdl-mode, .dp-mdl-th .dp-mdl-v { display: none; }
+}

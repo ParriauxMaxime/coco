@@ -390,7 +390,7 @@ export type Thread = {
 };
 export type ThreadSummary = { count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number };
 export type ThreadGroup = { id: string; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number };
-export type ThreadPostBody = { text: string; model?: string; attachments?: string[] };
+export type ThreadPostBody = { text: string; model?: string; thinking?: string; attachments?: string[] };
 export type SuggestionAction = 'approve' | 'dismiss';
 
 export type FindingRow = {
@@ -494,7 +494,7 @@ export type DevServerLogs = { lines: string[] };
 // the tier a conversation runs at: global (repos, cross-repo), a repo (its works), a work (its plan)
 export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | { kind: 'work'; slug: string };
 export type DispatchEntry = { id: string; kind: string; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
-export type DispatchBody = { entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] };
+export type DispatchBody = { entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] } & ModelChoice;
 export type DispatchResult = { kind: string; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };
@@ -507,6 +507,7 @@ export type AskRun = {
   pr?: string | number | null;
   kind?: string | null;
   model?: string | null;
+  thinking?: string | null;
   startedAt: string;
   lastActivity?: string;
   status: string;
@@ -516,7 +517,12 @@ export type AskRun = {
   agentId?: string | null;
   cost?: number | null;
 };
-export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: string | null; repoId?: string | null; nonce: string; attachments?: string[] };
+export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: string | null; repoId?: string | null; nonce: string; attachments?: string[] } & ModelChoice;
+// a composer's pick: provider is `<provider>/<model id>`; Paseo's model list and the mode every coco agent runs in
+export type ModelChoice = { provider?: string; thinking?: string };
+export type ModelThinking = { id: string; label: string };
+export type ModelEntry = { id: string; label: string; description: string | null; aliases: string[]; thinking: ModelThinking[]; defaultThinking: string | null };
+export type ModelCatalog = { mode: string; defaults: { default: string; fast: string }; providers: { id: string; models: ModelEntry[]; error: string | null }[] };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number } & AgentMetrics;

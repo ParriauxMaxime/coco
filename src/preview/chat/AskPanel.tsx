@@ -8,10 +8,11 @@ import { Composer, Log } from './Composer.tsx';
 import Conversation from './Conversation.tsx';
 import { askState, useAskConversation } from './conversation.ts';
 import type { AskConvo } from './conversation.ts';
-import type { AskRun, UploadRef } from '../../types.ts';
+import type { AskRun, ModelChoice, UploadRef } from '../../types.ts';
+import { useAskModel } from './ModelPicker.tsx';
 import './chat.css';
 
-type StartFn = (prompt: string, nonce: string, files: UploadRef[]) => Promise<{ id: string }>;
+type StartFn = (prompt: string, nonce: string, files: UploadRef[], pick: ModelChoice) => Promise<{ id: string }>;
 
 // a conversation in a box: its header, messages, then the composer that stays open while coco works
 export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: AskConvo; start?: StartFn; placeholder: string; examples?: string[] }) {
@@ -34,7 +35,11 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
     if (run && state === 'idle') api.closeAsk(run.id).catch(() => {});
     reset();
   };
-  const ask = (text: string, files: UploadRef[] = []) => send(text, start && ((nonce) => start(text, nonce, files)), files);
+  const model = useAskModel(run);
+  const ask = (text: string, files: UploadRef[] = []) => {
+    const pick = model.body();
+    return send(text, start && ((nonce) => start(text, nonce, files, pick)), files, pick);
+  };
   return (
     <div className="dp-box dp-askpanel">
       {run && (
@@ -58,7 +63,7 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
           {examples.map((e) => <button key={e} type="button" className="dp-btn dp-sm" title={e} onClick={() => void ask(e)}>{e.slice(0, 48)}…</button>)}
         </div>
       )}
-      <Composer placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
+      <Composer placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} tools={model.tools} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
     </div>
   );
 }
@@ -82,7 +87,7 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
       <p className="dp-repoask-lead">Coco for {repo}, on its main checkout: scaffolds new works in this repo and answers about its code and PRs. {SAFE}</p>
       <AskPanel
         convo={convo}
-        start={(prompt, nonce, files) => api.ask({ prompt, repoId, nonce, attachments: files.map((f) => f.id) })}
+        start={(prompt, nonce, files, pick) => api.ask({ prompt, repoId, nonce, attachments: files.map((f) => f.id), ...pick })}
         examples={REPO_EXAMPLES}
         placeholder={run ? 'Follow up, correct or narrow it down (markdown, ↵)' : `Scaffold a work in ${repo} for … / Who reviews … (↵)`}
       />

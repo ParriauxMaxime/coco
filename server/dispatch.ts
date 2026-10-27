@@ -10,10 +10,11 @@ import type { BriefDispatch, Written } from './brief-writer.ts';
 import type { Readier } from './review-agent.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
+import type { Models } from './models.ts';
 
 export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'gate' | 'prompt';
 export type CatalogEntry = { id: string; kind: DispatchKind; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
-export type DispatchInput = { entry?: unknown; key?: unknown; prompt?: unknown; persona?: unknown; args?: unknown; edits?: unknown; commentIds?: unknown };
+export type DispatchInput = { entry?: unknown; key?: unknown; prompt?: unknown; persona?: unknown; args?: unknown; edits?: unknown; commentIds?: unknown; provider?: unknown; thinking?: unknown };
 export type Dispatched = { kind: DispatchKind; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
 
 type Placed = { workspaceId: string; cwd: string };
@@ -25,11 +26,12 @@ type Deps = {
   placement: { place(scope: Scope): Promise<Placed> };
   agents: { start(opts: Record<string, unknown>): Promise<{ agentId: string; workspaceId?: string | null }> };
   briefs: { context(slug: string, raw: string): Promise<BriefContext> };
-  reviewAgent: { start(slug: string, key: unknown, input: { commentIds: string[]; wrap?: (prompt: string) => string }): Promise<{ runId: string; agentId: string }>; timeline(slug: string, kind: string, text: string): void };
+  reviewAgent: { start(slug: string, key: unknown, input: { commentIds: string[]; provider?: string; thinking?: string; wrap?: (prompt: string) => string }): Promise<{ runId: string; agentId: string }>; timeline(slug: string, kind: string, text: string): void };
   comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string }[] } };
   writer: { write(d: BriefDispatch, facts: string | null): Promise<Written>; track(run: { agentId: string | null | undefined; slug: string; repoId: string | null; title: string; message: string }): void };
   repoOf?: (work: Work) => RepoConfig | null | undefined;
   readier?: Readier;
+  models?: Pick<Models, 'check'>;
 };
 
 const PROMPT_MAX = 8000;
@@ -70,7 +72,7 @@ export function firstMessage({ title, task, edits, brief, read }: { title: strin
   return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
-export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier }: Deps) {
+export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models }: Deps) {
   const repoFor = (work: Work) => repoOf?.(work) || null;
   const repoIdOf = (work: Work) => repoFor(work)?.id || work.repo || null;
   const entriesFor = (work: Work) => catalog(config, repoFor(work));
@@ -145,6 +147,10 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const args = typeof input.args === 'string' ? input.args.trim() : '';
     const title = titleOf(entry, key, edits, { prompt, persona });
     const repoId = repoIdOf(work);
+    const fallback = entry.kind === 'persona-review' ? config.models.fast : config.models.default;
+    const pick = models ? await models.check({ provider: input.provider, thinking: input.thinking }, fallback) : {};
+    const provider = pick.provider || fallback;
+    const thinking = pick.thinking || 'high';
 
     if (entry.kind === 'fix-findings' && key !== null) {
       const given = Array.isArray(input.commentIds) ? input.commentIds.filter((x): x is string => typeof x === 'string') : [];
@@ -153,7 +159,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
       const task = `Fix the review findings ${commentIds.join(', ')} of ${keyLabel(key)}; their text comes with the task.`;
       const { brief, written } = await briefOf(work, { key, title, label: entry.label, edits: true, task });
       let message = '';
-      const run = await reviewAgent.start(slug, key, { commentIds, wrap: (task) => (message = firstMessage({ title, task, edits: true, brief })) });
+      const run = await reviewAgent.start(slug, key, { commentIds, provider, thinking, wrap: (task) => (message = firstMessage({ title, task, edits: true, brief })) });
       writer.track({ agentId: run.agentId, slug, repoId, title, message });
       return { kind: entry.kind, title, agentId: run.agentId, edits: true, runId: run.runId, brief: written ? 'written' : 'template' };
     }
@@ -165,7 +171,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const setup = edits && readier ? await readier.ready(placed.cwd).catch(() => []) : [];
     const message = [firstMessage({ title, task, edits, brief, read }), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();
     const labels: Record<string, unknown> = { source: 'cocopilot', kind: 'dispatch', dispatch: entry.id, work: slug, ...(key === null ? {} : { pr: fileKey(key) }) };
-    const started = await agents.start({ title, provider: config.models.default, thinking: 'high', prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    const started = await agents.start({ title, provider, thinking, prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
     if (edits) readier?.started(started.agentId, placed.cwd, { slug, key });
     writer.track({ agentId: started.agentId, slug, repoId, title, message });
     if (entry.kind === 'gate' && entry.gate && key !== null) markGate(slug, key, entry.gate, { state: 'running', at: new Date().toISOString(), skill: entry.skill || entry.gate, agentId: started.agentId });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
-import type { ActivityEvent, AskRun, AskScope, UploadRef } from '../../types.ts';
+import type { ActivityEvent, AskRun, AskScope, ModelChoice, UploadRef } from '../../types.ts';
 import { askCardEvents, useCardList } from './cards.ts';
 import { subscribe, topic } from '../../live.ts';
 
@@ -56,11 +56,11 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
     });
   };
   // the first message starts the conversation through start(nonce), any later one goes to its agent
-  const send = async (text: string, start?: (nonce: string) => Promise<{ id: string }>, files: UploadRef[] = []) => {
+  const send = async (text: string, start?: (nonce: string) => Promise<{ id: string }>, files: UploadRef[] = [], pick: ModelChoice = {}) => {
     const nonce = nonceOf();
     setPending((p) => [...p, { nonce, text, ...(files.length ? { attachments: files } : {}) }]);
     try {
-      if (run) await api.askSay(run.id, { text, nonce, ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
+      if (run) await api.askSay(run.id, { text, nonce, ...(files.length ? { attachments: files.map((f) => f.id) } : {}), ...pick });
       else {
         if (!start) throw new Error('no conversation to start');
         const { id } = await start(nonce);

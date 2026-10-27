@@ -19,7 +19,7 @@ type TimelineItem = NonNullable<TimelineEvent['item']>;
 type FakeAgent = { id: string; workspaceId: string; status: string; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[] };
 type Created = { id: string; [key: string]: unknown };
 type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean; images?: unknown[]; attachments?: { fileName: string }[] };
-type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[]; suggestion?: { checks?: { state: string } } }[]; groupId?: string };
+type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; model?: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[]; suggestion?: { checks?: { state: string } } }[]; groupId?: string };
 type Activity = { type: string; status?: string; msgId?: string; text?: string };
 
 const APP = '/opt/coco';
@@ -104,7 +104,7 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: () => { id: string; commit: string }[] = () => []) {
+function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: () => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models']) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
   const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [{ id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] }] };
@@ -123,6 +123,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
     agents: createPaseoAgents({ APP, connect: daemon.connect }),
     uploads,
     worktrees,
+    models,
   });
   const file = (key: string) => path.join(DATA, 'works', SLUG, 'threads', `${key}.json`);
   const read = (key: string): ThreadFile => JSON.parse(fs.readFileSync(file(key), 'utf8'));
@@ -389,4 +390,22 @@ test("coco checks a suggested commit: a failure goes back to the agent once, a s
   reply(a3.waiting.replyPath, 'Again.');
   daemon.finish(agent);
   await until(() => daemon.calls.sent.length === 4, 'sent back again after the owner spoke');
+});
+
+test('a thread’s first message starts its group agent on the picked model and thinking, checked first; the sonnet shorthand keeps the fast model', async () => {
+  const checked: unknown[] = [];
+  const models = { check: async (pick: { provider?: unknown; thinking?: unknown }, fallback?: string | null) => {
+    checked.push([pick, fallback]);
+    if (pick.provider === 'claude/nope') throw new Error('unknown model claude/nope');
+    return { ...(pick.provider ? { provider: String(pick.provider) } : {}), ...(pick.thinking ? { thinking: String(pick.thinking) } : {}) };
+  } };
+  const { threads, daemon, read } = setup(undefined, undefined, undefined, models);
+  await assert.rejects(threads.post(SLUG, A, { text: 'Fix it', model: 'claude/nope' }), /unknown model claude\/nope/);
+  await threads.post(SLUG, A, { text: 'Fix it', model: 'claude/claude-opus-5-5', thinking: 'max' });
+  await threads.post(SLUG, 'd.d1', { text: 'Which one?', model: 'sonnet' });
+  await until(() => daemon.calls.created.length === 2, 'two group agents');
+  const configs = daemon.calls.created.map((c) => c.config as Record<string, unknown>);
+  assert.deepEqual(configs.map((c) => [c.provider, c.thinkingOptionId]), [['claude/claude-opus-5-5', 'max'], [config.models.fast, 'high']]);
+  assert.equal(read(A).messages[0].model, 'claude/claude-opus-5-5');
+  assert.equal(checked.length, 2);
 });

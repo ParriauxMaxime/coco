@@ -36,6 +36,21 @@ export const usePrefs = create<Prefs & { set: (key: PrefKey, value: string) => v
 
 export const workHref = (slug: string) => `#/work/${slug}`;
 
+// the last model and thinking picked in a composer, per kind of agent it starts (ask, thread, dispatch-<kind>)
+export type ModelPickPref = { provider: string; thinking: string | null };
+const PICKS = 'cc.model-picks';
+const readPicks = (): Record<string, ModelPickPref> => {
+  try { return JSON.parse(localStorage.getItem(PICKS) || '{}') || {}; } catch { return {}; }
+};
+export const useModelPicks = create<{ picks: Record<string, ModelPickPref>; remember: (kind: string, pick: ModelPickPref) => void }>()((set, get) => ({
+  picks: readPicks(),
+  remember: (kind, pick) => {
+    const picks = { ...get().picks, [kind]: pick };
+    set({ picks });
+    try { localStorage.setItem(PICKS, JSON.stringify(picks)); } catch {}
+  },
+}));
+
 export const useBetaPanel = create<{ open: boolean; toggle: () => void; close: () => void }>()((set) => ({
   open: false,
   toggle: () => set((s) => ({ open: !s.open })),

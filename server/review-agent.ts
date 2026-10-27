@@ -46,7 +46,7 @@ type ResultEntry = { id?: string; status?: string; commit?: string | null; note?
 type LaunchAgents = { start(opts: Record<string, unknown>): Promise<{ agentId: string; createdWorkspace?: string | null }> };
 type Outcome = { status: 'fixed' | 'declined'; resolution: { commit?: string | null; note?: string } };
 // wrap: a dispatch puts its own first message around the brief pointer
-type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; requestedBy?: unknown; wrap?: (prompt: string) => string };
+type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; thinking?: string; requestedBy?: unknown; wrap?: (prompt: string) => string };
 // the row's own workspace for an agent that works on the PR's branch
 type RowPlacement = { place(scope: { kind: 'row'; slug: string; key: RowKey; edits: true }): Promise<{ workspaceId: string; cwd: string }> };
 // readies the worktree of an agent launched on a PR branch; its brief lines go after the prompt
@@ -262,7 +262,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
   }
 
   // starts the brief on the runner, returns the agent id; labels tell the Paseo plugin which cocopilot run the agent is on
-  async function launch(runner: Runner, { title, provider, prompt, labels, requestedBy, n, branch }: LaunchInput) {
+  async function launch(runner: Runner, { title, provider, thinking = 'high', prompt, labels, requestedBy, n, branch }: LaunchInput) {
     const all: Record<string, unknown> = { source: 'cocopilot', ...labels };
     const workSlug = labels?.work;
     const meta = { slug: typeof workSlug === 'string' ? workSlug : undefined, key: n ?? null };
@@ -287,7 +287,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     try {
       const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : runner.mode === 'workspace' ? { workspaceId: runner.workspaceId, cwd: runner.cwd } : { cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree };
       cwd = worktree && !onRow ? null : where.cwd;
-      started = await agents.start({ title, provider, thinking: 'high', prompt: await withSetup(cwd), labels: all, ...where });
+      started = await agents.start({ title, provider, thinking, prompt: await withSetup(cwd), labels: all, ...where });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errorMessage(e).slice(0, 300)}`);
     }
@@ -374,7 +374,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
 
       const task = `Read ${brief} and follow it end to end.`;
       const prompt = typeof input.wrap === 'function' ? input.wrap(task) : task;
-      const agentId = await launch(runner, { title: `Fix review ${keyLabel(n)} (${picked.length})`, provider, prompt, labels: { kind: 'review', run: runId, work: slug, pr: fileKey(n), comments: picked.length }, requestedBy: input.requestedBy, n, branch: pr.head });
+      const agentId = await launch(runner, { title: `Fix review ${keyLabel(n)} (${picked.length})`, provider, ...(input.thinking ? { thinking: input.thinking } : {}), prompt, labels: { kind: 'review', run: runId, work: slug, pr: fileKey(n), comments: picked.length }, requestedBy: input.requestedBy, n, branch: pr.head });
 
       const run: Run = {
         runId,

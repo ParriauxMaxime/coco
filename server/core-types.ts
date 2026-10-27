@@ -228,7 +228,7 @@ export type PaseoAgentInfo = { id: string; cwd?: string; status?: string };
 export type PaseoAgentRow = PaseoAgentInfo;
 export type ReviewPr = { number: RowKey | null; title: string; url: string; state: string; isDraft: boolean; head: string; base: string; sha: string; body: string };
 export type Runner = { mode: string; agentId?: string; cwd?: string; workspaceId?: string; newBranch?: string; base?: string; slug?: string };
-export type LaunchInput = { title: string; provider: string; prompt: string; labels?: Record<string, unknown>; requestedBy?: unknown; n?: RowKey; branch?: string };
+export type LaunchInput = { title: string; provider: string; thinking?: string; prompt: string; labels?: Record<string, unknown>; requestedBy?: unknown; n?: RowKey; branch?: string };
 
 export class HttpError extends Error {
   status: number;

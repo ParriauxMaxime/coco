@@ -11,6 +11,7 @@ import { pendingClass } from './action.ts';
 import CardView from '../preview/chat/Card.tsx';
 import { mergeCards } from '../preview/chat/cards.ts';
 import { Composer } from '../preview/chat/Composer.tsx';
+import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { SentFiles } from '../preview/chat/Attachments.tsx';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
 import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef } from '../types.ts';
@@ -19,7 +20,6 @@ const POLL_MS = 10000;
 // a long thread shows its last turns (a turn starts at one of your messages); earlier ones load by threes when scrolled to
 const SHOWN_TURNS = 3;
 const MORE_TURNS = 3;
-const MODELS: [string, string][] = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
 const OPEN = ['pending', 'queued', 'conflict'];
 const STATE_CHIP: Record<string, string> = { pending: 'c-blue', queued: 'c-orange', conflict: 'c-red', applied: 'c-green', dismissed: 'c-grey' };
 const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch' };
@@ -43,7 +43,7 @@ export function useThreadsOf(slug: string): ThreadsOf {
 export const useThreadSummary = (slug: string, key: string): ThreadSummary | undefined => useThreadsOf(slug).summaries[key];
 
 export const threadKey = { decision: (id: string) => `d.${id}`, comment: (n: string | number, id: string) => `c.${String(n).replaceAll(':', '~')}.${id}`, plan: (n: string | number) => `p.${String(n).replaceAll(':', '~')}` };
-const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
+const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model.split('/').pop()}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
 
 export const threadLabel = (s: ThreadSummary | undefined, idle: string) => (s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle);
 
@@ -231,10 +231,10 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   };
   const group = groups.find((g) => g.id === thread?.groupId);
   // shown at once, confirmed by the server; while the agent works the message steers its turn
-  const send = (text: string, model?: string, files: UploadRef[] = []) => {
+  const send = (text: string, model?: string, files: UploadRef[] = [], thinking?: string) => {
     const nonce = nonceOf();
     setSending((s) => [...s, { nonce, text, files }]);
-    api.postThread(slug, key, { text, ...(model ? { model } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) })
+    api.postThread(slug, key, { text, ...(model ? { model } : {}), ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) })
       .then((next) => {
         wasWaiting.current = Boolean(next.waiting);
         setThread((prev) => keep(prev, next));
@@ -328,12 +328,12 @@ type ComposerProps = {
   sendLabel?: string;
   verdicts?: Verdict[];
   placeholder?: string;
-  onSend: (text: string, model?: string, files?: UploadRef[]) => SendResult | Promise<SendResult>;
+  onSend: (text: string, model?: string, files?: UploadRef[], thinking?: string) => SendResult | Promise<SendResult>;
   onStop?: () => Promise<unknown>;
   autoFocus?: boolean;
 };
 export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start agent', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false }: ComposerProps) {
-  const [model, setModel] = useState('sonnet');
+  const model = useModelChoice('thread', { fast: true });
   return (
     <Composer
       className="dp-tcomp"
@@ -342,15 +342,14 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start ag
       autoFocus={autoFocus}
       busy={busy}
       sending={busy && (pending ?? 'send') === 'send'}
-      tools={withModel && (
-        <span className="dp-seg" role="group" aria-label="Model">
-          {MODELS.map(([k, label]) => <button key={k} type="button" className={model === k ? 'dp-on' : 'dp-off'} onClick={() => setModel(k)}>{label}</button>)}
-        </span>
-      )}
+      tools={withModel && <ModelControls choice={model.choice} onPick={model.pick} hint="for the agent group this starts" />}
       actions={(text, clear) => verdicts.map((v) => (
         <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text)} onClick={() => { v.on(text); clear(); }}>{v.label}</button>
       ))}
-      onSend={async (text, files) => (await onSend(text, withModel ? model : undefined, files)) !== false}
+      onSend={async (text, files) => {
+        const pick = withModel ? model.body() : {};
+        return (await onSend(text, pick.provider, files, pick.thinking)) !== false;
+      }}
       onStop={onStop}
     />
   );

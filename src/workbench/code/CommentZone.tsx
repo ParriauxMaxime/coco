@@ -64,13 +64,13 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
   const [talking, setTalking] = useState(false);
   const [busy, setBusy] = useState(false);
   const { accept, dismiss } = proposalActions(rv);
-  const dispatch = async (text: string, model?: string, files: UploadRef[] = []) => {
+  const dispatch = async (text: string, model?: string, files: UploadRef[] = [], thinking?: string) => {
     setBusy(true);
     try {
       const c = await accept(wp);
       const key = threadKey.comment(rv.n, c.id);
       openThreads.add(key);
-      await api.postThread(rv.slug, key, { text, model, ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
+      await api.postThread(rv.slug, key, { text, model, ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
       refreshThreads(rv.slug);
       onDispatched?.(key);
     } catch (e) {

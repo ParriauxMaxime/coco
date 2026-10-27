@@ -15,6 +15,7 @@ import type { ActionDef, Card } from './cards.ts';
 import type { Raw } from './blocks.ts';
 import { FILES_ONLY, agentInput, createUploads, uploadRef } from './uploads.ts';
 import type { Upload, Uploads } from './uploads.ts';
+import type { ModelPick, Models } from './models.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
 // past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
@@ -67,6 +68,7 @@ type Conv = {
   pr?: RowKey | null;
   kind: string;
   model: string | null;
+  thinking?: string | null;
   startedAt: string;
   lastActivity: string;
   status: string;
@@ -86,7 +88,7 @@ type Conv = {
   onEnd?: (conv: Conv) => void;
   once?: boolean;
 };
-const META = ['id', 'prompt', 'scope', 'workSlug', 'pr', 'kind', 'model', 'startedAt', 'lastActivity', 'status', 'turns', 'proposed', 'text', 'agentId', 'agentIds', 'cost', 'costBase', 'once'] as const satisfies readonly (keyof Conv)[];
+const META = ['id', 'prompt', 'scope', 'workSlug', 'pr', 'kind', 'model', 'thinking', 'startedAt', 'lastActivity', 'status', 'turns', 'proposed', 'text', 'agentId', 'agentIds', 'cost', 'costBase', 'once'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; text?: string; cost?: number | null };
 type CardFeed = { ofAgent(agentId: string): Card[]; onChange(l: (agentId: string) => void): () => void };
@@ -95,7 +97,7 @@ type AskOptions = {
   DATA: string;
   APP?: string | null;
   REPO: string;
-  config: { owner: { name: string }; models: { default: string }; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string }[] };
+  config: { owner: { name: string }; models: { default: string; fast?: string }; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string }[] };
   works: { get(slug: string): AskWork | null | undefined; save(work: AskWork): unknown; prInfo(n: number): Promise<PrInfo | null> };
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
@@ -108,6 +110,8 @@ type AskOptions = {
   uploads?: Uploads;
   // the cards store, read lazily: the conversation stream also carries its agents' cards
   cards?: () => CardFeed;
+  // checks a composer's model and thinking pick, and applies it to a live agent
+  models?: Pick<Models, 'check' | 'apply'>;
 };
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -174,7 +178,7 @@ const repoAdded = (r: AddRepoResult) => [
   r.setup?.error ? `setup run failed: ${r.setup.error}` : r.setup?.agentId ? `setup run ${r.setup.agentId.slice(0, 8)} proposes its config` : null,
 ].filter(Boolean).join(' · ');
 
-export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo, uploads = createUploads({ DATA }), cards }: AskOptions) {
+export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo, uploads = createUploads({ DATA }), cards, models }: AskOptions) {
   const repos = config.repos || [];
   const where = async (scope: AskScope, pr: RowKey | null = null) => {
     if (place) return place(scope, pr);
@@ -201,7 +205,7 @@ For a new work, end with exactly one propose_work_scaffold call carrying the ful
 - Links: product spec and decision log first, then the precedent PR or stack; four at most.
 - Feature flags: find the flags checked around the entry points of every surface the work touches; each flag that gates one goes in betaFlags with the PRs it applies to, so testers and PR bodies name it.
 To start a Paseo agent (a local Claude Code session in a work's PR workspace, from list_paseo), end with exactly one propose_paseo_agent call carrying the full brief: the card lets ${OWNER} start it.${dispatch ? ` To run a catalog agent on the current work or one of its PRs (ask on a PR, persona review, fix findings, a gate run, a free prompt), prefer one dispatch call: coco adds the work brief and picks the workspace, ${OWNER} confirms on the card.` : ''} For a question, answer in prose, short, English. Quote file paths and PR numbers exactly.
-This is a conversation: ${OWNER} follows up in the same session, sometimes while you are still working; answer the latest message and keep what was already settled.`;
+This is a conversation: ${OWNER} follows up in the same session, sometimes while you are still working; answer the latest message and keep what was already settled.${config.models.fast ? `\nHand focused subtasks (a single-file read, a search, a per-file review) to subagents on the fast model ${config.models.fast.split('/').slice(1).join('/')}; keep the synthesis yourself.` : ''}`;
 
   // the inbox is global too but scaffolds works: only the global Ask page gets the global tier's line
   const tierOf = ({ scope, kind, pr }: Pick<Conv, 'scope' | 'kind' | 'pr'>) => {
@@ -277,6 +281,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: SYSTEM + tierOf(conv),
         provider: providerFor(conv.model),
+        ...(conv.thinking ? { thinking: conv.thinking } : {}),
         cwd,
         workspaceId,
         labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, pr: conv.pr == null ? null : fileKey(conv.pr), repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
@@ -339,6 +344,20 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     });
   }
 
+  // a composer's model or thinking pick: the live agent switches in place, else the next agent starts with it
+  async function repick(conv: Conv, pick: ModelPick) {
+    if (!models || (pick.provider == null && pick.thinking == null)) return;
+    const current = providerFor(conv.model);
+    const p = await models.check(pick, current);
+    const model = p.provider ?? conv.model;
+    const thinking = p.thinking ?? conv.thinking ?? null;
+    if (providerFor(model) === current && thinking === (conv.thinking ?? null)) return;
+    Object.assign(conv, { model, thinking });
+    save(conv);
+    const live = conv.agentId && OPEN.includes(conv.status) ? await models.apply(conv.agentId, p).then(() => true, () => false) : false;
+    push(conv, { type: 'meta', text: `model ${providerFor(model)}${thinking ? ` · thinking ${thinking}` : ''}${live ? '' : ', from the next agent'}` });
+  }
+
   // a message opens a turn, or steers the turn in flight; a parked or closed conversation gets a new agent
   async function say(conv: Conv, text: string, { nonce = null, files = [] }: { nonce?: unknown; files?: Upload[] } = {}) {
     const steer = conv.status === 'running';
@@ -369,9 +388,9 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   // onEnd(conv) fires after each turn. once: the agent is archived after the first turn, and answers to its cards are not delivered
   // the scope: the work's when there is one, else the repo's, else global
-  function start({ prompt, workSlug = null, pr = null, repoId = null, model = null, kind = 'ask', nonce = null, files = [] }: { prompt: string; workSlug?: string | null; pr?: RowKey | null; repoId?: string | null; model?: string | null; kind?: string; nonce?: unknown; files?: Upload[] }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
+  function start({ prompt, workSlug = null, pr = null, repoId = null, model = null, thinking = null, kind = 'ask', nonce = null, files = [] }: { prompt: string; workSlug?: string | null; pr?: RowKey | null; repoId?: string | null; model?: string | null; thinking?: string | null; kind?: string; nonce?: unknown; files?: Upload[] }, { onEnd, once = false }: { onEnd?: (conv: Conv) => void; once?: boolean } = {}) {
     const scope: AskScope = workSlug ? { kind: 'work', slug: workSlug } : repoId ? { kind: 'repo', repoId } : { kind: 'global' };
-    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, pr: workSlug ? pr : null, kind, model, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposed: null, text: '', agentId: null, agentIds: [], cost: null, costBase: 0, once });
+    const conv = remember({ id: randomUUID(), prompt, scope, workSlug, pr: workSlug ? pr : null, kind, model, thinking, startedAt: now(), lastActivity: now(), status: 'idle', turns: 0, proposed: null, text: '', agentId: null, agentIds: [], cost: null, costBase: 0, once });
     conv.onEnd = onEnd;
     save(conv);
     say(conv, prompt, { nonce, files });
@@ -603,7 +622,13 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         const prompt = String(b.prompt || '').trim() || (files.length ? FILES_ONLY : '');
         if (!prompt) return send(res, 400, { error: 'prompt required' });
         if (b.repoId && !repos.some((r) => r.id === b.repoId)) return send(res, 400, { error: `unknown repo ${b.repoId}` });
-        const conv = start({ prompt, workSlug: b.workSlug || null, pr: parseKey(b.pr), repoId: b.repoId || null, model: b.model || null, nonce: b.nonce, files });
+        let pick;
+        try {
+          pick = models ? await models.check({ provider: b.provider, thinking: b.thinking }, config.models.default) : {};
+        } catch (e) {
+          return send(res, httpStatus(e), { error: errorMessage(e) });
+        }
+        const conv = start({ prompt, workSlug: b.workSlug || null, pr: parseKey(b.pr), repoId: b.repoId || null, model: pick.provider || b.model || null, thinking: pick.thinking || null, nonce: b.nonce, files });
         return send(res, 200, { id: conv.id });
       }
       return send(res, 200, list(new URL(req.url || '/', 'http://coco').searchParams.get('scope')));
@@ -612,11 +637,16 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     if (!conv) return send(res, 404, { error: 'no such conversation' });
     if (action === 'events') return watch(sseSink(req, res), conv);
     if (action === 'messages' && req.method === 'POST') {
-      const { text, nonce, attachments } = await body();
+      const { text, nonce, attachments, provider, thinking } = await body();
       const files = filesOf(attachments);
       if (!files) return;
       const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
       if (!said) return send(res, 400, { error: 'text required' });
+      try {
+        await repick(conv, { provider, thinking });
+      } catch (e) {
+        return send(res, httpStatus(e), { error: errorMessage(e) });
+      }
       say(conv, said, { nonce, files });
       return send(res, 200, { ok: true, status: conv.status });
     }

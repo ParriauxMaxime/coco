@@ -249,9 +249,9 @@ chip and in the tree. The chips above the tree hide or show a category in
 the tree and the cards; hidden cards do not mount Monaco. Jumping to a file
 in a hidden category shows that category again.
 
-"Plan this review" starts a Paseo agent (`coco · Plan review …`) in the
-workspace of the PR's worktree (else the stack's top worktree, else the
-repo), archived once the plan is in.
+"Plan this review" starts a Paseo agent (`coco · Plan review …`, on
+`models.fast`) in the workspace of the PR's worktree (else the stack's top
+worktree, else the repo), archived once the plan is in.
 Its prompt carries no diff and no file list: only the PR, the work, the head
 and merge-base shas and the git commands to read them (`git diff --name-status`
 lists the changed files, then `git diff`, `git show`, `git grep` at the head
@@ -613,7 +613,7 @@ global | work | pr, pr }`.
 "💬 ask an agent" on a review comment, a watch point or a decision
 card, and "💬 ask or re-plan" on the review plan, open the item's one text
 box: **Start agent** sends the text to a small scoped agent (`models.fast` by
-default, `models.default` for deep work); on a comment, **✓ Resolve** / **✕ Decline** close it
+default; the composer's model and thinking pickers choose another); on a comment, **✓ Resolve** / **✕ Decline** close it
 with the text as reason (saved in the work notes). There is no separate
 remark box. The agent answers inline and suggests a change; you approve or
 dismiss it in the thread. cocopilot is the
@@ -658,8 +658,10 @@ orchestration layer (`server/threads.ts`):
   Routes: `GET /api/works/<slug>/threads` (summaries: count, waiting,
   lastTs, groupId, open suggestions, open questions as `asks`; retries
   queued approvals), `GET|POST …/threads/<key>` (GET carries the thread's
-  `cards`; POST `{ text, model?: sonnet|opus, groupId?, attachments?:
-  upload ids }`, models mapped to `models.fast` and `models.default`), `PUT
+  `cards`; POST `{ text, model?: sonnet|opus|<provider>/<model>, thinking?,
+  groupId?, attachments?: upload ids }`, sonnet and opus mapped to
+  `models.fast` and `models.default`, any other model and the thinking level
+  checked against `GET /api/models`, both used only when a new group starts), `PUT
   …/threads/<key>` (`{ groupId | 'new' }`), `POST
   …/threads/<key>/suggestions/<msg id>` (`{ action: approve|dismiss }`),
   `GET …/groups`, `POST …/groups/<id>/close` (archives the group's Paseo
@@ -907,6 +909,36 @@ The same MCP carries the agents' writes to the work, in place of curl:
 `upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact` and
 `set_next`, each defaulting to the agent's work and row; the HTTP routes stay
 for you, scripts and sessions without the MCP.
+
+## Model, thinking and mode (composer)
+
+Every agent composer shows, next to the paperclip, the model (Sonnet 5.5),
+the thinking level (High, or the model's default) and an **auto** chip.
+Each opens a small menu: the models Paseo lists for the providers your
+`models.default` and `models.fast` use (`default` and `fast` tagged), and the
+thinking levels of the picked model. The mode is not a choice: every coco
+agent runs in Paseo's auto mode, and a brief saying not to touch code is what
+keeps one read-only.
+
+- Starting an agent (a new-agent tab, the Ask page and panels, Dispatch, a
+  thread's first message): the pick goes with the start. Unpicked, Ask and
+  general agents run on `models.default`; a persona review, review threads and
+  the review plan on `models.fast`. The last pick per kind (ask, thread,
+  dispatch-`<entry>`) is remembered in this browser.
+- A live agent (agent tabs, an open Ask conversation): the pickers show its
+  current model and thinking, and a new pick switches the agent in place from
+  your next message (Paseo's set-model and set-thinking calls); a parked or
+  closed Ask conversation takes it to the next agent it starts. A live agent
+  never switches provider.
+- Picks are checked against `GET /api/models` (Paseo's list, cached 10 min,
+  retried sooner after a failure): an unknown model or a thinking level the
+  model lacks is refused before anything starts. Routes take `provider`
+  (`<provider>/<model id>`) and `thinking`: `POST /api/ask`,
+  `POST /api/ask/<id>/messages`, `POST /api/agent-chat/<agent>/messages`,
+  `POST /api/works/<slug>/dispatch`; threads take `model` and `thinking`.
+- The Ask agent's system prompt tells it to hand focused subtasks (a
+  single-file read, a search, a per-file review) to subagents on the fast
+  model.
 
 ## Attachments (images and files to an agent)
 

@@ -15,7 +15,9 @@ import { AgentDot } from './AgentsSection.tsx';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
-import type { ActivityEvent, AgentMetrics, UploadRef } from '../types.ts';
+import type { ActivityEvent, AgentMetrics, ModelChoice, UploadRef } from '../types.ts';
+import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
+import { useOverview } from './overview.ts';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -51,7 +53,8 @@ export function NewAgentTab({ tabId }: { tabId: string }) {
   useEffect(() => {
     if (started) useWorkbench.getState().rename(tabId, `ask-${started}`);
   }, [started]);
-  const start = (text: string, files: UploadRef[] = []) => convo.send(text, (nonce) => api.ask({ prompt: text, workSlug: slug, pr, nonce, attachments: files.map((f) => f.id) }), files);
+  const model = useAskModel(null);
+  const start = (text: string, files: UploadRef[] = []) => convo.send(text, (nonce) => api.ask({ prompt: text, workSlug: slug, pr, nonce, attachments: files.map((f) => f.id), ...model.body() }), files);
   return (
     <div className="dp-tabview dp-agtab">
       <div className="dp-vbar"><Icon name="bot" size={14} /><span className="dp-title">New agent</span><span className="dp-chip">{pr ? prLabel(pr) : 'work'}</span></div>
@@ -63,7 +66,7 @@ export function NewAgentTab({ tabId }: { tabId: string }) {
           <div className="dp-ag-ex">{(pr ? PR_EXAMPLES : EXAMPLES).map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>
         </div>
       </div>
-      <Composer placeholder={`Ask about or extend ${pr ? prLabel(pr) : 'this work'}… (↵)`} onSend={start} />
+      <Composer placeholder={`Ask about or extend ${pr ? prLabel(pr) : 'this work'}… (↵)`} tools={model.tools} onSend={start} />
     </div>
   );
 }
@@ -74,6 +77,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const id = tabId.slice(4);
   const convo = useAskConversation('ask', { kind: 'work', slug });
   const { run, events, pending, working, cards, mergeCard } = convo;
+  const model = useAskModel(run);
   const listed = useWorkAgent(slug, tabId);
   const { pending: asked } = usePendingPermissions();
   useEffect(() => {
@@ -91,7 +95,8 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
       <Composer
         placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
         note={state === 'archived' ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : ''}
-        onSend={(text, files) => convo.send(text, undefined, files)}
+        tools={model.tools}
+        onSend={(text, files) => convo.send(text, undefined, files, model.body())}
         onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined}
       />
     </div>
@@ -118,11 +123,11 @@ function useAgentChat(agentId: string) {
       },
     });
   }, [agentId]);
-  const send = async (text: string, files: UploadRef[] = []) => {
+  const send = async (text: string, files: UploadRef[] = [], pick: ModelChoice = {}) => {
     const nonce = nonceOf();
     setPending((p) => [...p, { nonce, text, ...(files.length ? { attachments: files } : {}) }]);
     try {
-      await api.agentSay(agentId, text, files.map((f) => f.id));
+      await api.agentSay(agentId, text, files.map((f) => f.id), pick);
       return true;
     } catch (e) {
       setPending((p) => p.filter((x) => x.nonce !== nonce));
@@ -142,6 +147,8 @@ export function AgentTranscript({ agentId, state, who, lead, fallback }: Transcr
   const { events, pending, send, cards, merge } = useAgentChat(agentId);
   const gone = events.length > 0 && events.every((e) => NOTE_ONLY.includes(e.type));
   const archived = state === 'archived';
+  const listed = useOverview().ov?.agents.find((a) => a.id === agentId);
+  const model = useModelChoice(null, { live: true, current: listed?.provider ? { provider: listed.provider, thinking: listed.thinking || null } : null });
   return (
     <>
       <Log size={events.length + pending.length + cards.length}>
@@ -155,7 +162,8 @@ export function AgentTranscript({ agentId, state, who, lead, fallback }: Transcr
         placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
         note={archived ? 'Archived: + in Agents starts a new one' : state === 'running' ? 'Sends while it works' : ''}
         disabled={archived || gone}
-        onSend={send}
+        tools={<ModelControls choice={model.choice} onPick={model.pick} hint="switches this agent from your next message" disabled={archived || gone} />}
+        onSend={(text, files) => send(text, files, model.body())}
         onStop={state === 'running' ? () => api.agentStop(agentId) : undefined}
       />
     </>

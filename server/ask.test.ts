@@ -10,6 +10,8 @@ import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './p
 import { createAsk } from './ask.ts';
 import { createCards } from './cards.ts';
 import { DEFAULTS } from './config.ts';
+import { checkPick } from './models.ts';
+import type { ModelPick } from './models.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
 type FakeAgent = { id: string; workspaceId: string; status: string; archivedAt: string | null; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[]; last: string | null };
@@ -372,4 +374,47 @@ test('a proposal card shows what the agent proposes, is refused when it cannot r
   await assert.rejects(propose('dispatch', { entry: 'ask' }, '99999999-0000-4000-8000-000000000000'), /a dispatch needs a work: pass workSlug/);
   await assert.rejects(propose('work_scaffold', { slug: 'Bad Slug', title: 'x' }), /slug must be kebab-case/);
   await assert.rejects(propose('launch', {}), /action\.type must be one of work_scaffold, paseo_agent, dispatch, repo/);
+});
+
+test('the composer’s model and thinking start the agent, switch the live one on a follow-up, carry to the next agent, and a bad pick starts nothing', async () => {
+  const daemon = fakeDaemon();
+  const catalog = { mode: 'auto', defaults: config.models, providers: [{ id: 'claude', error: null, models: ['claude-opus-5-5', 'claude-sonnet-5-5'].map((id) => ({ id, label: id, description: null, aliases: [], thinking: [{ id: 'low', label: 'low' }, { id: 'max', label: 'max' }], defaultThinking: null })) }] };
+  const applied: unknown[] = [];
+  const models = { check: async (pick: ModelPick, fallback?: string | null) => checkPick(catalog, pick, fallback), apply: async (id: string, pick: ModelPick) => (applied.push([id, pick]), { provider: null, thinking: null, changed: true }) };
+  const ask = createAsk({ DATA: tmpDir(), APP, REPO, config, works, agents: createPaseoAgents({ APP, connect: daemon.connect }), models });
+  const call = async (parts: string[], body: Record<string, unknown>) => {
+    const req = new IncomingMessage(new Socket());
+    Object.assign(req, { method: 'POST', url: `/api/${parts.join('/')}` });
+    let out: { code: number; body: { id?: string; error?: string } } = { code: 0, body: {} };
+    await ask.handle(req, new ServerResponse(req), parts, async () => JSON.stringify(body), (_res, code, b) => void (out = { code, body: b as { id?: string; error?: string } }));
+    return out;
+  };
+
+  const bad = await call(['ask'], { prompt: 'Review it', provider: 'claude/claude-sonnet-5-5', thinking: 'medium' });
+  assert.deepEqual([bad.code, bad.body.error], [400, 'claude-sonnet-5-5 has no thinking level medium: pick one of low, max']);
+  assert.equal(daemon.calls.created.length, 0);
+
+  const { body } = await call(['ask'], { prompt: 'Review it', provider: 'claude/claude-sonnet-5-5', thinking: 'low' });
+  await until(() => daemon.calls.sent.length === 1, 'first send');
+  const [first] = daemon.calls.created;
+  assert.deepEqual([first.config.provider, first.config.thinkingOptionId], ['claude/claude-sonnet-5-5', 'low']);
+  assert.match(String(first.config.systemPrompt), /subagents on the fast model claude-sonnet-5-5/);
+  const conv = ask.load(String(body.id));
+  assert.ok(conv);
+  daemon.finish(first.id, 'Done.');
+  await until(() => ends(conv) === 1, 'first turn end');
+
+  assert.equal((await call(['ask', conv.id, 'messages'], { text: 'Go deeper', provider: 'claude/claude-opus-5-5', thinking: 'max' })).code, 200);
+  await call(['ask', conv.id, 'messages'], { text: 'And again', provider: 'claude/claude-opus-5-5', thinking: 'max' });
+  assert.deepEqual(applied, [[first.id, { provider: 'claude/claude-opus-5-5', thinking: 'max' }]]);
+  assert.deepEqual([conv.model, conv.thinking], ['claude/claude-opus-5-5', 'max']);
+  assert.ok(conv.events.some((e) => e.type === 'meta' && e.text === 'model claude/claude-opus-5-5 · thinking max'));
+
+  await until(() => daemon.calls.sent.length === 3, 'follow-up and steer sends');
+  daemon.finish(first.id, 'Deeper.');
+  await until(() => conv.status === 'idle', 'idle again');
+  await ask.close(conv.id);
+  await ask.say(conv.id, 'Once more');
+  await until(() => daemon.calls.created.length === 2, 'next agent');
+  assert.deepEqual([daemon.calls.created[1].config.provider, daemon.calls.created[1].config.thinkingOptionId], ['claude/claude-opus-5-5', 'max']);
 });

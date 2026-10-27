@@ -15,12 +15,12 @@ const config: Config = {
   rituals: [{ kind: 'review-as', label: 'Review as', prompt: '/review-as {login} {pr}' }],
 };
 
-function setup({ contextFails = false, writerFails = false } = {}) {
+function setup({ contextFails = false, writerFails = false, models = undefined as Parameters<typeof createDispatch>[0]['models'] } = {}) {
   let work: Work = { slug: 'csv', title: 'CSV export', repo: 'widgets', timeline: [], stack: [{ number: 101, personas: ['bob'] }, { number: 102 }] };
   const works = { get: (s: string) => (s === 'csv' ? structuredClone(work) : null), save: (w: Work) => ((work = structuredClone(w)), w) };
   const placed: unknown[] = [];
   const started: Record<string, unknown>[] = [];
-  const fixes: { key: unknown; commentIds: string[]; prompt: string }[] = [];
+  const fixes: { key: unknown; commentIds: string[]; prompt: string; provider?: string; thinking?: string }[] = [];
   const timeline: string[] = [];
   const writes: { d: BriefDispatch; facts: string | null }[] = [];
   const tracked: { agentId: string | null | undefined; repoId: string | null; message: string }[] = [];
@@ -40,10 +40,11 @@ function setup({ contextFails = false, writerFails = false } = {}) {
       },
     },
     reviewAgent: {
-      start: async (_slug, key, input) => (fixes.push({ key, commentIds: input.commentIds, prompt: input.wrap ? input.wrap('Read brief.md') : '' }), { runId: 'r1', agentId: AGENT }),
+      start: async (_slug, key, input) => (fixes.push({ key, commentIds: input.commentIds, prompt: input.wrap ? input.wrap('Read brief.md') : '', provider: input.provider, thinking: input.thinking }), { runId: 'r1', agentId: AGENT }),
       timeline: (_slug, _kind, text) => timeline.push(text),
     },
     comments: { list: () => ({ comments: [{ id: 'c1', status: 'open' }, { id: 'c2', status: 'fixed' }, { id: 'c3', status: 'open' }] }) },
+    models,
   });
   return { dispatch, placed, started, fixes, timeline, writes, tracked, work: () => work };
 }
@@ -144,4 +145,23 @@ test('bad dispatches are refused before anything starts', async () => {
 
 test('firstMessage leaves the read-only note out for editing kinds', () => {
   assert.equal(firstMessage({ title: 'T', task: 'do it', edits: true, brief: null }), '# T\n\ndo it');
+});
+
+test('a dispatch starts on the picked model and thinking, checked first; unpicked, a persona review runs on the fast model and the rest on the default', async () => {
+  const checked: unknown[] = [];
+  const models = { check: async (pick: { provider?: unknown; thinking?: unknown }, fallback?: string | null) => {
+    checked.push([pick, fallback]);
+    if (pick.thinking === 'ultra') throw new Error('no thinking level ultra');
+    return { ...(pick.provider ? { provider: String(pick.provider) } : {}), ...(pick.thinking ? { thinking: String(pick.thinking) } : {}) };
+  } };
+  const { dispatch, started, fixes } = setup({ models });
+  await dispatch.start('csv', { entry: 'persona-review', key: 101, persona: 'bob' });
+  await dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why?' });
+  await dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why?', provider: 'claude/claude-sonnet-5-5', thinking: 'low' });
+  await dispatch.start('csv', { entry: 'fix-findings', key: 101, provider: 'claude/claude-opus-5-5', thinking: 'max' });
+  assert.deepEqual(started.map((s) => [s.provider, s.thinking]), [[config.models.fast, 'high'], [config.models.default, 'high'], ['claude/claude-sonnet-5-5', 'low']]);
+  assert.deepEqual([fixes[0].provider, fixes[0].thinking], ['claude/claude-opus-5-5', 'max']);
+  assert.deepEqual(checked[0], [{ provider: undefined, thinking: undefined }, config.models.fast]);
+  await assert.rejects(dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why?', thinking: 'ultra' }), /no thinking level ultra/);
+  assert.equal(started.length, 3);
 });

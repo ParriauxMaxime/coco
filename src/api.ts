@@ -8,6 +8,7 @@ import type {
 } from './types.ts';
 import type { Card, CardAnswerBody } from './types.ts';
 import type { UploadRef } from './types.ts';
+import type { ModelCatalog, ModelChoice } from './types.ts';
 
 export type * from './types.ts';
 
@@ -114,11 +115,12 @@ export const api = {
   plan: (slug: string) => get<WorkPlan>(`${works(slug)}/plan`),
   asks: (scope?: string) => get<AskRun[]>(`/api/ask${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`),
   ask: (body: AskStartBody) => post<{ id: string }>('/api/ask', body),
-  askSay: (id: string, body: { text: string; nonce: string; attachments?: string[] }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
+  models: () => get<ModelCatalog>('/api/models'),
+  askSay: (id: string, body: { text: string; nonce: string; attachments?: string[] } & ModelChoice) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
   workAgents: (slug: string) => get<WorkAgents>(`${works(slug)}/agents`),
   archiveAgents: (slug: string, ids: string[]) => postJson(`${works(slug)}/agents/archive`, { ids }).then(jsonOrError<{ archived: string[]; failed: { id: string; error: string }[] }>),
-  agentSay: (agentId: string, text: string, attachments: string[] = []) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text, ...(attachments.length ? { attachments } : {}) }).then(jsonOrError<{ ok: boolean }>),
+  agentSay: (agentId: string, text: string, attachments: string[] = [], pick: ModelChoice = {}) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text, ...(attachments.length ? { attachments } : {}), ...pick }).then(jsonOrError<{ ok: boolean }>),
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
   agentStop: (agentId: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/stop`).then(jsonOrError<{ ok: boolean }>),

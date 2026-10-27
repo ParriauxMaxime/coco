@@ -2,7 +2,8 @@
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { createPaseoClient } from '@getpaseo/client';
+import { createPaseoApi } from '@getpaseo/client';
+import { DaemonClient as RawDaemon } from '@getpaseo/client/internal/daemon-client';
 import { rowKey } from './stack.ts';
 import { promptSize, systemSize } from './agent-usage.ts';
 import type { UsageStore } from './agent-usage.ts';
@@ -48,7 +49,7 @@ export type DaemonAgent = {
   timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string } & AgentInput): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string> } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null } | null } | null>;
   archive(): Promise<unknown>;
 } & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };
@@ -62,6 +63,9 @@ export type DaemonClient = {
     archive?(workspaceId: string): Promise<{ error?: string | null }>;
   };
   agents: { ref(id: string): DaemonAgent; list?: PermissionClient['agents']['list'] };
+  providers?: { listModels(provider: string): Promise<{ models?: { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string }[]; error?: string | null }> };
+  setAgentModel?(agentId: string, modelId: string | null): Promise<unknown>;
+  setAgentThinkingOption?(agentId: string, thinkingOptionId: string | null): Promise<unknown>;
 };
 type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
 
@@ -104,11 +108,15 @@ export async function daemonServerId(exec: Exec = defaultExec): Promise<string |
 
 export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}): Promise<DaemonClient> {
   const url = await daemonUrl(exec);
-  const client = createPaseoClient({ url, clientId: 'cocopilot', password: process.env.PASEO_PASSWORD || undefined, reconnect: { enabled: true } });
+  // the SDK's own client, plus the model and thinking setters only its inner daemon client has
+  const raw = new RawDaemon({ url, clientId: 'cocopilot', clientType: 'cli', password: process.env.PASEO_PASSWORD || undefined, reconnect: { enabled: true } });
+  const api = createPaseoApi(raw);
+  const close = () => api.dispose().finally(() => raw.close());
+  const client = { ...api, close, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
   try {
-    await client.connect();
+    await raw.connect();
   } catch (e) {
-    await client.close().catch(() => {});
+    await close().catch(() => {});
     throw new Error(`cannot reach the Paseo daemon at ${url}: ${e instanceof Error ? e.message : String(e)}`);
   }
   return client as unknown as DaemonClient;
@@ -294,7 +302,7 @@ export type Outcome = { status: string; error: string | null; entries: Entry[]; 
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
 type AgentConfig = { provider?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
 // every coco agent works on its own; a brief saying not to touch code is what keeps one read-only
-const AGENT_MODE = 'auto';
+export const AGENT_MODE = 'auto';
 // files sent with a message: images inline, other files by path (Paseo's uploaded_file attachment)
 export type AgentInput = { images?: { data: string; mimeType: string }[]; attachments?: { type: 'uploaded_file'; id: string; fileName: string; mimeType: string; size: number; path: string }[]; messageId?: string };
 type StartOptions = AgentConfig & { title: string; prompt?: string; input?: AgentInput; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
