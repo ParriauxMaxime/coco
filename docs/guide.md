@@ -965,7 +965,17 @@ the work's one Notion page; it creates no page per row and renames none (a
 row's page is linked by url and title). The card then shows the outcome with
 an **Open** link to the work, the agent's tab or the repo, and the agent
 gets your answer with that outcome (`Done:` or `Failed:`). Reject or a note
-runs nothing. An agent started from **Start agent** carries the work's
+runs nothing. To split a PR, an agent first cuts the branches and opens the
+PRs, then posts one **Split** card (`propose_split`): the original row
+replaced in place by the parts in order, each with the GitHub base it will
+get (the first on the original's base, each next on the previous part, the
+row after the split on the last part), the first part keeping the original's
+Notion page. Two toggles, both on: **Create Notion pages for the new rows**
+and **Then refresh PR bodies**, which posts one Start agent card per PR for
+the body gate and starts nothing itself. Pressing **Split** applies the rows,
+runs `gh pr edit --base` for the PRs that exist and shows each step's
+outcome; if one failed, the agent proposes the same split again and only the
+missing steps run. An agent started from **Start agent** carries the work's
 label (and its row when the conversation has one), so it lists among the
 work's agents. Ask any agent to answer a PR comment (a reviewer, Sentry, a
 finding) and it posts a **Post reply** card: the comment it answers, the

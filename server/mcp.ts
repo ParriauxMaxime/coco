@@ -113,6 +113,22 @@ server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${
 }, async (proposal) => propose('work_scaffold', proposal));
 
 const rowRef = z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a row with no PR yet');
+server.tool('propose_split', `Propose the stack side of a PR split, shown to ${OWNER} as ONE Apply card. Call it after you created the branches and opened the PRs (parts without a PR yet become planned rows); never use propose_work_scaffold's replace for a split. The original row is replaced in place by the parts, in order, keeping every other row and its fields; the first part keeps the original's Notion page; approving sets each part's GitHub base (the first on the original's base, each next on the previous part's branch, the row after the split on the last part), can create Notion pages for the new rows and queue a PR body refresh card per PR, and returns a result per step. The git splitting stays yours. ${ON_CARD}`, {
+  work: z.string().optional().describe("work slug; omit to use this agent's work"),
+  pr: rowRef.describe('the row being split'),
+  parts: z.array(z.object({
+    title: z.string().max(200),
+    branch: z.string().describe("the part's branch"),
+    files: z.array(z.string()).optional().describe('files it carries, shown on the card'),
+    scope: z.string().max(2000).optional(),
+    existingPr: z.number().int().optional().describe("the part's PR once opened (the original PR number for the part that keeps it); omit for a planned row"),
+  })).min(2).max(12).describe('in stack order'),
+  why: z.string().max(500).optional().describe('one sentence'),
+}, async ({ work, ...p }) => {
+  const t = await target(work);
+  return propose('split', { ...p, ...(t.slug ? { work: decodeURIComponent(t.slug) } : {}) });
+});
+
 server.tool('propose_stack_edit', `Propose edits to an existing work's stack, shown to ${OWNER} as a card: add a row at a position, update a row's fields, move or remove a row. Rows keep every field the edit does not name (Notion page, gates, kit, workspace): use this, not propose_work_scaffold, to change the stack of a work that exists. Approving can also start the work's Notion sync, which rewrites the linked work page and its stack table; it creates no page per row and renames no page. ${ON_CARD}`, {
   work: z.string().optional().describe("work slug; omit to use this agent's work"),
   ops: z.array(z.object({
