@@ -22,7 +22,7 @@ let seq = 0;
 
 // images and files come by paste, drop or the paperclip; each uploads at once and leaves with the message as an attachment id
 // tools: controls after the paperclip · actions(text, clear): buttons before Send that use the text · busy: another action holds Send · sending: Send in flight
-// onStop: the agent is mid-turn; a Stop button and Esc interrupt it
+// onStop: the agent is mid-turn; a Stop button and Esc interrupt it · allowEmpty: Send works without text · attach: false hides the paperclip and refuses pasted files
 type ComposerProps = {
   placeholder: string;
   note?: string;
@@ -36,9 +36,16 @@ type ComposerProps = {
   actions?: (text: string, clear: () => void) => React.ReactNode;
   onSend: (text: string, files: UploadRef[]) => Promise<boolean>;
   onStop?: () => Promise<unknown>;
+  allowEmpty?: boolean;
+  attach?: boolean;
+  // false: no text box, only the footer and its Send (the action takes no words)
+  withText?: boolean;
+  initial?: string;
+  // Esc when no agent runs to stop
+  onCancel?: () => void;
 };
-export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop }: ComposerProps) {
-  const [text, setText] = useState('');
+export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', onCancel }: ComposerProps) {
+  const [text, setText] = useState(initial);
   const [stopping, setStopping] = useState(false);
   const stop = () => {
     if (!onStop || stopping) return;
@@ -65,7 +72,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
       },
     );
   const add = (list: File[]) => {
-    if (disabled || !list.length) return;
+    if (disabled || !attach || !list.length) return;
     const problems: string[] = [];
     const ok = list.filter((f) => {
       const why = fileProblem(f);
@@ -87,17 +94,17 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   };
 
   const uploading = files.some((f) => !f.ref);
-  const empty = !text.trim() && !files.length;
+  const empty = withText && !allowEmpty && !text.trim() && !files.length;
   const send = async () => {
     if (empty || disabled || busy || sending || uploading) return;
-    if (await onSend(text.trim() || FILES_ONLY, files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
+    if (await onSend(text.trim() || (files.length ? FILES_ONLY : ''), files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
       files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
       setText('');
       setFiles([]);
       setErrors([]);
     }
   };
-  const dragging = (e: React.DragEvent) => !disabled && e.dataTransfer.types.includes('Files');
+  const dragging = (e: React.DragEvent) => !disabled && attach && e.dataTransfer.types.includes('Files');
   return (
     <div className={`dp-composer${className ? ` ${className}` : ''}`}>
       <div
@@ -117,22 +124,28 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
           </div>
         )}
         {errors.length > 0 && <div className="dp-upl-err" role="alert"><Icon name="alert-triangle" size={12} /><span>{errors.join(' · ')}</span></div>}
-        <textarea
-          rows={2}
-          value={text}
-          disabled={disabled}
-          autoFocus={autoFocus}
-          placeholder={placeholder}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={(e) => { const pasted = [...e.clipboardData.files]; if (pasted.length) { e.preventDefault(); add(pasted); } }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
-            else if (e.key === 'Escape' && onStop) { e.preventDefault(); stop(); }
-          }}
-        />
+        {withText && (
+          <textarea
+            rows={2}
+            value={text}
+            disabled={disabled}
+            autoFocus={autoFocus}
+            placeholder={placeholder}
+            onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => { const pasted = [...e.clipboardData.files]; if (pasted.length) { e.preventDefault(); add(pasted); } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
+              else if (e.key === 'Escape' && (onStop || onCancel)) { e.preventDefault(); if (onStop) stop(); else onCancel?.(); }
+            }}
+          />
+        )}
         <div className="dp-comp-f">
-          <input ref={picker} type="file" multiple hidden onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
-          <button type="button" className="dp-btn dp-ghost dp-sm dp-upl-clip" disabled={disabled} title="Attach images or files (or paste or drop them)" aria-label="Attach files" onClick={() => picker.current?.click()}><Icon name="paperclip" size={14} /></button>
+          {attach && (
+            <>
+              <input ref={picker} type="file" multiple hidden onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
+              <button type="button" className="dp-btn dp-ghost dp-sm dp-upl-clip" disabled={disabled} title="Attach images or files (or paste or drop them)" aria-label="Attach files" onClick={() => picker.current?.click()}><Icon name="paperclip" size={14} /></button>
+            </>
+          )}
           {tools}
           <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
           {actions?.(text.trim(), () => setText(''))}

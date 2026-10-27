@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { FindingBody } from '../../components/Blocks.tsx';
@@ -9,6 +9,7 @@ import { Confidence, Severity } from '../../components/Signals.tsx';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import { useAction, pendingClass } from '../../components/action.ts';
+import { Composer } from '../../preview/chat/Composer.tsx';
 import type { ReviewHandle } from './use-comments.ts';
 import type { LineRange, PrKey, Proposal, RefFile, ReviewComment, Side } from '../types.ts';
 import './code.css';
@@ -18,37 +19,18 @@ type RowVerdict = { icon: string; title: string; cls?: string; on: () => unknown
 
 const CHIP: Record<string, string> = { open: 'c-blue', sent: 'c-orange', fixed: 'c-green', declined: 'c-red', outdated: 'c-grey' };
 
-function Composer({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
-  const [body, setBody] = useState(initial);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-  }, []);
-  const submit = () => body.trim() && onSubmit(body.trim());
+function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
   return (
-    <>
-      <textarea
-        ref={ref}
-        className="cc-textarea"
-        rows={3}
-        value={body}
-        placeholder="Leave a comment"
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            onCancel();
-          }
-        }}
-      />
-      <div className="cc-actions">
-        <button type="button" className="sm primary" disabled={!body.trim()} onClick={submit}>{submitLabel}</button>
-        <button type="button" className="sm" onClick={onCancel}>Cancel</button>
-      </div>
-    </>
+    <Composer
+      autoFocus
+      attach={false}
+      initial={initial}
+      placeholder="Leave a comment (↵, ⇧↵ new line, esc cancels)"
+      sendLabel={submitLabel}
+      actions={() => <button type="button" className="dp-btn dp-sm dp-ghost" onClick={onCancel}>Cancel</button>}
+      onCancel={onCancel}
+      onSend={async (body) => { onSubmit(body); return true; }}
+    />
   );
 }
 
@@ -100,7 +82,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
           { icon: '✓', title: 'Accept: becomes an open comment', cls: 'ok', on: () => accept(wp) },
           { icon: '✕', title: 'Dismiss', cls: 'no', on: () => dismiss(wp) },
         ]}
-        extra={rv.slug && <button type="button" className={`thread-toggle ${talking ? 'on' : ''}`} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}>💬 discuss or dispatch</button>}
+        extra={rv.slug && <button type="button" className={`thread-toggle ${talking ? 'on' : ''}`} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}>💬 ask an agent</button>}
       />
       {talking && (
         <div className="thread">
@@ -198,7 +180,7 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
   if (draft) {
     return (
       <div className="cc-zone">
-        <Composer submitLabel="Add comment" onSubmit={(body) => onSave?.(comment, body)} onCancel={() => onDelete?.(comment)} />
+        <CommentBox submitLabel="Add comment" onSubmit={(body) => onSave?.(comment, body)} onCancel={() => onDelete?.(comment)} />
       </div>
     );
   }
@@ -212,7 +194,7 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
         <Confidence value={comment.confidence} />
       </div>
       {editing ? (
-        <Composer
+        <CommentBox
           initial={comment.body}
           submitLabel="Save"
           onSubmit={(body) => {
