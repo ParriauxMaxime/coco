@@ -940,6 +940,34 @@ keeps one read-only.
   single-file read, a search, a per-file review) to subagents on the fast
   model.
 
+## Subagents (what an agent starts itself)
+
+An agent can start its own subagents (Claude's `Agent` or `Task` tool, in the
+background or not). coco shows them from Paseo's provider subagents, read-only:
+
+- **Pill bar** above the composer of every agent tab (`ag-`, `ask-`, review
+  and stack runs): a pill per running subagent (spinner, description, time
+  so far); finished ones fold into **N done**. A pill opens the subagent's tab.
+  On the Ask page and the repo and Inbox panels, where there are no tabs, it
+  opens the transcript in a dialog.
+- **Subagent tab** `sub-<parent agent>~<subagent>`: its transcript, live while
+  it runs, under its status, time, Paseo's model line and a button back to
+  the agent that started it; the inspector shows that agent. No composer: to
+  steer it, message the parent.
+- **Transcript**: an `Agent`/`Task` call is a compact row (description, type,
+  background or foreground, live status, **Open**), its prompt behind
+  **brief**, a foreground result behind **result**; the "Async agent
+  launched…" note is hidden.
+- **Sidebar**: an agent with running subagents shows **⑂ n**, and they are
+  listed under it while they run.
+
+Routes: `GET /api/agent-chat/<agent>/subagents` → `{ subagents }`;
+`GET /api/agent-chat/<agent>/subagents/<id>/events` replays its timeline as
+activity events then follows it (SSE). Page topics `subagents:<agent>` and
+`subagent:<agent>:<id>` carry the same, pushed by Paseo's
+`agent.provider_subagents.update` feed (polled every 5 s without it). Each
+work agent carries `subagents: { running, total }`.
+
 ## Attachments (images and files to an agent)
 
 Every agent composer (agent tabs, Ask conversations, new-agent tabs, the

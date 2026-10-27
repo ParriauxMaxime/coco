@@ -525,7 +525,7 @@ export type ModelEntry = { id: string; label: string; description: string | null
 export type ModelCatalog = { mode: string; defaults: { default: string; fast: string }; providers: { id: string; models: ModelEntry[]; error: string | null }[] };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number } & AgentMetrics;
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
 // estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them
 export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
 export type WorkAgents = { agents: WorkAgent[]; serverId: string | null; error?: string };

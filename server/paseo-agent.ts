@@ -9,6 +9,7 @@ import { promptSize, systemSize } from './agent-usage.ts';
 import type { UsageStore } from './agent-usage.ts';
 import type { PermissionClient, PermissionRequest } from './permissions.ts';
 import type { UploadRef } from './uploads.ts';
+import type { SubagentApi } from './subagents.ts';
 
 export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 export const TITLE_PREFIX = 'coco · ';
@@ -66,7 +67,7 @@ export type DaemonClient = {
   providers?: { listModels(provider: string): Promise<{ models?: { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string }[]; error?: string | null }> };
   setAgentModel?(agentId: string, modelId: string | null): Promise<unknown>;
   setAgentThinkingOption?(agentId: string, thinkingOptionId: string | null): Promise<unknown>;
-};
+} & SubagentApi;
 type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
 
 // The server may run inside a Paseo agent's shell: its PASEO_AGENT_ID would make every CLI launch that agent's subagent and pin it to that agent's workspace.
@@ -113,6 +114,7 @@ export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}
   const api = createPaseoApi(raw);
   const close = () => api.dispose().finally(() => raw.close());
   const client = { ...api, close, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
+  Object.assign(client, { listProviderSubagents: (id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts) });
   try {
     await raw.connect();
   } catch (e) {

@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
 import { usePendingPermissions } from './chat/Permission.tsx';
 import Icon from './Icon.tsx';
+import { SidebarSubagents, SubagentCount } from './Subagents.tsx';
 import { STATE_LABEL, groupAgents, reloadWorkAgents, useWorkAgents } from './agents.ts';
 import type { AgentGroup, AgentState, ListedAgent } from './agents.ts';
 import type { WorkPr } from '../workbench/types.ts';
@@ -58,13 +59,18 @@ function ArchiveButton({ id, ids, title, armedTitle, arc }: { id: string; ids: s
 
 function AgentRow({ a, onOpen, arc }: { a: ListedAgent; onOpen: (id: string) => void; arc?: Archive }) {
   const busy = BUSY.includes(a.state);
+  const subs = a.agentId && a.state !== 'archived' ? a.subagents?.running ?? 0 : 0;
   return (
-    <div className={`dp-view dp-ag${arc?.armed === a.id ? ' dp-ag-armed' : ''}`} title={`${a.title} · ${a.kind} · ${STATE_LABEL[a.state]}`} onClick={() => onOpen(a.id)}>
-      <AgentDot state={a.state} />
-      <span className="dp-ell dp-grow">{a.title}</span>
-      <span className="dp-ag-ago">{ago(a.updatedAt)}</span>
-      {arc && <ArchiveButton id={a.id} ids={[a.id]} arc={arc} title="Archive this agent" armedTitle={busy ? `It is ${STATE_LABEL[a.state]}: click again to archive it anyway` : 'Click again to archive'} />}
-    </div>
+    <>
+      <div className={`dp-view dp-ag${arc?.armed === a.id ? ' dp-ag-armed' : ''}`} title={`${a.title} · ${a.kind} · ${STATE_LABEL[a.state]}`} onClick={() => onOpen(a.id)}>
+        <AgentDot state={a.state} />
+        <span className="dp-ell dp-grow">{a.title}</span>
+        {subs > 0 && <SubagentCount n={subs} />}
+        <span className="dp-ag-ago">{ago(a.updatedAt)}</span>
+        {arc && <ArchiveButton id={a.id} ids={[a.id]} arc={arc} title="Archive this agent" armedTitle={busy ? `It is ${STATE_LABEL[a.state]}: click again to archive it anyway` : 'Click again to archive'} />}
+      </div>
+      {subs > 0 && a.agentId && <SidebarSubagents agentId={a.agentId} />}
+    </>
   );
 }
 

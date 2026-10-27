@@ -9,6 +9,7 @@ import { askState, useAskConversation } from '../chat/conversation.ts';
 import { Empty, Loading, PageHead } from './Page.tsx';
 import type { AskRun, UploadRef } from '../../types.ts';
 import { useAskModel } from '../chat/ModelPicker.tsx';
+import { SubagentBar } from '../Subagents.tsx';
 import './ask-page.css';
 
 const EXAMPLES = [
@@ -103,6 +104,7 @@ export default function AskPage({ convId }: { convId?: string }) {
                 <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />
               </Log>
               <CardsWaiting cards={cards} />
+              <SubagentBar agentId={run.agentId} inline />
               <Composer
                 placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
                 note={ended ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : 'It reads and proposes; you apply. Nothing is pushed, posted or sent.'}

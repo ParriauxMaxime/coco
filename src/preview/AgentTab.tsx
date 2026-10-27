@@ -18,6 +18,8 @@ import { usageLine, usageTitle } from './format.ts';
 import type { ActivityEvent, AgentMetrics, ModelChoice, UploadRef } from '../types.ts';
 import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
 import { useOverview } from './overview.ts';
+import { SubagentBar } from './Subagents.tsx';
+import { SubagentParent } from './subagents.ts';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -88,10 +90,13 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   return (
     <div className="dp-tabview dp-agtab">
       <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
-      <Log size={events.length + pending.length + cards.length}>
-        {run && <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />}
-      </Log>
+      <SubagentParent.Provider value={run?.agentId ?? listed?.agentId ?? null}>
+        <Log size={events.length + pending.length + cards.length}>
+          {run && <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />}
+        </Log>
+      </SubagentParent.Provider>
       <CardsWaiting cards={cards} />
+      <SubagentBar agentId={run?.agentId ?? listed?.agentId} />
       <Composer
         placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
         note={state === 'archived' ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : ''}
@@ -151,13 +156,16 @@ export function AgentTranscript({ agentId, state, who, lead, fallback }: Transcr
   const model = useModelChoice(null, { live: true, current: listed?.provider ? { provider: listed.provider, thinking: listed.thinking || null } : null });
   return (
     <>
-      <Log size={events.length + pending.length + cards.length}>
-        {lead}
-        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running' && !gone} who={who} cards={cards} onCard={merge} />
-        {gone && fallback}
-        <PendingPermissions agentId={agentId} />
-      </Log>
+      <SubagentParent.Provider value={agentId}>
+        <Log size={events.length + pending.length + cards.length}>
+          {lead}
+          <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running' && !gone} who={who} cards={cards} onCard={merge} />
+          {gone && fallback}
+          <PendingPermissions agentId={agentId} />
+        </Log>
+      </SubagentParent.Provider>
       <CardsWaiting cards={cards} />
+      <SubagentBar agentId={agentId} />
       <Composer
         placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
         note={archived ? 'Archived: + in Agents starts a new one' : state === 'running' ? 'Sends while it works' : ''}

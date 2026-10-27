@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
-import { groupActivity, toolLabel } from '../../components/activity.ts';
+import { callsLabel, countCalls, groupActivity, toolLabel } from '../../components/activity.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
 import PermissionCard from './Permission.tsx';
+import SubagentCallRow from './SubagentCall.tsx';
+import { isSubagentCall } from '../subagents.ts';
 import type { ActivityEvent } from '../../types.ts';
 import './chat.css';
 
@@ -40,6 +42,18 @@ function Call({ c, active }: { c: ActivityEvent; active: boolean }) {
   );
 }
 
+// a run of tool calls with each subagent call taken out as its own row
+function segments(calls: ActivityEvent[]) {
+  const out: (ActivityEvent | ActivityEvent[])[] = [];
+  for (const c of calls) {
+    const last = out.at(-1);
+    if (isSubagentCall(c)) out.push(c);
+    else if (Array.isArray(last)) last.push(c);
+    else out.push([c]);
+  }
+  return out;
+}
+
 const END_NOTE: Record<string, string> = { closed: 'conversation closed: a new message starts a new agent with the conversation so far', idle: 'agent archived after an idle hour: a new message starts a new one with the conversation so far' };
 
 // what a turn shows besides its tool and thinking rows: its text, notes and the turn's end
@@ -56,15 +70,17 @@ export function defaultEvent(e: ActivityEvent) {
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 type Props = { events: ActivityEvent[]; active?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode };
 export default function Activity({ events, active = false, renderEvent = defaultEvent }: Props) {
-  const [open, setOpen] = useState<Record<number, boolean>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const items = groupActivity(events, { active });
-  const toggle = (i: number) => setOpen((o) => ({ ...o, [i]: !o[i] }));
+  const toggle = (i: number | string) => setOpen((o) => ({ ...o, [i]: !o[i] }));
+  const tools = (calls: ActivityEvent[], key: number | string, label: string, running: boolean) => <Row key={key} icon="wrench" label={label} running={running} open={open[key]} onToggle={() => toggle(key)}>{calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
   const last = items.at(-1);
   const settled = !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined);
   return (
     <div className="dp-cv-acts">
       {items.map((it, i) => {
-        if (it.kind === 'tools') return <Row key={i} icon="wrench" label={it.label} running={it.running} open={open[i]} onToggle={() => toggle(i)}>{it.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
+        if (it.kind === 'tools' && !it.calls.some(isSubagentCall)) return tools(it.calls, i, it.label, it.running);
+        if (it.kind === 'tools') return <React.Fragment key={i}>{segments(it.calls).map((s, j) => (Array.isArray(s) ? tools(s, `${i}.${j}`, callsLabel(countCalls(s)), active && s.some((c) => c.status === 'running')) : <SubagentCallRow key={s.id || `${i}.${j}`} c={s} active={active} />))}</React.Fragment>;
         if (it.kind === 'think') return <Row key={i} icon="brain" label="Thinking" running={it.running} open={open[i]} onToggle={() => toggle(i)}><div className="dp-cv-think">{it.text}</div></Row>;
         if (it.kind === 'live') return <div key={i} className="dp-cv-text"><Markdown text={it.text} /></div>;
         if (it.kind === 'permission') return it.event.request ? <PermissionCard key={i} agentId={it.event.agentId} request={it.event.request} resolution={it.resolution} /> : null;

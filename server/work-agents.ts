@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
 import type { Models } from './models.ts';
+import type { SubagentCount, Subagents } from './subagents.ts';
 
 const PAGE = 200;
 const SETTLE_MS = 500;
@@ -24,7 +25,7 @@ const TURN_END = ['turn_completed', 'turn_failed', 'turn_canceled'];
 
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // id is the agent's tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null } & Metrics;
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; subagents: SubagentCount } & Metrics;
 // estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
 // openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
 type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; openCards: number };
@@ -47,6 +48,7 @@ type Options = {
   closeAsk?: (id: string) => Promise<unknown>;
   // a follow-up's model or thinking pick, applied to the agent before the message
   models?: Pick<Models, 'apply'>;
+  subagents?: Pick<Subagents, 'counts' | 'onChange'>;
 };
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
@@ -55,7 +57,7 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, models }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, models, subagents }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -65,6 +67,13 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   };
 
   async function list(slug: string): Promise<WorkAgent[]> {
+    const listed = await listAgents(slug);
+    const live = listed.flatMap((a) => (a.agentId && a.status !== 'archived' ? [a.agentId] : []));
+    const counts = subagents ? await subagents.counts(live) : {};
+    return listed.map((a) => ({ ...a, subagents: (a.agentId && counts[a.agentId]) || { running: 0, total: 0 } }));
+  }
+
+  async function listAgents(slug: string): Promise<Omit<WorkAgent, 'subagents'>[]> {
     const c = await client();
     if (!c.agents.list) throw new Error('this Paseo client cannot list agents');
     const page = await c.agents.list({ includeBackground: true, filter: { labels: { work: slug }, includeArchived: true, includeBackground: true }, sort: [{ key: 'updated_at', direction: 'desc' }], page: { limit: PAGE } });
@@ -104,10 +113,12 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       if (!a || a.labels?.work === slug || ids.has(a.id)) soon();
     });
     const offCards = cards?.onChange((id) => ids.has(id) && soon());
+    const offSubs = subagents?.onChange((id) => ids.has(id) && soon());
     const tick = setInterval(soon, REFRESH_MS);
     sink.onClose(() => {
       off();
       offCards?.();
+      offSubs?.();
       clearInterval(tick);
       if (timer) clearTimeout(timer);
     });
@@ -176,7 +187,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   // ids are the work's listed agent ids; an Ask conversation is closed so it can start a new agent later
   async function archive(slug: string, ids: string[]) {
     const c = await client();
-    const listed = (await list(slug)).filter((a) => ids.includes(a.id) && a.status !== 'archived');
+    const listed = (await listAgents(slug)).filter((a) => ids.includes(a.id) && a.status !== 'archived');
     const failed: { id: string; error: string }[] = [];
     await Promise.all(listed.map(async (a) => {
       try {

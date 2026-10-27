@@ -10,6 +10,7 @@ import { askState, useAskConversation } from './conversation.ts';
 import type { AskConvo } from './conversation.ts';
 import type { AskRun, ModelChoice, UploadRef } from '../../types.ts';
 import { useAskModel } from './ModelPicker.tsx';
+import { SubagentBar } from '../Subagents.tsx';
 import './chat.css';
 
 type StartFn = (prompt: string, nonce: string, files: UploadRef[], pick: ModelChoice) => Promise<{ id: string }>;
@@ -55,6 +56,7 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
           </div>
           <Log size={events.length + pending.length + cards.length} className="dp-askpanel-log"><Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} /></Log>
           <CardsWaiting cards={cards} />
+          <SubagentBar agentId={run.agentId} inline />
         </>
       )}
       {!run && examples.length > 0 && (

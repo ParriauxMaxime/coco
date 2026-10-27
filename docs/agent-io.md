@@ -20,6 +20,9 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
    confirm/approve, plus `post` (show only, no answer).
 5. **Input** (paste/drop images and files in the composer, via Paseo
    `images`/`attachments`) is the next slice, not this one.
+6. **Subagents come from Paseo.** What an agent starts itself (Claude's
+   `Agent`/`Task` tool) is shown from Paseo's provider subagents (list, status,
+   timeline), read-only; coco keeps no record of its own (guide: Subagents).
 
 ## Slices
 

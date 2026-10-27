@@ -19,6 +19,7 @@ import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { AgentDot } from './AgentsSection.tsx';
 import { newAgentPr } from './AgentTab.tsx';
+import { parseSubTab } from './subagents.ts';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import { Avatar, num, stateLabel } from './parts.tsx';
 import { DevServerPanel } from './widgets/DevServer.tsx';
@@ -264,6 +265,8 @@ export function inspectorFor(tabId: string, prs: WorkPr[], selected: string | nu
   const review = reviewKeyOfTab(tabId);
   if (review !== null) return { kind: 'review', title: 'Review activity', n: review, host: tabId };
   if (isAgentTab(tabId)) return { kind: 'agent', title: 'Agent', tabId };
+  const sub = parseSubTab(tabId);
+  if (sub) return { kind: 'agent', title: 'Agent that started it', tabId: `ag-${sub.parent}` };
   if (tabId.startsWith('pr-')) {
     const n = reviewKeyOfTab(`review-${tabId.slice(3)}`);
     const row = prs.find((p) => prKey(p) === tabId.slice(3));

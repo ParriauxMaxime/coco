@@ -24,6 +24,8 @@ import ArtifactView from './ArtifactView.tsx';
 import BriefView, { briefKeyOfTab } from './BriefView.tsx';
 import RunView from './RunView.tsx';
 import StackRunView from './StackRunView.tsx';
+import { SubagentTab } from './Subagents.tsx';
+import { parseSubTab, subagentTitle } from './subagents.ts';
 import { baseName, findingsKeyOfTab, keyLabel } from '../workbench/code/ids.ts';
 import type { PreviewData } from './data.ts';
 
@@ -139,13 +141,15 @@ const runDef = (id: string): TabDef | null => {
   if (id.startsWith('brief-')) return { title: () => `Agent ${baseName(keyLabel(briefKeyOfTab(id)))}`, tip: () => keyLabel(briefKeyOfTab(id)), Component: BriefView, flush: true };
   if (id.startsWith('agent-')) return { title: () => `Agent ${id.slice(6, 14)}`, Component: RunView, flush: true };
   if (id.startsWith('stack-')) return { title: () => `Stack fix ${id.slice(6, 14)}`, Component: StackRunView, flush: true };
+  const sub = parseSubTab(id);
+  if (sub) return { title: () => subagentTitle(sub.parent, sub.sub), tip: () => 'Subagent', Component: SubagentTab, flush: true };
   return null;
 };
 
 const ICONS: [RegExp, IconName][] = [
   [/^plan$/, 'home'], [/^stack$/, 'list'], [/^findings/, 'flag'], [/^waiting$/, 'inbox'], [/^pr-/, 'git-pull-request'],
   [/^ask(-new-.*)?$/, 'bot'], [/^decisions$/, 'scale'], [/^timeline$/, 'history'], [/^notes$/, 'notebook'], [/^artifacts$/, 'folder'],
-  [/^rules$/, 'scale'], [/^review-/, 'eye'], [/^(diff|file|artifact)-/, 'file'], [/^(brief|agent)-/, 'bot'], [/^stack-/, 'git-branch'],
+  [/^rules$/, 'scale'], [/^review-/, 'eye'], [/^(diff|file|artifact)-/, 'file'], [/^(brief|agent)-/, 'bot'], [/^stack-/, 'git-branch'], [/^sub-/, 'git-fork'],
 ];
 
 export function previewTabDef(id: string): TabDef {
