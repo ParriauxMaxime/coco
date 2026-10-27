@@ -16,6 +16,8 @@ import type { Raw } from './blocks.ts';
 import { FILES_ONLY, agentInput, createUploads, uploadRef } from './uploads.ts';
 import type { Upload, Uploads } from './uploads.ts';
 import type { ModelPick, Models } from './models.ts';
+import { notionOf } from './stack-edit.ts';
+import { replaceRows, stackDiff } from './stack-replace.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
 // past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
@@ -36,7 +38,7 @@ type Scaffold = {
   summary?: string;
   tier?: string;
   paseoProject?: { existingProjectId?: string; createNamed?: string };
-  stack?: { order: number; title: string; scope: string; branch: string; personas?: string[]; existingPr?: number }[];
+  stack?: { order: number; title: string; scope: string; branch: string; personas?: string[]; existingPr?: number; notionPage?: { url: string; title: string } }[];
   surfaces?: { surface: string; entryPoint: string; coverage: string }[];
   personas?: string[];
   links?: { label: string; url: string }[];
@@ -130,7 +132,7 @@ function scaffoldOf(p: Raw): Scaffold {
     summary: opt(p.summary, 1000, 'summary'),
     tier: opt(p.tier, 20, 'tier'),
     paseoProject: project,
-    stack: each(p.stack, 'stack', 40, (s, at) => strip({ order: optNumber(s.order) ?? 0, title: str(s.title, 200, `${at}.title`), scope: opt(s.scope, 2000, `${at}.scope`) ?? '', branch: str(s.branch, 200, `${at}.branch`), personas: texts(s.personas, `${at}.personas`, 20), existingPr: optNumber(s.existingPr) })),
+    stack: each(p.stack, 'stack', 40, (s, at) => strip({ order: optNumber(s.order) ?? 0, title: str(s.title, 200, `${at}.title`), scope: opt(s.scope, 2000, `${at}.scope`) ?? '', branch: str(s.branch, 200, `${at}.branch`), personas: texts(s.personas, `${at}.personas`, 20), existingPr: optNumber(s.existingPr), notionPage: notionOf(s.notionPage, `${at}.notionPage`) ?? undefined })),
     surfaces: each(p.surfaces, 'surfaces', 40, (s, at) => ({ surface: str(s.surface, 200, `${at}.surface`), entryPoint: opt(s.entryPoint, 500, `${at}.entryPoint`) ?? '', coverage: opt(s.coverage, 1000, `${at}.coverage`) ?? '' })),
     personas: texts(p.personas, 'personas', 20),
     links: each(p.links, 'links', 20, (l, at) => ({ label: str(l.label, 200, `${at}.label`), url: str(l.url, 2000, `${at}.url`) })),
@@ -141,12 +143,21 @@ function scaffoldOf(p: Raw): Scaffold {
   });
 }
 
-// the confirm card of a scaffold: what Create work (or Update work) writes, and whether an existing stack is replaced
+const scaffoldRows = (p: Scaffold): StackRow[] => (p.stack || []).map((s) => ({ number: s.existingPr || null, planned: { order: s.order, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [], ...(s.notionPage ? { notionPage: s.notionPage } : {}) }));
+
+// the confirm card of a scaffold: what Create work (or Update work) writes, and whether an existing stack is replaced (on by default when the proposed stack differs)
 function scaffoldCard(p: Scaffold, existing: AskWork | null | undefined): Raw {
   const paseo = p.paseoProject?.existingProjectId ? `existing ${p.paseoProject.existingProjectId}` : p.paseoProject?.createNamed ? `create "${p.paseoProject.createNamed}"` : 'none';
   const blocks: Raw[] = [{ type: 'text', text: cut(`\`${p.slug}\`${p.tier ? ` · tier **${p.tier}**` : ''} · Paseo project: ${paseo} · personas: ${p.personas?.join(', ') || 'none'}`, 2000) }];
   const kept = existing?.stack?.length ?? 0;
-  if (existing) blocks.push({ type: 'callout', tone: 'warn', title: 'Existing work', text: `"${existing.title || p.slug}" already exists: approving replaces its title, description, notes, personas and links${kept ? `; its stack of ${kept} PRs stays unless you tick the box below` : ''}.` });
+  const diff = kept && p.stack?.length ? stackDiff(existing!.stack!, scaffoldRows(p)) : null;
+  if (existing) blocks.push({ type: 'callout', tone: 'warn', title: 'Existing work', text: `"${existing.title || p.slug}" already exists: approving replaces its title, description, notes, personas and links${kept ? `; its stack of ${kept} PRs ${diff?.differs ? 'is replaced unless you untick the box below' : 'stays unless you tick the box below'}` : ''}.` });
+  if (diff) {
+    const list = (what: string, rows: string[]) => (rows.length ? [`${what} ${rows.length}: ${cut(rows.join(', '), 300)}`] : []);
+    const lines = [...list('Added', diff.added), ...list('Removed', diff.removed), ...list('Moved', diff.moved)];
+    blocks.push({ type: 'text', text: `${lines.length ? lines.join(' · ') : 'Same rows in the same order'} · ${diff.linksKept} Notion links kept, ${diff.linksLost} lost (if replaced)` });
+    if (diff.linksLost) blocks.push({ type: 'callout', tone: 'warn', title: 'Notion links would be lost', text: `Replacing drops ${diff.linksLost} Notion page link${diff.linksLost === 1 ? '' : 's'} (removed rows). Rows matched by PR or branch keep theirs.` });
+  }
   if (p.stack?.length) blocks.push({ type: 'table', caption: 'Planned stack', columns: ['#', 'PR', 'Scope', 'Branch', 'Reviewers'], rows: p.stack.map((s) => [String(s.order), s.existingPr ? `${s.title} (#${s.existingPr})` : s.title, s.scope || '', `\`${s.branch}\``, s.personas?.length ? s.personas.join(', ') : { text: 'none', tone: 'warn' }]) });
   if (p.surfaces?.length) blocks.push({ type: 'table', caption: 'Surfaces', columns: ['Surface', 'Entry point', 'Coverage'], rows: p.surfaces.map((s) => [s.surface, s.entryPoint ? `\`${s.entryPoint}\`` : '', s.coverage]) });
   if (p.openQuestions?.length) blocks.push({ type: 'table', caption: 'Open questions', columns: ['Question', 'Recommended', 'Tradeoff'], rows: p.openQuestions.map((q) => [q.question, q.recommendation, { text: q.tradeoff || '-', tone: 'mute' }]) });
@@ -158,7 +169,7 @@ function scaffoldCard(p: Scaffold, existing: AskWork | null | undefined): Raw {
     title: cut(`${existing ? 'Update' : 'Create'} work: ${p.title}`, 120),
     question: p.summary ? cut(p.summary, 500) : undefined,
     blocks,
-    fields: kept ? [{ key: 'replaceStack', label: `Replace its ${kept} stack rows with the planned stack`, type: 'toggle', default: false }] : undefined,
+    fields: kept ? [{ key: 'replaceStack', label: `Replace its ${kept} stack rows with the planned stack`, type: 'toggle', default: Boolean(diff?.differs) }] : undefined,
     confirmLabel: existing ? 'Update work' : 'Create work',
   };
 }
@@ -468,7 +479,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   function apply(p: Scaffold, { scope, source, replaceStack = false }: { scope: AskScope; source: string; replaceStack?: boolean }) {
     const existing = works.get(p.slug);
     const stackKept = Boolean(existing?.stack?.length && !replaceStack);
-    const stack = (p.stack || []).map((s) => ({ number: s.existingPr || null, planned: { order: s.order, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [] }));
+    const stack = scaffoldRows(p);
     const notes = [p.notes, '', '## Surface table', '', '| Surface | Entry point | Coverage |', '| --- | --- | --- |', ...(p.surfaces || []).map((s) => `| ${s.surface} | ${s.entryPoint} | ${s.coverage} |`), '', '## Open questions', '', ...(p.openQuestions || []).map((q, i) => `${i + 1}. ${q.question} Recommended: ${q.recommendation}. Tradeoff: ${q.tradeoff}`), '', '## Next steps', '', ...(p.nextSteps || []).map((s) => `- ${s}`)].join('\n');
     const work: AskWork = {
       ...(existing || { createdAt: new Date().toISOString(), timeline: [] }),
@@ -480,15 +491,12 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       tier: p.tier,
       projectId: p.paseoProject?.existingProjectId || existing?.projectId || null,
       projectName: p.paseoProject?.createNamed || existing?.projectName || null,
-      stack: existing && stackKept ? existing.stack : stack.map((s) => {
-        const old = existing?.stack?.find((o) => rowKey(o) === rowKey(s));
-        return old ? { ...old, ...s, planned: { ...old.planned, ...s.planned }, personas: s.personas.length ? s.personas : old.personas || [] } : s;
-      }),
+      stack: existing && stackKept ? existing.stack : replaceRows(existing?.stack || [], stack),
       personas: p.personas || [],
       links: p.links || [],
       notes,
       // a flag tied to planned PR orders follows those rows' keys (PR number once opened, else the branch)
-      betaFlags: !p.betaFlags ? existing?.betaFlags || [] : p.betaFlags.map((f) => ({ code: f.code, why: f.why, ...(f.prs?.length ? { prs: f.prs.map((order) => rowKey(stack.find((s) => s.planned.order === order))).filter(Boolean) } : {}) })),
+      betaFlags: !p.betaFlags ? existing?.betaFlags || [] : p.betaFlags.map((f) => ({ code: f.code, why: f.why, ...(f.prs?.length ? { prs: f.prs.map((order) => rowKey(stack.find((s) => s.planned?.order === order))).filter(Boolean) } : {}) })),
     };
     work.timeline = [{ ts: new Date().toISOString(), kind: 'coco', text: `${existing ? 'updated' : 'created'} from ${source}` }, ...(work.timeline || [])];
     works.save(work);

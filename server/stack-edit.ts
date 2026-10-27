@@ -33,7 +33,7 @@ const prOf = (v: unknown, field: string) => {
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) throw new Error(`${field} must be a PR number`);
   return v;
 };
-const notionOf = (v: unknown, field: string): NotionPage | null | undefined => {
+export const notionOf = (v: unknown, field: string): NotionPage | null | undefined => {
   if (v === undefined) return undefined;
   if (v === null) return null;
   const p = v as Raw;

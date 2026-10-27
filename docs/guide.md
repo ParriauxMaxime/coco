@@ -992,8 +992,13 @@ proposal (stack, surfaces, open questions and flags as tables, the brief or
 prompt as code); its button says what it does (**Create work**, **Update
 work**, **Start agent**, **Add repo**) and pressing it runs it
 there. An update of a work that already has a stack asks, with a toggle,
-whether the planned stack replaces it; a replaced row with the same PR or
-branch keeps its Notion page, gates and kit. To change the stack of an
+whether the planned stack replaces it: on when the proposal differs (other
+PRs, rows or order), off when it has no stack or the same one. The card
+shows the diff (rows added, removed, moved; "N Notion links kept, M lost",
+with a warning when some would be lost). A replaced row with the same PR
+number or branch keeps its Notion page, gates, kit, workspace, reviewers and
+personas; a scaffold row may carry `notionPage` for a new row. The replace
+is for a full re-plan: `propose_split` splits a PR. To change the stack of an
 existing work, agents use `propose_stack_edit` instead: an **Apply** card
 listing the stack after the edit (rows added after a given PR, updated,
 moved or removed; every field the edit does not name stays, Notion pages

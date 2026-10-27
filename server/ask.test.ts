@@ -340,8 +340,8 @@ test('a proposal card shows what the agent proposes, is refused when it cannot r
 
   const scaffold = await propose('work_scaffold', { slug: 'csv-export', title: 'CSV export v2', summary: 'Export invoices as CSV.', tier: 'stack', stack: [{ order: 1, title: 'API', scope: 'endpoint', branch: 'feat/csv-api', personas: ['bob'] }], personas: ['bob'] });
   assert.deepEqual([scaffold.kind, scaffold.title, scaffold.question, scaffold.confirmLabel], ['confirm', 'Update work: CSV export v2', 'Export invoices as CSV.', 'Update work']);
-  assert.deepEqual(scaffold.blocks?.map((b) => b.type), ['text', 'callout', 'table']);
-  assert.deepEqual(scaffold.fields?.map((f) => [f.key, f.type, f.default]), [['replaceStack', 'toggle', false]]);
+  assert.deepEqual(scaffold.blocks?.map((b) => b.type), ['text', 'callout', 'text', 'table']);
+  assert.deepEqual(scaffold.fields?.map((f) => [f.key, f.type, f.default]), [['replaceStack', 'toggle', true]]);
   assert.deepEqual(ask.list('work:csv-export')[0].proposed, { kind: 'work', title: 'CSV export v2' });
   const applied = await cards.answer(scaffold.id, { approved: true, values: { replaceStack: true } });
   assert.deepEqual([applied.result?.ok, applied.result?.detail, applied.result?.link], [true, 'updated work csv-export', '#/work/csv-export']);
