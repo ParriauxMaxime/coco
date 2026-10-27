@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import { catalog } from './dispatch.ts';
+import { CONSULT_CAP, consultPack, pickPersona } from './consult.ts';
 import { rowKey } from './stack.ts';
 import { WORK_SECTIONS, readPrFindings, readReviewContext, slimWork } from './review-context.ts';
 import type { PrFacts } from './review-context.ts';
@@ -65,6 +66,28 @@ server.tool('suggest_personas', 'Match repo paths against persona surfaces; retu
     if (hits) out.push({ login: f.replace(/\.md$/, ''), hits });
   }
   return text(out.sort((a, b) => b.hits - a.hits));
+});
+server.tool('consult_persona', `A quick consult with one reviewer, for "what would <reviewer> do?" or a tradeoff: returns a pack (about ${CONSULT_CAP} characters at most) of their rules most relevant to the question and path, their past comments on similar paths and how to answer. No model runs here: you reason with the pack, answer as them in 3 to 6 lines, then offer an ask card with their pick marked. Not a persona review (that is dispatch).`, {
+  login: z.string().optional().describe('persona login; omit to take the best-mapped reviewer of path, else the work\'s first persona'),
+  question: z.string(),
+  path: z.string().optional().describe('repo-relative file the question is about'),
+  pr: z.union([z.number(), z.string()]).optional().describe("PR number the question is about; its row's personas come first when no login or path decides"),
+}, async ({ login, question, path: file, pr }) => {
+  const docs = Object.fromEntries(personaLogins(personaFiles(), config.personaFiles).map((l) => [l, fs.readFileSync(path.join(PERSONAS, `${l}.md`), 'utf8')]));
+  let who = login && login in docs ? login : null;
+  if (login && !who) return refused(`no such persona: ${login} (list_personas)`);
+  if (!who) {
+    const t = await target(undefined, pr);
+    const work = listWorks().find((w) => w.slug === (t.slug && decodeURIComponent(t.slug)));
+    const stack: { number?: number; personas?: string[] }[] = work?.stack || [];
+    const row = pr != null ? stack.find((s) => String(s.number) === String(pr)) : null;
+    who = pickPersona(docs, file, [...(row?.personas || []), ...(work?.personas || []), ...stack.flatMap((s) => s.personas || []), ...Object.keys(docs)]);
+  }
+  if (!who) return refused('no persona to consult: pass login (list_personas)');
+  const read = (name: string) => { const f = path.join(PERSONAS, name); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : undefined; };
+  let mined = null;
+  try { mined = JSON.parse(read(`${who}.json`) || 'null'); } catch { /* no mined data */ }
+  return text(consultPack({ login: who, question, path: file, pr, owner: OWNER, review: read(`${who}-review-style.md`) ?? docs[who], authoring: read(`${who}-authoring-style.md`), json: mined }));
 });
 server.tool('read_skill', `Read a skill file: a skill name returns its SKILL.md, "<skill>/<file>.md" one file of it${config.methodSkill ? `, a bare file name (SKILL.md or another file of it) a file of the ${config.methodSkill} skill, which describes how ${OWNER} runs a work` : ''}.`, { name: z.string() }, async ({ name }) => {
   const parts = name.split('/').filter(Boolean);

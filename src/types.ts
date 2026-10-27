@@ -386,6 +386,8 @@ export type Thread = {
   groupId?: string | null;
   newGroup?: boolean;
   agent?: { live: boolean; status: string } | null;
+  // the best-mapped persona of the commented file: the "Ask <persona>" chip prefills the box
+  persona?: string | null;
   cards?: Card[];
   // a commit of the group agent for this comment, not on the PR branch yet; approve: the message holding its Approve
   ready?: { commit: string; subject: string; stat: string; approve?: string } | null;

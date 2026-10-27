@@ -33,7 +33,7 @@ type ComposerProps = {
   autoFocus?: boolean;
   className?: string;
   tools?: React.ReactNode;
-  actions?: (text: string, clear: () => void) => React.ReactNode;
+  actions?: (text: string, clear: () => void, fill: (text: string) => void) => React.ReactNode;
   onSend: (text: string, files: UploadRef[]) => Promise<boolean>;
   onStop?: () => Promise<unknown>;
   allowEmpty?: boolean;
@@ -148,7 +148,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
           )}
           {tools}
           <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
-          {actions?.(text.trim(), () => setText(''))}
+          {actions?.(text.trim(), () => setText(''), setText)}
           {onStop && <button type="button" className={`dp-btn dp-sm dp-comp-stop${pendingClass(stopping)}`} disabled={stopping} title="Interrupt the agent (Esc)" onClick={stop}><Icon name="square" size={12} />Stop<kbd>esc</kbd></button>}
           <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading} title={uploading ? 'Waiting for the files to upload' : 'Shift+Enter for a new line'} onClick={() => void send()}>{sendLabel}<kbd>↵</kbd></button>
         </div>

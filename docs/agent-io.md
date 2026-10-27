@@ -254,6 +254,7 @@ own work); a refusal comes back as a tool error naming the field.
 | `attach_media` | `POST /api/works/<slug>/media` with a file on disk; returns `src` and a `media` block |
 | `import_artifact` | `POST /api/works/<slug>/artifacts` |
 | `get_drift` | `GET /api/works/<slug>/drift`: `{ drift, next }` items with `kind`, `text` and the owner's action; read only |
+| `consult_persona` | read only, no route and no model: `{ login?, question, path?, pr? }` returns a text pack of at most 6000 characters (`server/consult.ts`): the persona's review-style (else main file) and authoring-style rules by keyword overlap with question and path plus its top rules, its mined past comments on similar paths, and the instruction to answer as them in 3-6 lines then offer an `ask` card with their pick `recommended`. Without `login`: the reviewer mapped to `path`, else the PR row's or work's first persona |
 | `set_next` | `PUT /api/works/<slug>` with `{ next }`, `clear` sends `null` |
 
 The MCP server learns its agent from `PASEO_AGENT_ID` in its environment

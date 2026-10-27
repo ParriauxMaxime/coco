@@ -72,6 +72,7 @@ type ThreadsOptions = {
     list(): Work[];
     upsertDecision(slug: string, decision: Partial<Decision> & { id: string }): unknown;
     decide?(slug: string, input: { id: string; choice: string; rationale: string }): unknown;
+    personasForPaths?(paths: string[]): { login: string }[];
   };
   comments: { list(slug: string, n: RowKey): { comments?: (Item & { status?: string })[] }; update(slug: string, n: RowKey, id: string, patch: Record<string, unknown>): Promise<unknown> };
   reviewAgent: {
@@ -173,6 +174,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (ref.kind === 'decision') return ((work.decisions || []).find((d) => d.id === ref.id) as Item | undefined) || null;
     if (ref.kind === 'plan') return reviewPlan.planOf(slug, ref.n) as Item | null;
     return (comments.list(slug, ref.n).comments || []).find((c) => c.id === ref.id) || null;
+  };
+  // the best-mapped persona of the file a comment (or its group) is on, for the "Ask <persona>" prefill
+  const personaOf = (slug: string, work: Work, ref: Ref, group: Group | null) => {
+    const file = ref.kind === 'comment' ? itemOf(slug, work, ref)?.path : group?.files?.[0];
+    return (file && works.personasForPaths?.([file])[0]?.login) || null;
   };
   async function prOf(work: Work, n: RowKey) {
     const index = (work.stack || []).findIndex((s) => rowKey(s) === n);
@@ -949,7 +955,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
       const { work, ref } = check(slug, key);
-      return send(res, 200, { ...thread, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
+      return send(res, 200, { ...thread, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), persona: personaOf(slug, work, ref, group), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
     } catch (e) {
       return send(res, httpStatus(e), { error: errText(e) });
     }

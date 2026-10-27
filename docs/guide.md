@@ -906,8 +906,14 @@ about $1 to $2.5.
 workspace, or the work's stack worktree workspace when asked from a work,
 with the cocopilot MCP server in its config (`server/mcp.ts`, stdio:
 `list_works`, `get_work`, `list_personas`, `read_persona`,
-`suggest_personas`, `read_skill`, `list_paseo`, `github_pr`,
-`github_search`, `propose_work_scaffold`). `get_work` is slim by default (summary,
+`suggest_personas`, `consult_persona`, `read_skill`, `list_paseo`, `github_pr`,
+`github_search`, `propose_work_scaffold`). `consult_persona` is the quick
+answer to "what would Camille do?" or "evaluate the tradeoff": a pack of that
+reviewer's relevant rules and past comments that the agent answers from in 3-6
+lines, then an ask card with their pick marked; a persona review (minutes,
+whole PR, findings) starts only when you ask for one. In a code-comment thread
+the "Ask <persona>" button beside Send prefills "What would <persona> do
+here?" for the reviewer mapped to the file; you still send it. `get_work` is slim by default (summary,
 stack rows with number, branch, title, state and Notion page, decisions in one line each,
 clipped notes, the last note entries); its `sections` argument (`notes`, `timeline`,
 `artifacts`, `decisions`, `full`) adds the rest. The Ask brief ends with the

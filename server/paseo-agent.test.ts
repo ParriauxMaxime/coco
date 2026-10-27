@@ -153,6 +153,11 @@ test('the shared agent line says code is edited only with Edit or Write after a 
   assert.match(CARDS_LINE, /Edit code files only with the Edit or Write tools after a Read, never with sed, python or heredocs/);
 });
 
+test('the shared agent line sends "what would a reviewer do" to consult_persona, not a persona review', () => {
+  assert.match(CARDS_LINE, /call cocopilot consult_persona and answer with that reviewer's call plus an ask card: do not start a persona review unless asked/);
+  assert.ok(COCO_MCP_TOOLS.includes('consult_persona'));
+});
+
 test('every tool of the cocopilot MCP server is preapproved', () => {
   const declared = [...fs.readFileSync(new URL('./mcp.ts', import.meta.url), 'utf8').matchAll(/server\.tool\('(\w+)'/g)].map((m) => m[1]);
   assert.deepEqual([...COCO_MCP_TOOLS].sort(), declared.sort());
