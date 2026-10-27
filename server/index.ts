@@ -34,7 +34,7 @@ import { createSetup } from './setup.ts';
 import { createDevServers } from './dev-servers.ts';
 import { createWorktrees } from './worktrees.ts';
 import { createPurge } from './purge.ts';
-import { SWEEP_AGE, createUploads } from './uploads.ts';
+import { SWEEP_AGE, createUploads, servePaseoAttachment } from './uploads.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
@@ -427,6 +427,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'paseo') return send(res, 200, await works.paseo());
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
     if (root === 'uploads') return uploads.handle(req, res, parts, send);
+    if (root === 'paseo-attachments') return servePaseoAttachment(req, res, parts, send, os.tmpdir());
     if (root === 'inbox') return inbox.handle(req, res, parts, readBody, send);
     if (root === 'pack') return pack.handle(req, res, parts, readBody, send);
     if (root === 'setup') return setup.handle(req, res, parts, readBody, send);

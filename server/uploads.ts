@@ -179,3 +179,17 @@ export function createUploads({ DATA }: { DATA: string }) {
   return { handle, store, get, resolve, record, pairer, latest, sweep };
 }
 export type Uploads = ReturnType<typeof createUploads>;
+
+const ATTACHMENT_DIR = /^paseo-attachments-[\w-]{1,40}$/;
+const ATTACHMENT_FILE = /^[a-f0-9]{16,128}\.(png|jpe?g|gif|webp)$/;
+const ATTACHMENT_MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+
+// GET /api/paseo-attachments/<dir>/<file>: images Paseo writes to its temp dir and links as file:// in an agent's text (a tool reading an image)
+export function servePaseoAttachment(req: Req, res: Res, parts: string[], send: Send, tmpDir: string) {
+  const [, dir, file] = parts;
+  if (req.method !== 'GET' || !ATTACHMENT_DIR.test(dir || '') || !ATTACHMENT_FILE.test(file || '')) return send(res, 404, { error: 'no such attachment' });
+  const full = path.join(tmpDir, dir, file);
+  if (!fs.existsSync(full)) return send(res, 404, { error: 'no such attachment' });
+  res.writeHead(200, { 'Content-Type': ATTACHMENT_MIME[file.split('.').pop() ?? ''], 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=31536000, immutable' });
+  return fs.createReadStream(full).pipe(res);
+}

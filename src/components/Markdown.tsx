@@ -19,6 +19,13 @@ renderer.code = function (token) {
   if (lang === 'mermaid') return `<pre class="mermaid">${token.text.replace(/</g, '&lt;')}</pre>`;
   return baseCode(token);
 };
+const baseImage = renderer.image.bind(renderer);
+// Paseo links images an agent read as file:// under its temp dir, which a browser won't load
+const PASEO_ATTACHMENT = /^file:\/\/\/.+\/(paseo-attachments-[\w-]+)\/([a-f0-9]+\.\w+)$/;
+renderer.image = function (token) {
+  const m = PASEO_ATTACHMENT.exec(token.href);
+  return baseImage(m ? { ...token, href: `/api/paseo-attachments/${m[1]}/${m[2]}` } : token);
+};
 
 // nodes styled by the author (classDef, style) keep their colors
 const toneNodes = (root: HTMLElement) => Array.from(root.querySelectorAll('g.node'))
