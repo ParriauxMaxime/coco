@@ -17,7 +17,8 @@ import { createReviewPlan } from './review-plan.ts';
 import { createPaseoLink } from './paseo-link.ts';
 import { createStackFix } from './stack-fix.ts';
 import { createReviewImport } from './review-import.ts';
-import { createThreads } from './threads.ts';
+import { createThreads, threadLink } from './threads.ts';
+import { createWaiting } from './waiting.ts';
 import { createFindings } from './findings.ts';
 import { createMedia } from './media.ts';
 import { createBriefs, renderBrief } from './briefs.ts';
@@ -166,7 +167,10 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
 } });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), models, subagents });
+const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
+for (const on of [cards.onChange, threads.onChange, ask.onChange]) on(() => waiting.touch());
 const events = createHub();
+events.topic('waiting', waiting.watch);
 events.topic('permissions', permissions.watch);
 events.topic('works', works.watch);
 events.topic('work-agents', workAgents.watchList);
@@ -434,6 +438,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());
+    if (root === 'waiting' || (root === 'works' && b === 'waiting')) return waiting.handle(req, res, parts, readBody, send);
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
     if (root === 'uploads') return uploads.handle(req, res, parts, send);
     if (root === 'paseo-attachments') return servePaseoAttachment(req, res, parts, send, os.tmpdir());

@@ -5,6 +5,7 @@ import { useConfig } from '../config.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import BetaPanel from './BetaPanel.tsx';
+import { useWaiting } from './waiting.ts';
 import AgentsSection from './AgentsSection.tsx';
 import { CHOICES, useBetaPanel, usePrefs, workHref } from './prefs.ts';
 import type { Overview, WorkSummary } from '../types.ts';
@@ -27,6 +28,7 @@ type NavItem = { href: string; root: string; label: string; icon: IconName };
 const NAV: NavItem[] = [
   { href: '#/', root: '', label: 'Dashboard', icon: 'home' },
   { href: '#/inbox', root: 'inbox', label: 'Inbox', icon: 'inbox' },
+  { href: '#/waiting', root: 'waiting', label: 'Waiting on you', icon: 'clock' },
   { href: '#/agents', root: 'agents', label: 'Agents', icon: 'bot' },
   { href: '#/projects', root: 'projects', label: 'Projects', icon: 'layers' },
   { href: '#/rituals', root: 'rituals', label: 'Rituals', icon: 'sparkles' },
@@ -197,6 +199,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const theme = useTheme();
   const { open: controls, toggle: toggleControls } = useBetaPanel();
   const { pending } = usePendingPermissions();
+  const queue = useWaiting();
   const hasRituals = useConfig((s) => s.rituals.length > 0);
   const [palette, setPalette] = useState(false);
   const [waitOpen, setWaitOpen] = useState(false);
@@ -213,7 +216,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const archived = (ov?.works || []).filter((w) => w.archived).length;
   const nav = NAV.filter((n) => (n.root !== 'rituals' || hasRituals) && (n.root !== 'archive' || archived > 0 || root === 'archive'));
   const running = (ov?.agents || []).filter((a) => a.status === 'running').length;
-  const counts: Record<string, number | undefined> = { inbox: ov?.notices || undefined, archive: archived || undefined };
+  const counts: Record<string, number | undefined> = { inbox: ov?.notices || undefined, waiting: queue?.count || undefined, archive: archived || undefined };
   const repoId = repo ?? null;
   const repoName = ov?.repos.find((r) => r.id === repoId)?.name;
   const reviewers = (ov?.personas || []).filter((p) => p.kind !== 'writer');
@@ -238,7 +241,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const navLink = (n: NavItem, withLabel: boolean) => (
     <a key={n.href} className={withLabel ? `dp-sb-nav${root === n.root ? ' dp-on' : ''}` : `dp-ibtn${root === n.root ? ' dp-on' : ''}`} href={n.href} title={n.label}>
       <Icon name={n.icon} />{withLabel && <span>{n.label}</span>}
-      {counts[n.root] !== undefined && <span className={`dp-count${n.root === 'inbox' ? ' dp-acc' : ''}`}>{counts[n.root]}</span>}
+      {counts[n.root] !== undefined && <span className={`dp-count${n.root === 'inbox' || n.root === 'waiting' ? ' dp-acc' : ''}`}>{counts[n.root]}</span>}
       {n.root === 'agents' && running > 0 && <span className="dp-count" title={`${running} running`}>{running}</span>}
     </a>
   );

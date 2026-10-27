@@ -5,6 +5,7 @@ import { useOverview } from './overview.ts';
 import { Empty, Page } from './pages/Page.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
 import InboxPage from './pages/InboxPage.tsx';
+import WaitingPage from './pages/WaitingPage.tsx';
 import ArchivePage from './pages/ArchivePage.tsx';
 import AgentsPage from './pages/AgentsPage.tsx';
 import ProjectsPage from './pages/ProjectsPage.tsx';
@@ -26,6 +27,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   const page = (label: string, href?: string): Crumb => ({ label, href });
   if (!root) return { crumbs: [page('Dashboard')], node: <DashboardPage /> };
   if (root === 'inbox') return { crumbs: [page('Inbox')], node: <InboxPage /> };
+  if (root === 'waiting') return { crumbs: [page('Waiting on you')], node: <WaitingPage ov={ov} /> };
   if (root === 'archive') return { crumbs: [page('Archive')], node: <ArchivePage /> };
   if (root === 'purge') return { crumbs: [page('Purge')], node: <PurgePage /> };
   if (root === 'agents') return { crumbs: [page('Agents')], node: <AgentsPage /> };

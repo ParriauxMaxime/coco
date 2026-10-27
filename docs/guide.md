@@ -811,6 +811,12 @@ without a click on **I pushed**, the run gets a red "remote head moved" chip
 and a timeline entry. **I pushed** (on the run row) tells cocopilot that you
 did it; the new head then flows through re-anchoring.
 
+## Waiting on you
+
+`#/waiting` (sidebar, count badge) lists everything that stops until you answer, grouped by work then PR: open cards (a choice's options and a confirm's Approve / Reject as buttons), Ask chats and cc-group threads whose agent ended its turn with the last word, and suggestions with an open Approve (a ready commit names its subject). Each row shows the agent's last message, a one-line reply box that goes to the agent, and Dismiss. Tick rows for **Dismiss selected** or **Send 'go' to selected**; a row without that action is skipped. Dismissing a chat or thread question only hides it until the agent speaks again (`data/waiting-acks.json`); dismissing a card or an Approve is the usual dismiss. Nothing acts without a click.
+
+`server/waiting.ts`: `GET /api/waiting`, `GET /api/works/<slug>/waiting` (items `{ id, kind, work, pr, key, title, excerpt, at, link, actions[] }`; an action is the endpoint a button calls), `POST /api/waiting/ack { ids }`, and the SSE topic `waiting` (recomputed on card, thread and Ask changes, cached like `swr.ts`). Finished dispatch agents are not listed: coco keeps no acknowledged state for them.
+
 ## Navigation
 
 Anywhere markdown renders inside a work (plan, decision cards, threads,
