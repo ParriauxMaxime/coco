@@ -75,7 +75,8 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       if (count) add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch differs from GitHub (rebased?)', { type: 'copy', command: `git push ${count > 0 ? '' : '--force-with-lease '}origin ${r.branch}`, label: 'Copy push' });
 
       const pieces = await kit.view(slug, String(r.key)).then((v) => v.pieces, () => []);
-      const stale = pieces.filter((p) => p.state === 'stale' && p.id !== 'notion');
+      // a companion PR in another repo (a link) only has dates, too weak to call it stale
+      const stale = pieces.filter((p) => p.state === 'stale' && p.id !== 'notion' && !/^https?:/.test(p.source || ''));
       for (const p of stale) {
         const entry = skillEntry(`kit-${p.id}`);
         add(drift, r.key, `kit-${p.id}`, `${p.label} is older than the head${p.madeFor ? ` (made for ${p.madeFor.slice(0, 7)})` : ''}`, entry ? { type: 'dispatch', entry, label: p.id === 'body' ? 'Update PR body' : `Redo ${p.id}` } : { type: 'tab', tab: 'artifacts', label: 'Artifacts' });
