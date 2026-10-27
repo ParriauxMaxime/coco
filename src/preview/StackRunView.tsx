@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useWork } from '../workbench/use-work.ts';
 import { loadReview, reviewApi } from '../workbench/code/use-comments.ts';
 import { keyLabel } from '../workbench/code/ids.ts';
-import { useStackFix } from '../workbench/code/StackFix.tsx';
+import { useStackFix } from './StackFixDialog.tsx';
 import type { StackFixRunRow } from '../workbench/types.ts';
 import { Header } from './AgentTab.tsx';
 import { Loading } from './pages/Page.tsx';

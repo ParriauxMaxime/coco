@@ -300,9 +300,11 @@ mode and the hidden categories are kept per PR in localStorage.
 
 ## Findings board
 
-"findings ▸" on a PR card (or `findings` in the Review bar) opens `findings-<n>`;
-`findings` on the Plan opens the whole stack. One list merges every remark
-on the PR (`server/findings.ts`, `GET /api/works/<slug>/findings?pr=<n>`):
+One Findings view: `Findings` in the sidebar opens the whole work, and
+`findings` in the Review bar or Findings in the PR inspector opens
+`findings-<n>` ("Findings #n"), the same view with its PR filter preset to
+that PR. One list merges every remark on the work (`server/findings.ts`,
+`GET /api/works/<slug>/findings`, `?pr=<n>` for one row):
 
 - review pages: the work's `Review*` artifacts, `<repo.reviewsDir>/*.md` of
   the PR worktrees, and the repo's `<repo.reviewsDir>/*.md` naming a stack PR; a
@@ -317,25 +319,24 @@ on the PR (`server/findings.ts`, `GET /api/works/<slug>/findings?pr=<n>`):
 and turns each finding of the picked one into an open local comment on the
 last PR whose diff holds its file (`GET|POST /api/works/<slug>/import-review`).
 
-Columns: reviewer, severity, confidence, file:line (jump to the diff), claim
-(click to fold the body), status. Default view "left" (new, open, sent,
-accepted), worst first (severity, confidence, recency). Grouping: `spot`
-(default: findings on the same PR, file and lines at most 5 apart fold under
-the worst one, "+2 · coco, alice"; ✓/✕ act on the whole spot), `file`, `pr`,
-`reviewer` (one section per reviewer and day). Bodies of findings still to
-triage (new, or an open comment nobody accepted) stay unfolded. The reviewer
+Buckets Open, Accepted, Resolved and Dismissed with their counts, a PR strip
+(All PRs or one), grouped By PR or By severity, worst first. The reviewer
 strip lists who raised something by trigger: personas, me, agents, team
-(GitHub humans), one per bot group, ci; a click hides a reviewer or a whole group. CI
-failures are hidden by default (`cc.fd.hidden`). "pick 1-3, 5, 7" ticks spots
-(or rows) by number for a bulk accept or dismiss. Accept turns a finding into
-an open local comment at the head (a finding without a file is only marked
-accepted; an open comment is marked accepted); dismiss asks a one-line reason
-(declines a comment, dismisses a watch point, otherwise a `## Review remarks`
-line). An unfolded finding ends on its agent thread with the composer open:
-Start agent (or "Accept & ask agent" for a finding not yet a comment), then
-✓ Accept, ✕ Dismiss (the typed text is the reason) or ↺ Reopen; a folded
-row keeps ✓ ✕ and 💬 ask an agent, which unfolds it and focuses the composer.
-While the group's agent is alive and has seen the thread ("agent live"),
+(GitHub humans), one per bot group, ci; a click hides a reviewer or a whole
+group. CI failures are hidden by default (`cc.fd.hidden`). Each row: a
+checkbox and its number, severity, claim, file:line, reviewer, age. Tick rows,
+or type "pick 1-3, 5, 7" above the list, for a bulk Accept or Dismiss…; the
+header checkbox ticks every row shown. `J` and `K` move, `X` ticks, `A`
+accepts, `D` dismisses. Accept turns a finding into an open local comment at
+the head (a finding without a file is only marked accepted; an open comment is
+marked accepted); Dismiss asks a one-line reason (declines a comment,
+dismisses a watch point, otherwise a `## Review remarks` line). The toast
+offers Undo. The selected finding opens on the right: chips, title, PR,
+file:line (opens the diff), body, Accept / Dismiss… / Reopen / Open on
+GitHub, then its agent thread (cards, composer; "Dismiss with this reason"
+uses the typed text). A new finding with a file shows the composer with
+"Accept & ask agent": it accepts the finding as a comment and starts the
+thread with your text. While the group's agent is alive and has seen the thread ("agent live"),
 a message goes out as a new turn only (the message, what changed since its
 last answer, the reply path), not the whole brief again. Accept or dismiss
 releases the finding's thread from its group and prunes the group's agent,
@@ -343,7 +344,10 @@ worktree and branch once no item is left; it keeps them while the agent is
 answering or a suggested commit is not applied. "prune agent" in a thread
 does the same by hand.
 
-"Fix accepted (N)" in the board header starts a stack fix (`POST …/stack-fix` with `select: "accepted"`)
+"Fix accepted (N)" in the view header opens the stack fix dialog (the rows
+bottom-up, one commit per finding or per row, the model) and starts a stack
+fix (`POST …/stack-fix` with `select: "accepted"`), then opens its
+`stack-<id>` tab; the last run sits beside it as "Stack fix <status>". It is
 limited to the open comments whose finding is accepted in `findings.json`;
 `select` also takes `{ "<row key>": [comment ids] }`, and no `select` keeps
 every open comment. The brief adds each comment's triage: the board note,

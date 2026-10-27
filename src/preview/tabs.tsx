@@ -24,7 +24,7 @@ import ArtifactView from './ArtifactView.tsx';
 import BriefView, { briefKeyOfTab } from './BriefView.tsx';
 import RunView from './RunView.tsx';
 import StackRunView from './StackRunView.tsx';
-import { baseName, keyLabel } from '../workbench/code/ids.ts';
+import { baseName, findingsKeyOfTab, keyLabel } from '../workbench/code/ids.ts';
 import type { PreviewData } from './data.ts';
 
 export type PreviewCtx = { d: PreviewData; selected: string | null; select: (key: string) => void; openPr: (key: string) => void };
@@ -50,6 +50,14 @@ function FindingsTab() {
   const { d, openPr } = usePreview();
   return <div className="dp-tabview"><FindingsView d={d} onOpenPr={(k) => { pickPr('findings', k); openPr(k); }} onCurrentPr={(k) => pickPr('findings', k)} onReload={() => { d.work.load(); }} /></div>;
 }
+function PrFindingsTab({ tabId }: { tabId: string }) {
+  const { d, openPr } = usePreview();
+  return <div className="dp-tabview"><FindingsView d={d} pr={String(findingsKeyOfTab(tabId))} onOpenPr={openPr} onReload={() => { d.work.load(); }} /></div>;
+}
+const findingsDef = (id: string): TabDef | null => {
+  const k = findingsKeyOfTab(id);
+  return k === null ? null : { title: () => `Findings ${baseName(keyLabel(k))}`, tip: () => keyLabel(k), Component: PrFindingsTab, flush: true };
+};
 function DecisionsTab() {
   const { d, openPr } = usePreview();
   return <div className="dp-tabview"><DecisionsView d={d} onOpenPr={(k) => { pickPr('decisions', k); openPr(k); }} onCurrentPr={(k) => pickPr('decisions', k)} /></div>;
@@ -141,7 +149,7 @@ const ICONS: [RegExp, IconName][] = [
 ];
 
 export function previewTabDef(id: string): TabDef {
-  const def = VIEWS[id] || agentDef(id) || runDef(id) || (id.startsWith('pr-') ? { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
+  const def = VIEWS[id] || agentDef(id) || runDef(id) || findingsDef(id) || (id.startsWith('pr-') ? { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
   const icon = ICONS.find(([re]) => re.test(id))?.[1];
   return icon && !def.icon ? { ...def, icon: <Icon name={icon} size={14} /> } : def;
 }
