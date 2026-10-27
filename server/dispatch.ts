@@ -95,11 +95,13 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     return { work, entry, key, index, prompt, persona, edits };
   }
 
-  function taskOf(entry: CatalogEntry, key: RowKey | null, { prompt, persona, args }: { prompt: string; persona: string; args: string }) {
+  function taskOf(entry: CatalogEntry, slug: string, key: RowKey | null, { prompt, persona, args }: { prompt: string; persona: string; args: string }) {
     const pr = key === null ? '' : isLocal(key) ? '' : String(key);
     if (entry.kind === 'persona-review') {
       const ritual = config.rituals.find((r) => r.kind === 'review-as' && r.prompt);
-      return ritual?.prompt ? fill(ritual.prompt, { login: persona, pr, owner: config.owner.name }).trim() :`Review this PR as ${persona} would: read \`${persona}.md\` in ${config.personasDir} ("What they check"), then report each finding with its file, line, severity and confidence.`;
+      const review = ritual?.prompt ? fill(ritual.prompt, { login: persona, pr, owner: config.owner.name }).trim() : `Review this PR as ${persona} would: read \`${persona}.md\` in ${config.personasDir} ("What they check"), then report each finding with its file, line, severity and confidence.`;
+      const owner = config.owner.name;
+      return `${review}\nBefore reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}". Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
     }
     if (entry.kind === 'gate') {
       if (!entry.skill) return `Test this PR by hand: run it locally, exercise every surface it changes, and report pass or fail per scenario with what you saw.${prompt ? `\n\n${prompt}` : ''}`;
@@ -166,7 +168,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
 
     const scope: Scope = key === null ? { kind: 'work', slug } : { kind: 'row', slug, key, edits };
     const placed = await placement.place(scope);
-    const task = taskOf(entry, key, { prompt, persona, args });
+    const task = taskOf(entry, slug, key, { prompt, persona, args });
     const { brief, read, written } = await briefOf(work, { key, title, label: entry.label, edits, task, ...(entry.kind === 'persona-review' ? { persona } : {}) });
     const setup = edits && readier ? await readier.ready(placed.cwd).catch(() => []) : [];
     const message = [firstMessage({ title, task, edits, brief, read }), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();

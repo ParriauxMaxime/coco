@@ -106,6 +106,7 @@ test('a persona review fills the review-as ritual and stays read-only', async ()
   await dispatch.start('csv', { entry: 'persona-review', key: 101, persona: 'bob' });
   assert.deepEqual(placed, [{ kind: 'row', slug: 'csv', key: 101, edits: false }]);
   assert.match(String(started[0].prompt), /\n\/review-as bob 101\n/);
+  assert.match(String(started[0].prompt), /call get_pr_findings with pr "101" and work "csv"\. Never raise again what it lists/);
   assert.equal(writes[0].d.persona, 'bob');
 });
 

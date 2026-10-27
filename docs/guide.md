@@ -380,7 +380,10 @@ coco agents call the cocopilot MCP `upsert_finding` (work, PR and head sha
 from the agent's labels; same author, path and title updates) and
 `attach_media`, other sessions curl the routes below;
 one comment per finding with `title`,
-`severity`, `confidence`; author `as-<login>` shows as a persona. Comments
+`severity`, `confidence`; author `as-<login>` shows as a persona. A persona
+review dispatched from coco gets the review plan's rule in its task: call
+`get_pr_findings` before reviewing and never raise again what it lists unless
+the code it judged changed. Comments
 without a title get their claim from the body, skipping `Class:` /
 `Severity:` / `Recommendation:` header lines; a `Confidence: N%` in a body is
 read too.
