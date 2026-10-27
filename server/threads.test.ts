@@ -489,7 +489,8 @@ test('a thread shows the agent commit that carries its comment trailer until it 
 test("the owner's Verify runs the checks on the ready commit in the group worktree: deps-pending is not cached and tries again, a finished run is reused for its sha, a new commit runs anew", async () => {
   let commit = 'f'.repeat(40);
   let deps: Readiness['state'] = 'preparing';
-  const exec: Exec = async (_cmd, args) => ({ ok: true, stdout: args.includes('cherry') ? '+ x\n' : args.includes('--grep') ? '' : args.includes('--no-patch') ? 'Guard\n' : args.includes('rev-parse') ? 'abc999\n' : args.includes('--name-only') ? 'src/widgets.ts\n' : '', stderr: '' });
+  let cherry = '+ x\n';
+  const exec: Exec = async (_cmd, args) => ({ ok: true, stdout: args.includes('cherry') ? cherry : args.includes('--grep') ? '' : args.includes('--no-patch') ? 'Guard\n' : args.includes('rev-parse') ? 'abc999\n' : args.includes('--name-only') ? 'src/widgets.ts\n' : '', stderr: '' });
   const ran: string[] = [];
   const ok = (head: string): Verification => ({ state: 'passed', at: 'now', head, files: ['src/widgets.ts'], results: [{ id: 'lint', label: 'Lint', state: 'passed', command: 'lint src/widgets.ts', ms: 12 }] });
   const { threads, post, daemon, read, reply } = setup(undefined, {
@@ -497,11 +498,12 @@ test("the owner's Verify runs the checks on the ready commit in the group worktr
     whenReady: () => {},
     briefLines: (r) => briefLines(r),
     verify: async (root, { head }) => (ran.push(`${root} ${head}`), ok(head)),
+    head: async () => commit,
   }, () => [{ id: 'aa11', commit }], undefined, exec);
-  const call = async (method: string, sub = 'verify') => {
+  const call = async (method: string, payload: object = {}, sub = 'verify') => {
     let out: { code: number; body: Record<string, unknown> } = { code: 0, body: {} };
     const req = { method, url: `/api/works/${SLUG}/threads/${A}/${sub}`, on: () => {} } as unknown as Req;
-    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A, sub], async () => '{}', (_res, code, body) => void (out = { code, body: body as typeof out.body }));
+    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A, sub], async () => JSON.stringify(payload), (_res, code, body) => void (out = { code, body: body as typeof out.body }));
     return out;
   };
   const stored = () => (read(A) as unknown as { verifies?: Record<string, { status: string; note?: string; checks: { name: string; ok: boolean; ms: number }[] }> }).verifies;
@@ -533,4 +535,48 @@ test("the owner's Verify runs the checks on the ready commit in the group worktr
   await until(() => stored()?.[commit]?.status === 'pass', 'new commit');
   assert.equal(ran.length, 2);
   assert.equal(Object.keys(stored()!).length, 2);
+
+  assert.equal((await call('POST', { commit: '1'.repeat(40) })).code, 400, 'only the ready or a suggested commit');
+
+  cherry = `- ${commit} x\n`;
+  assert.equal((await call('POST')).body.status, 'pass', 'with no ready line, the open suggestion is verified (cached)');
+});
+
+test('Verify also takes the commit of an open suggestion that is not the ready line, and refuses to run while the worktree HEAD is past it', async () => {
+  const older = 'a'.repeat(40);
+  const newer = 'b'.repeat(40);
+  let tip = newer;
+  const exec: Exec = async (_cmd, args) => ({ ok: true, stdout: args.includes('cherry') ? '+ x\n' : args.includes('--grep') ? '' : args.includes('--no-patch') ? 'Guard\n' : args.includes('rev-parse') ? 'abc999\n' : args.includes('--name-only') ? 'src/widgets.ts\n' : '', stderr: '' });
+  const ran: string[] = [];
+  const { threads, post, daemon, read, reply } = setup(undefined, {
+    prepare: async () => ({ state: 'ready', root: '/wt/cc-group', deps: [], checks: [] }),
+    whenReady: () => {},
+    briefLines: (r) => briefLines(r),
+    verify: async (root, { head }) => (ran.push(head), { state: 'passed', at: 'now', head, files: [], results: [] }),
+    head: async () => tip,
+  }, () => [{ id: 'aa11', commit: tip }], undefined, exec);
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  tip = older;
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  tip = newer;
+  ran.length = 0;
+  const call = async (commit: string) => {
+    let out: Record<string, unknown> = {};
+    const req = { method: 'POST', url: `/api/works/${SLUG}/threads/${A}/verify`, on: () => {} } as unknown as Req;
+    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A, 'verify'], async () => JSON.stringify({ commit }), (_res, _code, body) => void (out = body as typeof out));
+    return out;
+  };
+  const stored = () => (read(A) as unknown as { verifies?: Record<string, { status: string; head?: string; note?: string }> }).verifies;
+  await call(older);
+  await until(() => stored()?.[older]?.status === 'stale-head', 'stale-head');
+  assert.equal(stored()![older].head, newer);
+  assert.match(stored()![older].note ?? '', /agent committed past aaaaaaa/);
+  assert.deepEqual(ran, [], 'nothing ran on the moved tree');
+  tip = older;
+  await call(older);
+  await until(() => stored()?.[older]?.status === 'pass', 'pass at the commit');
+  assert.deepEqual(ran, [older]);
 });

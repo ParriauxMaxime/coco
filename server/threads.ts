@@ -91,7 +91,7 @@ type ThreadsOptions = {
   uploads?: Pick<Uploads, 'resolve' | 'record'>;
   cardsOf?: (slug: string, key: string) => Card[];
   // readies a code group's worktree before each turn and checks its commits
-  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify'>>;
+  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify' | 'head'>>;
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
   placement?: {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
@@ -750,15 +750,16 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // the owner's Verify: the repo checks on the ready commit (else the open suggestion's) in the group's worktree, in the background; a run is kept per sha in the thread
   // and reused until a new commit comes, except a deps-pending one, which the next click tries again
   const verifying = new Set<string>();
-  async function verifyThread(slug: string, key: string): Promise<VerifyRun> {
+  async function verifyThread(slug: string, key: string, want?: unknown): Promise<VerifyRun> {
     const { work, ref } = check(slug, key);
     if (!worktrees?.verify) throw new HttpError(400, 'coco runs no checks here');
     const thread = read(slug, key);
     const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
     if (ref.kind !== 'comment' || group?.kind !== 'code' || !group.worktree) throw new HttpError(400, 'this thread has no agent worktree');
     const open = thread.messages.findLast((m) => m.suggestion?.kind === 'commit' && isOpenSuggestion(m.suggestion))?.suggestion;
-    const commit = (await readyOf(slug, work, ref, thread))?.commit ?? (open?.kind === 'commit' ? open.commit : null);
-    if (!commit) throw new HttpError(400, 'no commit to verify');
+    const ready = (await readyOf(slug, work, ref, thread))?.commit;
+    const commit = want ? [ready, ...thread.messages.flatMap((m) => (m.suggestion?.kind === 'commit' && isOpenSuggestion(m.suggestion) ? [m.suggestion.commit] : []))].find((c) => c === want) : (ready ?? (open?.kind === 'commit' ? open.commit : null));
+    if (!commit) throw new HttpError(400, want ? 'that commit is neither ready nor an open suggestion' : 'no commit to verify');
     const id = `${slug}:${key}:${commit}`;
     const cached = thread.verifies?.[commit];
     if (reusable(cached, verifying.has(id))) return cached;
@@ -770,7 +771,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const first: VerifyRun = { commit, startedAt: new Date().toISOString(), status: 'running', checks: [] };
     verifying.add(id);
     await save(first);
-    verifyCommit({ prepare: worktrees.prepare, verify: worktrees.verify }, group.worktree, commit, save)
+    verifyCommit({ prepare: worktrees.prepare, verify: worktrees.verify, head: worktrees.head }, group.worktree, commit, save)
       .catch((e) => save({ ...first, finishedAt: new Date().toISOString(), status: 'fail', note: `coco could not run the checks: ${errText(e)}`.slice(0, 500) }))
       .finally(() => verifying.delete(id));
     return first;
@@ -969,7 +970,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         await drainQueue(slug);
         return send(res, 200, summaries(slug));
       }
-      if (sub === 'verify' && req.method === 'POST') return send(res, 200, await verifyThread(slug, key));
+      if (sub === 'verify' && req.method === 'POST') return send(res, 200, await verifyThread(slug, key, (await body()).commit));
       if (sub === 'suggestions' && req.method === 'POST') return send(res, 200, await decideSuggestion(slug, key, msgId, (await body()).action));
       if (sub === 'events' && req.method === 'GET') {
         check(slug, key);

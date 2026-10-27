@@ -5,7 +5,7 @@ import './thread.css';
 const CHIP: Record<string, string> = { running: 'dp-info', passed: 'dp-ok', failed: 'dp-bad', unavailable: '' };
 const MARK: Record<string, string> = { passed: '✓', failed: '✕', skipped: '–' };
 
-const VERIFY_CHIP: Record<string, string> = { running: 'dp-info', pass: 'dp-ok', fail: 'dp-bad', 'deps-pending': 'dp-warn' };
+const VERIFY_CHIP: Record<string, string> = { running: 'dp-info', pass: 'dp-ok', fail: 'dp-bad', 'deps-pending': 'dp-warn', 'stale-head': 'dp-warn' };
 
 // the owner's Verify: a chip per check as it finishes, a failure's last lines folded under it, deps-pending with what is happening
 export function VerifyChips({ run }: { run: VerifyRun }) {

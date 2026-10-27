@@ -4,8 +4,9 @@ import type { AgentWorktrees, CheckResult } from './agent-worktree.ts';
 
 const TAIL_LINES = 40;
 export type VerifyCheck = { name: string; ok: boolean; ms: number; tail?: string; skipped?: string };
-export type VerifyRun = { commit: string; startedAt: string; finishedAt?: string; status: 'running' | 'pass' | 'fail' | 'deps-pending'; checks: VerifyCheck[]; note?: string };
-type Worktrees = Pick<AgentWorktrees, 'prepare' | 'verify'>;
+// head: the worktree's HEAD when the run started; stale-head: it was past the commit, so nothing ran
+export type VerifyRun = { commit: string; startedAt: string; finishedAt?: string; status: 'running' | 'pass' | 'fail' | 'deps-pending' | 'stale-head'; checks: VerifyCheck[]; note?: string; head?: string };
+type Worktrees = Pick<AgentWorktrees, 'prepare' | 'verify'> & Partial<Pick<AgentWorktrees, 'head'>>;
 
 export const checkOf = (r: CheckResult): VerifyCheck => ({
   name: r.label,
@@ -21,6 +22,12 @@ export const reusable = (r: VerifyRun | undefined, inflight: boolean): r is Veri
 export async function verifyCommit(wt: Worktrees, cwd: string, commit: string, update: (run: VerifyRun) => unknown): Promise<VerifyRun> {
   const run: VerifyRun = { commit, startedAt: new Date().toISOString(), status: 'running', checks: [] };
   const done = (patch: Partial<VerifyRun>) => Object.assign(run, { finishedAt: new Date().toISOString() }, patch);
+  const head = (await wt.head?.(cwd)) ?? undefined;
+  if (head) run.head = head;
+  if (head && head !== commit) {
+    await update(done({ status: 'stale-head', note: `agent committed past ${commit.slice(0, 7)}; Verify the newest ready commit` }));
+    return run;
+  }
   const r = await wt.prepare(cwd, { retrying: true, start: false });
   if (r.state === 'preparing' || r.state === 'failed') {
     const what = r.deps.filter((d) => d.mode !== 'linked' && d.mode !== 'own').map((d) => `${d.path} ${d.mode}${d.note ? ` (${d.note})` : ''}`);

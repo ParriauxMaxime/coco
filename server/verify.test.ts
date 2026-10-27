@@ -36,6 +36,7 @@ function fixture(t: { after(fn: () => void): void }, { lock = '1', mainModules =
   const calls: string[] = [];
   const failing = new Set<string>();
   const run: Run = async (cmd, args) => {
+    if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') return { ok: true, output: COMMIT };
     if (cmd === 'git' && args[0] === 'rev-parse') return { ok: true, output: `${path.join(main, '.git/worktrees/wt')}\n${path.join(main, '.git')}` };
     if (cmd === 'git' && args[0] === 'diff') return { ok: true, output: 'src/a.ts\nsrc/b.ts\nREADME.md' };
     calls.push([cmd, ...args].join(' '));
@@ -84,6 +85,18 @@ test('a worktree with identical lockfile is linked from the main checkout and ch
   assert.equal(run.status, 'pass');
   assert.equal(fs.readlinkSync(path.join(wt, 'node_modules')), path.join(path.dirname(wt), 'main/node_modules'));
   assert.equal(calls.length, 4);
+});
+
+test('a worktree whose HEAD is past the commit is not checked: stale-head with the head recorded; at the commit it runs and records the head', async (t) => {
+  const { aw, wt, calls } = fixture(t);
+  const past = await verifyCommit({ ...aw, head: async () => 'd'.repeat(40) }, wt, COMMIT, () => {});
+  assert.equal(past.status, 'stale-head');
+  assert.equal(past.head, 'd'.repeat(40));
+  assert.match(past.note ?? '', /agent committed past ccccccc; Verify the newest ready commit/);
+  assert.deepEqual(calls, []);
+  assert.equal(reusable(past, false), false);
+  const at = await verifyCommit({ ...aw, head: async () => COMMIT }, wt, COMMIT, () => {});
+  assert.equal([at.status, at.head].join(), `pass,${COMMIT}`);
 });
 
 test('only finished runs and a run still in flight are reused', () => {

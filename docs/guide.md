@@ -690,7 +690,10 @@ orchestration layer (`server/threads.ts`):
   `node_modules` missing or installing the status is `deps-pending` with what
   is happening, nothing runs and nothing is installed (a lockfile identical to
   the main checkout's is linked; otherwise `own_deps` does the install); the
-  next click tries again. Approve shows "verified ✓" or "checks failed" and
+  next click tries again. When the worktree's HEAD is past the commit (the agent
+  committed again) nothing runs: status `stale-head`, `head` recorded; Verify
+  the newest commit. Verify is offered on the ready line and on each open
+  commit suggestion (`{ commit }` in the body picks which). Approve shows "verified ✓" or "checks failed" and
   stays clickable.
 - The brief. The first turn of a code group carries the work's settled
   decisions (the "Decisions (settled, do not revisit)" lines of the PR brief),
