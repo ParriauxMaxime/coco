@@ -490,8 +490,9 @@ The Drift block on the work page (`server/drift.ts`, `GET
 coco starts nothing by itself.
 
 - Unpushed: the local branch is ahead of the PR head on GitHub ("3 local
-  commits not pushed", or "differs from GitHub" after a rebase). The button
-  copies the push command.
+  commits not pushed"); the button copies `git push`. A branch that diverged
+  from GitHub is flagged with no button, since a force push could drop
+  GitHub's commits.
 - A stale kit piece (body, diagram, video, by the freshness rules above)
   starts that kit gate's skill, for example `/lem-pr` for the body.
 - The GitHub stack differs: a PR's base is not the row below it (or the

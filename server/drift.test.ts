@@ -37,9 +37,9 @@ test('local commits ahead of the PR head are flagged with a push to copy; a leve
   assert.deepEqual(await kinds(make({ tips: { b1: 'remote1' } })), []);
 });
 
-test('a local branch that diverged from GitHub is flagged without a count', async () => {
+test('a local branch that diverged from GitHub is flagged without a push to copy', async () => {
   const [i] = (await make({ tips: { b1: 'tip1' }, ahead: { remote1: 'diverged' } }).view('w', true)).drift;
-  assert.equal(i.text, 'local branch differs from GitHub (rebased?)');
+  assert.deepEqual([i.text, i.action], ['local branch and GitHub diverged: rebase or reset it before pushing', null]);
 });
 
 test('a stale body or video offers the kit gate skill; a stale diagram with no skill opens artifacts; notion is ignored', async () => {

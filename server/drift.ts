@@ -72,7 +72,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       const pr = r.pr as PrInfo;
       const remote = pr.headOid || null;
       const count = r.tip && remote ? await ahead(r.tip, remote) : null;
-      if (count) add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch differs from GitHub (rebased?)', { type: 'copy', command: `git push ${count > 0 ? '' : '--force-with-lease '}origin ${r.branch}`, label: 'Copy push' });
+      if (count) add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', count > 0 ? { type: 'copy', command: `git push origin ${r.branch}`, label: 'Copy push' } : null);
 
       const pieces = await kit.view(slug, String(r.key)).then((v) => v.pieces, () => []);
       // a companion PR in another repo (a link) only has dates, too weak to call it stale
