@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blocksToMarkdown, readSuggestionBefore, validateBlocks, validateRich } from './blocks.ts';
+import { blocksToMarkdown, readSuggestionBefore, salvageBlocks, validateBlocks, validateRich } from './blocks.ts';
 
 test('rich fields come back only for the keys sent, so a patch keeps the rest', async () => {
   assert.deepEqual(validateRich({ title: 'x' }), {});
@@ -14,6 +14,13 @@ test('a bad block is refused with the field that broke', () => {
   assert.throws(() => validateBlocks([{ type: 'text', text: 'ok' }, { type: 'table', columns: ['a', 'b'], rows: [['1']] }]), /blocks\[1\]\.rows\[0\] must hold 2 cells/);
   assert.throws(() => validateBlocks([{ type: 'media', kind: 'image', src: 'https://evil.example/x.png' }]), /blocks\[0\]\.src/);
   assert.throws(() => validateBlocks([{ type: 'poem', text: 'x' }]), /blocks\[0\]\.type must be one of/);
+});
+
+test('a table may lead with an unnamed row-label column; a reply keeps its valid blocks when one is broken', () => {
+  assert.deepEqual(validateBlocks([{ type: 'table', columns: ['', 'Before', 'After'], rows: [['Reads', '2', '1']] }])[0], { type: 'table', columns: ['', 'Before', 'After'], rows: [['Reads', '2', '1']] });
+  const { blocks, dropped } = salvageBlocks([{ type: 'text', text: 'Agree.' }, { type: 'table', columns: ['a', 'b'], rows: [['1']] }, { type: 'callout', tone: 'shout', text: 'Not changed.' }]);
+  assert.deepEqual(blocks, [{ type: 'text', text: 'Agree.' }, { type: 'text', text: 'Not changed.' }]);
+  assert.deepEqual(dropped, ['blocks[1].rows[0] must hold 2 cells', 'blocks[2].tone must be one of risk, warn, ok, note, mute']);
 });
 
 test('the markdown twin keeps every block readable for agents', () => {

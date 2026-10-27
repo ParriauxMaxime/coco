@@ -11,7 +11,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, commentSection, fenced, sharedRules } from './review-agent.ts';
-import { blocksToMarkdown, validateBlocks } from './blocks.ts';
+import { blocksToMarkdown, salvageBlocks } from './blocks.ts';
 import { activityEvents, createPaseoAgents } from './paseo-agent.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import { HttpError, errorMessage as errText, httpStatus } from './core-types.ts';
@@ -53,7 +53,7 @@ type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; 
 type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined; briefed?: string };
 type Group = DecisionGroup | PlanGroup | CodeGroup;
 type Finding = { action?: string; reason?: string; patch?: Record<string, unknown> };
-type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string };
+type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string; dropped?: string[] };
 type SessionPromise = Promise<AgentSession | null> & { agentId?: string | null };
 type ThreadEvent = { type: string; [key: string]: unknown };
 type FindingActor = (slug: string, n: RowKey, id: string, action: { action: string; reason: string }) => Promise<unknown>;
@@ -516,10 +516,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const raw = fs.readFileSync(file, 'utf8').trim();
     if (file.endsWith('.md')) return { text: raw };
     let blocks: Block[];
+    let dropped: string[];
     let finding: Finding | null;
     try {
       const json = JSON.parse(raw);
-      blocks = validateBlocks(json.blocks);
+      ({ blocks, dropped } = salvageBlocks(json.blocks));
       finding = json.finding && typeof json.finding === 'object' ? json.finding : null;
     } catch (e) {
       return { text: raw, error: errText(e) };
@@ -530,7 +531,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const lines = r.ok ? r.stdout.split('\n') : null;
       b.before = lines && b.endLine <= lines.length ? lines.slice(b.startLine - 1, b.endLine).join('\n') : undefined;
     }
-    return { blocks, text: blocksToMarkdown({ blocks }), finding };
+    return { blocks, text: blocksToMarkdown({ blocks }), finding, ...(dropped.length ? { dropped } : {}) };
   }
 
   // what an agent asked to do to its own finding (only on the owner's request, per its prompt): edit it now, accept or dismiss once the thread lock is free
@@ -647,6 +648,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         const reply = await readReply(a.replyPath, waiting.sha);
         added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
         if (reply.error) notes.push(message('system', `Reply not in blocks (${reply.error}): shown as text.`));
+        if (reply.dropped) notes.push(message('system', `Part of the reply was not valid blocks, left out: ${reply.dropped.join('; ')}.`.slice(0, 500)));
         if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) notes.push(message('system', note));
       }
       if (final) {

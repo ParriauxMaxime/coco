@@ -58,7 +58,9 @@ const TYPES: Record<string, (b: Raw, at: string) => Raw> = {
   table: (b: Raw, at: string) => {
     if (!Array.isArray(b.columns) || !b.columns.length || b.columns.length > MAX_COLS) throw new Error(`${at}.columns must hold 1-${MAX_COLS} names`);
     if (!Array.isArray(b.rows) || !b.rows.length || b.rows.length > MAX_ROWS) throw new Error(`${at}.rows must hold 1-${MAX_ROWS} rows`);
-    const columns = b.columns.map((c, i) => str(String(c ?? ''), 60, `${at}.columns[${i}]`));
+    // an empty header is a row-label column
+    const columns = b.columns.map((c) => String(c ?? '').trim().slice(0, 60));
+    if (columns.every((c) => !c)) throw new Error(`${at}.columns: at least one column needs a name`);
     const rows = b.rows.map((r, i) => {
       if (!Array.isArray(r) || r.length !== columns.length) throw new Error(`${at}.rows[${i}] must hold ${columns.length} cells`);
       return r.map((c, j) => cell(c, `${at}.rows[${i}][${j}]`));
@@ -82,6 +84,23 @@ export function validateBlocks(blocks: unknown): Block[] {
     if (!make) throw new Error(`${at}.type must be one of ${BLOCK_TYPES.join(', ')}`);
     return { type: b.type, ...strip(make(b, at)) };
   });
+}
+
+// a reply file has no one to refuse it to: the valid blocks stay, a broken one is dropped with its reason, and one with text keeps it as a text block
+export function salvageBlocks(blocks: unknown): { blocks: Block[]; dropped: string[] } {
+  if (!Array.isArray(blocks) || !blocks.length) throw new Error('blocks must hold at least 1 block');
+  const dropped: string[] = [];
+  const kept = blocks.slice(0, MAX_BLOCKS).flatMap((b: Raw, i: number): Block[] => {
+    try {
+      return validateBlocks([b]);
+    } catch (e) {
+      dropped.push(String(e instanceof Error ? e.message : e).replace('blocks[0]', `blocks[${i}]`));
+      return typeof b?.text === 'string' && b.text.trim() ? validateBlocks([{ type: 'text', text: b.text }]) : [];
+    }
+  });
+  if (blocks.length > MAX_BLOCKS) dropped.push(`blocks past the first ${MAX_BLOCKS}`);
+  if (!kept.length) throw new Error(dropped[0] || 'no valid block');
+  return { blocks: kept, dropped };
 }
 
 export function validateSources(sources: unknown): Source[] {
