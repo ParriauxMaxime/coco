@@ -146,18 +146,39 @@ export function CommentActions({ comment, onJump, onStatus, onDelete, onEdit, th
 
 // coco watch point from the review plan: accept turns it into a real open comment
 export function ProposalZone({ comment, rv }: { comment: Proposal; rv: ReviewHandle }) {
+  const [folded, toggle] = useFolded(comment.id);
   return (
-    <div className="cc-zone cc-zone-proposed">
+    <div className={`cc-zone cc-zone-proposed${folded ? ' cc-folded' : ''}`}>
       <div className="cc-head">
+        <FoldCaret folded={folded} onClick={toggle} />
         <span className="chip c-purple">coco suggests</span>
         <Severity value={comment.severity} />
         <Confidence value={comment.confidence} />
+        {folded && <FoldLine text={comment.title || comment.body} onClick={toggle} />}
       </div>
-      <Markdown text={comment.body} />
-      <WatchActions wp={comment} rv={rv} />
+      {!folded && (
+        <>
+          <Markdown text={comment.body} />
+          <WatchActions wp={comment} rv={rv} />
+        </>
+      )}
     </div>
   );
 }
+
+// comment cards folded down to their head line, to read the code under them; kept across windowed unmounts
+const foldedCards = new Set<string>();
+function useFolded(id: string): [boolean, () => void] {
+  const [folded, setFolded] = useState(() => foldedCards.has(id));
+  return [folded, () => {
+    foldedCards[folded ? 'delete' : 'add'](id);
+    setFolded(!folded);
+  }];
+}
+const FoldCaret = ({ folded, onClick }: { folded: boolean; onClick: () => void }) => (
+  <button type="button" className="cc-fold-caret" aria-expanded={!folded} title={folded ? 'Expand the comment' : 'Collapse the comment to its head line'} onClick={onClick}>{folded ? '▸' : '▾'}</button>
+);
+const FoldLine = ({ text, onClick }: { text: string; onClick: () => void }) => <span className="cc-fold-line" onClick={onClick}>{text.split('\n').find((l) => l.trim())?.replace(/[#*`>]/g, '').trim()}</span>;
 
 type CommentZoneProps = {
   comment: ReviewComment;
@@ -171,6 +192,7 @@ type CommentZoneProps = {
 // onSave(comment, body) · onDelete(comment) (also cancels a draft) · onStatus(comment, status) · thread: { slug, n, onSettled } to talk with the PR agent
 export default function CommentZone({ comment, onSave, onDelete, onStatus, draft = false, thread }: CommentZoneProps) {
   const [editing, setEditing] = useState(false);
+  const [folded, toggleFold] = useFolded(comment.id);
   const key = thread?.slug ? threadKey.comment(thread.n, comment.id) : null;
   const [talking, setTalking] = useState(() => Boolean(key && openThreads.has(key)));
   const toggleTalking = () => {
@@ -187,13 +209,15 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
   const { status, resolution } = comment;
   const commit = resolution?.commit ? String(resolution.commit).slice(0, 7) : '';
   return (
-    <div className={`cc-zone cc-zone-${status}`}>
+    <div className={`cc-zone cc-zone-${status}${folded ? ' cc-folded' : ''}`}>
       <div className="cc-head">
+        <FoldCaret folded={folded} onClick={toggleFold} />
         <span className={`chip ${CHIP[status] || 'c-grey'}`}>{commit && (status === 'fixed' || status === 'declined') ? `${status} · ${commit}` : status}</span>
         <Severity value={comment.severity} />
         <Confidence value={comment.confidence} />
+        {folded && <FoldLine text={comment.title || comment.body} onClick={toggleFold} />}
       </div>
-      {editing ? (
+      {folded ? null : editing ? (
         <CommentBox
           initial={comment.body}
           submitLabel="Save"
@@ -208,10 +232,10 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
       ) : (
         <Markdown text={comment.body} />
       )}
-      {(status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
-      {status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
-      {!editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
-      {thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note) => onStatus?.(c, s, note))} />}
+      {!folded && (status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
+      {!folded && status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
+      {!folded && !editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
+      {!folded && thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note) => onStatus?.(c, s, note))} />}
     </div>
   );
 }

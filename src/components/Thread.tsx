@@ -14,6 +14,9 @@ import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
 import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef } from '../types.ts';
 
 const POLL_MS = 10000;
+// a long thread shows its last turns (a turn starts at one of your messages); earlier ones load by threes when scrolled to
+const SHOWN_TURNS = 3;
+const MORE_TURNS = 3;
 const MODELS: [string, string][] = [['sonnet', 'Sonnet'], ['opus', 'Opus · deep']];
 const OPEN = ['pending', 'queued', 'conflict'];
 const STATE_CHIP: Record<string, string> = { pending: 'c-blue', queued: 'c-orange', conflict: 'c-red', applied: 'c-green', dismissed: 'c-grey' };
@@ -144,6 +147,25 @@ function useThreadStream(slug: string, key: string, onChange: () => void) {
 // a scoped agent on one item: dispatch, follow its work live, read its answer, approve or dismiss what it suggests; writing to it never waits for it
 // verdicts: [{ label, title, on(note) }] buttons that use the box text as remark instead of dispatching it
 type ThreadProps = { slug: string; threadKey: string; onSettled?: () => void; verdicts?: Verdict[]; autoFocus?: boolean };
+function EarlierTurns({ hidden, onMore }: { hidden: number; onMore: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const more = useRef(onMore);
+  more.current = onMore;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    // only once the reader scrolls up to it, not while it sits in view at mount
+    let armed = false;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) armed = true;
+      else if (armed) more.current();
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hidden]);
+  return <button ref={ref} type="button" className="thread-earlier" onClick={onMore}>↑ {hidden} earlier message{hidden > 1 ? 's' : ''}</button>;
+}
+
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
   const { groups } = useThreadsOf(slug);
   const [thread, setThread] = useState<ThreadData | null>(null);
@@ -154,6 +176,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   // messages sent and not confirmed yet
   const [sending, setSending] = useState<{ nonce: string; text: string; files: UploadRef[] }[]>([]);
   const [note, setNote] = useState('');
+  const [turns, setTurns] = useState(SHOWN_TURNS);
   const waiting = Boolean(thread?.waiting);
   const settled = useRef(onSettled);
   settled.current = onSettled;
@@ -228,6 +251,8 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const onCard = (c: Card) => setThread((prev) => prev && { ...prev, cards: mergeCards(prev.cards ?? [], [c]) });
   const cardsAt = (i: number) => slots.get(i)?.map((c) => <CardView key={c.id} card={c} onCard={onCard} focus={c.id === newest} />);
   const others = groups.filter((g) => g.status === 'active' && g.id !== thread.groupId && g.kind === kind && (decision || String(g.n).replaceAll(':', '~') === prPart));
+  const asks = thread.messages.flatMap((m, i) => (m.role === 'user' ? [i] : []));
+  const from = asks.length > turns ? asks[asks.length - turns] : 0;
   return (
     <div className="thread">
       <div className="row thread-group">
@@ -247,7 +272,9 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         {thread.messages.length > 1 && <button type="button" className={`sm${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}>🦜 rules</button>}
         {!waiting && group?.status === 'active' && <button type="button" className={`sm${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}>prune agent</button>}
       </div>
+      {from > 0 && <EarlierTurns hidden={from} onMore={() => setTurns((t) => t + MORE_TURNS)} />}
       {thread.messages.map((m, i) => {
+        if (i < from) return slots.get(i)?.some((c) => c.status === 'open') ? <React.Fragment key={m.id}>{cardsAt(i)}</React.Fragment> : null;
         const answered = m.card && m.role === 'user' ? CARD_MSG.exec(m.text ?? '') : null;
         return (
           <React.Fragment key={m.id}>

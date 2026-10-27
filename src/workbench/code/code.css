@@ -40,6 +40,11 @@
 .cc-zone-outdated { background: var(--bg); }
 .cc-zone-proposed { border-style: dashed; border-color: var(--violet); }
 .cc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cc-folded { padding: 4px 8px; }
+.cc-folded .cc-head { margin-bottom: 0; }
+.cc-fold-caret { all: unset; flex: none; width: 16px; text-align: center; color: var(--mute); cursor: pointer; border-radius: 4px; }
+.cc-fold-caret:hover { background: var(--line-2); color: var(--ink); }
+.cc-fold-line { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); cursor: pointer; }
 .cc-spacer { flex: 1; }
 .cc-link { all: unset; cursor: pointer; font-size: 11px; color: var(--mute); }
 .cc-link:hover { color: var(--brand-700); text-decoration: underline; }
