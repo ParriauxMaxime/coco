@@ -206,6 +206,7 @@ decision cards, latest activity first, filtered by all / open / to review
 keeps the cards whose `pr` field is this row key. Phones get the panes folded
 above the cards. "open in tab" gives `diff-<n>~<path>`; files outside the diff open
 as `file-<n>~<path>`. Monaco is a lazy chunk, desktop only; phones get LiteDiff.
+A page refresh brings the center pane back to the file and offset you were reading (kept per work and PR in localStorage), unless you scroll or pick a file first.
 
 The diff base is `git merge-base <baseSha> <headSha>`, so a stacked PR shows
 its own slice, like GitHub's three-dot diff, not what the default branch gained since.

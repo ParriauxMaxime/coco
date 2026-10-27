@@ -31,6 +31,18 @@ const MAIN_MIN = 420;
 const SBS_MIN = 900;
 const COUNTS = ['open', 'sent', 'fixed', 'declined', 'outdated'];
 const SCRIPT = /\.[cm]?[jt]sx?$/;
+const SAVE_MS = 150;
+// Cards above the restored one mount and take their real height for a while; the anchor is re-pinned until then or the first user input.
+const RESTORE_MS = 5000;
+const USER_INPUTS = ['wheel', 'pointerdown', 'touchstart', 'keydown'] as const;
+
+type ScrollAnchor = { path: string; offset: number };
+const readAnchor = (key: string): ScrollAnchor | null => {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+    return v && typeof v === 'object' && 'path' in v && typeof v.path === 'string' && 'offset' in v && typeof v.offset === 'number' ? { path: v.path, offset: v.offset } : null;
+  } catch { return null; }
+};
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && Boolean(t.closest('.cc-zone-host, .find-widget') || /^(INPUT|SELECT)$/.test(t.tagName) || ((t.tagName === 'TEXTAREA' || t.isContentEditable) && !t.closest('.monaco-editor')));
 
@@ -93,6 +105,11 @@ export default function Review({ tabId }: { tabId: string }) {
   const pendingScroll = useRef<string | null>(null);
   const raf = useRef(0);
   const [scrollTick, setScrollTick] = useState(0);
+  const scrollKey = `cc.rv.scroll.${slug}.${n}`;
+  const restore = useRef<ScrollAnchor | null | undefined>(undefined);
+  if (restore.current === undefined) restore.current = readAnchor(scrollKey);
+  const stopRestore = useRef(() => { restore.current = null; });
+  const saveTimer = useRef(0);
 
   useEffect(() => {
     if (!opened && order.length) setOpened(new Set(order.filter((f) => !ticks.has(f.filename)).slice(0, OPEN_FIRST).map((f) => f.filename)));
@@ -150,7 +167,7 @@ export default function Review({ tabId }: { tabId: string }) {
     raf.current = requestAnimationFrame(() => {
       raf.current = 0;
       const main = mainRef.current;
-      if (!main || Date.now() < lock.current) return;
+      if (!main) return;
       const top = main.scrollTop + SCROLL_GAP + 4;
       let cur = orderRef.current[0]?.filename;
       for (const f of orderRef.current) {
@@ -159,12 +176,51 @@ export default function Review({ tabId }: { tabId: string }) {
         if (el.offsetTop > top) break;
         cur = f.filename;
       }
+      const curEl = cur ? els.current.get(cur) : undefined;
+      if (cur && curEl && !restore.current) {
+        const anchor: ScrollAnchor = { path: cur, offset: Math.round(main.scrollTop - curEl.offsetTop) };
+        clearTimeout(saveTimer.current);
+        saveTimer.current = window.setTimeout(() => { try { localStorage.setItem(scrollKey, JSON.stringify(anchor)); } catch {} }, SAVE_MS);
+      }
+      if (Date.now() < lock.current) return;
       const atEnd = main.scrollTop + main.clientHeight >= main.scrollHeight - 2;
       const activeEl = activeRef.current ? els.current.get(activeRef.current) : undefined;
       const keep = atEnd && activeEl !== undefined && activeEl.offsetTop > main.scrollTop;
       if (!keep) setActivePath(cur ?? null);
     });
-  }, []);
+  }, [scrollKey]);
+
+  useEffect(() => {
+    const main = mainRef.current;
+    const target = restore.current;
+    if (!target || !active || !opened || !main) return undefined;
+    if (main.scrollTop > 0 || !els.current.has(target.path)) {
+      restore.current = null;
+      return undefined;
+    }
+    setActivePath(target.path);
+    const until = Date.now() + RESTORE_MS;
+    let frame = 0;
+    const detach = () => {
+      cancelAnimationFrame(frame);
+      USER_INPUTS.forEach((t) => main.removeEventListener(t, stop));
+    };
+    const stop = () => {
+      detach();
+      restore.current = null;
+    };
+    const pin = () => {
+      const el = els.current.get(target.path);
+      if (!el || Date.now() > until) return stop();
+      const top = el.offsetTop + target.offset;
+      if (Math.abs(main.scrollTop - top) > 1) main.scrollTop = top;
+      frame = requestAnimationFrame(pin);
+    };
+    USER_INPUTS.forEach((t) => main.addEventListener(t, stop, { passive: true }));
+    stopRestore.current = stop;
+    pin();
+    return detach;
+  }, [active, Boolean(opened)]);
 
   const scrollMain = (top: number) => {
     lock.current = Date.now() + 400;
@@ -179,6 +235,7 @@ export default function Review({ tabId }: { tabId: string }) {
   }, [scrollTick]);
 
   const goTo = useCallback((path: string) => {
+    stopRestore.current();
     unhide.current?.(path);
     setOpened((prev) => (!prev || prev.has(path) ? prev : new Set(prev).add(path)));
     setActivePath(path);
