@@ -400,6 +400,12 @@ async function api(req: Req, res: Res, url: URL) {
   const [root, a, b, c] = parts;
   try {
     if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider), cloneDir: config.cloneDir });
+    if (root === 'client-error' && req.method === 'POST') {
+      const line = `${new Date().toISOString()} ${(await readBody(req)).slice(0, 20000)}\n`;
+      fs.appendFileSync(path.join(DATA, 'client-errors.log'), line);
+      console.error('client error', line);
+      return send(res, 204, '');
+    }
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());

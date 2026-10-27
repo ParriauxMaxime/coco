@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import Blocks, { Inline } from '../../components/Blocks.tsx';
 import { pendingClass } from '../../components/action.ts';
+import ErrorBoundary from '../../ErrorBoundary.tsx';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
 import OptionPicker from './OptionPicker.tsx';
@@ -172,7 +173,13 @@ const EDITABLE = ['INPUT', 'TEXTAREA', 'SELECT'];
 const typing = (t: EventTarget) => t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && t.type !== 'radio' && t.type !== 'checkbox') || (t instanceof HTMLElement && t.isContentEditable);
 
 // one card an agent posted: the question and its context, the controls of its kind, then the answer once given
-export default function CardView({ card: c, onCard, focus = false }: { card: Card; onCard?: (c: Card) => void; focus?: boolean }) {
+type CardProps = { card: Card; onCard?: (c: Card) => void; focus?: boolean };
+
+export default function CardView(props: CardProps) {
+  return <ErrorBoundary label={`card ${props.card.id}`} inline><CardBody {...props} /></ErrorBoundary>;
+}
+
+function CardBody({ card: c, onCard, focus = false }: CardProps) {
   const [d, setD] = useState(() => draftOf(c));
   const [tried, setTried] = useState(false);
   const [pending, setPending] = useState<string | null>(null);

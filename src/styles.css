@@ -248,3 +248,7 @@ button.primary.pending::after { border-color: var(--on-brand); border-right-colo
 .toast-undo { all: unset; cursor: pointer; flex: none; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; color: #fff; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+.dp-crash { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 24px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--dp-bad, #dc2626) 35%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--dp-bad, #dc2626) 6%, transparent); color: var(--dp-bad, #dc2626); font: 13px/20px system-ui, sans-serif; }
+.dp-crash code { white-space: pre-wrap; word-break: break-word; color: inherit; }
+.dp-crash span { display: flex; gap: 6px; }
+.dp-crash.dp-crash-inline { margin: 8px 0; }
