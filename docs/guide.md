@@ -541,6 +541,14 @@ says `dev servers off` (hover for why) and nothing else changes.
   **Unpin**, **Stop**, or **Force stop** when others hold it or it is
   pinned, after a confirmation naming who loses it.
 
+Agents start none by default (the slots are few). A code-writing agent
+(see "Agent worktrees") reads in its brief when to start one: only for UI
+or runtime behavior that lint, types and tests cannot show, through the
+dev-servers tools the plugin adds to agents of a matching project
+(`dev_server_start`, then `dev_server_status` until ready,
+`dev_server_login`, `dev_server_logs`, `dev_server_stop` once done). The
+line shows when the config has `devServers.projects`.
+
 Each row holds its own lease, as holder `{ kind: "coco", id:
 "<slug>/<row>" }`, so stopping one row's server releases only that row.
 The page polls every 5 s while visible (30 s while off); log polling does
@@ -696,7 +704,9 @@ config (docs/configuration.md); without it nothing changes.
   head: the result is a card in its chat and the "checks" pill of the PR's
   Gates rail (`agentChecks` on the stack row); a failure goes back to it
   once, until a pass or your next message. Tracked agents live in
-  `data/agent-worktrees.json`.
+  `data/agent-worktrees.json`. When coco starts, it readies again the
+  worktrees of active code groups and tracked agents, so an install a
+  restart cut short starts over and its agent hears when done.
 
 ## Review runs
 

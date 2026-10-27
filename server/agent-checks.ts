@@ -101,5 +101,11 @@ export function createAgentChecks({ DATA, worktrees, post, say, works }: Deps) {
     }
   }
 
-  return { readier, beforeTurn, turnEnded, tracked: (agentId: string) => load()[agentId] ?? null };
+  // after a coco restart: the worktrees of live code-writing agents readied again, so an install the restart cut short starts over and its agent hears when done
+  async function resume(others: { cwd: string; agentId: string }[] = []) {
+    const all = [...Object.entries(load()).map(([agentId, t]) => ({ cwd: t.cwd, agentId })), ...others];
+    for (const { cwd, agentId } of all) if (fs.existsSync(cwd)) await linesOf(cwd, agentId).catch(() => []);
+  }
+
+  return { readier, beforeTurn, turnEnded, resume, tracked: (agentId: string) => load()[agentId] ?? null };
 }

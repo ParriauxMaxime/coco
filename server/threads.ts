@@ -922,6 +922,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     cardHook,
     cardChanged: (slug: string, key: string) => notify(slug, key, { type: 'thread' }),
     steerAgent,
+    codeWorktrees: () => works.list().filter((w) => !w.archived).flatMap((w) => listGroups(w.slug).flatMap((g) => (g.kind === 'code' && g.status === 'active' && g.worktree && g.agentId ? [{ cwd: g.worktree, agentId: g.agentId }] : []))),
     groupKind: (slug: string, id: string) => readGroup(slug, id)?.kind ?? null,
   };
 }
