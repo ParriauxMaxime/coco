@@ -8,7 +8,8 @@ Wired into the workbench (tabs `diff-`, `file-`, `review-`, `agent-`). Files:
 - `DiffView.tsx` / `CodeView.tsx`: desktop editors; pass `renderZone={(comment) => <CommentZone .../>}` to render cards into the zones.
 - `LiteDiff.tsx`: phone fallback on `codeApi.diff(n, path).unified`; same comment shape, `side: 'head'` only.
 - `CommentZone.tsx`, `FileList.tsx`, `QuickOpen.tsx` (+ `useQuickOpenShortcut`): plain React, no Monaco import.
-- `code.css`: import via the components themselves; uses variables from `src/styles.css`.
+- `code.css`: import via the components themselves; styled on the `--dp-*` tokens and `dp-` classes of `src/preview/preview.css` (works inside `.wb-pane` and the inspector alike); buttons carry a `dp-` class so the old `.wb-pane button` rule leaves them alone. Monaco themes in `monaco.ts` use the same token colours.
+- `Fold.tsx`: the folded section (Files / Plan and activity on narrow panes, plan surface, agent runs).
 - Gate on `isDesktop()` to pick DiffView/CodeView vs LiteDiff; Monaco chunks load only when a desktop view mounts.
 - `ids.ts`: tab ids `diff-<n>~<path>`, `file-<n>~<path>`, `review-<n>`, `agent-<runId>` helpers.
 - `use-comments.ts`: one zustand entry per `slug:n` (refs, comments, drafts, runs), re-anchors when head or merge-base moved, polls 30 s while a tab of the PR is mounted.

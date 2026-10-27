@@ -5,19 +5,25 @@ import { FindingBody } from '../../components/Blocks.tsx';
 import Thread, { ThreadComposer, ThreadToggle, refreshThreads, threadKey } from '../../components/Thread.tsx';
 import type { Verdict } from '../../components/Thread.tsx';
 import type { UploadRef } from '../../types.ts';
-import { Confidence, Severity } from '../../components/Signals.tsx';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import { useAction, pendingClass } from '../../components/action.ts';
 import { Composer } from '../../preview/chat/Composer.tsx';
+import Icon from '../../preview/Icon.tsx';
+import type { IconName } from '../../preview/Icon.tsx';
+import { sevTone } from '../../preview/format.ts';
+import { TONE } from './ReviewSidebar.tsx';
 import type { ReviewHandle } from './use-comments.ts';
 import type { LineRange, PrKey, Proposal, RefFile, ReviewComment, Side } from '../types.ts';
 import './code.css';
 
 type StatusChange = (comment: ReviewComment, status: string, note?: string) => unknown;
-type RowVerdict = { icon: string; title: string; cls?: string; on: () => unknown };
+type RowVerdict = { icon: IconName; title: string; cls?: string; on: () => unknown };
 
-const CHIP: Record<string, string> = { open: 'c-blue', sent: 'c-orange', fixed: 'c-green', declined: 'c-red', outdated: 'c-grey' };
+const SEV_WORD: Record<string, string> = { blocking: 'Blocking', major: 'Major', minor: 'Minor', nit: 'Nit' };
+export const SevChip = ({ value }: { value?: string }) => (value ? <span className={`dp-chip ${sevTone(value)}`} title="severity"><span className="dp-d" />{SEV_WORD[value] || value}</span> : null);
+export const SureChip = ({ value }: { value?: number }) => (value !== undefined && Number.isFinite(value) ? <span className="dp-chip" title="how sure its author is">{value}% sure</span> : null);
+export const lineSpan = (c: ReviewComment) => `L${c.startLine}${c.endLine !== c.startLine ? `–${c.endLine}` : ''}`;
 
 function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
   return (
@@ -34,15 +40,15 @@ function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial
   );
 }
 
-type IconBtnProps = { icon: ReactNode; title: string; cls?: string; pending?: boolean; disabled?: boolean; onClick: () => void };
-const IconBtn = ({ icon, title, cls = '', pending = false, disabled = false, onClick }: IconBtnProps) => <button type="button" className={`cc-ib ${cls}${pendingClass(pending)}`} title={title} disabled={disabled} onClick={onClick}>{icon}</button>;
+type IconBtnProps = { icon: IconName; title: string; cls?: string; pending?: boolean; disabled?: boolean; onClick: () => void };
+const IconBtn = ({ icon, title, cls = '', pending = false, disabled = false, onClick }: IconBtnProps) => <button type="button" className={`dp-ibtn cc-ib ${cls}${pendingClass(pending)}`} title={title} aria-label={title} disabled={disabled} onClick={onClick}><Icon name={icon} size={14} /></button>;
 
 // icon row; verdicts: [{ icon, title, cls, on() }]: the clicked one spins until its promise settles, the others wait
 function VerdictRow({ onJump, verdicts, extra }: { onJump?: () => void; verdicts: RowVerdict[]; extra?: ReactNode }) {
   const { pending, busy, run } = useAction();
   return (
     <div className="cc-pa">
-      {onJump && <IconBtn icon="↗" title="Jump to the lines" onClick={onJump} />}
+      {onJump && <IconBtn icon="eye" title="Jump to the lines" onClick={onJump} />}
       {verdicts.map((v) => <IconBtn key={v.title} icon={v.icon} title={v.title} cls={v.cls} pending={pending === v.title} disabled={busy} onClick={() => run(v.title, async () => v.on())} />)}
       {extra}
     </div>
@@ -79,10 +85,10 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
       <VerdictRow
         onJump={onJump && (() => onJump(wp))}
         verdicts={[
-          { icon: '✓', title: 'Accept: becomes an open comment', cls: 'ok', on: () => accept(wp) },
-          { icon: '✕', title: 'Dismiss', cls: 'no', on: () => dismiss(wp) },
+          { icon: 'check', title: 'Accept: becomes an open comment', cls: 'ok', on: () => accept(wp) },
+          { icon: 'x', title: 'Dismiss', cls: 'no', on: () => dismiss(wp) },
         ]}
-        extra={rv.slug && <button type="button" className={`thread-toggle ${talking ? 'on' : ''}`} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}>💬 ask an agent</button>}
+        extra={rv.slug && <button type="button" className={`thread-toggle dp-thread-toggle ${talking ? 'on' : ''}`} title="Talk it over with a scoped agent, or accept / dismiss with a reason" onClick={() => setTalking(!talking)}>💬 ask an agent</button>}
       />
       {talking && (
         <div className="thread">
@@ -124,20 +130,20 @@ type CommentActionsProps = {
 export function CommentActions({ comment, onJump, onStatus, onDelete, onEdit, thread }: CommentActionsProps) {
   const verdicts: RowVerdict[] = isLive(comment)
     ? [
-      { icon: '✓', title: 'Resolve (fixed)', cls: 'ok', on: () => onStatus(comment, 'fixed') },
-      { icon: '✕', title: 'Decline: will not fix', cls: 'no', on: () => onStatus(comment, 'declined') },
+      { icon: 'check', title: 'Resolve (fixed)', cls: 'ok', on: () => onStatus(comment, 'fixed') },
+      { icon: 'x', title: 'Decline: will not fix', cls: 'no', on: () => onStatus(comment, 'declined') },
     ]
-    : [{ icon: '↺', title: 'Reopen', on: () => onStatus(comment, 'open') }];
+    : [{ icon: 'refresh', title: 'Reopen', on: () => onStatus(comment, 'open') }];
   return (
     <VerdictRow
       onJump={onJump && (() => onJump(comment))}
       verdicts={verdicts}
       extra={(
         <>
-          {onEdit && <IconBtn icon="✎" title="Edit the comment" onClick={onEdit} />}
+          {onEdit && <IconBtn icon="pencil" title="Edit the comment" onClick={onEdit} />}
           {thread}
-          <span className="cc-spacer" />
-          <IconBtn icon="🗑" title="Delete" cls="no" onClick={() => onDelete(comment)} />
+          <span className="dp-sp" />
+          <IconBtn icon="trash" title="Delete" cls="no" onClick={() => onDelete(comment)} />
         </>
       )}
     />
@@ -148,19 +154,20 @@ export function CommentActions({ comment, onJump, onStatus, onDelete, onEdit, th
 export function ProposalZone({ comment, rv }: { comment: Proposal; rv: ReviewHandle }) {
   const [folded, toggle] = useFolded(comment.id);
   return (
-    <div className={`cc-zone cc-zone-proposed${folded ? ' cc-folded' : ''}`}>
-      <div className="cc-head">
+    <div className={`cc-zone dp-card-q cc-st-proposed${folded ? ' cc-folded' : ''}`}>
+      <div className="dp-cq-h cc-head">
         <FoldCaret folded={folded} onClick={toggle} />
-        <span className="chip c-purple">coco suggests</span>
-        <Severity value={comment.severity} />
-        <Confidence value={comment.confidence} />
-        {folded && <FoldLine text={comment.title || comment.body} onClick={toggle} />}
+        <span className="dp-chip dp-tone dp-st-merged"><Icon name="bot" size={12} />coco suggests</span>
+        <SevChip value={comment.severity} />
+        <SureChip value={comment.confidence} />
+        <HeadLine title={comment.title} body={comment.body} folded={folded} onClick={toggle} />
+        <span className="cc-lines">{lineSpan(comment)}</span>
       </div>
       {!folded && (
-        <>
+        <div className="cc-body">
           <Markdown text={comment.body} />
           <WatchActions wp={comment} rv={rv} />
-        </>
+        </div>
       )}
     </div>
   );
@@ -176,9 +183,14 @@ function useFolded(id: string): [boolean, () => void] {
   }];
 }
 const FoldCaret = ({ folded, onClick }: { folded: boolean; onClick: () => void }) => (
-  <button type="button" className="cc-fold-caret" aria-expanded={!folded} title={folded ? 'Expand the comment' : 'Collapse the comment to its head line'} onClick={onClick}>{folded ? '▸' : '▾'}</button>
+  <button type="button" className={`dp-caret${folded ? '' : ' dp-open'}`} aria-expanded={!folded} title={folded ? 'Expand the comment' : 'Collapse the comment to its head line'} onClick={onClick}><Icon name="chevron-right" size={12} /></button>
 );
-const FoldLine = ({ text, onClick }: { text: string; onClick: () => void }) => <span className="cc-fold-line" onClick={onClick}>{text.split('\n').find((l) => l.trim())?.replace(/[#*`>]/g, '').trim()}</span>;
+const firstLine = (text: string) => text.split('\n').find((l) => l.trim())?.replace(/[#*`>]/g, '').trim();
+// the title, or once folded the body's first line; a click on it folds or unfolds the card
+function HeadLine({ title, body, folded, onClick }: { title?: string; body: string; folded: boolean; onClick: () => void }) {
+  const text = title || (folded ? firstLine(body) : '');
+  return <span className={`cc-head-t dp-ell${title ? ' cc-titled' : ''}`} title={text} onClick={onClick}>{text}</span>;
+}
 
 type CommentZoneProps = {
   comment: ReviewComment;
@@ -201,7 +213,11 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
   };
   if (draft) {
     return (
-      <div className="cc-zone">
+      <div className="cc-zone dp-card-q cc-draft">
+        <div className="dp-cq-h cc-head">
+          <span className="dp-chip dp-acc">new comment</span>
+          <span className="cc-lines">{comment.side === 'base' ? 'base · ' : ''}{lineSpan(comment)}</span>
+        </div>
         <CommentBox submitLabel="Add comment" onSubmit={(body) => onSave?.(comment, body)} onCancel={() => onDelete?.(comment)} />
       </div>
     );
@@ -209,33 +225,34 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
   const { status, resolution } = comment;
   const commit = resolution?.commit ? String(resolution.commit).slice(0, 7) : '';
   return (
-    <div className={`cc-zone cc-zone-${status}${folded ? ' cc-folded' : ''}`}>
-      <div className="cc-head">
+    <div className={`cc-zone dp-card-q cc-st-${status}${folded ? ' cc-folded' : ''}`}>
+      <div className="dp-cq-h cc-head">
         <FoldCaret folded={folded} onClick={toggleFold} />
-        <span className={`chip ${CHIP[status] || 'c-grey'}`}>{commit && (status === 'fixed' || status === 'declined') ? `${status} · ${commit}` : status}</span>
-        <Severity value={comment.severity} />
-        <Confidence value={comment.confidence} />
-        {folded && <FoldLine text={comment.title || comment.body} onClick={toggleFold} />}
+        <span className={`dp-chip ${TONE[status] ?? ''}`}>{commit && (status === 'fixed' || status === 'declined') ? `${status} · ${commit}` : status}</span>
+        <SevChip value={comment.severity} />
+        <SureChip value={comment.confidence} />
+        <HeadLine title={comment.title} body={comment.body} folded={folded} onClick={toggleFold} />
+        <span className="cc-lines">{comment.side === 'base' ? 'base · ' : ''}{lineSpan(comment)}</span>
       </div>
-      {folded ? null : editing ? (
-        <CommentBox
-          initial={comment.body}
-          submitLabel="Save"
-          onSubmit={(body) => {
-            setEditing(false);
-            onSave?.(comment, body);
-          }}
-          onCancel={() => setEditing(false)}
-        />
-      ) : comment.blocks ? (
-        <>{comment.title && <b>{comment.title}</b>}<FindingBody r={comment} /></>
-      ) : (
-        <Markdown text={comment.body} />
+      {!folded && (
+        <div className="cc-body">
+          {editing ? (
+            <CommentBox
+              initial={comment.body}
+              submitLabel="Save"
+              onSubmit={(body) => {
+                setEditing(false);
+                onSave?.(comment, body);
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          ) : comment.blocks ? <FindingBody r={comment} /> : <Markdown text={comment.body} />}
+          {(status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
+          {status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
+          {!editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
+          {thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note) => onStatus?.(c, s, note))} />}
+        </div>
       )}
-      {!folded && (status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
-      {!folded && status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
-      {!folded && !editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
-      {!folded && thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note) => onStatus?.(c, s, note))} />}
     </div>
   );
 }

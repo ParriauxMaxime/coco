@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildTree, collapse } from '../../components/FileTree.tsx';
 import type { TreeDir } from '../../components/FileTree.tsx';
+import Icon from '../../preview/Icon.tsx';
 import type { PrFile } from '../../types.ts';
 import type { FileCategory, FileGroup, RefFile } from '../types.ts';
 import './code.css';
@@ -38,8 +39,8 @@ function FileRow({ file, label, ctx }: { file: PrFile; label: string; ctx: ListC
   return (
     <li className={`fl-file${filename === ctx.activePath ? ' on' : ''}${ctx.ticks?.has(filename) ? ' done' : ''}`} onClick={() => ctx.onOpen(filename, { preview: true })} onDoubleClick={() => ctx.onOpen(filename, { preview: false })}>
       <span className={`fl-name st-${status}`} title={cat ? `${filename}\n${cat.category}: ${cat.reason}` : filename}>{label}</span>
-      {count > 0 && <span className="fl-count">{count}</span>}
-      <span className="fl-stat"><span className="add">+{additions}</span> <span className="del">−{deletions}</span></span>
+      {count > 0 && <span className="dp-count dp-acc" title={`${count} comment${count > 1 ? 's' : ''}`}>{count}</span>}
+      <span className="fl-stat"><span className="dp-add">+{additions}</span> <span className="dp-del">−{deletions}</span></span>
     </li>
   );
 }
@@ -75,7 +76,7 @@ function Entries({ node, prefix, ctx }: { node: TreeDir; prefix: string; ctx: Li
         return (
           <li key={key} className="fl-dir">
             <div className="fl-row" onClick={() => ctx.toggle(path)}>
-              <span className="fl-caret">{shut ? '▸' : '▾'}</span> {name}/
+              <span className={`dp-caret${shut ? '' : ' dp-open'}`}><Icon name="chevron-right" size={12} /></span>{name}/
             </div>
             {!shut && <Entries node={dir} prefix={`${path}/`} ctx={ctx} />}
           </li>
@@ -124,8 +125,8 @@ export default function FileList({ files, activePath, commentsByPath, onOpen, fo
   }, [follow, activePath]);
   return (
     <div className="fl" ref={rootRef}>
-      <input className="fl-filter" type="search" value={filter} placeholder={`Filter ${files.length} files`} onChange={(e) => setFilter(e.target.value)} />
-      {!shown.length || shownGroups?.length === 0 ? <span className="sub">No matching files.</span> : shownGroups ? <Groups groups={shownGroups} ctx={ctx} /> : <Entries node={root} prefix="" ctx={ctx} />}
+      <input className="dp-inp fl-filter" type="search" value={filter} placeholder={`Filter ${files.length} files`} onChange={(e) => setFilter(e.target.value)} />
+      {!shown.length || shownGroups?.length === 0 ? <span className="fl-none">No matching files.</span> : shownGroups ? <Groups groups={shownGroups} ctx={ctx} /> : <Entries node={root} prefix="" ctx={ctx} />}
     </div>
   );
 }

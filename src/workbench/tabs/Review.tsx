@@ -5,15 +5,18 @@ import { useComments } from '../code/use-comments.ts';
 import { isDesktop } from '../code/code-api.ts';
 import { treeOrder } from '../code/FileList.tsx';
 import { isLocalKey, keyLabel, reviewKeyOfTab } from '../code/ids.ts';
-import ReviewSidebar, { CHIP } from '../code/ReviewSidebar.tsx';
+import ReviewSidebar, { TONE } from '../code/ReviewSidebar.tsx';
 import ReviewFileCard from '../code/ReviewFileCard.tsx';
 import ReviewActivity from '../code/ReviewActivity.tsx';
+import Fold from '../code/Fold.tsx';
 import { useInspector } from '../../preview/inspector-state.ts';
-import Collapsible from '../../components/Collapsible.tsx';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { orderGroups, planNotes } from '../code/review-order.ts';
 import { useLangProviders, useLangStatus, useLocal } from './Code.tsx';
-import PrBadge, { stateChip, stateLabel } from '../../components/PrBadge.tsx';
+import PrChip from '../../preview/PrChip.tsx';
+import Icon from '../../preview/Icon.tsx';
+import { stateLabel } from '../../preview/parts.tsx';
+import { prState } from '../../preview/data.ts';
 import { errorMessage } from '../../api.ts';
 import type { Reveal } from '../code/DiffView.tsx';
 import type { RefFile, ReviewComment } from '../types.ts';
@@ -306,7 +309,7 @@ export default function Review({ tabId }: { tabId: string }) {
   };
   const handle = (side: 'left' | 'right') => <div className="rv-handle" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(side); }} onPointerMove={resize} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)} />;
 
-  if (!pr) return <div className="sub" style={{ padding: 16 }}>{keyLabel(n)} is not in this work.</div>;
+  if (!pr) return <div className="rv-missing">{keyLabel(n)} is not in this work.</div>;
   const title = pr.title || pr.planned?.title;
   const toggleCat = (c: string) => setHidden(hidden.includes(c) ? hidden.filter((x) => x !== c) : [...hidden, c]);
   // panes that fit the group's width (a split halves it): the activity pane shrinks, then folds into the main column, then the file list does
@@ -319,29 +322,32 @@ export default function Review({ tabId }: { tabId: string }) {
   const columns = [showSide && `${width}px 6px`, 'minmax(0, 1fr)', showAct && `6px ${fitAct}px`].filter(Boolean).join(' ');
   const sidebar = <ReviewSidebar files={files} shown={shown} order={{ mode, setMode, groups, hidden, onToggleCat: toggleCat, catCounts, ticks }} rv={rv} activePath={activePath} onPick={goTo} phone={!showSide} />;
   const activity = <ReviewActivity slug={slug} n={n} rv={rv} onJump={jump} />;
+  const sbsOn = sbs && mainW >= SBS_MIN;
   return (
     <CodeRefScope n={n}>
     <div className="rv">
-      <div className="rv-bar">
-        {isLocalKey(n) ? <code className="pr-num" title="local branch, no PR yet">{keyLabel(n)}</code> : <PrBadge pr={pr} />}
-        <span className="rv-title" title={title}>{title}</span>
-        <span className={`chip ${stateChip(pr)}`}>{stateLabel(pr)}</span>
-        {COUNTS.filter((k) => counts[k]).map((k) => <span key={k} className={`chip ${CHIP[k]}`}>{counts[k]} {k}</span>)}
-        <span className="cc-spacer" />
-        <button type="button" className="cc-link" title="Every remark on this PR in one list" onClick={() => { const s = useWorkbench.getState(); s.open(`findings-${n}`, { group: s.otherGroup() }); }}>findings</button>
-        <button type="button" className="cc-link" disabled={!order.length} onClick={() => setAll(true)}>expand all</button>
-        <button type="button" className="cc-link" disabled={!order.length} onClick={() => setAll(false)}>collapse all</button>
-        {desktop && <button className="wb-act" disabled={mainW < SBS_MIN} title={mainW < SBS_MIN ? 'Too narrow for side by side' : undefined} onClick={() => setSbs(!sbs)}>{sbs && mainW >= SBS_MIN ? 'inline' : 'side by side'}</button>}
-        {lang && <span className={`chip ${lang.cls}`} title={lang.tip}>{lang.label}</span>}
+      <div className="dp-vbar rv-bar">
+        {isLocalKey(n) ? <span className="dp-prb" title="local branch, no PR yet">{keyLabel(n)}</span> : <PrChip pr={pr} />}
+        <span className="dp-title rv-title" title={title}>{title}</span>
+        <span className={`dp-chip dp-tone dp-st-${prState(pr)} rv-state`}><span className="dp-d" />{stateLabel(pr)}</span>
+        {COUNTS.some((k) => counts[k]) && <span className="rv-counts">{COUNTS.filter((k) => counts[k]).map((k) => <span key={k} className={`dp-chip ${TONE[k]}`}>{counts[k]} {k}</span>)}</span>}
+        <span className="dp-sp" />
+        {lang && <span className={`dp-chip ${lang.tone} rv-lang`} title={lang.tip}>{lang.label}</span>}
+        <span className="rv-acts">
+          <button type="button" className="dp-btn dp-sm dp-ghost" title="Every remark on this PR in one list" onClick={() => { const s = useWorkbench.getState(); s.open(`findings-${n}`, { group: s.otherGroup() }); }}><Icon name="flag" size={12} /><span className="rv-lbl">Findings</span></button>
+          <button type="button" className="dp-btn dp-sm dp-ghost" title="Expand all files" disabled={!order.length} onClick={() => setAll(true)}><Icon name="chevron-down" size={12} /><span className="rv-lbl">Expand all</span></button>
+          <button type="button" className="dp-btn dp-sm dp-ghost" title="Collapse all files" disabled={!order.length} onClick={() => setAll(false)}><Icon name="chevron-right" size={12} /><span className="rv-lbl">Collapse all</span></button>
+          {desktop && <button type="button" className={`dp-btn dp-sm${sbsOn ? ' dp-on' : ' dp-ghost'}`} aria-pressed={sbsOn} disabled={mainW < SBS_MIN} title={mainW < SBS_MIN ? 'Too narrow for side by side' : sbsOn ? 'Back to the inline diff' : 'Old and new code side by side'} onClick={() => setSbs(!sbs)}><Icon name="columns" size={12} /><span className="rv-lbl">Side by side</span></button>}
+        </span>
       </div>
-      {rv.notice && <div className="next rv-notice">{rv.notice}</div>}
-      {rv.error && <div className="rv-notice danger">{rv.error}</div>}
+      {rv.notice && <div className="rv-notice">{rv.notice}</div>}
+      {rv.error && <div className="rv-notice dp-bad">{rv.error}</div>}
       <div ref={bodyRef} className={`rv-body ${dragging ? 'dragging' : ''}`} style={{ gridTemplateColumns: columns }}>
         {showSide && sidebar}
         {showSide && handle('left')}
         <div className="rv-main" ref={mainRef} onScroll={onScroll}>
-          {(!showSide || foldAct) && <div className="rv-side-m">{!showSide && sidebar}{foldAct && <Collapsible level="pm" title="Plan and activity">{activity}</Collapsible>}</div>}
-          {!rv.refs && <div className="sub">{rv.error ? '' : 'Loading files…'}</div>}
+          {(!showSide || foldAct) && <div className="rv-side-m">{!showSide && sidebar}{foldAct && <Fold title="Plan and activity">{activity}</Fold>}</div>}
+          {!rv.refs && <div className="rv-note">{rv.error ? '' : 'Loading files…'}</div>}
           {opened && order.map((f) => (
             <ReviewFileCard
               key={f.filename}
@@ -356,7 +362,7 @@ export default function Review({ tabId }: { tabId: string }) {
               note={notes[f.filename]}
               reviewed={ticks.has(f.filename)}
               onTick={rv.plan ? onTick : null}
-              sbs={sbs && mainW >= SBS_MIN}
+              sbs={sbsOn}
               desktop={desktop}
               cardRef={cardRef}
               onToggle={onToggle}

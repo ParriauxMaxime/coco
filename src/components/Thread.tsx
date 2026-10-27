@@ -51,7 +51,7 @@ type ToggleProps ={ slug: string; threadKey: string; open?: boolean; onClick: ()
 export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'ask an agent' }: ToggleProps) {
   const s = useThreadSummary(slug, key);
   const label = threadLabel(s, idle);
-  return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: ask a scoped agent about it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
+  return <button type="button" className={`thread-toggle dp-thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: ask a scoped agent about it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 
 // options of a reply written before agents asked through cards: shown as they were, read-only

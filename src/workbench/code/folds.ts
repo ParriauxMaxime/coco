@@ -95,7 +95,7 @@ export const canShowAll = (r: Region, originalCount: number) => r.len <= SHOW_AL
 function button(label: string, title: string, onClick: () => void) {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'cc-fold-btn';
+  b.className = 'dp-cc-fold-btn';
   b.textContent = label;
   b.title = title;
   b.addEventListener('click', (e) => {
@@ -113,7 +113,7 @@ function bar(r: Region, originalCount: number, onExpand: (how: Expansion) => voi
   else node.append(button(`⤓ ${STEP}`, `Show ${STEP} more lines below the code above`, () => onExpand('down')), button(`⤒ ${STEP}`, `Show ${STEP} more lines above the code below`, () => onExpand('up')));
   const all = canShowAll(r, originalCount);
   const label = document.createElement(all ? 'button' : 'span');
-  label.className = `cc-fold-label ${all ? 'on' : ''}`;
+  label.className = all ? 'dp-cc-fold-btn dp-cc-fold-all' : 'cc-fold-label';
   label.textContent = `${r.len} hidden line${r.len === 1 ? '' : 's'}`;
   if (label instanceof HTMLButtonElement) {
     label.type = 'button';

@@ -1,11 +1,11 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { useTexts, sha256 } from '../tabs/Code.tsx';
+import { PathLabel, useTexts, sha256 } from '../tabs/Code.tsx';
 import { fileCommentProps } from './CommentZone.tsx';
 import DiffView from './DiffView.tsx';
 import { useMonaco } from './editor-shared.ts';
 import { attachFolds } from './folds.ts';
 import LiteDiff from './LiteDiff.tsx';
-import { CAT_CHIP } from './review-order.ts';
+import Icon from '../../preview/Icon.tsx';
 import { prUrl, useConfig } from '../../config.ts';
 import type { editor } from 'monaco-editor/editor/editor.api';
 import type { Reveal } from './DiffView.tsx';
@@ -15,7 +15,7 @@ import './code.css';
 
 const LINE_PX = 19;
 const SCROLLBAR_PX = 20;
-const STATUS: Record<string, string> = { added: 'c-green', removed: 'c-red', renamed: 'c-purple' };
+const STATUS: Record<string, string> = { added: 'dp-ok', removed: 'dp-bad', renamed: 'dp-tone dp-st-merged' };
 // The card takes the diff's full height, so the editor never scrolls vertically and the wheel scrolls the page.
 const CARD_OPTIONS: editor.IDiffEditorConstructionOptions = {
   scrollbar: { vertical: 'hidden', verticalScrollbarSize: 0, alwaysConsumeMouseWheel: false },
@@ -109,11 +109,6 @@ function PhoneDiff({ n, rv, file }: { n: PrKey; rv: ReviewHandle; file: RefFile 
   return <LiteDiff unified={texts.unified} comments={mine} onCreateComment={onCreate} renderZone={zone} />;
 }
 
-function PathLabel({ path }: { path: string }) {
-  const cut = path.lastIndexOf('/') + 1;
-  return <>{path.slice(0, cut)}<b>{path.slice(cut)}</b></>;
-}
-
 // cardRef(path, el) registers the card for windowed mount and scroll tracking · knownHeight keeps an unmounted card at its last measured height
 type CardProps = {
   n: PrKey;
@@ -152,22 +147,28 @@ function ReviewFileCard({ n, rv, file, open, mounted, knownHeight, reveal, sbs, 
   else if (open) body = <div className="rv-lite"><PhoneDiff n={n} rv={rv} file={file} /></div>;
 
   return (
-    <section className={`rv-card ${open ? '' : 'shut'}`} ref={ref} data-path={path}>
+    <section className={`rv-card${open ? '' : ' shut'}${reviewed ? ' done' : ''}`} ref={ref} data-path={path}>
       <header className="rv-card-h">
-        <button type="button" className="rv-caret" aria-label={open ? 'Collapse file' : 'Expand file'} onClick={() => onToggle(path)}>{open ? '▾' : '▸'}</button>
+        <button type="button" className={`dp-caret${open ? ' dp-open' : ''}`} aria-label={open ? 'Collapse file' : 'Expand file'} onClick={() => onToggle(path)}><Icon name="chevron-right" size={12} /></button>
         <span className="rv-path" title={file.previous ? `${file.previous} → ${path}` : path} onClick={() => onToggle(path)}>
           {file.previous && <span className="rv-prev">{file.previous} → </span>}
           <PathLabel path={path} />
         </span>
-        {STATUS[file.status] && <span className={`chip ${STATUS[file.status]}`}>{file.status}</span>}
-        {category && <span className={`chip ${CAT_CHIP[category.category]}`} title={category.reason}>{category.category}</span>}
-        <span className="ct-stat"><span className="add">+{file.additions}</span> <span className="del">−{file.deletions}</span></span>
-        <span className="cc-spacer" />
-        {onTick && <label className="rv-tick"><input type="checkbox" checked={reviewed} onChange={(e) => onTick(path, e.target.checked)} /> reviewed</label>}
-        {github && <a className="wb-act" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer" title="Open on GitHub">↗</a>}
-        <button type="button" className="wb-act" title="Open in a tab in the other group" onClick={() => onOpenTab(path)}>open in tab</button>
+        {STATUS[file.status] && <span className={`dp-chip ${STATUS[file.status]}`}>{file.status}</span>}
+        {category && <span className={`dp-chip dp-tone rv-cat-${category.category}`} title={category.reason}>{category.category}</span>}
+        <span className="rv-stat"><span className="dp-add">+{file.additions}</span> <span className="dp-del">−{file.deletions}</span></span>
+        <span className="dp-sp" />
+        {onTick && (
+          <label className={`rv-tick${reviewed ? ' dp-on' : ''}`} title="Mark the file reviewed (folds it)">
+            <input className="dp-vh" type="checkbox" checked={reviewed} onChange={(e) => onTick(path, e.target.checked)} />
+            <span className="dp-check" />
+            <span className="rv-tick-l">Reviewed</span>
+          </label>
+        )}
+        {github && <a className="dp-ibtn" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer" title="Open on GitHub"><Icon name="external-link" size={14} /></a>}
+        <button type="button" className="dp-btn dp-sm dp-ghost rv-opentab" title="Open in a tab in the other group" onClick={() => onOpenTab(path)}><Icon name="file" size={12} /><span>Open in tab</span></button>
       </header>
-      {open && note && <div className="rv-focus"><b>coco</b> {note}</div>}
+      {open && note && <div className="rv-focus"><span className="dp-bot"><Icon name="bot" size={12} /></span><span>{note}</span></div>}
       {body}
     </section>
   );

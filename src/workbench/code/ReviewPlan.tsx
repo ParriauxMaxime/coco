@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Markdown from '../../components/Markdown.tsx';
-import Collapsible from '../../components/Collapsible.tsx';
 import Thread, { ThreadToggle, threadKey } from '../../components/Thread.tsx';
 import { toast } from '../../components/Toast.tsx';
+import { pendingClass } from '../../components/action.ts';
+import Icon from '../../preview/Icon.tsx';
+import Fold from './Fold.tsx';
 import type { ReviewHandle } from './use-comments.ts';
 import type { PlanLogEntry } from '../types.ts';
 import './code.css';
 
-const RISK: Record<string, string> = { high: 'c-red', medium: 'c-orange', low: 'c-green' };
+const RISK: Record<string, string> = { high: 'dp-bad', medium: 'dp-warn', low: 'dp-ok' };
 const ago = (iso: string) => {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   return s < 90 ? `${s}s` : `${Math.round(s / 60)} min`;
@@ -30,17 +32,17 @@ function PlanningLog({ log, anchor, onClose }: { log: PlanLogEntry[]; anchor: HT
     return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown); };
   }, [anchor, onClose]);
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; };
-  // the plan box scrolls and clips: the popover sits on the body, under the button
+  // the plan box scrolls and clips: the popover sits on the app root (which carries the tokens), under the button
   return createPortal(
-    <div ref={ref} className="rv-think card" style={{ top: box.bottom + 4, left: box.left, width: Math.min(560, innerWidth - box.left - 16) }} onScroll={onScroll}>
-      {!log.length && <div className="status">Nothing yet: coco is reading the diff.</div>}
+    <div ref={ref} className="rv-think" style={{ top: box.bottom + 4, left: box.left, width: Math.min(560, innerWidth - box.left - 16) }} onScroll={onScroll}>
+      {!log.length && <div className="rv-empty">Nothing yet: coco is reading the diff.</div>}
       {log.map((e, i) => (
         <div key={i} className={`rv-think-${e.kind}`}>
           {e.kind === 'tool' ? <code>{e.text}</code> : <Markdown text={e.text} />}
         </div>
       ))}
     </div>,
-    document.body,
+    anchor.closest('.dp') ?? document.body,
   );
 }
 
@@ -64,37 +66,37 @@ export default function ReviewPlan({ rv }: { rv: ReviewHandle }) {
   const key = threadKey.plan(rv.n);
   return (
     <div className="rv-plan">
-      <div className="rv-row-h">
+      <div className="rv-plan-h">
         <b>Review plan</b>
-        {plan && st.stale && <span className="chip c-orange" title={`planned on ${plan.headSha.slice(0, 7)}`}>head moved</span>}
-        <span className="cc-spacer" />
+        {plan && st.stale && <span className="dp-chip dp-warn" title={`planned on ${plan.headSha.slice(0, 7)}`}>head moved</span>}
+        <span className="dp-sp" />
         {plan && rv.slug && <ThreadToggle slug={rv.slug} threadKey={key} open={talking} label="ask or re-plan" onClick={() => setTalking(!talking)} />}
-        {!running && <button type="button" className={`sm ${plan && !st.stale ? '' : 'primary'}`} disabled={busy} onClick={() => start()}>{plan ? 'Re-plan' : 'Plan this review'}</button>}
+        {!running && <button type="button" className={`dp-btn dp-sm${plan && !st.stale ? '' : ' dp-primary'}${pendingClass(busy)}`} disabled={busy} onClick={() => start()}><Icon name={plan ? 'refresh' : 'sparkles'} size={12} />{plan ? 'Re-plan' : 'Plan this review'}</button>}
       </div>
       {talking && plan && <Thread slug={rv.slug} threadKey={key} verdicts={running ? [] : [{ label: '↻ Re-plan with this', title: 'Re-run the plan with this text as guidance for coco', on: start }]} />}
-      {!plan && !running && !failed && <div className="sub">coco reads the diff and the PR, then proposes a reading path and watch points (1 to 3 min).</div>}
+      {!plan && !running && !failed && <div className="rv-empty">coco reads the diff and the PR, then proposes a reading path and watch points (1 to 3 min).</div>}
       {running && (
         <div className="rv-plan-run">
-          <button ref={liveRef} type="button" className={`rv-plan-live ${thinking ? 'on' : ''}`} title="See what coco is thinking" onClick={() => setThinking(!thinking)}><span className="spinner" aria-hidden /> coco is planning · {ago(run.startedAt)} <span className="caret">{thinking ? '▾' : '▸'}</span></button>
+          <button ref={liveRef} type="button" className={`dp-rv-live${thinking ? ' dp-on' : ''}`} aria-expanded={thinking} title="See what coco is thinking" onClick={() => setThinking(!thinking)}><span className="spinner" aria-hidden /> coco is planning · {ago(run.startedAt)} <span className={`dp-caret${thinking ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span></button>
           {run.progress.at(-1) && <code className="rv-plan-step" title={run.progress.join('\n')}>{run.progress.at(-1)}</code>}
           {thinking && liveRef.current && <PlanningLog log={run.log || []} anchor={liveRef.current} onClose={closeThinking} />}
         </div>
       )}
-      {failed && <div className="danger rv-plan-err">{run.error || 'plan failed'}</div>}
+      {failed && <div className="rv-plan-err">{run.error || 'plan failed'}</div>}
       {plan && (
         <>
-          <div className={`rv-plan-sum${full ? '' : ' clamp'}`} title={full ? '' : 'show all'} onClick={() => setFull(!full)}><Markdown text={plan.summary} /></div>
-          {plan.personas.length > 0 && <div className="status">Owners: {plan.personas.join(', ')}</div>}
+          <div className={`rv-plan-sum${full ? '' : ' clamp'}`} title={full ? '' : 'Show all'} onClick={() => setFull(!full)}><Markdown text={plan.summary} /></div>
+          {plan.personas.length > 0 && <div className="rv-plan-own">Owners: {plan.personas.join(', ')}</div>}
           {plan.surface.length > 0 && (
-            <Collapsible level="pm" title={`Surface · ${plan.surface.length}`}>
+            <Fold title={`Surface · ${plan.surface.length}`}>
               {plan.surface.map((s) => (
-                <div key={s.area} className="rv-row">
-                  <div className="rv-row-h"><span className={`chip ${RISK[s.risk]}`}>{s.risk}</span><b>{s.area}</b></div>
-                  <div className="status">{s.entryPoints}</div>
+                <div key={s.area} className="rv-surf">
+                  <div className="rv-act-h"><span className={`dp-chip ${RISK[s.risk] ?? ''}`}>{s.risk}</span><b>{s.area}</b></div>
+                  <div className="rv-surf-ep">{s.entryPoints}</div>
                   {s.note && <div>{s.note}</div>}
                 </div>
               ))}
-            </Collapsible>
+            </Fold>
           )}
         </>
       )}

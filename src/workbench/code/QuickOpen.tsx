@@ -114,6 +114,7 @@ export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOp
           ref={inputRef}
           autoFocus
           className="qo-input"
+          aria-label="Go to file"
           value={query}
           placeholder="Go to file (PR files first)"
           onChange={(e) => {
@@ -125,7 +126,7 @@ export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOp
           {rows.map((row, i) => (
             <li key={row.path} className={i === cursor ? 'on' : ''} onMouseEnter={() => setCursor(i)} onClick={() => choose(row)}>
               <span className="qo-path">{row.path}</span>
-              {row.pr && <span className="chip c-blue">PR</span>}
+              {row.pr && <span className="dp-chip dp-info">PR</span>}
             </li>
           ))}
           {!rows.length && <li className="qo-empty">{tree ? 'No match.' : 'Loading files…'}</li>}

@@ -10,13 +10,14 @@ import CodeView from '../code/CodeView.tsx';
 import LiteDiff from '../code/LiteDiff.tsx';
 import { fileCommentProps } from '../code/CommentZone.tsx';
 import FileList from '../code/FileList.tsx';
+import Icon from '../../preview/Icon.tsx';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { prUrl, useConfig } from '../../config.ts';
 import type { Reveal } from '../code/DiffView.tsx';
 import type { LineRange, PrKey, RefFile, Refs, ReviewComment, Side } from '../types.ts';
 import type { ReactNode } from 'react';
 
-type LangStatus = { cls: string; label: string; tip?: string };
+type LangStatus = { tone: string; label: string; tip?: string };
 type LangStats = { status: string; sha?: string; lastError?: string; programFiles?: number };
 type TextsState = { loading?: boolean; error?: string; unified?: string; original?: string; modified?: string; text?: string; binary?: boolean; tooLarge?: boolean };
 const NO_TAB = { kind: 'file', n: '', path: '' } as const;
@@ -31,6 +32,11 @@ export function useLocal<T>(key: string, initial: T): [T, (next: T) => void] {
   });
   const set = (next: T) => { setV(next); try { localStorage.setItem(key, JSON.stringify(next)); } catch {} };
   return [v, set];
+}
+
+export function PathLabel({ path }: { path: string }) {
+  const cut = path.lastIndexOf('/') + 1;
+  return <>{cut > 0 && <span className="cr-dir">{path.slice(0, cut)}</span>}<b>{path.slice(cut)}</b></>;
 }
 
 export const sha256 = async (text: string) => {
@@ -63,9 +69,9 @@ export function useLangStatus(n: PrKey, sha: string | null | undefined, path: st
     return () => { live = false; clearInterval(t); };
   }, [on, sha]);
   if (!stats) return null;
-  if (stats.status === 'error') return { cls: 'c-red', label: 'nav error', tip: stats.lastError };
-  if (stats.sha !== sha) return { cls: 'c-grey', label: 'nav idle' };
-  return stats.status === 'ready' ? { cls: 'c-green', label: 'ready', tip: `${stats.programFiles || 0} files in program` } : { cls: 'c-orange', label: 'indexing…' };
+  if (stats.status === 'error') return { tone: 'dp-bad', label: 'nav error', tip: stats.lastError };
+  if (stats.sha !== sha) return { tone: '', label: 'nav idle', tip: 'Code navigation is not indexing this head' };
+  return stats.status === 'ready' ? { tone: 'dp-ok', label: 'nav ready', tip: `Code navigation ready: ${stats.programFiles || 0} files in program` } : { tone: 'dp-warn', label: 'indexing…', tip: 'Code navigation is indexing this head' };
 }
 
 export function useTexts(n: PrKey, refs: Refs | null | undefined, path: string, file: RefFile | undefined, mode: 'diff' | 'file', desktop: boolean) {
@@ -177,15 +183,17 @@ export default function CodeTab({ tabId, group }: { tabId: string; group: number
   return (
     <CodeRefScope n={n}>
     <div className="ct">
-      <div className="ct-bar">
-        <button className={`wb-act ${rail ? 'on' : ''}`} title="Changed files" onClick={() => setRail(!rail)}>⊞</button>
-        <span className="ct-path" title={path}>{path}</span>
-        {mode === 'file' && <span className="chip c-grey">head</span>}
-        {file && <span className="ct-stat"><span className="add">+{file.additions}</span> <span className="del">−{file.deletions}</span></span>}
-        <span className="cc-spacer" />
-        {desktop && mode === 'diff' && <button className="wb-act" onClick={() => setSbs(!sbs)}>{sbs ? 'inline' : 'side by side'}</button>}
-        {lang && <span className={`chip ${lang.cls}`} title={lang.tip}>{lang.label}</span>}
-        {mode === 'diff' && github && <a className="wb-act" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer">↗ GitHub</a>}
+      <div className="dp-vbar ct-bar">
+        <button type="button" className={`dp-ibtn${rail ? ' dp-on' : ''}`} aria-pressed={rail} title={rail ? 'Hide the changed files' : 'Show the changed files'} onClick={() => setRail(!rail)}><Icon name="list" size={14} /></button>
+        <span className="ct-path" title={path}><PathLabel path={path} /></span>
+        {mode === 'file' && <span className="dp-chip" title="The file at the PR head">head</span>}
+        {file && <span className="rv-stat"><span className="dp-add">+{file.additions}</span> <span className="dp-del">−{file.deletions}</span></span>}
+        <span className="dp-sp" />
+        {lang && <span className={`dp-chip ${lang.tone} rv-lang`} title={lang.tip}>{lang.label}</span>}
+        <span className="rv-acts">
+          {desktop && mode === 'diff' && <button type="button" className={`dp-btn dp-sm${sbs ? ' dp-on' : ' dp-ghost'}`} aria-pressed={sbs} title={sbs ? 'Back to the inline diff' : 'Old and new code side by side'} onClick={() => setSbs(!sbs)}><Icon name="columns" size={12} /><span className="rv-lbl">Side by side</span></button>}
+          {mode === 'diff' && github && <a className="dp-btn dp-sm dp-ghost" href={prUrl(github, n, anchor) ?? undefined} target="_blank" rel="noreferrer" title="This file in the PR on GitHub"><Icon name="external-link" size={12} /><span className="rv-lbl">GitHub</span></a>}
+        </span>
       </div>
       <div className="ct-main">
         {rail && files.length > 0 && (

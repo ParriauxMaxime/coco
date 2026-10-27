@@ -16,7 +16,7 @@ export const EDITOR_OPTIONS = {
   automaticLayout: true,
   readOnly: true,
   fontSize: 13,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace',
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   glyphMargin: true,
@@ -233,13 +233,23 @@ export function useCommentLayer(mod: MonacoModule | null, editor: Ed.ICodeEditor
     .map((c) => `${c.id}:${c.startLine}:${c.endLine}:${c.status}`)
     .join('|');
 
+  // a view zone spans the scrollable width, wider than the viewport on long lines: cards keep to what shows
+  useEffect(() => {
+    const dom = editor?.getDomNode();
+    if (!editor || !dom) return undefined;
+    const fit = () => dom.style.setProperty('--cc-zone-w', `${editor.getLayoutInfo().contentWidth}px`);
+    fit();
+    const sub = editor.onDidLayoutChange(fit);
+    return () => sub.dispose();
+  }, [editor]);
+
   useEffect(() => {
     if (!mod || !editor) return undefined;
     const { monaco } = mod;
     const mine = latest.current.filter((c) => c.side === side);
     const decorations = mine.flatMap((c) => [
       { range: new monaco.Range(c.startLine, 1, c.endLine, 1), options: { isWholeLine: true, className: `cc-comment-line cc-${c.status}` } },
-      { range: new monaco.Range(c.startLine, 1, c.startLine, 1), options: { glyphMarginClassName: 'cc-comment-glyph', overviewRuler: { color: '#4f46e5', position: monaco.editor.OverviewRulerLane.Right } } },
+      { range: new monaco.Range(c.startLine, 1, c.startLine, 1), options: { glyphMarginClassName: 'cc-comment-glyph', overviewRuler: { color: '#5e5ce6', position: monaco.editor.OverviewRulerLane.Right } } },
     ]);
     const collection = editor.createDecorationsCollection(decorations);
     const made: { id: string; side: Side; zoneId: string; zone: Ed.IViewZone; node: HTMLElement }[] = [];

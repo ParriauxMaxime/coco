@@ -203,9 +203,12 @@ scrolled file highlighted. Center: every file stacked as a lazy Monaco diff
 card in hunk view; `j`/`k` step files. Right: the review plan, then one
 activity feed of coco's watch points, the PR's comments and the work's
 decision cards, latest activity first, filtered by all / open / to review
-(an agent working or a suggestion waiting for you); "decisions of this PR"
-keeps the cards whose `pr` field is this row key. Phones get the panes folded
-above the cards. "open in tab" gives `diff-<n>~<path>`; files outside the diff open
+(an agent working or a suggestion waiting for you); "This PR's decisions"
+keeps the cards whose `pr` field is this row key. The header bar carries the
+PR chip, title, state and comment counts, the `nav` chip, then Findings,
+Expand all, Collapse all and Side by side; on a narrow pane the buttons drop
+their labels and the counts hide. Phones and narrow split panes get the panes
+folded above the cards. "Open in tab" gives `diff-<n>~<path>`; files outside the diff open
 as `file-<n>~<path>`. Monaco is a lazy chunk, desktop only; phones get LiteDiff.
 A page refresh brings the center pane back to the file and offset you were reading (kept per work and PR in localStorage), unless you scroll or pick a file first.
 
@@ -294,7 +297,7 @@ reason is saved under a `## Review remarks` heading in the work notes (so
 coco and the agents read it through `get_work`) and as a `review` timeline
 entry.
 
-"reviewed" on a card collapses it and ticks the file in the tree and its
+"Reviewed" on a card collapses it and ticks the file in the tree and its
 step. Ticks are stored per head sha, so a push starts them over. The order
 mode and the hidden categories are kept per PR in localStorage.
 
@@ -775,7 +778,7 @@ open of a file (about 7 s of indexing, RSS 2.6 to 3 GB), is replaced when
 another head is asked for, and is killed after 15 minutes idle. A crash puts
 that sha on a 60 s cooldown.
 
-The `nav` chip in a code tab shows `indexing…`, `ready`, `nav idle` or
+The `nav` chip in a code tab shows `indexing…`, `nav ready`, `nav idle` or
 `nav error` (hover for the reason). While the service is not ready, or when
 `findReferences` has no answer, references fall back to a `git grep -F`
 text search over the head (`/api/code/pr/<n>/search`). Targets inside

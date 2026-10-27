@@ -30,8 +30,9 @@ export function parseUnified(unified: string | null | undefined) {
 }
 
 const DefaultCard = ({ comment }: { comment: ReviewComment }) => (
-  <div className="cc-zone">
-    <span className={`chip ${comment.status === 'open' ? 'c-blue' : 'c-grey'}`}>{comment.status}</span> {comment.body}
+  <div className="cc-zone dp-card-q">
+    <div className="dp-cq-h cc-head"><span className={`dp-chip${comment.status === 'open' ? ' dp-info' : ''}`}>{comment.status}</span></div>
+    <div className="cc-body">{comment.body}</div>
   </div>
 );
 
@@ -71,13 +72,13 @@ export default function LiteDiff({ unified, comments = [], onCreateComment, rend
     return (
       <React.Fragment key={i}>
         <span className={`ld-line ld-${l.kind}${selected(l.newNo) ? ' ld-picked' : ''}`}>
-          <button type="button" className="ld-no" disabled={!l.newNo} onClick={() => tap(l.newNo)}>{l.newNo ?? ''}</button>
+          <button type="button" className="dp-ld-no" disabled={!l.newNo} onClick={() => tap(l.newNo)}>{l.newNo ?? ''}</button>
           <span className="ld-sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' '}</span>
           {l.text}
         </span>
         {l.newNo && range && range.end === l.newNo && (
           <span className="ld-action">
-            <button type="button" className="sm primary" onClick={() => { onCreateComment?.({ side: 'head', startLine: range.start, endLine: range.end }); setRange(null); }}>
+            <button type="button" className="dp-btn dp-sm dp-primary" onClick={() => { onCreateComment?.({ side: 'head', startLine: range.start, endLine: range.end }); setRange(null); }}>
               {range.start === range.end ? `Comment line ${range.start}` : `Comment lines ${range.start}–${range.end}`}
             </button>
           </span>
@@ -92,7 +93,7 @@ export default function LiteDiff({ unified, comments = [], onCreateComment, rend
       <pre className="lite-diff">{rows}</pre>
       {orphans.length > 0 && (
         <div className="ld-orphans">
-          <h3>Other comments on this file</h3>
+          <div className="ld-orphans-t">Other comments on this file</div>
           {orphans.map((c) => <div key={c.id} className="ld-card">{card(c)}</div>)}
         </div>
       )}
