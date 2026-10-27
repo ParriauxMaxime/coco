@@ -34,7 +34,7 @@
 @keyframes wb-tab-in { from { opacity: 0; max-width: 0; padding-left: 0; padding-right: 0; } }
 @keyframes wb-tab-out { to { opacity: 0; max-width: 0; padding-left: 0; padding-right: 0; } }
 @media (prefers-reduced-motion: no-preference) {
-  .wb-tab-h { animation: wb-tab-in .16s ease-out; overflow: hidden; }
+  .wb-tab-h.enter { animation: wb-tab-in .16s ease-out; overflow: hidden; }
   .wb-tab-h.closing { animation: wb-tab-out .14s ease-in forwards; overflow: hidden; pointer-events: none; }
 }
 .wb-tab-h.drop-before { box-shadow: inset 2px 0 0 var(--brand); }

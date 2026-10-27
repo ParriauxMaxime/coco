@@ -71,6 +71,8 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
   const { activate, open, close, pin, toggleMax, splitWith, moveTab, setDrag } = useWorkbench.getState();
   const tabDef = useTabDef();
   const [closing, setClosing] = useState<string | null>(null);
+  // tabs already there when the strip mounts appear as is; only the ones opened later grow in
+  const initial = useRef(new Set(g.tabs));
   const closeSoft = (id: string) => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return close(id);
     setClosing(id);
@@ -100,7 +102,7 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
             role="tab"
             aria-selected={id === g.active}
             draggable
-            className={`wb-tab-h ${id === g.active ? 'active' : ''} ${previews.includes(id) ? 'preview' : ''} ${over === i ? 'drop-before' : ''} ${drag === id ? 'dragging' : ''} ${closing === id ? 'closing' : ''}`}
+            className={`wb-tab-h ${id === g.active ? 'active' : ''} ${previews.includes(id) ? 'preview' : ''} ${over === i ? 'drop-before' : ''} ${drag === id ? 'dragging' : ''} ${closing === id ? 'closing' : ''} ${initial.current.has(id) ? '' : 'enter'}`}
             onClick={() => activate(id)}
             onDoubleClick={() => pin(id)}
             onMouseDown={(e) => e.button === 1 && e.preventDefault()}
@@ -202,6 +204,15 @@ export function WorkbenchView({ slug, data, defs }: { slug: string; data: Loaded
     useWorkbench.getState().load(slug);
     return startHashSync(slug);
   }, [slug]);
+  // tab and group motion only once the first layout is painted: opening a work must not grow its tabs and panes from nothing
+  const [settled, setSettled] = useState(false);
+  const shownOnce = Boolean(loaded && ready && size.width);
+  useEffect(() => {
+    setSettled(false);
+    if (!shownOnce) return undefined;
+    let id = requestAnimationFrame(() => { id = requestAnimationFrame(() => setSettled(true)); });
+    return () => cancelAnimationFrame(id);
+  }, [slug, shownOnce]);
   useEffect(() => {
     document.body.classList.toggle('wb-max', ready && max);
     return () => document.body.classList.remove('wb-max');
@@ -256,7 +267,7 @@ export function WorkbenchView({ slug, data, defs }: { slug: string; data: Loaded
     <WorkContext.Provider value={loaded}>
       <TabDefs.Provider value={defs}>
       <CodeRefRoot n={(data.prs.findLast((p) => p.number) || data.prs.findLast((p) => p.key))?.key} openAt={openAt} slug={slug} prs={stackedPrs}>
-      <div ref={root} className={`wb-root ${max ? 'max' : ''} ${drag ? 'drag' : ''}`}>
+      <div ref={root} className={`wb-root ${max ? 'max' : ''} ${drag ? 'drag' : ''} ${settled ? 'wb-settled' : ''}`}>
         {shown.map((g) => <Group key={g.id} g={g} groups={groups} ctx={loaded} focused={merged || g.id === focused} merged={merged} max={max} rect={rects[g.id]} drag={drag} />)}
         {handles.map((h) => <Handle key={`${h.path.join('.')}:${h.i}`} h={h} />)}
         {qo && <QuickOpen key={qo} open onClose={() => setQo(null)} prFiles={qoFiles} fetchTree={() => codeApi.tree(qo)} onOpen={(p) => useWorkbench.getState().open(codeTabId(qo, p, qoFiles), { preview: true })} />}
