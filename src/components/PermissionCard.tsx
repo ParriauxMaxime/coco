@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import { api } from '../api.ts';
+import { subscribe } from '../live.ts';
 import { pendingClass, useAction } from './action.ts';
 import { toolLabel } from './activity.ts';
 import { actionResponse, actionsOf, answerSummary, buildAnswers, isAnswered, parseQuestions, planText, questionResponse, toolSummary } from './permission.ts';
@@ -10,10 +11,11 @@ import type { PendingPermission, PermissionAction, PermissionRequest, Permission
 
 // every request coco's agents wait on, pushed by the server on each change; one stream for the whole page
 const usePending = create<{ pending: PendingPermission[]; ready: boolean }>(() => ({ pending: [], ready: false }));
-let source: EventSource | null = null;
+let following = false;
 const connect = () => {
-  source ||= new EventSource('/api/permissions/events');
-  source.onmessage = (m) => usePending.setState({ pending: JSON.parse(m.data).pending || [], ready: true });
+  if (following) return;
+  following = true;
+  subscribe('permissions', { message: (d: { pending?: PendingPermission[] }) => usePending.setState({ pending: d.pending || [], ready: true }) });
 };
 export function usePendingPermissions() {
   useEffect(connect, []);

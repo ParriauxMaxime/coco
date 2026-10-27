@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { api } from '../api.ts';
+import { subscribe, topic } from '../live.ts';
 import { prKey, prTitle } from './data.ts';
 import type { PendingPermission, WorkAgent, WorkAgentStatus, WorkAgents } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
@@ -22,12 +23,12 @@ export function useWorkAgents(slug: string, live: boolean): WorkAgents | undefin
       api.workAgents(slug).then((r) => put(slug, r), () => {});
       return undefined;
     }
-    const es = new EventSource(`/api/works/${encodeURIComponent(slug)}/agents/events`);
-    es.onmessage = (m) => put(slug, JSON.parse(m.data));
-    return () => es.close();
+    return subscribe(topic('work-agents', slug), { message: (d: WorkAgents) => put(slug, d) });
   }, [slug, live]);
   return useAgents((s) => s.by[slug]);
 }
+
+export const reloadWorkAgents = (slug: string) => api.workAgents(slug).then((r) => put(slug, r), () => {});
 
 const find = (list: WorkAgent[] | undefined, id: string) => list?.find((a) => a.id === id || (a.agentId && id === `ag-${a.agentId}`));
 export const agentOf = (slug: string, id: string) => find(useAgents.getState().by[slug]?.agents, id);

@@ -5,6 +5,7 @@ import Blocks from './Blocks.tsx';
 import Checks from './Checks.tsx';
 import AgentActivity from './AgentActivity.tsx';
 import { api, errorMessage } from '../api.ts';
+import { subscribe, topic } from '../live.ts';
 import { toast } from './Toast.tsx';
 import { pendingClass } from './action.ts';
 import CardView from '../preview/chat/Card.tsx';
@@ -131,17 +132,17 @@ function useThreadStream(slug: string, key: string, onChange: () => void) {
   changed.current = onChange;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const es = new EventSource(`/api/works/${slug}/threads/${key}/events`);
-    es.onopen = () => setEvents([]);
-    es.onmessage = (m) => {
-      const ev: ActivityEvent = JSON.parse(m.data);
-      if (ev.type !== 'thread') return setEvents((prev) => [...prev, ev]);
-      clearTimeout(timer);
-      timer = setTimeout(() => changed.current?.(), 100);
-    };
+    const off = subscribe(topic('thread', slug, key), {
+      open: () => setEvents([]),
+      message: (ev: ActivityEvent) => {
+        if (ev.type !== 'thread') return setEvents((prev) => [...prev, ev]);
+        clearTimeout(timer);
+        timer = setTimeout(() => changed.current?.(), 100);
+      },
+    });
     return () => {
       clearTimeout(timer);
-      es.close();
+      off();
     };
   }, [slug, key]);
   return events;

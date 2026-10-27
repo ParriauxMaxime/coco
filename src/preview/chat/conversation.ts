@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import type { ActivityEvent, AskRun, AskScope, UploadRef } from '../../types.ts';
-import { followAskCards, useCardList } from './cards.ts';
+import { askCardEvents, useCardList } from './cards.ts';
+import { subscribe, topic } from '../../live.ts';
 
 export type Run = Partial<AskRun> & { id: string };
 export type Pending = { nonce: string; text: string; attachments?: UploadRef[] };
@@ -28,32 +29,31 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [history, setHistory] = useState<AskRun[]>([]);
-  const source = useRef<EventSource | null>(null);
+  const source = useRef<(() => void) | null>(null);
   const { cards, merge: mergeCard, setCards } = useCardList();
   const loadHistory = () => api.asks(scopeKey(scope)).then((list) => setHistory(list.filter((h) => (h.kind || 'ask') === kind)), () => {});
   useEffect(() => {
     loadHistory();
-    return () => source.current?.close();
+    return () => source.current?.();
   }, []);
   const watch = (conv: Run) => {
-    source.current?.close();
+    source.current?.();
     setRun(conv);
     setEvents([]);
     setCards([]);
-    const es = new EventSource(`/api/ask/${conv.id}/events`);
-    source.current = es;
-    es.onopen = () => setEvents([]);
-    followAskCards(es, mergeCard);
-    es.onmessage = (m) => {
-      const ev: ActivityEvent = JSON.parse(m.data);
-      setEvents((prev) => [...prev, ev]);
-      if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
-      if (ev.type === 'meta' && ev.text?.startsWith('Paseo agent ')) api.askConversation(conv.id).then((c) => c.agentId && setRun((r) => r && r.id === c.id ? { ...r, agentId: c.agentId } : r), () => {});
-      if (ev.type === 'end' || ev.type === 'closed') {
-        setRun((r) => r && { ...r, status: ev.conversation || ev.status, agentId: ev.agentId || r.agentId });
-        loadHistory();
-      }
-    };
+    source.current = subscribe(topic('ask', conv.id), {
+      ...askCardEvents(mergeCard),
+      open: () => setEvents([]),
+      message: (ev: ActivityEvent) => {
+        setEvents((prev) => [...prev, ev]);
+        if (ev.nonce) setPending((p) => p.filter((x) => x.nonce !== ev.nonce));
+        if (ev.type === 'meta' && ev.text?.startsWith('Paseo agent ')) api.askConversation(conv.id).then((c) => c.agentId && setRun((r) => r && r.id === c.id ? { ...r, agentId: c.agentId } : r), () => {});
+        if (ev.type === 'end' || ev.type === 'closed') {
+          setRun((r) => r && { ...r, status: ev.conversation || ev.status, agentId: ev.agentId || r.agentId });
+          loadHistory();
+        }
+      },
+    });
   };
   // the first message starts the conversation through start(nonce), any later one goes to its agent
   const send = async (text: string, start?: (nonce: string) => Promise<{ id: string }>, files: UploadRef[] = []) => {
@@ -79,7 +79,8 @@ export function useAskConversation(kind: string, scope: AskScope = { kind: 'glob
     watch(h);
   };
   const reset = () => {
-    source.current?.close();
+    source.current?.();
+    source.current = null;
     setRun(null);
     setEvents([]);
     setCards([]);

@@ -1,6 +1,8 @@
 // A work's agents: the Paseo agents labelled with it, the agents linked to its rows and its Ask conversations, each with a status, live over SSE;
 // and any of them as a chat: its Paseo timeline replayed then followed, follow-ups sent to it.
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
+import { sseSink } from './events.ts';
+import type { Sink } from './events.ts';
 import { TITLE_PREFIX, activityEvents, createFollower, timelineOf } from './paseo-agent.ts';
 import type { ActivityEvent, DaemonClient } from './paseo-agent.ts';
 import { fromPaseo } from './agent-usage.ts';
@@ -41,6 +43,7 @@ type Options = {
   exec?: Exec;
   // lines added to the owner's follow-up of a code-writing agent: its readied worktree, when that changed
   beforeTurn?: (agentId: string) => Promise<string[]>;
+  closeAsk?: (id: string) => Promise<unknown>;
 };
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
@@ -48,9 +51,8 @@ const statusOf = (a: { archivedAt?: unknown; status?: string | null }): WorkAgen
 const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 'done', error: 'failed' };
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
-const openStream = (res: Res) => res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -74,8 +76,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   }
 
   // the list on connect, then again shortly after Paseo reports a change on one of them, and every REFRESH_MS
-  function watchList(req: Req, res: Res, slug: string) {
-    openStream(res);
+  function watchList(sink: Sink, slug: string) {
     let last = '';
     let ids = new Set<string>();
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -87,7 +88,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         },
         (e) => JSON.stringify({ error: errorMessage(e) }),
       );
-      if (body !== last) res.write(`data: ${(last = body)}\n\n`);
+      if (body !== last) sink.send((last = body));
     };
     const soon = () => {
       timer ||= setTimeout(() => {
@@ -101,7 +102,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     });
     const offCards = cards?.onChange((id) => ids.has(id) && soon());
     const tick = setInterval(soon, REFRESH_MS);
-    req.on('close', () => {
+    sink.onClose(() => {
       off();
       offCards?.();
       clearInterval(tick);
@@ -110,16 +111,13 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   }
 
   // what the agent did so far, then each new step while the tab watches; the owner's messages come as user events
-  async function watchChat(req: Req, res: Res, agentId: string) {
-    openStream(res);
-    const write = (ev: ActivityEvent) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
-    const writeCards = () => cards && res.write(`event: cards\ndata: ${JSON.stringify(cards.ofAgent(agentId))}\n\n`);
+  async function watchChat(sink: Sink, agentId: string) {
+    const write = (ev: ActivityEvent) => sink.send(JSON.stringify(ev));
+    const writeCards = () => cards && sink.send(JSON.stringify(cards.ofAgent(agentId)), 'cards');
     writeCards();
     const offCards = cards?.onChange((id) => id === agentId && writeCards());
     let off: (() => void) | null = null;
-    let closed = false;
-    req.on('close', () => {
-      closed = true;
+    sink.onClose(() => {
       off?.();
       offCards?.();
     });
@@ -136,7 +134,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         } else if (item) past.push({ agentId, event: { type: 'timeline', item } });
       }
       past.end();
-      if (closed) return;
+      if (sink.closed) return;
       const live = createFollower({ onEntry: stream.onEntry, onDelta: stream.onDelta, onToolStart: stream.onToolStart, agentId });
       off = agent.timeline.subscribe((m) => {
         const ev = m?.event;
@@ -172,6 +170,22 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     return { ok: true };
   }
 
+  // ids are the work's listed agent ids; an Ask conversation is closed so it can start a new agent later
+  async function archive(slug: string, ids: string[]) {
+    const c = await client();
+    const listed = (await list(slug)).filter((a) => ids.includes(a.id) && a.status !== 'archived');
+    const failed: { id: string; error: string }[] = [];
+    await Promise.all(listed.map(async (a) => {
+      try {
+        if (a.askId && closeAsk) await closeAsk(a.askId);
+        else if (a.agentId) await c.agents.ref(a.agentId).archive();
+      } catch (e) {
+        failed.push({ id: a.id, error: errorMessage(e) });
+      }
+    }));
+    return { archived: listed.map((a) => a.id).filter((id) => !failed.some((f) => f.id === id)), failed };
+  }
+
   // the work and stack row an agent's labels name
   async function placeOf(agentId: string) {
     const labels = (await (await client()).agents.ref(agentId).refresh())?.agent?.labels;
@@ -182,9 +196,14 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
-      if (root === 'works' && b === 'agents' && c === 'events') return watchList(req, res, a);
+      if (root === 'works' && b === 'agents' && c === 'events') return watchList(sseSink(req, res), a);
       if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
-      if (root === 'agent-chat' && a && b === 'events') return await watchChat(req, res, a);
+      if (root === 'works' && b === 'agents' && c === 'archive' && req.method === 'POST') {
+        const { ids } = JSON.parse((await readBody(req)) || '{}');
+        if (!Array.isArray(ids) || !ids.length) throw new HttpError(400, 'ids required');
+        return send(res, 200, await archive(a, ids.map(String)));
+      }
+      if (root === 'agent-chat' && a && b === 'events') return await watchChat(sseSink(req, res), a);
       if (root === 'agent-chat' && a && b === 'place' && req.method === 'GET') return send(res, 200, await placeOf(a));
       if (root === 'agent-chat' && a && b === 'stop' && req.method === 'POST') return send(res, 200, await stop(a));
       if (root === 'agent-chat' && a && b === 'messages' && req.method === 'POST') {
@@ -201,5 +220,5 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  return { list, handle, say, placeOf };
+  return { list, handle, watchList, watchChat, say, placeOf };
 }

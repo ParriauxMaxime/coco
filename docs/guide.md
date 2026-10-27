@@ -803,6 +803,17 @@ Pull based, no webhooks:
   the push guard are read then, nothing runs in the background.
 - Paseo projects, workspaces and agents come from the CLI on each request;
   Projects polls every 20 s, Agents every 15 s.
+- Live updates (pending permissions, work saves, a work's agents, agent and
+  Ask chats with their cards, agent threads) share one event stream per page,
+  so a few open coco tabs stay under the browser's 6 connections per host:
+  `GET /api/events?sub=<topic>…` (first event `hello` with the stream id),
+  `POST /api/events/<id>/subs` `{ add, remove }` to change topics without
+  reconnecting. Topics: `permissions`, `works`, `work-agents:<slug>`,
+  `agent-chat:<agentId>`, `ask:<convId>`, `thread:<slug>:<key>` (arguments
+  URI-encoded); each message is `{ topic, event, data }`, `open` starting the
+  topic's replay (a chat replays its timeline, cards come on subscribe). The
+  page reconnects with backoff and resubscribes, also when the server's 25 s
+  ping stops. The old per-topic SSE routes still answer.
 - Personas and skills are read from disk on each request.
 - Avatars: `/api/avatar/<login>` serves `data/avatars/<login>.{png,jpg}` when
   present (drop a photo there), else redirects to the GitHub avatar of

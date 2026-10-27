@@ -41,6 +41,7 @@ import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
 import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
 import { createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
+import { createHub } from './events.ts';
 import { SKIPPED, createCards } from './cards.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createAgentChecks } from './agent-checks.ts';
@@ -150,7 +151,14 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
 } });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn });
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id) });
+const events = createHub();
+events.topic('permissions', permissions.watch);
+events.topic('works', works.watch);
+events.topic('work-agents', workAgents.watchList);
+events.topic('agent-chat', workAgents.watchChat);
+events.topic('ask', ask.watch);
+events.topic('thread', threads.watch);
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 agentChecks.resume(threads.codeWorktrees()).catch((e) => console.error(`agent worktrees: ${errorMessage(e)}`));
@@ -511,6 +519,7 @@ async function api(req: Req, res: Res, url: URL) {
       if (!s) return send(res, 404, { error: 'not found' });
       return send(res, 200, { ...s, md: fs.readFileSync(path.join(SKILLS, a, 'SKILL.md'), 'utf8') });
     }
+    if (root === 'events') return events.handle(req, res, parts, readBody, send);
     if (root === 'permissions' || (root === 'agents' && b === 'permissions')) return permissions.handle(req, res, parts, readBody, send);
     if (root === 'agents') return send(res, 200, await agents());
     if (root === 'agents-activity' && a) {

@@ -172,11 +172,12 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
   answer, then delivers it.
 - `POST /api/cards/<id>/cancel` → `Card` (user dismisses an open ask; the agent
   is told it was dismissed).
-- Chat SSE `/api/agent-chat/<agentId>/events` also emits
+- Chat topic `agent-chat:<agentId>` of the page stream (`/api/events`, see the
+  guide; also the SSE route `/api/agent-chat/<agentId>/events`) also emits
   `event: cards` with `data: Card[]` whenever a card of that agent changes.
-- Ask SSE `/api/ask/<id>/events` emits `event: cards` with every card of the
-  conversation's agents (past ones included, `agentIds` on the conversation)
-  after the log replay and on every change.
+- Ask topic `ask:<id>` (route `/api/ask/<id>/events`) emits `event: cards`
+  with every card of the conversation's agents (past ones included,
+  `agentIds` on the conversation) after the log replay and on every change.
 - `GET /api/works/<slug>/threads/<key>` carries the thread's `cards`; its
   SSE sends a `thread` ping when one changes, and the summaries count the
   open ones as `asks`.

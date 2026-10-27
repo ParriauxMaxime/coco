@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../api.ts';
+import { subscribe } from '../live.ts';
 import type { ImportArtifactBody, StackRow, WorkDetail, WorkPlan } from '../types.ts';
 import type { WorkData, WorkPr } from './types.ts';
 
@@ -26,9 +27,8 @@ export function useWorkData(slug: string): LoadedWork {
     const t = setInterval(() => load(), 30000);
     const onVisible = () => document.visibilityState === 'visible' && load(true);
     document.addEventListener('visibilitychange', onVisible);
-    const saved = new EventSource('/api/works/events');
-    saved.onmessage = (e: MessageEvent<string>) => (JSON.parse(e.data) as { slug: string }).slug === slug && load();
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); saved.close(); };
+    const off = subscribe('works', { message: (d: { slug: string }) => d.slug === slug && load() });
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); off(); };
   }, [slug]);
   const syncing = Boolean(w?.notionStatus?.running);
   useEffect(() => { if (!syncing) return; const t = setInterval(() => load(), 5000); return () => clearInterval(t); }, [syncing]);

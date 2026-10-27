@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, activityEvents, createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { AgentSession, Outcome } from './paseo-agent.ts';
-import { errorMessage, httpStatus } from './core-types.ts';
+import { HttpError, errorMessage, httpStatus } from './core-types.ts';
+import { sseSink } from './events.ts';
+import type { Sink } from './events.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
 import type { AddRepoResult } from './repos.ts';
 import { list as listOf, opt, str, strip } from './cards.ts';
@@ -568,16 +570,15 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   // the conversation's log, then every new event while the page watches; a reconnect replays the whole log
   // then the cards of every agent the conversation had, again whenever one of them changes
-  function watch(req: Req, res: Res, conv: Conv) {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-    const write = (ev: Event) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
+  function watch(sink: Sink, conv: Conv) {
+    const write = (ev: Event) => sink.send(JSON.stringify(ev));
     const feed = cards?.();
-    const sendCards = () => feed && res.write(`event: cards\ndata: ${JSON.stringify(agentsOf(conv).flatMap((id) => feed.ofAgent(id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)))}\n\n`);
+    const sendCards = () => feed && sink.send(JSON.stringify(agentsOf(conv).flatMap((id) => feed.ofAgent(id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))), 'cards');
     for (const ev of conv.events) write(ev);
     sendCards();
     conv.listeners.add(write);
     const off = feed?.onChange((agentId) => agentsOf(conv).includes(agentId) && sendCards());
-    req.on('close', () => {
+    sink.onClose(() => {
       conv.listeners.delete(write);
       off?.();
     });
@@ -609,7 +610,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     }
     const conv = load(id);
     if (!conv) return send(res, 404, { error: 'no such conversation' });
-    if (action === 'events') return watch(req, res, conv);
+    if (action === 'events') return watch(sseSink(req, res), conv);
     if (action === 'messages' && req.method === 'POST') {
       const { text, nonce, attachments } = await body();
       const files = filesOf(attachments);
@@ -625,6 +626,11 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   return {
     handle,
+    watch: (sink: Sink, id: string) => {
+      const conv = load(id);
+      if (!conv) throw new HttpError(404, 'no such conversation');
+      watch(sink, conv);
+    },
     list,
     start,
     say: (id: string, text: string, opts?: { nonce?: unknown }) => {

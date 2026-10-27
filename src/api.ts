@@ -117,6 +117,7 @@ export const api = {
   askSay: (id: string, body: { text: string; nonce: string; attachments?: string[] }) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
   workAgents: (slug: string) => get<WorkAgents>(`${works(slug)}/agents`),
+  archiveAgents: (slug: string, ids: string[]) => postJson(`${works(slug)}/agents/archive`, { ids }).then(jsonOrError<{ archived: string[]; failed: { id: string; error: string }[] }>),
   agentSay: (agentId: string, text: string, attachments: string[] = []) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text, ...(attachments.length ? { attachments } : {}) }).then(jsonOrError<{ ok: boolean }>),
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),

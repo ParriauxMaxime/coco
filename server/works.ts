@@ -15,6 +15,8 @@ import { validateNext } from './next.ts';
 import { batcher, cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
+import { sseSink } from './events.ts';
+import type { Sink } from './events.ts';
 import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Send, Work } from './core-types.ts';
 
 const HOME = os.homedir();
@@ -143,13 +145,11 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
   };
   const onSave = new Set<(slug: string) => void>();
 
-  // GET /api/works/events (SSE): the slug of each work saved, so open pages reload it
-  function watch(req: Req, res: Res) {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-    res.write(': open\n\n');
-    const write = (slug: string) => res.write(`data: ${JSON.stringify({ slug })}\n\n`);
+  // the slug of each work saved, so open pages reload it
+  function watch(sink: Sink) {
+    const write = (slug: string) => sink.send(JSON.stringify({ slug }));
     onSave.add(write);
-    req.on('close', () => onSave.delete(write));
+    sink.onClose(() => onSave.delete(write));
   }
 
   async function paseo() {
@@ -378,7 +378,11 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       }
       return send(res, 200, list());
     }
-    if (a === 'events' && req.method === 'GET') return watch(req, res);
+    if (a === 'events' && req.method === 'GET') {
+      const sink = sseSink(req, res);
+      res.write(': open\n\n');
+      return watch(sink);
+    }
     const work = get(a);
     if (!work) return send(res, 404, { error: 'no such work' });
     if (b === 'artifacts' && req.method === 'POST') {
@@ -518,5 +522,5 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     return save(work);
   };
 
-  return { paseo, handle, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks };
+  return { paseo, handle, watch, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks };
 }

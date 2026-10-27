@@ -15,6 +15,8 @@ import { blocksToMarkdown, salvageBlocks } from './blocks.ts';
 import { activityEvents, createPaseoAgents } from './paseo-agent.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import { HttpError, errorMessage as errText, httpStatus } from './core-types.ts';
+import { sseSink } from './events.ts';
+import type { Sink } from './events.ts';
 import type { ActivityEvent, AgentSession, Outcome } from './paseo-agent.ts';
 import type { Block } from './blocks.ts';
 import type { ActionContext, Card, CardBody, CardEffect, ThreadHook } from './cards.ts';
@@ -865,15 +867,15 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // the thread's stored activity, then live events and a `thread` ping on every change while the page watches; a reconnect replays it all
-  function watch(req: Req, res: Res, slug: string, key: string) {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-    const out = (ev: ThreadEvent) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
+  function watch(sink: Sink, slug: string, key: string) {
+    check(slug, key);
+    const out = (ev: ThreadEvent) => sink.send(JSON.stringify(ev));
     for (const ev of readActivity(slug, key)) out(ev);
     const k = at(slug, key);
     const set = listeners.get(k) ?? new Set();
     set.add(out);
     listeners.set(k, set);
-    req.on('close', () => {
+    sink.onClose(() => {
       listeners.get(k)?.delete(out);
       if (!listeners.get(k)?.size) listeners.delete(k);
     });
@@ -896,7 +898,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       if (sub === 'suggestions' && req.method === 'POST') return send(res, 200, await decideSuggestion(slug, key, msgId, (await body()).action));
       if (sub === 'events' && req.method === 'GET') {
         check(slug, key);
-        return watch(req, res, slug, key);
+        return watch(sseSink(req, res), slug, key);
       }
       if (req.method === 'POST') return send(res, 200, await post(slug, key, await body()));
       if (req.method === 'PUT') return send(res, 200, await regroup(slug, key, (await body()).groupId));
@@ -912,6 +914,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
 
   return {
     handle,
+    watch,
     post,
     ingest,
     turnEnded,

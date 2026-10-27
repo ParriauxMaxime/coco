@@ -16,30 +16,13 @@ export function useCardList() {
   return { cards, merge, setCards };
 }
 
-const parsed = (m: Event): Card[] | null => {
-  try {
-    const list = JSON.parse((m as MessageEvent).data);
-    return Array.isArray(list) ? list : [list];
-  } catch {
-    return null;
-  }
-};
+const listOf = (d: Card | Card[]) => (Array.isArray(d) ? d : [d]);
 
-// the chat stream's `cards` event carries the agent's changed cards; a (re)connect reloads the whole list
-export function followCards(es: EventSource, agentId: string, merge: (list: Card[]) => void) {
-  const load = () => api.cards(agentId).then(merge, () => {});
-  es.addEventListener('open', load);
-  es.addEventListener('cards', (m) => {
-    const list = parsed(m);
-    if (list) merge(list);
-    else void load();
-  });
-}
+// the chat topic's `cards` event carries the agent's changed cards; a (re)subscribe reloads the whole list
+export const cardEvents = (agentId: string, merge: (list: Card[]) => void) => ({
+  open: () => void api.cards(agentId).then(merge, () => {}),
+  cards: (d: Card | Card[]) => merge(listOf(d)),
+});
 
-// an Ask conversation's stream sends the cards of all its agents, past ones included, on connect and on every change
-export function followAskCards(es: EventSource, merge: (list: Card[]) => void) {
-  es.addEventListener('cards', (m) => {
-    const list = parsed(m);
-    if (list) merge(list);
-  });
-}
+// an Ask conversation's topic sends the cards of all its agents, past ones included, on subscribe and on every change
+export const askCardEvents = (merge: (list: Card[]) => void) => ({ cards: (d: Card | Card[]) => merge(listOf(d)) });

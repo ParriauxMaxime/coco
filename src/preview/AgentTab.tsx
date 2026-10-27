@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
 import { CardsWaiting } from './chat/Card.tsx';
-import { followCards, useCardList } from './chat/cards.ts';
+import { cardEvents, useCardList } from './chat/cards.ts';
+import { subscribe, topic } from '../live.ts';
 import { Composer, Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
 import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
@@ -104,15 +105,18 @@ function useAgentChat(agentId: string) {
   const { cards, merge, setCards } = useCardList();
   useEffect(() => {
     setCards([]);
-    const es = new EventSource(`/api/agent-chat/${encodeURIComponent(agentId)}/events`);
-    es.onopen = () => setEvents([]);
-    es.onmessage = (m) => {
-      const ev: ActivityEvent = JSON.parse(m.data);
-      setEvents((prev) => [...prev, ev]);
-      if (ev.type === 'user') setPending((p) => p.filter((x) => x.text !== ev.text));
-    };
-    followCards(es, agentId, merge);
-    return () => es.close();
+    const card = cardEvents(agentId, merge);
+    return subscribe(topic('agent-chat', agentId), {
+      ...card,
+      open: () => {
+        setEvents([]);
+        card.open();
+      },
+      message: (ev: ActivityEvent) => {
+        setEvents((prev) => [...prev, ev]);
+        if (ev.type === 'user') setPending((p) => p.filter((x) => x.text !== ev.text));
+      },
+    });
   }, [agentId]);
   const send = async (text: string, files: UploadRef[] = []) => {
     const nonce = nonceOf();

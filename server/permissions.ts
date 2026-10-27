@@ -2,6 +2,8 @@
 // answered from coco through the SDK, gone once answered here or in Paseo.
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { TITLE_PREFIX } from './paseo-agent.ts';
+import { sseSink } from './events.ts';
+import type { Sink } from './events.ts';
 import type { ReadBody, Req, Res, Send } from './core-types.ts';
 import type { PaseoUsage } from './agent-usage.ts';
 
@@ -147,19 +149,18 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
     return { ok: true };
   }
 
-  function watch(req: Req, res: Res) {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-    const write = () => res.write(`data: ${JSON.stringify({ pending: list() })}\n\n`);
+  function watch(sink: Sink) {
+    const write = () => sink.send(JSON.stringify({ pending: list() }));
     write();
     listeners.add(write);
-    req.on('close', () => listeners.delete(write));
+    sink.onClose(() => listeners.delete(write));
   }
 
   // GET /api/permissions · GET /api/permissions/events (SSE) · POST /api/agents/<agentId>/permissions/<requestId>
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
-      if (root === 'permissions' && a === 'events' && req.method === 'GET') return watch(req, res);
+      if (root === 'permissions' && a === 'events' && req.method === 'GET') return watch(sseSink(req, res));
       if (root === 'permissions' && !a && req.method === 'GET') return send(res, 200, { pending: list() });
       if (root === 'agents' && a && b === 'permissions' && c && req.method === 'POST') {
         const raw = await readBody(req);
@@ -184,6 +185,7 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
     list,
     respond,
     handle,
+    watch,
     onChange: (l: () => void) => (listeners.add(l), () => listeners.delete(l)),
     // every change Paseo pushes on any agent: the agent, or null when it is gone or the whole list was reloaded
     onAgent: (l: (agent: AgentSnapshot | null) => void) => (agentListeners.add(l), () => agentListeners.delete(l)),
