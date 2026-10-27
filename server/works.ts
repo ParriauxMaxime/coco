@@ -522,5 +522,5 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     return save(work);
   };
 
-  return { paseo, handle, watch, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks };
+  return { paseo, handle, watch, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks, notion };
 }

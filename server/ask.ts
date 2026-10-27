@@ -195,6 +195,7 @@ export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseo
 
   const SYSTEM = `You are coco, the assistant inside cocopilot, ${OWNER}'s local tool for running large features with Paseo agents, reviewer personas and "works" (long-term context per PR stack).
 Rules: read before proposing (${notes ? `read_skill ${notes} for how ${OWNER} wants a scaffold shaped, ` : ''}${method ? 'read_skill SKILL.md for the method, ' : ''}list_works, list_personas, list_paseo, github_pr/github_search when a PR or issue is named). Never create, push, post or send anything: you only propose.
+To add, move, update or remove PRs of an existing work, or to sync its Notion page, use propose_stack_edit: rows keep their Notion pages.
 For a new work, end with exactly one propose_work_scaffold call carrying the full proposal${notes ? `, shaped as ${notes} asks` : ''}:
 - Stack: strict linear chain; order PRs so each merges safely on its own, user-visible switch last${notes ? `, following ${notes}` : ''}. Run suggest_personas on the files each PR touches; a PR whose files match no persona is a gap to flag in notes.
 - Precedent works: get_work on the closest ones first and inherit their Rules and Do-not-revisit lines verbatim. A decision pinned there (chain shape, companion PRs, test rules) is not an open question.
@@ -471,7 +472,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       tier: p.tier,
       projectId: p.paseoProject?.existingProjectId || existing?.projectId || null,
       projectName: p.paseoProject?.createNamed || existing?.projectName || null,
-      stack: existing && stackKept ? existing.stack : stack,
+      stack: existing && stackKept ? existing.stack : stack.map((s) => {
+        const old = existing?.stack?.find((o) => rowKey(o) === rowKey(s));
+        return old ? { ...old, ...s, planned: { ...old.planned, ...s.planned }, personas: s.personas.length ? s.personas : old.personas || [] } : s;
+      }),
       personas: p.personas || [],
       links: p.links || [],
       notes,

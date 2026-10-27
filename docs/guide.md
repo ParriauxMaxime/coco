@@ -898,7 +898,15 @@ proposal (stack, surfaces, open questions and flags as tables, the brief or
 prompt as code); its button says what it does (**Create work**, **Update
 work**, **Start agent**, **Add repo**) and pressing it runs it
 there. An update of a work that already has a stack asks, with a toggle,
-whether the planned stack replaces it. The card then shows the outcome with
+whether the planned stack replaces it; a replaced row with the same PR or
+branch keeps its Notion page, gates and kit. To change the stack of an
+existing work, agents use `propose_stack_edit` instead: an **Apply** card
+listing the stack after the edit (rows added after a given PR, updated,
+moved or removed; every field the edit does not name stays, Notion pages
+included) with a **Then sync the linked Notion page** toggle when the work
+has one; with no row change it is a **Sync Notion** card. The sync rewrites
+the work's one Notion page; it creates no page per row and renames none (a
+row's page is linked by url and title). The card then shows the outcome with
 an **Open** link to the work, the agent's tab or the repo, and the agent
 gets your answer with that outcome (`Done:` or `Failed:`). Reject or a note
 runs nothing. An agent started from **Start agent** carries the work's

@@ -45,6 +45,7 @@ import { createSubagents } from './subagents.ts';
 import { createModels } from './models.ts';
 import { createHub } from './events.ts';
 import { SKIPPED, createCards } from './cards.ts';
+import { createStackEdit } from './stack-edit.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createAgentChecks } from './agent-checks.ts';
 import { errorMessage } from './core-types.ts';
@@ -149,7 +150,7 @@ permissions.onAgent((a) => {
   if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
 });
 // an Ask agent's answer goes through its conversation and a thread agent's through its thread, so the turn it opens is logged there; a one-shot run is not reopened for it
-const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction }, threads: threads.cardHook, deliver: async (agentId, text) => {
+const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction, stack_edit: createStackEdit({ works, notion: works.notion }).cardAction }, threads: threads.cardHook, deliver: async (agentId, text) => {
   const conv = ask.convOf(agentId);
   if (conv?.once) return SKIPPED;
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);

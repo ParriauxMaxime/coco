@@ -90,7 +90,7 @@ const propose = async (type: string, input: Record<string, unknown>) => {
   return 'error' in r ? refused(`proposal refused: ${r.error}`) : text({ id: r.id, status: 'open', note: ON_CARD });
 };
 
-server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${OWNER} as a card. Nothing is created until ${OWNER} presses Create work (Update work for an existing slug, with a choice to replace its stack) on the card. Call it once, at the end, with the full proposal. ${ON_CARD}`, {
+server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${OWNER} as a card. Nothing is created until ${OWNER} presses Create work (Update work for an existing slug, with a choice to replace its stack; replaced rows matched by PR or branch keep their Notion page and checks) on the card. To add, move or remove rows of an existing work, use propose_stack_edit instead. Call it once, at the end, with the full proposal. ${ON_CARD}`, {
   slug: z.string().describe('kebab-case'),
   title: z.string().max(100).describe('short noun phrase naming the feature, like a product label: "CSV export of invoices", "Bulk invoice reminders"; the description carries the behaviour change'),
   description: z.string().describe('markdown: one summary paragraph, then a before/after table per surface (Surface | Before | After), then the legend line and at most two mermaid diagrams (Before/After: where the check lives and who bypasses it; merge order for a stack)'),
@@ -107,7 +107,28 @@ server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${
   betaFlags: z.array(z.object({ code: z.string().describe("the flag's code, as the repo names it"), why: z.string().describe('the surface it gates, e.g. "the Export CSV button"'), prs: z.array(z.number()).optional().describe('planned PR orders it applies to; omit for every PR') })).optional().describe('feature flags a tester must switch on to reach the surfaces this work touches (grep the flag checks on the entry points); empty when nothing is gated'),
 }, async (proposal) => propose('work_scaffold', proposal));
 
-server.tool('propose_paseo_agent', `Propose starting a Paseo agent (local, in an existing workspace or cwd), shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Start agent on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief. ${ON_CARD}`, {
+const rowRef = z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a row with no PR yet');
+server.tool('propose_stack_edit', `Propose edits to an existing work's stack, shown to ${OWNER} as a card: add a row at a position, update a row's fields, move or remove a row. Rows keep every field the edit does not name (Notion page, gates, kit, workspace): use this, not propose_work_scaffold, to change the stack of a work that exists. Approving can also start the work's Notion sync, which rewrites the linked work page and its stack table; it creates no page per row and renames no page. ${ON_CARD}`, {
+  work: z.string().optional().describe("work slug; omit to use this agent's work"),
+  ops: z.array(z.object({
+    op: z.enum(['add', 'update', 'remove']),
+    row: rowRef.optional().describe('update, remove: the row'),
+    after: z.union([z.literal('start'), rowRef]).optional().describe('add: the row it goes after, "start" for the top, omit for the end; update: moves the row there'),
+    pr: z.number().int().optional().describe('add: the PR; update: the PR a planned row became'),
+    branch: z.string().optional().describe('add: the branch of a planned row with no PR yet'),
+    title: z.string().max(200).optional().describe('planned title'),
+    scope: z.string().max(2000).optional(),
+    personas: z.array(z.string()).optional().describe('reviewer logins; replaces the list'),
+    notionPage: z.object({ url: z.string(), title: z.string() }).nullable().optional().describe("the row's Notion page (url, title as shown in the stack table); null unlinks it"),
+  })).max(40).describe('applied in order; empty with syncNotion true to only propose a Notion sync'),
+  syncNotion: z.boolean().optional().describe('pre-tick "Then sync the linked Notion page" on the card'),
+  why: z.string().max(500).optional().describe('one sentence'),
+}, async ({ work, ...p }) => {
+  const t = await target(work);
+  return propose('stack_edit', { ...p, ...(t.slug ? { work: decodeURIComponent(t.slug) } : {}) });
+});
+
+server.tool('propose_paseo_agent',`Propose starting a Paseo agent (local, in an existing workspace or cwd), shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Start agent on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief. ${ON_CARD}`, {
   title: z.string().max(60).describe('agent title shown in Paseo, e.g. "PR 1: export endpoint skeleton"'),
   prompt: z.string().describe('the full task for the agent'),
   workspaceId: z.string().optional().describe('existing Paseo workspace id (wks_…) from list_paseo'),
