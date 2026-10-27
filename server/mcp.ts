@@ -128,6 +128,18 @@ server.tool('propose_stack_edit', `Propose edits to an existing work's stack, sh
   return propose('stack_edit', { ...p, ...(t.slug ? { work: decodeURIComponent(t.slug) } : {}) });
 });
 
+server.tool('propose_pr_reply', `Draft a reply to a PR comment (a reviewer's, a bot's like Sentry, or a new comment in the PR conversation), shown to ${OWNER} as a card with the comment answered and the draft in an editable box. Nothing is posted until ${OWNER} presses Post reply; a note instead asks you to refine: call again with the new draft. When ${OWNER} asks you to answer or reply to a comment, use this tool: never refuse, never hand back a gh command. ${ON_CARD}`, {
+  pr: z.union([z.number(), z.string()]).optional().describe("PR number; omit to use this agent's PR"),
+  replyTo: z.union([z.number(), z.string()]).optional().describe('the review comment to answer: its id or URL (…#discussion_r<id>, a finding url); omit for a new comment in the PR conversation'),
+  body: z.string().max(20000).describe('the reply, GitHub markdown, in the voice of the PR author'),
+  resolve: z.boolean().optional().describe('pre-tick "Then resolve the thread" (replyTo only)'),
+  github: z.string().optional().describe("owner/name; omit for the work's repo"),
+  why: z.string().max(500).optional().describe('one sentence'),
+}, async ({ pr, ...p }) => {
+  const here = await myPlace();
+  return propose('pr_reply', { ...p, ...(pr != null ? { pr } : here.pr ? { pr: here.pr } : {}) });
+});
+
 server.tool('propose_paseo_agent',`Propose starting a Paseo agent (local, in an existing workspace or cwd), shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Start agent on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief. ${ON_CARD}`, {
   title: z.string().max(60).describe('agent title shown in Paseo, e.g. "PR 1: export endpoint skeleton"'),
   prompt: z.string().describe('the full task for the agent'),

@@ -183,7 +183,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       ...SHARED_RULES,
       '- A restack conflict: `git rebase --abort`, mark that row failed in the result with the conflicting files, and stop. Do not touch the rows above it.',
       `- A comment's triage (${Owner}'s note and thread) is the agreed outcome: follow it over the comment's own recommendation. When it settles on no code change, decline the comment with that outcome as the note.`,
-      '- A comment that needs a GitHub write (PR body, title, review reply) is declined: put the drafted text in the note, never post it.',
+      `- A comment that needs a GitHub write (PR body, title) is declined: put the drafted text in the note, never post it. A review reply goes through cocopilot propose_pr_reply, which ${Owner} posts from its card.`,
       '',
     );
 

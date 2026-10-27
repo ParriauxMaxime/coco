@@ -122,6 +122,7 @@ card when a row is picked; the outcome becomes `result` (a throw is
 | --- | --- | --- |
 | `work_scaffold` (`propose_work_scaffold`) | confirm "Create work: …" or "Update work: …" for an existing slug; summary as question; blocks: slug, tier, Paseo project and personas, an "already exists" callout, tables for the planned stack, surfaces, open questions and flags, notes as code, next steps; a `replaceStack` toggle when the work already has a stack | writes the work like the old Apply, scope repo taken from the Ask conversation; link to the work |
 | `stack_edit` (`propose_stack_edit`) | confirm "Edit stack: <work> (N changes)"; why; the stack after the ops (row, title, reviewers, Notion page, added/updated/moved/kept), removed rows as a callout; a `syncNotion` toggle when the work has a linked page; no ops + `syncNotion` is a "Sync Notion: <work>" card | applies `ops` (`add` after a row or `start`, `update` fields or move, `remove`) to the current stack, untouched fields kept; then the work's Notion sync when ticked (one work page, never a page per row); link to the work |
+| `pr_reply` (`propose_pr_reply`) | confirm "Reply to <author> on #<pr>" (or "Comment on #<pr>" without `replyTo`); why; the comment answered as a callout; the draft in an editable `body` textarea; a `resolve` toggle for a review thread; **Post reply** / **Drop**; refused when `replyTo` is not a comment of that PR | posts the edited text with gh as a reply in the thread (else a PR conversation comment), then resolves the thread when ticked; link to the posted comment |
 | `paseo_agent` (`propose_paseo_agent`) | confirm "Start agent: …"; why; model, thinking, workspace and work line; the brief as code (cut at 4000, the agent gets all of it) | starts the agent, logs it on the work's timeline; link to its `ag-` tab |
 | `dispatch` (`dispatch`) | confirm "Dispatch <entry> on <PR>"; refused without a work (the conversation's, `workSlug`, or the agent's label) | the catalog dispatch; link to the started agent |
 | `repo` (`propose_repo`) | confirm "Add repo <source>"; what adding does | adds the repo (clone, config, Paseo project, setup run); link to its page |
@@ -227,6 +228,9 @@ A picked option whose effect did the work is not delivered.
 - `propose_stack_edit({ work?, ops, syncNotion?, why? })`: same return; edits
   an existing work's stack without replacing it (`work_scaffold`'s replace
   keeps rows matched by PR or branch).
+- `propose_pr_reply({ pr?, replyTo?, body, resolve?, github?, why? })`: same
+  return; every agent drafts a PR comment reply through it (Ask prompt, cards
+  line, fix and review briefs) instead of refusing or handing back a command.
 - `own_deps({ paths? })`: a code-writing agent's worktree gets its own copy of
   the dependency folders that link to the main checkout
   (`POST /api/agent-worktree/own-deps` with the agent's cwd and id). Returns

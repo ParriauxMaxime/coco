@@ -911,7 +911,11 @@ an **Open** link to the work, the agent's tab or the repo, and the agent
 gets your answer with that outcome (`Done:` or `Failed:`). Reject or a note
 runs nothing. An agent started from **Start agent** carries the work's
 label (and its row when the conversation has one), so it lists among the
-work's agents. `propose_rules` is a rows card (see Rules ledger);
+work's agents. Ask any agent to answer a PR comment (a reviewer, Sentry, a
+finding) and it posts a **Post reply** card: the comment it answers, the
+draft in an editable box and a **Then resolve the thread** toggle. Edit and
+press **Post reply** to post it with gh, or write a note to have the agent
+refine the draft. `propose_rules` is a rows card (see Rules ledger);
 `propose_review_plan` stays the review plan's result, not a card.
 Conversations saved before cards keep their proposals in the transcript as
 the tool call, read-only.

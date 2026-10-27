@@ -20,9 +20,9 @@ const HOME = os.homedir();
 // the one cocopilot tool whose input is the run's result; the other proposals are cards
 const COCO_TOOL = /^mcp__cocopilot__(propose_review_plan)$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
-export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'get_pr_findings', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_stack_edit', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks', 'upsert_finding', 'upsert_decision', 'attach_media', 'import_artifact', 'set_next', 'own_deps'];
+export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'get_pr_findings', 'list_personas', 'read_persona', 'suggest_personas', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_stack_edit', 'propose_pr_reply', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks', 'upsert_finding', 'upsert_decision', 'attach_media', 'import_artifact', 'set_next', 'own_deps'];
 // every coco agent's one line on cards (docs/agent-io.md); Claude agents also lose AskUserQuestion
-export const CARDS_LINE = 'Ask the user only with the cocopilot ask tool, never AskUserQuestion: it returns at once and the answer comes back later as a new user message, so end your turn or keep working. Show rich results (tables, diagrams, code) with cocopilot post_blocks.';
+export const CARDS_LINE = 'Ask the user only with the cocopilot ask tool, never AskUserQuestion: it returns at once and the answer comes back later as a new user message, so end your turn or keep working. Show rich results (tables, diagrams, code) with cocopilot post_blocks. A reply to a PR comment goes through cocopilot propose_pr_reply: the user posts it from the card, so draft it there instead of refusing or handing back a command.';
 
 type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[], opts?: Record<string, unknown>) => Promise<ExecResult>;

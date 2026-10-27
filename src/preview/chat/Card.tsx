@@ -104,7 +104,7 @@ function Field({ f, v, ro, shown, onChange, onBlur }: { f: CardField; v: CardVal
   return (
     <label className="dp-cd-field">
       <span className="dp-cd-fl">{f.label}{f.required && <i className="dp-cd-req" title="required">*</i>}</span>
-      {f.type === 'textarea' ? <textarea className="dp-inp dp-cd-ta" rows={3} value={s} {...common} onChange={(e) => onChange(e.target.value)} />
+      {f.type === 'textarea' ? <textarea className="dp-inp dp-cd-ta" rows={Math.min(14, Math.max(3, s.split('\n').reduce((n, l) => n + Math.ceil((l.length + 1) / 90), 0)))} value={s} {...common} onChange={(e) => onChange(e.target.value)} />
         : f.type === 'select' ? (
           <select className="dp-inp" value={s} {...common} onChange={(e) => onChange(e.target.value)}>
             {!f.required || !s ? <option value="">{f.placeholder || 'Pick one'}</option> : null}
@@ -156,7 +156,7 @@ function Result({ c }: { c: Card }) {
     <div className={`dp-cd-res${r.ok ? ' dp-cd-res-ok' : ' dp-cd-bad'}`} role={r.ok ? undefined : 'alert'}>
       <Icon name={r.ok ? 'check' : 'alert-triangle'} size={12} />
       <span className="dp-cd-resd">{r.detail}</span>
-      {r.ok && r.link && <a className="dp-btn dp-sm dp-cd-open" href={r.link}><Icon name="external-link" size={12} />Open</a>}
+      {r.ok && r.link && <a className="dp-btn dp-sm dp-cd-open" href={r.link} {...(/^https?:/.test(r.link) ? { target: '_blank', rel: 'noreferrer' } : {})}><Icon name="external-link" size={12} />Open</a>}
     </div>
   );
 }
