@@ -39,6 +39,8 @@ type Options = {
   cards?: CardFeed;
   uploads?: Pick<Uploads, 'resolve' | 'record' | 'pairer' | 'latest'>;
   exec?: Exec;
+  // lines added to the owner's follow-up of a code-writing agent: its readied worktree, when that changed
+  beforeTurn?: (agentId: string) => Promise<string[]>;
 };
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
@@ -48,7 +50,7 @@ const titleOf = (title: string | null | undefined, id: string) => (title || '').
 
 const openStream = (res: Res) => res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -190,7 +192,8 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         const files = uploads?.resolve(attachments) ?? [];
         const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
         if (!said) throw new HttpError(400, 'text required');
-        return send(res, 200, await say(a, said, files));
+        const setup = (await beforeTurn?.(a).catch(() => [])) ?? [];
+        return send(res, 200, await say(a, setup.length ? `${said}\n\n${setup.join('\n')}` : said, files));
       }
       return send(res, 404, { error: 'no route' });
     } catch (e) {

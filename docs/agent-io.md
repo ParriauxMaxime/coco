@@ -219,6 +219,11 @@ A picked option whose effect did the work is not delivered.
 - `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
   `propose_rules`: same names and inputs as before, now posting a proposal
   card (`action`) and returning `{ id, status: 'open', note }`.
+- `own_deps({ paths? })`: a code-writing agent's worktree gets its own copy of
+  the dependency folders that link to the main checkout
+  (`POST /api/agent-worktree/own-deps` with the agent's cwd and id). Returns
+  at once with `{ started, already, note }`; coco messages the agent once
+  they are installed (docs/guide.md, "Agent worktrees").
 
 Work writes mirror the HTTP routes. `work` and `pr` default to the calling
 agent's labels (`GET /api/agent-chat/<agentId>/place`; its row only on its

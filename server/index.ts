@@ -42,6 +42,8 @@ import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
 import { createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
 import { SKIPPED, createCards } from './cards.ts';
+import { createAgentWorktrees } from './agent-worktree.ts';
+import { createAgentChecks } from './agent-checks.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
@@ -86,12 +88,19 @@ const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
 works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
 const comments = createComments({ DATA, REPO, config, works });
-const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement });
+// readiness news: a thread agent hears it within its turn, any other agent as a message
+const agentWorktrees = createAgentWorktrees({
+  config,
+  log: (text) => console.log(text),
+  notify: async (agentId, text) => (await threads.steerAgent(agentId, text)) || workAgents.say(agentId, text),
+});
+const agentChecks = createAgentChecks({ DATA, worktrees: agentWorktrees });
+const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement, readier: agentChecks.readier });
 const lang = createLang({ REPO, config });
 const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, place: (slug) => placement.place({ kind: 'work', slug }) });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
-const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key) });
+const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key), worktrees: agentWorktrees });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads });
 threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, works });
@@ -99,7 +108,7 @@ const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan, agents: paseoAgents });
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
-const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor });
+const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
@@ -135,7 +144,7 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
 } });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads });
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn });
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 const sweepUploads = () => {
@@ -411,6 +420,15 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);
     if (root === 'purge') return purge.handle(req, res, parts, readBody, send);
+    if (root === 'agent-worktree' && a === 'own-deps' && req.method === 'POST') {
+      const { cwd, agentId, paths } = JSON.parse((await readBody(req)) || '{}');
+      if (typeof cwd !== 'string' || !cwd) return send(res, 400, { error: 'cwd required' });
+      try {
+        return send(res, 200, await agentWorktrees.ownDeps(cwd, typeof agentId === 'string' ? agentId : null, Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []));
+      } catch (e) {
+        return send(res, 400, { error: errorMessage(e) });
+      }
+    }
     if ((root === 'works' && b === 'rules') || root === 'rules') return rules.handle(req, res, parts, readBody, send);
     if (root === 'works') return works.handle(req, res, parts, readBody, send);
     if (root === 'repos' && !a && req.method === 'POST') {

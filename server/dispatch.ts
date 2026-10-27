@@ -7,6 +7,7 @@ import { repoSetting } from './config.ts';
 import { renderBrief } from './briefs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { BriefDispatch, Written } from './brief-writer.ts';
+import type { Readier } from './review-agent.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
@@ -28,6 +29,7 @@ type Deps = {
   comments: { list(slug: string, n: RowKey): { comments?: { id: string; status?: string }[] } };
   writer: { write(d: BriefDispatch, facts: string | null): Promise<Written>; track(run: { agentId: string | null | undefined; slug: string; repoId: string | null; title: string; message: string }): void };
   repoOf?: (work: Work) => RepoConfig | null | undefined;
+  readier?: Readier;
 };
 
 const PROMPT_MAX = 8000;
@@ -68,7 +70,7 @@ export function firstMessage({ title, task, edits, brief, read }: { title: strin
   return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
-export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf }: Deps) {
+export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier }: Deps) {
   const repoFor = (work: Work) => repoOf?.(work) || null;
   const repoIdOf = (work: Work) => repoFor(work)?.id || work.repo || null;
   const entriesFor = (work: Work) => catalog(config, repoFor(work));
@@ -160,9 +162,11 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const placed = await placement.place(scope);
     const task = taskOf(entry, key, { prompt, persona, args });
     const { brief, read, written } = await briefOf(work, { key, title, label: entry.label, edits, task, ...(entry.kind === 'persona-review' ? { persona } : {}) });
-    const message = firstMessage({ title, task, edits, brief, read });
+    const setup = edits && readier ? await readier.ready(placed.cwd).catch(() => []) : [];
+    const message = [firstMessage({ title, task, edits, brief, read }), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();
     const labels: Record<string, unknown> = { source: 'cocopilot', kind: 'dispatch', dispatch: entry.id, work: slug, ...(key === null ? {} : { pr: fileKey(key) }) };
     const started = await agents.start({ title, provider: config.models.default, thinking: 'high', prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    if (edits) readier?.started(started.agentId, placed.cwd, { slug, key });
     writer.track({ agentId: started.agentId, slug, repoId, title, message });
     if (entry.kind === 'gate' && entry.gate && key !== null) markGate(slug, key, entry.gate, { state: 'running', at: new Date().toISOString(), skill: entry.skill || entry.gate, agentId: started.agentId });
     reviewAgent.timeline(work.slug, 'agent', `dispatch ${title}: started agent ${String(started.agentId || '').slice(0, 8)} in the ${edits ? 'PR' : 'Plan'} workspace ${placed.workspaceId} with a ${written ? 'written' : 'template'} brief`);

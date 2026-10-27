@@ -49,7 +49,9 @@ type Outcome = { status: 'fixed' | 'declined'; resolution: { commit?: string | n
 type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; requestedBy?: unknown; wrap?: (prompt: string) => string };
 // the row's own workspace for an agent that works on the PR's branch
 type RowPlacement = { place(scope: { kind: 'row'; slug: string; key: RowKey; edits: true }): Promise<{ workspaceId: string; cwd: string }> };
-type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents; placement?: RowPlacement };
+// readies the worktree of an agent launched on a PR branch; its brief lines go after the prompt
+export type Readier = { ready(cwd: string): Promise<string[]>; started(agentId: string, cwd: string, meta: { slug?: string; key?: RowKey | null }): void };
+type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents; placement?: RowPlacement; readier?: Readier };
 
 const defaultExec: Exec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
@@ -113,7 +115,7 @@ export const personaPointers = (logins: string[], excerpt: (login: string) => { 
     return ex ? [`- \`${login}\`: read \`${ex.file}\`, "${ex.heading}".`] : [];
   });
 
-export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents(), placement }: Deps) {
+export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents(), placement, readier }: Deps) {
   const GH = config.repo.github;
   const SHARED_RULES = sharedRules(config);
   const reviewsDir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
@@ -262,25 +264,34 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
   // starts the brief on the runner, returns the agent id; labels tell the Paseo plugin which cocopilot run the agent is on
   async function launch(runner: Runner, { title, provider, prompt, labels, requestedBy, n, branch }: LaunchInput) {
     const all: Record<string, unknown> = { source: 'cocopilot', ...labels };
+    const workSlug = labels?.work;
+    const meta = { slug: typeof workSlug === 'string' ? workSlug : undefined, key: n ?? null };
+    const withSetup = async (cwd: string | null | undefined) => {
+      const lines = cwd && readier ? await readier.ready(cwd).catch(() => []) : [];
+      return lines.length ? `${prompt}\n\n${lines.join('\n')}` : prompt;
+    };
     if (runner.mode === 'send' && runner.agentId) {
       const opts = { env: launcherEnv() };
       await exec('paseo', ['agent', 'update', runner.agentId, ...Object.entries(all).flatMap(([k, v]) => ['--label', `${k}=${v}`])], opts);
-      const r = await exec('paseo', ['send', runner.agentId, prompt, '--behavior', 'steer', '--no-wait'], opts);
+      const r = await exec('paseo', ['send', runner.agentId, await withSetup(runner.cwd), '--behavior', 'steer', '--no-wait'], opts);
       if (!r.ok) throw new HttpError(500, `paseo send failed: ${(r.stderr || r.stdout).slice(0, 300)}`);
+      if (runner.cwd) readier?.started(runner.agentId, runner.cwd, meta);
       return runner.agentId;
     }
     const worktrees: Record<string, Record<string, unknown>> = { 'branch-off': { mode: 'branch-off', newBranch: runner.newBranch, base: runner.base, slug: runner.slug }, 'checkout-branch': { mode: 'checkout-branch', branch }, 'checkout-pr': { mode: 'checkout-pr', prNumber: n } };
     const worktree = worktrees[runner.mode] || null;
     if (AGENT_ID.test(String(requestedBy || ''))) all['paseo.parent-agent-id'] = requestedBy;
     let started: Awaited<ReturnType<LaunchAgents['start']>>;
-    const workSlug = labels?.work;
+    let cwd: string | null | undefined = null;
     const onRow = placement && typeof workSlug === 'string' && workSlug && n != null && runner.mode !== 'branch-off';
     try {
       const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : runner.mode === 'workspace' ? { workspaceId: runner.workspaceId, cwd: runner.cwd } : { cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree };
-      started = await agents.start({ title, provider, thinking: 'high', prompt, labels: all, ...where });
+      cwd = worktree && !onRow ? null : where.cwd;
+      started = await agents.start({ title, provider, thinking: 'high', prompt: await withSetup(cwd), labels: all, ...where });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errorMessage(e).slice(0, 300)}`);
     }
+    if (cwd) readier?.started(started.agentId, cwd, meta);
     if (started.createdWorkspace && typeof workSlug === 'string' && workSlug) timeline(workSlug, 'agent', `${worktree ? `new ${runner.mode} worktree` : `no Paseo workspace was open on ${runner.cwd}`}: created workspace ${started.createdWorkspace}`);
     return started.agentId;
   }

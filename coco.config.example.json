@@ -56,5 +56,13 @@
     { "kind": "review-as", "label": "Review a PR as a persona", "prompt": "/review-as {login} {pr}" },
     { "kind": "self-review", "label": "Self review a PR", "prompt": "/code-review {pr}", "hint": "Runs a local review and reports findings to the board" }
   ],
-  "featureFlags": null
+  "featureFlags": null,
+  "agentWorktree": {
+    "deps": [{ "path": "node_modules", "lockfile": "package-lock.json", "install": ["npm", "ci"] }],
+    "checks": [
+      { "id": "lint", "label": "Lint", "command": ["npx", "eslint", "{files}"], "fix": ["npx", "eslint", "--fix", "{files}"], "files": "\\.(ts|tsx)$" },
+      { "id": "types", "label": "Type check", "command": ["npm", "run", "typecheck"], "files": "\\.(ts|tsx)$" },
+      { "id": "tests", "label": "Tests next to the change", "command": ["npx", "vitest", "run", "{tests}"], "files": "\\.(ts|tsx)$" }
+    ]
+  }
 }

@@ -75,6 +75,7 @@ The server port and bind address are command-line arguments, not config:
 | `models.default` | `"claude/claude-opus-5-5"` | Paseo provider/model for review plans, PR agents, gates and deep thread work. |
 | `models.fast` | `"claude/claude-sonnet-5-5"` | Paseo provider/model for small scoped thread agents. |
 | `importRoots` | `["/tmp", "/private/tmp", "~/.paseo/worktrees"]` | Folders files may be imported from as work artifacts. Add your repo or another scratch folder if agents write kit files there. |
+| `agentWorktree` | `null` | How coco readies the worktree of a code-writing agent and checks its commits; per repo too (`repos[].settings`). See [Agent worktrees](#agent-worktrees). |
 | `rituals` | `[]` | Buttons on the Rituals page, each starting a Paseo agent in your repo. Item: `{ "kind", "label", "prompt", "hint"?, "fields"? }`. `prompt` may hold `{login}`, `{pr}`, `{paths}`, `{text}` placeholders, which become form fields unless `fields` lists them. |
 
 ### Checklist and kit
@@ -118,6 +119,41 @@ export function createFeatureFlags({ REPO }) {
   return { forRow, known };
 }
 ```
+
+## Agent worktrees
+
+`agentWorktree` tells coco how to ready the worktree of an agent that writes
+code and which checks to run on its commits (behavior: docs/guide.md, "Agent
+worktrees"). Commands are argv arrays run without a shell; wrap one in
+`["bash", "-c", "…"]` when it needs one (e.g. to pick a Node version).
+
+```json
+"agentWorktree": {
+  "mainCheckout": "~/code/widgets",
+  "deps": [
+    { "path": "node_modules", "lockfile": "package-lock.json", "install": ["npm", "ci"] },
+    { "path": "web/node_modules", "lockfile": "web/package-lock.json", "install": ["npm", "ci"] }
+  ],
+  "checks": [
+    { "id": "lint", "label": "Lint", "command": ["npx", "eslint", "{files}"], "fix": ["npx", "eslint", "--fix", "{files}"], "files": "\\.(ts|tsx)$" },
+    { "id": "types", "label": "Type check", "command": ["npm", "run", "typecheck"], "files": "\\.(ts|tsx)$", "timeoutSeconds": 900 },
+    { "id": "tests", "label": "Tests next to the change", "cwd": "web", "command": ["npx", "vitest", "run", "{tests}"], "files": "\\.(ts|tsx)$" }
+  ]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `mainCheckout` | Where linked folders point. Default: the repo's `path`. |
+| `deps[].path` | A dependency folder, relative to the worktree. |
+| `deps[].lockfile` | Its lockfile: while it matches the main checkout's, the folder is a link; when it differs, the worktree gets its own copy. |
+| `deps[].install` | Run in the folder's parent after cloning the main checkout's folder, for an own copy. |
+| `deps[].optional` | A main checkout without this folder is no setup failure; the folder stays absent until its lockfile differs. |
+| `checks[].needs` | Worktree paths the check cannot run without: while one is missing, the check is unavailable and skipped. |
+| `checks[].command` | `{files}`: the changed files matching `files`; `{tests}`: the test files next to them (`x.test.ts` beside `x.ts`), both relative to `cwd`. A check with `files` set and no matching change is skipped. |
+| `checks[].fix` | The command the brief gives to fix what the check reports. |
+| `checks[].cwd` | Folder the check runs in, relative to the worktree. Default: the worktree root. |
+| `checks[].timeoutSeconds` | Default 600. |
 
 ## Dev servers
 

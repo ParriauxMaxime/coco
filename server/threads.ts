@@ -19,6 +19,7 @@ import type { ActivityEvent, AgentSession, Outcome } from './paseo-agent.ts';
 import type { Block } from './blocks.ts';
 import type { ActionContext, Card, CardBody, CardEffect, ThreadHook } from './cards.ts';
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
+import type { AgentWorktrees } from './agent-worktree.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const SETTLE_MS = 15000;
@@ -45,7 +46,8 @@ type Thread = { key: string; groupId: string | null; waiting: Waiting | null; me
 type GroupBase = { id: string; model: string; agentId: string | null; items: string[]; status: string; createdAt: string; updatedAt?: string };
 type DecisionGroup = GroupBase & { kind: 'decision'; decisionId: string; n?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
-type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined };
+// briefed: the worktree section its agent was last told, sent again only once it changes
+type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined; briefed?: string };
 type Group = DecisionGroup | PlanGroup | CodeGroup;
 type Finding = { action?: string; reason?: string; patch?: Record<string, unknown> };
 type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string };
@@ -78,6 +80,8 @@ type ThreadsOptions = {
   agents?: ReturnType<typeof createPaseoAgents>;
   uploads?: Pick<Uploads, 'resolve' | 'record'>;
   cardsOf?: (slug: string, key: string) => Card[];
+  // readies a code group's worktree before each turn and checks its commits
+  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'>;
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
   placement?: {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
@@ -114,7 +118,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [] }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -224,7 +228,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
-  function buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr }: { work: Work; ref: Ref; item: Item; thread: Thread; text: string; group: Group; replyPath: string; cardPath: string; pr: ThreadPr | null }) {
+  function buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup }: { work: Work; ref: Ref; item: Item; thread: Thread; text: string; group: Group; replyPath: string; cardPath: string; pr: ThreadPr | null; setup: string[] }) {
     const history = thread.messages.filter((m) => m.role !== 'system').map((m) => `**${m.role === 'user' ? Owner : 'You'}:** ${m.text}${m.suggestion ? ` _(suggestion ${m.suggestion.state})_` : ''}`);
     const label = ref.kind === 'decision' ? '' : keyLabel(ref.n);
     const about = {
@@ -264,11 +268,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       `- ${replyRule(replyPath, ref.kind, thread.key)} Only that file and your cards show in cocopilot.`,
       ...rules,
       '',
+      ...setup,
     ].join('\n');
   }
 
   // the agent still holds this thread in its context: only the new turn goes out, with what changed since its last answer
-  function followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId, steer }: { ref: Ref; item: Item; thread: Thread; text: string; replyPath: string; cardPath: string; agentId: string; steer: boolean }) {
+  function followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId, steer, setup }: { ref: Ref; item: Item; thread: Thread; text: string; replyPath: string; cardPath: string; agentId: string; steer: boolean; setup: string[] }) {
     const lastSeen = thread.messages.findLastIndex((m) => m.agentId === agentId && m.role !== 'system');
     const lastSuggestion = thread.messages.slice(0, lastSeen + 1).findLast((m) => m.suggestion)?.suggestion;
     const since = [
@@ -287,7 +292,36 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       ...(steer ? ['Take it into account in the work in flight. A reply you already wrote for the previous message stays; this message gets its own reply file below.', ''] : []),
       `Same rules as before${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}. ${replyRule(replyPath, ref.kind, thread.key)}`,
       '',
+      ...(setup.length ? [setup[0].replace('## ', '## Changed since: '), ...setup.slice(1)] : []),
     ].join('\n');
+  }
+
+  // a code group's worktree, readied before each of its turns; its section goes in the prompt when it differs from what the agent was last told
+  async function setupOf(group: Group, s: AgentSession) {
+    if (group.kind !== 'code' || !worktrees) return [];
+    const cwd = group.worktree || s.cwd();
+    if (!cwd) return [];
+    group.worktree = expandHome(cwd);
+    const r = await worktrees.prepare(group.worktree).catch(() => null);
+    if (!r) return [];
+    if (r.state !== 'ready' && r.state !== 'off') worktrees.whenReady(group.worktree, s.agentId);
+    const lines = worktrees.briefLines(r);
+    const said = lines.join('\n');
+    if (said === group.briefed) return [];
+    group.briefed = said;
+    return lines;
+  }
+
+  // the readiness news of a group agent: steers its turn in flight; an idle one reads the changed section with its next prompt
+  async function steerAgent(agentId: string, text: string) {
+    for (const work of works.list().filter((w) => !w.archived)) {
+      const group = listGroups(work.slug).find((g) => g.agentId === agentId && g.status === 'active');
+      if (!group) continue;
+      const s = await groupSession(work.slug, group);
+      if (s?.busy()) await s.say(text);
+      return true;
+    }
+    return false;
   }
 
   // live following: SSE listeners per thread; per group, the threads waiting on its agent with the message their activity belongs to
@@ -353,6 +387,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         : worktree
           ? await placement.sideWorkspace(slug, { branch: worktree.newBranch, base: String(worktree.base || ''), title: `Finding fixes on ${fileName}` })
           : await placement.place({ kind: 'work', slug });
+      if (group.kind === 'code' && 'workspaceId' in where && where.cwd) group.worktree = expandHome(where.cwd);
       s = await agents.session({ title, provider: MODELS[group.model], thinking: 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
@@ -422,9 +457,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const cardPath = path.join(dir(slug), `${key}-${msg.id}-card.json`);
     const busy = live && prior?.agentId === live.agentId ? prior : null;
     const seen = live && thread.messages.some((m) => m.agentId === live.agentId && m.role !== 'system');
-    const prompt = seen ? followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId: live.agentId, steer: Boolean(busy) }) : buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr });
     const sha = busy ? busy.sha : group.kind === 'code' ? (await branchHead(group.branch)) || pr?.sha : null;
     const s = live || (await startSession(slug, group, pr));
+    if (!live && group.kind === 'code') delete group.briefed;
+    const setup = await setupOf(group, s);
+    const prompt = seen ? followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId: live.agentId, steer: Boolean(busy), setup }) : buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup });
     group.agentId = s.agentId;
     if (!group.items.includes(key)) group.items.push(key);
     writeGroup(slug, group);
@@ -851,6 +888,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     setFindingActor,
     cardHook,
     cardChanged: (slug: string, key: string) => notify(slug, key, { type: 'thread' }),
+    steerAgent,
     groupKind: (slug: string, id: string) => readGroup(slug, id)?.kind ?? null,
   };
 }

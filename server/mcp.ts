@@ -349,4 +349,11 @@ server.tool('set_next', `Write the work's "What's next": ${OWNER}'s to-do as of 
   return r.ok ? text({ next: r.data.next ?? null }) : refused(`next refused: ${r.error}`);
 });
 
+server.tool('own_deps', 'Give your worktree its own copy of the dependency folders (node_modules) that link to the main checkout, before any install, upgrade or removal of a package: an install into a linked folder would change the main checkout and a hook refuses it. Returns at once; coco clones and installs them, then a message tells you they are ready. Install nothing until then.', {
+  paths: z.array(z.string()).optional().describe('folders as your brief lists them (e.g. "node_modules"); omit for all'),
+}, async ({ paths }) => {
+  const r = await coco('POST', '/api/agent-worktree/own-deps', { cwd: process.env.PASEO_AGENT_CWD || process.cwd(), agentId: AGENT_ID, paths });
+  return r.ok ? text(r.data) : refused(`own_deps refused: ${r.error}`);
+});
+
 await server.connect(new StdioServerTransport());

@@ -642,6 +642,44 @@ orchestration layer (`server/threads.ts`):
   `GET …/groups`, `POST …/groups/<id>/close` (archives the group's Paseo
   workspace, agent and worktree, and deletes its branch).
 
+## Agent worktrees
+
+An agent that writes code (a review-comment code group, a PR-branch agent:
+dispatch entries that edit, Fix findings, a stack fix, a gate skill) gets a
+worktree where the repo's checks run. Read-only agents (Ask, persona review,
+plan and decision threads) skip all of it. Settings: `agentWorktree` in the
+config (docs/configuration.md); without it nothing changes.
+`server/agent-worktree.ts`, `server/agent-checks.ts`.
+
+- Readiness runs before every start and every new turn of such an agent
+  (idempotent), so older worktrees get fixed and a lockfile changed by a
+  rebase is caught.
+- Dependency folders (`deps`): each links to the main checkout's while the
+  worktree's lockfile matches the main checkout's. When it differs, coco
+  gives the worktree its own copy in the background: an APFS clone of the
+  main checkout's folder (`cp -c`, a reflink on Linux), then the entry's
+  `install` command, run in the folder's parent. The lockfile it was
+  installed for is kept in the worktree's git dir, so a later lockfile
+  change reinstalls and an install cut short is retried.
+- `own_deps`: an agent that must add, upgrade or remove a package calls this
+  cocopilot tool first; coco turns the linked folders into the worktree's
+  own copy and messages the agent once installed.
+- Install guard: coco writes a PreToolUse hook into the worktree's
+  `.claude/settings.local.json` (`scripts/install-guard.mjs`); it refuses
+  `npm|pnpm|yarn install|ci|add|uninstall|…` while a listed folder is a link,
+  pointing to `own_deps`. The brief says the same.
+- Brief: a "Your worktree and its checks" section lists the shared and own
+  folders and the exact check commands (`checks`, with their `fix`
+  variant), or which are not available yet and why. A thread follow-up or an
+  owner message to a PR-branch agent repeats the section only when it
+  changed.
+- Setup failure (a failed install, a main checkout without the folder, a
+  check binary missing) never blocks the start: the agent starts, the brief
+  says the checks are unavailable, coco retries in the background (1, 2, 5,
+  10, 15 min) and messages the agent once they work: a thread agent mid-turn
+  gets it as a steer, an idle one reads the changed section with its next
+  prompt, any other agent gets a message.
+
 ## Review runs
 
 Agents (and, before threads, the hub) start a run with

@@ -26,9 +26,17 @@ export interface FileLayers {
   other?: [string, string][];
 }
 
-export type RepoIdentity = { path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
+// a dependency folder of the worktree (node_modules): linked to the main checkout's while its lockfile matches, else an own copy installed with `install`, run in the folder's parent;
+// optional: a main checkout without it is no setup failure
+export type DepsEntry = { path: string; lockfile?: string; install?: string[]; optional?: boolean };
+// a check coco runs on an agent's commit; {files} expands to the changed files matching `files`, {tests} to the test files next to them, both relative to `cwd`;
+// needs: worktree paths without which the check cannot run
+export type CheckDef = { id: string; label: string; command: string[]; fix?: string[]; cwd?: string; files?: string; needs?: string[]; timeoutSeconds?: number };
+export type AgentWorktreeConfig = { mainCheckout?: string; deps: DepsEntry[]; checks: CheckDef[] };
+
+export type RepoIdentity ={ path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
 // settings that belong to a repo; one left out falls back to the top-level value
-export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody'] as const;
+export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree'] as const;
 export type RepoSettings = Partial<Pick<Config, (typeof REPO_SETTINGS)[number]>>;
 export type RepoConfig = RepoIdentity & { id: string; name: string; settings: RepoSettings };
 
@@ -57,6 +65,8 @@ export interface Config {
   seedRules: [string, string?][];
   rituals: Ritual[];
   featureFlags: { provider?: string } | null;
+  // how coco readies the worktree of an agent that writes code, and the checks it runs on its commits (docs/guide.md, "Agent worktrees")
+  agentWorktree: AgentWorktreeConfig | null;
   // where a repo added by its GitHub slug is looked for, then cloned; empty: the folder holding the default repo's clone
   cloneDir: string;
   devServers?: { api?: { bind?: string; port?: number } };
@@ -98,6 +108,7 @@ export const DEFAULTS: Config = {
   // [{ kind, label, hint, fields: ['login'|'pr'|'paths'|'text'], title, prompt }]; title and prompt fill {field}, {a|b}, {briefsDir}, {owner}
   rituals: [],
   featureFlags: null,
+  agentWorktree: null,
   cloneDir: '',
 };
 

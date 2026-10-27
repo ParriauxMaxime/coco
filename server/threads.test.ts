@@ -11,6 +11,8 @@ import { createCards } from './cards.ts';
 import { createUploads } from './uploads.ts';
 import type { Uploads } from './uploads.ts';
 import { DEFAULTS } from './config.ts';
+import { briefLines } from './agent-worktree.ts';
+import type { Readiness } from './agent-worktree.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
 type TimelineItem = NonNullable<TimelineEvent['item']>;
@@ -102,7 +104,7 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup(uploads?: Uploads) {
+function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees']) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
   const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [{ id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] }] };
@@ -120,6 +122,7 @@ function setup(uploads?: Uploads) {
     exec: async () => ({ ok: false, stdout: '', stderr: '' }),
     agents: createPaseoAgents({ APP, connect: daemon.connect }),
     uploads,
+    worktrees,
   });
   const file = (key: string) => path.join(DATA, 'works', SLUG, 'threads', `${key}.json`);
   const read = (key: string): ThreadFile => JSON.parse(fs.readFileSync(file(key), 'utf8'));
@@ -315,4 +318,37 @@ test('files sent on a thread go to the agent as images and attachments and stay 
   assert.deepEqual([sent.images?.length, sent.attachments?.map((x) => x.fileName)], [1, ['run.log']]);
   assert.equal(t.messages[0].text, 'See the attached files.');
   assert.deepEqual(read(A).messages[0].files?.map((f) => f.fileName), ['shot.png', 'run.log']);
+});
+
+test('a code group readies its worktree before every turn: the first prompt names the checks, a follow-up repeats them only once they changed', async () => {
+  const states: Readiness[] = [
+    { state: 'failed', root: '/wt/cc-group', deps: [{ path: 'node_modules', mode: 'missing', note: 'the main checkout has no node_modules' }], checks: [{ id: 'lint', label: 'Lint', command: 'lint <changed files>', available: false, why: 'the main checkout has no node_modules' }] },
+    { state: 'ready', root: '/wt/cc-group', deps: [{ path: 'node_modules', mode: 'linked' }], checks: [{ id: 'lint', label: 'Lint', command: 'lint <changed files>', available: true }] },
+  ];
+  const prepared: string[] = [];
+  const waiting: [string, string][] = [];
+  const { post, daemon, read, reply } = setup(undefined, {
+    prepare: async (root) => (prepared.push(root), states[Math.min(prepared.length - 1, 1)]),
+    whenReady: (root, agentId) => void waiting.push([root, agentId]),
+    briefLines: (r) => briefLines(r),
+  });
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'first dispatch');
+  const agent = daemon.calls.created[0].id;
+  assert.deepEqual(prepared, ['/wt/cc-group']);
+  assert.deepEqual(waiting, [['/wt/cc-group', agent]]);
+  assert.match(daemon.calls.sent[0].text, /## Your worktree and its checks[\s\S]*Not available yet: Lint \(the main checkout has no node_modules\)/);
+
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(agent);
+  await until(() => !read(A).waiting, 'turn end');
+  await post(A, 'Also cover undefined');
+  await until(() => daemon.calls.sent.length === 2, 'follow-up');
+  assert.match(daemon.calls.sent[1].text, /## Changed since: Your worktree and its checks[\s\S]*Lint: `lint <changed files>`/);
+  daemon.finish(agent);
+  await until(() => !read(A).waiting, 'second turn end');
+  await post(A, 'One more thing');
+  await until(() => daemon.calls.sent.length === 3, 'third turn');
+  assert.doesNotMatch(daemon.calls.sent[2].text, /worktree and its checks/);
+  assert.equal(prepared.length, 3, 'readied on every turn');
 });
