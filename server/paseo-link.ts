@@ -30,6 +30,7 @@ type PaseoLinkOptions = {
   file?: string | null;
   exec?: Exec;
   onArchived?: (agentId: string) => void;
+  onTurnEnded?: (agentId: string) => void;
 };
 
 const defaultExec: Exec = (cmd, args) =>
@@ -52,7 +53,7 @@ const readLinks = (file?: string | null): Record<string, AgentLink> => {
   }
 };
 
-export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec, onArchived }: PaseoLinkOptions) {
+export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec, onArchived, onTurnEnded }: PaseoLinkOptions) {
   const GITHUB = config?.repo?.github || '';
   const prByBranch = new Map<string, { at: number; number: number | null }>();
   const links = new Map(Object.entries(readLinks(file)));
@@ -235,6 +236,7 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
       if (work) refreshWork(work).catch(() => {});
     }
     threads?.turnEnded(agentId).catch(() => {});
+    onTurnEnded?.(agentId);
     const settled = [];
     const mine = (r: RunBase) => r.status === 'running' && r.agentId === agentId;
     for (const work of activeWorks()) {

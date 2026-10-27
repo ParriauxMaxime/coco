@@ -357,7 +357,10 @@ export type Suggestion = {
   fields: unknown;
   appliedCommit?: string;
   error?: string;
+  checks?: CheckRun;
 };
+// coco's own run of the repo checks on an agent's commit
+export type CheckRun = { state: 'running' | 'passed' | 'failed' | 'unavailable'; at: string; head: string; why?: string; results?: { label: string; state: string; why?: string; command?: string; output?: string }[] };
 export type ThreadMessage = {
   id: string;
   role: 'user' | 'agent' | 'system';
@@ -439,7 +442,7 @@ export type Gate = {
   skill: string | null;
   agentId: string | null;
 };
-export type GatesResponse = { key: string | number; branch: string | null; gates: Gate[] };
+export type GatesResponse = { key: string | number; branch: string | null; gates: Gate[]; agentChecks?: (CheckRun & { agentId: string }) | null };
 export type GateActionBody = { action: 'run' | 'done' | 'skipped' | 'todo'; skill?: string; args?: string; reason?: string };
 
 export type BriefResponse = { text: string; worktree: string | null; agent: PaseoAgent | null; stored: string[] };

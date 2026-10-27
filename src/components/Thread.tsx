@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import Blocks from './Blocks.tsx';
+import Checks from './Checks.tsx';
 import AgentActivity from './AgentActivity.tsx';
 import { api, errorMessage } from '../api.ts';
 import { toast } from './Toast.tsx';
@@ -81,6 +82,7 @@ function cardSlots(messages: ThreadMessage[], cards: Card[]) {
 type SuggestionProps = { s: SuggestionData; onDecide: (action: SuggestionAction) => void; busy: boolean; pending: string | null };
 function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
   const open = OPEN.includes(s.state);
+  const red = s.checks?.state === 'failed';
   return (
     <div className="thread-sugg">
       <div className="row" style={{ gap: 6 }}>
@@ -94,10 +96,11 @@ function Suggestion({ s, onDecide, busy, pending }: SuggestionProps) {
         <summary className="status">{s.kind === 'commit' ? 'diff' : 'fields'}</summary>
         <Markdown text={s.kind === 'commit' ? `\`\`\`diff\n${s.diff}\n\`\`\`` : `\`\`\`json\n${JSON.stringify(s.fields, null, 1)}\n\`\`\``} />
       </details>
+      {s.checks && <Checks run={s.checks} />}
       {s.error && <div className="danger status">{s.error}</div>}
       {open && (
         <div className="row" style={{ gap: 6 }}>
-          {s.state !== 'queued' && <button type="button" className={`sm primary${pendingClass(pending === 'approve')}`} disabled={busy} onClick={() => onDecide('approve')}>{s.state === 'conflict' ? 'Retry' : 'Approve'}</button>}
+          {s.state !== 'queued' && <button type="button" className={`sm primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}>{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}</button>}
           <button type="button" className={`sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}>Dismiss</button>
         </div>
       )}

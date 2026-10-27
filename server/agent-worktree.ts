@@ -356,7 +356,12 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     });
   }
 
-  return { prepare, whenReady, ownDeps, verify, briefLines: (r: Readiness) => briefLines(r, Boolean(config.devServers && 'projects' in config.devServers)) };
+  const head = async (cwd: string) => {
+    const r = await run('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(expandHome(cwd)), timeoutMs: 10000 });
+    return r.ok ? r.output.split('\n')[0].trim() : null;
+  };
+
+  return { prepare, whenReady, ownDeps, verify, head, briefLines: (r: Readiness) => briefLines(r, Boolean(config.devServers && 'projects' in config.devServers)) };
 }
 export type AgentWorktrees = ReturnType<typeof createAgentWorktrees>;
 
@@ -392,15 +397,12 @@ export function readyText(r: Readiness, why = 'checks') {
 }
 
 // what an agent reads when coco's run of the checks on its commit failed
-export function failureText(v: Verification, what: string) {
+export function failureText(v: Verification, what: string, then = 'Fix them and commit again.') {
   const failed = v.results.filter((x) => x.state === 'failed');
   return [
     `coco re-ran the checks on ${what} (${v.head.slice(0, 7)}): ${failed.map((x) => x.label).join(', ')} failed.`,
     '',
     ...failed.flatMap((x) => [`### ${x.label}: \`${x.command}\``, '', '```', x.output || '(no output)', '```', '']),
-    'Fix them and commit again.',
+    then,
   ].join('\n');
 }
-
-export const verificationLine = (v: Verification) =>
-  v.state === 'unavailable' ? `checks unavailable: ${v.why}` : v.results.map((x) => `${x.label} ${x.state}`).join(', ') || 'no check applies';

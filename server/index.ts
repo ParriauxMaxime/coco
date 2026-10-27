@@ -94,7 +94,13 @@ const agentWorktrees = createAgentWorktrees({
   log: (text) => console.log(text),
   notify: async (agentId, text) => (await threads.steerAgent(agentId, text)) || workAgents.say(agentId, text),
 });
-const agentChecks = createAgentChecks({ DATA, worktrees: agentWorktrees });
+const agentChecks = createAgentChecks({
+  DATA,
+  worktrees: agentWorktrees,
+  works,
+  post: (agentId, title, blocks) => cards.create({ agentId, kind: 'post', title, blocks }),
+  say: (agentId, text) => workAgents.say(agentId, text),
+});
 const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement, readier: agentChecks.readier });
 const lang = createLang({ REPO, config });
 const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
@@ -114,7 +120,7 @@ const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
 const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
-const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json'), onArchived: (agentId) => void briefWriter.ended(agentId).catch((e) => console.error(`brief lessons of ${agentId}: ${errorMessage(e)}`)) });
+const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json'), onArchived: (agentId) => void briefWriter.ended(agentId).catch((e) => console.error(`brief lessons of ${agentId}: ${errorMessage(e)}`)), onTurnEnded: (agentId) => void agentChecks.turnEnded(agentId).catch((e) => console.error(`checks of ${agentId}: ${errorMessage(e)}`)) });
 const devServers = createDevServers({ REPO, config, works });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});

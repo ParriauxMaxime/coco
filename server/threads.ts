@@ -19,7 +19,8 @@ import type { ActivityEvent, AgentSession, Outcome } from './paseo-agent.ts';
 import type { Block } from './blocks.ts';
 import type { ActionContext, Card, CardBody, CardEffect, ThreadHook } from './cards.ts';
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
-import type { AgentWorktrees } from './agent-worktree.ts';
+import { failureText } from './agent-worktree.ts';
+import type { AgentWorktrees, Verification } from './agent-worktree.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const SETTLE_MS = 15000;
@@ -34,7 +35,8 @@ type CommentRef = Extract<Ref, { kind: 'comment' }>;
 type Item = { id: string; title?: string; path: string; startLine: number; endLine: number; side: 'head' | 'base'; snippet: string; ctxBefore: string[]; ctxAfter: string[]; body: string; headSha?: string; mergeBase?: string };
 type ThreadPr = { head: string; sha: string; url?: string };
 type CardSuggestion = { kind: 'card'; fields: Record<string, unknown>; state: string; error?: string };
-type CommitSuggestion = { kind: 'commit'; commit: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string };
+// checks: coco's own run of the repo checks on the commit, running until it lands
+type CommitSuggestion = { kind: 'commit'; commit: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string; checks?: Verification | { state: 'running'; at: string; head: string } };
 type Suggestion = CardSuggestion | CommitSuggestion;
 // choices and picked: replies written before the agents asked through cards, shown read-only
 type Choice = { label: string; text: string; change: boolean; option?: string };
@@ -42,7 +44,8 @@ type Choice = { label: string; text: string; change: boolean; option?: string };
 type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion; choices?: Choice[]; picked?: number; card?: string; files?: UploadRef[] };
 type Asked = { msgId: string; replyPath: string; cardPath: string };
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
-type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean };
+// sentBack: a failed check already went back to the agent since the owner's last message
+type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean; sentBack?: boolean };
 type GroupBase = { id: string; model: string; agentId: string | null; items: string[]; status: string; createdAt: string; updatedAt?: string };
 type DecisionGroup = GroupBase & { kind: 'decision'; decisionId: string; n?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
@@ -81,7 +84,7 @@ type ThreadsOptions = {
   uploads?: Pick<Uploads, 'resolve' | 'record'>;
   cardsOf?: (slug: string, key: string) => Card[];
   // readies a code group's worktree before each turn and checks its commits
-  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'>;
+  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify'>>;
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
   placement?: {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
@@ -467,6 +470,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     writeGroup(slug, group);
     if (thread.groupId && thread.groupId !== group.id) leaveGroup(slug, thread.groupId, key);
     thread.messages.push({ ...msg, agentId: s.agentId, groupId: group.id, ...(seen ? { turn: 'follow-up' } : {}), ...(busy ? { steer: true } : {}) });
+    if (role === 'user') delete thread.sentBack;
     thread.groupId = group.id;
     delete thread.newGroup;
     const earlier = busy ? [...(busy.earlier || []), { msgId: busy.msgId, replyPath: busy.replyPath, cardPath: busy.cardPath }] : [];
@@ -657,11 +661,40 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         if (suggestion && lastAdded) lastAdded.suggestion = suggestion;
         else if (suggestion) added.push(message('agent', '', { ...by, suggestion }));
         else if (!added.length) added.push(message('system', 'The agent ended its turn without writing a reply.', by));
+        const cwd = readGroup(slug, waiting.groupId)?.worktree;
+        if (suggestion?.kind === 'commit' && cwd && worktrees?.verify) {
+          const holder = added.findLast((m) => m.suggestion === suggestion);
+          suggestion.checks = { state: 'running', at: new Date().toISOString(), head: suggestion.commit };
+          if (holder) setImmediate(() => verifySuggestion(slug, key, holder.id, suggestion.commit, cwd).catch((e) => addNote(slug, key, `coco could not run the checks: ${errText(e)}`.slice(0, 500))));
+        }
       }
       thread.messages.push(...added, ...notes);
       thread.waiting = final ? null : { ...waiting, earlier: asked.slice(0, -1).filter((a) => !replied.includes(a)) };
       if (final) route(slug, waiting.groupId, key, null);
       return write(slug, thread);
+    });
+  }
+
+  // coco's own run of the checks on a suggested commit: a failure goes back to the agent once per owner message, then the thread waits on the owner
+  async function verifySuggestion(slug: string, key: string, msgId: string, commit: string, cwd: string) {
+    const v = await worktrees!.verify!(cwd, { base: `${commit}^`, head: commit });
+    const { work, ref } = check(slug, key);
+    return withLock(`${slug}:${key}`, async () => {
+      const thread = read(slug, key);
+      const s = thread.messages.find((m) => m.id === msgId)?.suggestion;
+      if (s?.kind !== 'commit' || s.commit !== commit) return;
+      if (v) s.checks = v;
+      else delete s.checks;
+      if (v?.state !== 'failed') return write(slug, thread);
+      const failed = v.results.filter((x) => x.state === 'failed').map((x) => x.label).join(', ');
+      if (thread.sentBack || thread.waiting || !isOpenSuggestion(s)) {
+        thread.messages.push(message('system', `coco's checks still fail on ${commit.slice(0, 7)} (${failed}): waiting for ${Owner}. Approve stays possible.`));
+        return write(slug, thread);
+      }
+      thread.sentBack = true;
+      write(slug, thread);
+      const item = ref.kind === 'comment' ? ref.id : '';
+      await dispatch(slug, work, ref, key, { role: 'system', text: failureText(v, 'your commit for this comment', `Fix them and commit again: one commit with the trailer \`Cc-Comment: ${item}\`.`) });
     });
   }
 

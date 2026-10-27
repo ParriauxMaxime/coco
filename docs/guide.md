@@ -469,7 +469,9 @@ Each PR card carries the gates in order (`server/gates.ts`): self review,
 fixes picked, manual test, history tidy, kit (one gate per kit kind), push,
 ready for review, review-pr, triage, merged. A pill per
 gate (○ todo, ● running, ✓ done, struck through when skipped); the next
-todo is outlined. Click a pill for its detail:
+todo is outlined. Once a PR-branch agent committed, a "checks" pill leads
+the rail with coco's last run of the repo checks on its commits (✓ passed,
+✕ failed, – unavailable; see "Agent worktrees"). Click a pill for its detail:
 
 - skill gates start their skill in the PR agent through the review runner
   (`send` to the agent of the PR worktree, else a new agent there or a
@@ -680,6 +682,21 @@ config (docs/configuration.md); without it nothing changes.
   10, 15 min) and messages the agent once they work: a thread agent mid-turn
   gets it as a steer, an idle one reads the changed section with its next
   prompt, any other agent gets a message.
+- Verification: the agent runs the checks before committing, then coco
+  runs them again itself on what it committed (lint and format on the
+  changed files, the type check, the tests next to them; a check whose
+  `files` match no change, or lacking what it `needs`, is skipped). On a
+  review-comment thread, the suggested commit shows its checks (running,
+  passed, failed with the output folded under each check, unavailable with
+  why); a failure goes back to the agent once as a new turn, and if its next
+  commit fails too the thread shows it red and waits for you: Approve stays,
+  as "Approve anyway" with a confirmation. Your next message re-arms the
+  send-back. A PR-branch agent is checked when the Paseo plugin reports its
+  turn ended, on everything it committed since coco started it, once per new
+  head: the result is a card in its chat and the "checks" pill of the PR's
+  Gates rail (`agentChecks` on the stack row); a failure goes back to it
+  once, until a pass or your next message. Tracked agents live in
+  `data/agent-worktrees.json`.
 
 ## Review runs
 

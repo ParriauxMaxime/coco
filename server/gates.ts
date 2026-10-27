@@ -138,6 +138,7 @@ export function createGates({ DATA, config, works, reviewAgent, reviewPlan, agen
     return {
       key: n,
       branch,
+      agentChecks: row.agentChecks ?? null,
       gates: GATES.map((g) => {
         const stored = row.gates?.[g.id];
         const derived = derive(g.id, facts);

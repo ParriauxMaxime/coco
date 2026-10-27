@@ -116,6 +116,33 @@ test('a main checkout without node_modules does not block: the brief says the ch
   assert.equal(fs.lstatSync(path.join(wt, 'node_modules')).isSymbolicLink(), true);
 });
 
+test("coco's run of the checks on a commit: each check on the files it covers, a failure keeps its output, a check lacking what it needs is skipped", async (t) => {
+  const { main, wt } = fixture(t);
+  const commit = (file: string) => {
+    fs.mkdirSync(path.dirname(path.join(wt, file)), { recursive: true });
+    fs.writeFileSync(path.join(wt, file), 'x');
+    git(wt, 'add', file);
+    git(wt, '-c', 'user.name=bob', '-c', 'user.email=bob@acme.test', 'commit', '-qm', `touch ${file}`, '-m', 'Cc-Comment: aa11');
+    return git(wt, 'rev-parse', 'HEAD');
+  };
+  const checks = [
+    { id: 'lint', label: 'Lint', command: ['sh', '-c', 'echo linted "$0"', '{files}'], files: '\\.ts$' },
+    { id: 'types', label: 'Type check', command: ['sh', '-c', 'echo "src/a.ts(1,1): error TS2322" >&2; exit 2'], files: '\\.ts$' },
+    { id: 'css', label: 'Styles', command: ['stylelint', '{files}'], files: '\\.css$' },
+    { id: 'tests', label: 'Tests', command: ['vitest', '{tests}'], needs: ['web/node_modules'] },
+  ];
+  const aw = createAgentWorktrees({ config: settings(main, { deps: deps('true'), checks }) });
+  const head = commit('src/a.ts');
+  const v = await aw.verify(wt, { base: `${head}^`, head });
+  assert.ok(v);
+  assert.equal(v.state, 'failed');
+  assert.deepEqual(v.files, ['src/a.ts']);
+  assert.deepEqual(v.results.map((r) => [r.label, r.state]), [['Lint', 'passed'], ['Type check', 'failed'], ['Styles', 'skipped'], ['Tests', 'skipped']]);
+  assert.match(v.results[1].output ?? '', /error TS2322/);
+  assert.match(v.results[3].why ?? '', /web\/node_modules is missing/);
+  assert.equal(aw.briefLines(await aw.prepare(wt)).some((l) => /Not available yet: Tests/.test(l)), true);
+});
+
 test('a check expands to the changed files it covers and the tests next to them, relative to its folder', (t) => {
   const { wt } = fixture(t);
   fs.mkdirSync(path.join(wt, 'app/src'), { recursive: true });

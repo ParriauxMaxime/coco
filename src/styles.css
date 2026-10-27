@@ -229,6 +229,11 @@ button.danger { color: var(--red); }
 .thread-sugg { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); display: grid; gap: 6px; }
 .thread-sugg details pre { max-height: 360px; overflow: auto; font-size: 11px; }
 .thread-sugg summary { cursor: pointer; }
+.checks { display: grid; gap: 4px; }
+.checks pre { max-height: 240px; overflow: auto; font-size: 11px; margin: 4px 0 0; }
+.checks summary { cursor: pointer; }
+.gate.checks-passed { background: var(--green-bg); color: var(--green); border-color: transparent; }
+.gate.checks-failed { color: var(--red); border-color: var(--red); }
 
 /* a button whose action is in flight: label hidden, spinner in its place, width kept */
 button.pending { position: relative; color: transparent !important; pointer-events: none; }

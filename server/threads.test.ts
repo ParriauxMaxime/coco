@@ -12,14 +12,14 @@ import { createUploads } from './uploads.ts';
 import type { Uploads } from './uploads.ts';
 import { DEFAULTS } from './config.ts';
 import { briefLines } from './agent-worktree.ts';
-import type { Readiness } from './agent-worktree.ts';
+import type { Readiness, Verification } from './agent-worktree.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
 type TimelineItem = NonNullable<TimelineEvent['item']>;
 type FakeAgent = { id: string; workspaceId: string; status: string; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[] };
 type Created = { id: string; [key: string]: unknown };
 type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean; images?: unknown[]; attachments?: { fileName: string }[] };
-type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[] }[]; groupId?: string };
+type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[]; suggestion?: { checks?: { state: string } } }[]; groupId?: string };
 type Activity = { type: string; status?: string; msgId?: string; text?: string };
 
 const APP = '/opt/coco';
@@ -104,13 +104,13 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees']) {
+function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: () => { id: string; commit: string }[] = () => []) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
   const work = { slug: SLUG, title: 'Widgets', stack: [{ number: 7 }], decisions: [{ id: 'd1', title: 'Cache or not', options: [{ key: 'cache', label: 'Cache' }, { key: 'none', label: 'No cache' }] }] };
   const decided: { id: string; choice: string; rationale: string }[] = [];
   const comment = (id: string, body: string) => ({ id, path: 'src/widgets.ts', startLine: 3, endLine: 4, side: 'head' as const, snippet: 'const w = null;', ctxBefore: [], ctxAfter: [], body });
-  const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async () => [], timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
+  const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async () => trailers(), timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
   const threads = createThreads({
     DATA,
     REPO,
@@ -351,4 +351,42 @@ test('a code group readies its worktree before every turn: the first prompt name
   await until(() => daemon.calls.sent.length === 3, 'third turn');
   assert.doesNotMatch(daemon.calls.sent[2].text, /worktree and its checks/);
   assert.equal(prepared.length, 3, 'readied on every turn');
+});
+
+test("coco checks a suggested commit: a failure goes back to the agent once, a second failing commit waits on the owner, the owner's message re-arms it", async () => {
+  const ready: Readiness = { state: 'ready', root: '/wt/cc-group', deps: [], checks: [{ id: 'lint', label: 'Lint', command: 'lint <changed files>', available: true }] };
+  let commit = 'c0ffee1';
+  const verified: [string, string, string][] = [];
+  const failing = (head: string): Verification => ({ state: 'failed', at: 'now', head, files: ['src/widgets.ts'], results: [{ id: 'lint', label: 'Lint', state: 'failed', command: 'lint src/widgets.ts', output: 'no-unused-vars at src/widgets.ts:3' }] });
+  const { post, daemon, read, reply } = setup(undefined, {
+    prepare: async () => ready,
+    whenReady: () => {},
+    briefLines: (r) => briefLines(r),
+    verify: async (root, { base, head }) => (verified.push([root, base, head]), failing(head)),
+  }, () => [{ id: 'aa11', commit }]);
+  const checksOf = () => read(A).messages.findLast((m) => m.suggestion)?.suggestion?.checks;
+
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'first dispatch');
+  const agent = daemon.calls.created[0].id;
+  reply(a1.waiting.replyPath, 'Added.');
+  daemon.finish(agent);
+  await until(() => daemon.calls.sent.length === 2, 'the failure sent back');
+  assert.deepEqual(verified[0], ['/wt/cc-group', 'c0ffee1^', 'c0ffee1']);
+  assert.equal(checksOf()?.state, 'failed');
+  assert.match(daemon.calls.sent[1].text, /coco re-ran the checks on your commit for this comment \(c0ffee1\): Lint failed[\s\S]*no-unused-vars[\s\S]*Cc-Comment: aa11/);
+
+  commit = 'c0ffee2';
+  fs.writeFileSync(read(A).waiting!.replyPath, JSON.stringify({ blocks: [{ type: 'text', text: 'Fixed.' }] }));
+  daemon.finish(agent);
+  await until(() => read(A).messages.some((m) => m.role === 'system' && /still fail on c0ffee2/.test(m.text)), 'the second failure noted');
+  assert.equal(daemon.calls.sent.length, 2, 'sent back only once');
+  assert.equal(checksOf()?.state, 'failed');
+
+  commit = 'c0ffee3';
+  const a3 = await post(A, 'Try again');
+  await until(() => daemon.calls.sent.length === 3, 'owner message');
+  reply(a3.waiting.replyPath, 'Again.');
+  daemon.finish(agent);
+  await until(() => daemon.calls.sent.length === 4, 'sent back again after the owner spoke');
 });

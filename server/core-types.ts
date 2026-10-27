@@ -65,6 +65,17 @@ export interface StackRow {
   notionPage?: { url: string; title: string };
   // the Paseo workspace coco made or adopted for this row, once an agent needed its branch
   workspaceId?: string;
+  // coco's last run of the repo checks on a PR-branch agent's commits
+  agentChecks?: AgentCheck;
+}
+
+export interface AgentCheck {
+  state: 'passed' | 'failed' | 'unavailable';
+  at: string;
+  head: string;
+  agentId: string;
+  results: { label: string; state: string; why?: string }[];
+  why?: string;
 }
 
 export interface TimelineEntry {

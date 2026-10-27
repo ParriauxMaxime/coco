@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
+import Checks from '../../components/Checks.tsx';
 import type { PrKey } from '../types.ts';
 
 const POLL_MS = 60000;
 const MARK: Record<string, string> = { done: '✓', running: '●', skipped: '–', todo: '○' };
+const CHECKS = 'agent-checks';
+const CHECK_MARK: Record<string, string> = { passed: '✓', failed: '✕', unavailable: '–' };
 // a gate skill is a name, or { name, ask } when it takes "<answer> <pr>" as arguments
 const skillSpec = (s: Gate['skills'][number]) => (typeof s === 'string' ? { name: s, ask: /review-as$/.test(s) ? 'Persona login' : '' } : { name: s.name, ask: s.ask || '' });
 
@@ -39,15 +42,30 @@ export default function GateRail({ slug, n, onOpen }: { slug: string; n: PrKey; 
   if (!data) return error ? <div className="status danger">{error}</div> : null;
   const gate = data.gates.find((g) => g.id === picked);
   const next = data.gates.find((g) => g.state === 'todo');
+  const checks = data.agentChecks;
   return (
     <div className="gates">
       <div className="gate-rail">
+        {checks && (
+          <button type="button" className={`gate checks-${checks.state} ${picked === CHECKS ? 'on' : ''}`} title={`coco's checks on the last agent commit ${checks.head.slice(0, 7)}: ${checks.state}`} onClick={() => setPicked(picked === CHECKS ? null : CHECKS)}>
+            {CHECK_MARK[checks.state] || '○'} checks
+          </button>
+        )}
         {data.gates.map((g) => (
           <button key={g.id} type="button" className={`gate ${g.state} ${picked === g.id ? 'on' : ''} ${next === g ? 'next' : ''}`} title={`${g.label}: ${g.state}${g.reason ? ` (${g.reason})` : ''}${g.derived != null ? ' · derived from GitHub/git' : ''}`} onClick={() => setPicked(picked === g.id ? null : g.id)}>
             {g.state === 'running' ? <span className="spinner" aria-hidden /> : MARK[g.state]} {g.label}
           </button>
         ))}
       </div>
+      {checks && picked === CHECKS && (
+        <div className="gate-detail">
+          <div className="row">
+            <b>checks</b>
+            <span className="status">coco's run on agent {checks.agentId.slice(0, 8)}'s commits up to {checks.head.slice(0, 7)} · {checks.at.slice(0, 16).replace('T', ' ')}</span>
+          </div>
+          <Checks run={checks} />
+        </div>
+      )}
       {gate && (
         <div className="gate-detail">
           <div className="row">
