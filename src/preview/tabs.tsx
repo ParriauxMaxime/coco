@@ -20,6 +20,11 @@ import FindingsView from './FindingsView.tsx';
 import DecisionsView, { decisionCounts } from './DecisionsView.tsx';
 import NotesView from './NotesView.tsx';
 import ArtifactsView from './ArtifactsView.tsx';
+import ArtifactView from './ArtifactView.tsx';
+import BriefView, { briefKeyOfTab } from './BriefView.tsx';
+import RunView from './RunView.tsx';
+import StackRunView from './StackRunView.tsx';
+import { baseName, keyLabel } from '../workbench/code/ids.ts';
 import type { PreviewData } from './data.ts';
 
 export type PreviewCtx = { d: PreviewData; selected: string | null; select: (key: string) => void; openPr: (key: string) => void };
@@ -121,6 +126,14 @@ const agentDef = (id: string): TabDef | null => {
   return { title: (c) => agentTitle(c.slug, id), Component: id.startsWith('ag-') ? PaseoAgentTab : AskAgentTab, flush: true, icon: <AgentTabIcon id={id} /> };
 };
 
+const runDef = (id: string): TabDef | null => {
+  if (id.startsWith('artifact-')) return { title: () => id.slice(9), Component: ArtifactView, flush: true };
+  if (id.startsWith('brief-')) return { title: () => `Agent ${baseName(keyLabel(briefKeyOfTab(id)))}`, tip: () => keyLabel(briefKeyOfTab(id)), Component: BriefView, flush: true };
+  if (id.startsWith('agent-')) return { title: () => `Agent ${id.slice(6, 14)}`, Component: RunView, flush: true };
+  if (id.startsWith('stack-')) return { title: () => `Stack fix ${id.slice(6, 14)}`, Component: StackRunView, flush: true };
+  return null;
+};
+
 const ICONS: [RegExp, IconName][] = [
   [/^plan$/, 'home'], [/^stack$/, 'list'], [/^findings/, 'flag'], [/^waiting$/, 'inbox'], [/^pr-/, 'git-pull-request'],
   [/^ask(-new-.*)?$/, 'bot'], [/^decisions$/, 'scale'], [/^timeline$/, 'history'], [/^notes$/, 'notebook'], [/^artifacts$/, 'folder'],
@@ -128,7 +141,7 @@ const ICONS: [RegExp, IconName][] = [
 ];
 
 export function previewTabDef(id: string): TabDef {
-  const def = VIEWS[id] || agentDef(id) || (id.startsWith('pr-') ? { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
+  const def = VIEWS[id] || agentDef(id) || runDef(id) || (id.startsWith('pr-') ? { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
   const icon = ICONS.find(([re]) => re.test(id))?.[1];
   return icon && !def.icon ? { ...def, icon: <Icon name={icon} size={14} /> } : def;
 }

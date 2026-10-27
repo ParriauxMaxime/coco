@@ -19,7 +19,8 @@ import type { ActivityEvent, AgentMetrics, UploadRef } from '../types.ts';
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
 
-function Header({ title, kind, pr, state, agentId, metrics }: { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null }) {
+type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode };
+export function Header({ title, kind, pr, state, agentId, metrics, chips }: HeaderProps) {
   const href = paseoLink(useServerId(useWork().slug), agentId);
   const usage = metrics ? usageLine(metrics) : '';
   return (
@@ -28,6 +29,7 @@ function Header({ title, kind, pr, state, agentId, metrics }: { title: string; k
       <span className="dp-title dp-ell">{title}</span>
       <span className="dp-chip">{kind}</span>
       {pr && <span className="dp-chip">{prLabel(pr)}</span>}
+      {chips}
       <span className="dp-xs dp-t3">{STATE_LABEL[state]}</span>
       <span className="dp-sp" />
       {usage && metrics && <span className="dp-xs dp-t3 dp-ag-usage" title={usageTitle(metrics)}>{usage}</span>}
@@ -127,30 +129,46 @@ function useAgentChat(agentId: string) {
   return { events, pending, send, cards, merge };
 }
 
-// ag-<agent>: a review, fix, gate, brief or linked agent
-export function PaseoAgentTab({ tabId }: { tabId: string }) {
-  const { slug } = useWork();
-  const agentId = tabId.slice(3);
+const NOTE_ONLY = ['meta', 'stderr'];
+
+// an agent's chat under any header: lead on top, its timeline, permissions, open cards and composer;
+// fallback follows when Paseo has no timeline for it (only notes came back)
+type TranscriptProps = { agentId: string; state: AgentState; who: string; lead?: React.ReactNode; fallback?: React.ReactNode };
+export function AgentTranscript({ agentId, state, who, lead, fallback }: TranscriptProps) {
   const { events, pending, send, cards, merge } = useAgentChat(agentId);
-  const listed = useWorkAgent(slug, tabId);
-  const { pending: asked } = usePendingPermissions();
-  const state = listed ? stateOf(listed, asked) : 'done';
+  const gone = events.length > 0 && events.every((e) => NOTE_ONLY.includes(e.type));
   const archived = state === 'archived';
   return (
-    <div className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} />
+    <>
       <Log size={events.length + pending.length + cards.length}>
-        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running'} who={listed?.kind || 'agent'} cards={cards} onCard={merge} />
+        {lead}
+        <Conversation run={{ id: agentId, prompt: '' }} events={events} pending={pending} working={state === 'running' && !gone} who={who} cards={cards} onCard={merge} />
+        {gone && fallback}
         <PendingPermissions agentId={agentId} />
       </Log>
       <CardsWaiting cards={cards} />
       <Composer
-        placeholder={archived ? 'This agent is archived' : 'Message this agent (↵, ⇧↵ new line)'}
+        placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
         note={archived ? 'Archived: + in Agents starts a new one' : state === 'running' ? 'Sends while it works' : ''}
-        disabled={archived}
+        disabled={archived || gone}
         onSend={send}
         onStop={state === 'running' ? () => api.agentStop(agentId) : undefined}
       />
+    </>
+  );
+}
+
+// ag-<agent>: a review, fix, gate, brief or linked agent
+export function PaseoAgentTab({ tabId }: { tabId: string }) {
+  const { slug } = useWork();
+  const agentId = tabId.slice(3);
+  const listed = useWorkAgent(slug, tabId);
+  const { pending: asked } = usePendingPermissions();
+  const state = listed ? stateOf(listed, asked) : 'done';
+  return (
+    <div className="dp-tabview dp-agtab">
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} />
+      <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />
     </div>
   );
 }

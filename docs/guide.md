@@ -731,8 +731,13 @@ from `git worktree list` in the repo:
   --worktree-mode checkout-pr --pr-number <n>`.
 
 Sent comments get `status: sent` and the run id, the work timeline gets an
-`agent` entry, and an `agent-<runId>` tab shows the brief and the agent logs
-(`paseo logs`, every 5 s while running).
+`agent` entry, and an `agent-<runId>` tab shows the run (mode, status, comments,
+commit mode, provider, place), the brief folded, then the agent's transcript
+with its usage, permissions and composer, the same chat as its `ag-<agent>`
+tab; when Paseo no longer knows the agent, its last `paseo logs` lines
+instead (every 5 s while running). A `stack-<runId>` tab does the same for a
+stack fix, with a line per row (branch, comments, tip before → after,
+restacked, error).
 
 Results come back on each `GET …/review-runs` (see below): first the result
 JSON the brief asks for, `[{id, status, commit, note}]` in
@@ -963,7 +968,8 @@ Colours go through the CSS variables in `src/styles.css` (dark values under `htm
   `plan` (overview), `stack`, `findings`, `waiting`, `pr-<n>` (PR details),
   `review-<n>` (review hub), `diff-<n>~<path>` (a changed file of PR n),
   `file-<n>~<path>` (any file at the PR head), `artifacts`,
-  `artifact-<name>`, `agent-<runId>` (a review run), `ask` (new agent),
+  `artifact-<name>`, `agent-<runId>` (a review run), `stack-<runId>` (a
+  stack fix), `brief-<n>` (the PR's brief and agent), `ask` (new agent),
   `decisions`, `rules`, `timeline`, `notes`. Tabs live in editor groups
   laid out like VS Code: a tree of horizontal and vertical splits, any
   depth, a 6 px handle on every split. One tab id exists once across all

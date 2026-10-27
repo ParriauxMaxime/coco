@@ -225,10 +225,6 @@
   .rv-main { padding: 0 8px 40vh; }
 }
 
-/* agent run */
-.ar { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; min-height: 100%; }
-.ar-log { flex: 1; min-height: 240px; max-height: 70vh; margin: 0; padding: 10px 12px; overflow: auto; background: var(--code-bg); color: var(--code-ink); border-radius: var(--r); font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
-
 /* Review plan and reading order */
 .rv-plan { flex: none; max-height: 40%; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--line-2); font-size: 12px; }
 .rv-plan .sub { margin: 0; font-size: 12px; }

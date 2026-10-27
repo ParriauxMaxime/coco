@@ -1,20 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import Markdown from '../../components/Markdown.tsx';
-import Collapsible from '../../components/Collapsible.tsx';
-import { PendingPermissions } from '../../components/PermissionCard.tsx';
-import { useWork } from '../use-work.ts';
+import { useEffect, useState } from 'react';
 import { useWorkbench } from '../workbench-store.ts';
-import { reviewApi, loadReview } from './use-comments.ts';
+import { reviewApi } from './use-comments.ts';
 import { keyLabel } from './ids.ts';
 import { useConfig } from '../../config.ts';
 import { pendingClass } from '../../components/action.ts';
 import { errorMessage } from '../../api.ts';
-import type { StackFixOpenRow, StackFixRun, StackFixRunRow, StackFixState } from '../types.ts';
+import type { StackFixOpenRow, StackFixRun, StackFixState } from '../types.ts';
 import './code.css';
 
 const POLL_MS = 5000;
 const STATUS_CHIP: Record<string, string> = { running: 'c-orange', done: 'c-green', failed: 'c-red' };
-const short = (sha?: string) => (sha ? sha.slice(0, 9) : '…');
 
 export function useStackFix(slug: string, live: boolean) {
   const [state, setState] = useState<StackFixState>({ runs: [], open: [] });
@@ -86,58 +81,6 @@ export function FixDialog({ slug, open, select, onClose, onSent }: FixDialogProp
           <button className={`sm primary${pendingClass(busy)}`} disabled={busy || !total} onClick={send}>Start</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-const RowLine = ({ row, i }: { row: StackFixRunRow; i: number }) => (
-  <li>
-    <code>{i + 1}</code> {row.branch} · {row.commentIds.length} comments · {short(row.tipBefore)} → {short(row.tipAfter)}
-    {row.restacked && <span className="chip c-blue">restacked</span>}
-    {row.error && <span className="chip c-red" title={row.error}>{row.error.slice(0, 80)}</span>}
-  </li>
-);
-
-export default function StackRun({ tabId }: { tabId: string }) {
-  const { slug } = useWork();
-  const id = tabId.slice(6);
-  const active = useWorkbench((s) => s.groups.some((g) => g.active === tabId));
-  const { runs } = useStackFix(slug, active);
-  const run = runs.find((r) => r.id === id);
-  const [brief, setBrief] = useState<string | null>(null);
-  const [out, setOut] = useState('');
-  const pre = useRef<HTMLPreElement>(null);
-  const done = run && run.status !== 'running';
-  useEffect(() => { reviewApi.stackFixBrief(slug, id).then(setBrief); }, [slug, id]);
-  useEffect(() => {
-    if (!run?.agentId || !active) return undefined;
-    let on = true;
-    const tick = () => reviewApi.stackFixLogs(slug, id).then((l) => on && setOut(l.out || ''), (e) => on && setOut(errorMessage(e)));
-    tick();
-    if (done) return () => { on = false; };
-    const t = setInterval(tick, POLL_MS);
-    return () => { on = false; clearInterval(t); };
-  }, [slug, id, run?.agentId, active, done]);
-  useLayoutEffect(() => { if (pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [out]);
-  useEffect(() => { if (run && done) run.rows.forEach((r) => loadReview(slug, r.key)); }, [done]);
-
-  if (!run) return <div className="sub">Loading stack fix…</div>;
-  return (
-    <div className="ar">
-      <div className="row">
-        <b>Stack fix <code>{id}</code></b>
-        <span className="chip c-grey">{run.mode}</span>
-        <span className={`chip ${STATUS_CHIP[run.status] || 'c-grey'}`}>{run.status}</span>
-        {run.pushWarned && <span className="chip c-red">remote head moved</span>}
-      </div>
-      <div className="status" style={{ margin: '4px 0 8px' }}>
-        started {new Date(run.startedAt).toLocaleString()}{run.finishedAt ? ` · finished ${new Date(run.finishedAt).toLocaleTimeString()}` : ''} · {run.commits === 'squash' ? 'one commit per row' : 'one commit per comment'} · {run.provider} · agent <code>{(run.agentId || '?').slice(0, 8)}</code>{run.cwd ? <> · <code>{run.cwd}</code></> : null}
-      </div>
-      <ul className="sd-list">{run.rows.map((row, i) => <RowLine key={row.key} row={row} i={i} />)}</ul>
-      {brief && <Collapsible title="Brief sent to the agent" badge={run.briefPath?.split('/').pop()}><Markdown text={brief} /></Collapsible>}
-      {run.agentId && <PendingPermissions agentId={run.agentId} />}
-      <h3>Logs {done ? '' : '· live every 5 s'}</h3>
-      <pre ref={pre} className="ar-log">{out || '…'}</pre>
     </div>
   );
 }

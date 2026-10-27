@@ -9,7 +9,7 @@ import { focusOldestCard } from './chat/Card.tsx';
 import { PersonaChip } from '../components/PersonaChip.tsx';
 import GateRail from '../workbench/tabs/Gates.tsx';
 import KitLine from '../workbench/tabs/KitLine.tsx';
-import { briefKeyOfTab } from '../workbench/tabs/Brief.tsx';
+import { briefKeyOfTab } from './BriefView.tsx';
 import { openCodeAt } from '../workbench/tabs/Code.tsx';
 import ReviewActivity from '../workbench/code/ReviewActivity.tsx';
 import { useComments } from '../workbench/code/use-comments.ts';
