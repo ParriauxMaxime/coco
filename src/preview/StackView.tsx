@@ -70,7 +70,7 @@ function Row({ d, pr, index, selected, narrow, dispatching, onSelect, onOpen, on
       {!narrow && <span className="dp-c-ag"><AgentsCell d={d} pr={pr} /></span>}
       {!narrow && <span className="dp-c-dev">{d.dev.data?.on && <DevServerCell slug={d.slug} row={devOf(d, pr)} onChange={d.dev.reload} />}</span>}
       <span className="dp-c-go" ref={pop} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-        <button type="button" className="dp-ibtn" title={state === 'planned' ? 'Open with an agent' : 'Dispatch an agent'} onClick={onDispatch}><Icon name="play" size={14} /></button>
+        <button type="button" className="dp-ibtn" title={state === 'planned' ? 'Open with an agent' : 'Start an agent'} onClick={onDispatch}><Icon name="play" size={14} /></button>
         {dispatching && (
           <div className="dp-pop dp-on">
             <DispatchMenu slug={d.slug} prKey={key} personas={pr.personas} onClose={onClose} />

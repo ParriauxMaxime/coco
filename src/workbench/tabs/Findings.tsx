@@ -150,7 +150,7 @@ function Footer({ r, slug, verdicts, focus, onAct, pending }: { r: FindingRow; s
   return (
     <div className="fd-foot thread">
       {r.path && r.n != null && r.status === 'new'
-        ? <ThreadComposer withModel busy={Boolean(pending) || sending} pending={sending ? 'send' : pending} sendLabel="Accept & dispatch" verdicts={verdicts} autoFocus={focus} placeholder="Ask a scoped agent about it or for a fix; Dismiss uses this text as its reason (markdown, ↵)" onSend={dispatch} />
+        ? <ThreadComposer withModel busy={Boolean(pending) || sending} pending={sending ? 'send' : pending} sendLabel="Accept & ask agent" verdicts={verdicts} autoFocus={focus} placeholder="Ask a scoped agent about it or for a fix; Dismiss uses this text as its reason (markdown, ↵)" onSend={dispatch} />
         : <div className="row" style={{ gap: 6 }}><span className="cc-spacer" />{verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}${pendingClass(v.pending)}`} title={v.title} disabled={Boolean(pending)} onClick={() => v.on('')}>{v.label}</button>)}</div>}
     </div>
   );
@@ -194,7 +194,7 @@ function Row({ i, r, slug, picked, onPick, onAct, pending, leaving = NONE, flash
         {!showBody && toDismiss.length > 0 && <button type="button" className={`cc-ib no${pendingClass(inFlight === 'dismiss')}`} disabled={Boolean(inFlight)} title={`Dismiss${all} with a one-line reason`} onClick={() => onAct('dismiss', toDismiss)}>✕</button>}
         {!showBody && r.status === 'dismissed' && <button type="button" className={`cc-ib${pendingClass(inFlight === 'reopen')}`} disabled={Boolean(inFlight)} title="Reopen" onClick={() => onAct('reopen', [r.key])}>↺</button>}
         {r.url && <a className="cc-ib" href={r.url} target="_blank" rel="noreferrer" title="Open on GitHub">↗</a>}
-        {!showBody && (r.commentId || (r.path && r.status === 'new')) && <button type="button" className="thread-toggle" title="Unfold and write to a scoped agent" onClick={unfold}>💬 dispatch</button>}
+        {!showBody && (r.commentId || (r.path && r.status === 'new')) && <button type="button" className="thread-toggle" title="Unfold and write to a scoped agent" onClick={unfold}>💬 ask an agent</button>}
       </span>
       {showBody && <div className="fd-body">{r.blocks ? <FindingBody r={r} /> : <Markdown text={r.body} />}{r.resolution?.note && <div className="status">{r.resolution.commit ? `${String(r.resolution.commit).slice(0, 7)} · ` : ''}{r.resolution.note}</div>}</div>}
       {r.dismissed && <div className="fd-body status">dismissed on {day(r.dismissed.at)}{r.dismissed.reason ? `: ${r.dismissed.reason}` : ''}</div>}
@@ -329,7 +329,7 @@ export default function Findings({ tabId }: { tabId: string }) {
           <span className="cc-spacer" />
           {lastRun && <StackRunLink run={lastRun} onOpen={openRun} />}
           <button type="button" className="sm primary" disabled={!toFix || lastRun?.status === 'running'} title="One agent fixes every accepted, still open finding of the stack, with your notes and threads" onClick={() => setFixing(true)}>Fix accepted ({toFix})</button>
-          <button type="button" className={`sm${dispatching ? ' on' : ''}`} title="Start an agent on a PR: ask, persona review, fix findings (the picked ones), a gate run or a free prompt" onClick={() => setDispatching(!dispatching)}>dispatch ▾</button>
+          <button type="button" className={`sm${dispatching ? ' on' : ''}`} title="Start an agent on a PR: ask, persona review, fix findings (the picked ones), a gate run or a free prompt" onClick={() => setDispatching(!dispatching)}>agent ▾</button>
           <span className="rv-seg">{GROUP_BY.map((v) => <button key={v} type="button" className={groupBy === v ? 'on' : ''} onClick={() => setGroupBy(v)}>{v}</button>)}</span>
           <span className="rv-seg">{VIEWS.map((v) => <button key={v} type="button" className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v}</button>)}</span>
           <button type="button" className="sm" disabled={busy} onClick={() => load(true)}>↻</button>

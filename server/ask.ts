@@ -535,7 +535,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         const on = p.pr == null ? 'the whole work' : key == null ? String(p.pr) : keyLabel(key);
         const blocks: Raw[] = [{ type: 'text', text: `work \`${slug}\` · on ${on}${p.persona ? ` · as \`${p.persona}\`` : ''}${p.edits ? ' · works on the PR branch' : ''}` }];
         if (p.prompt) blocks.push({ type: 'code', code: cut(p.prompt, 4000), caption: 'Prompt' });
-        return { input: p, card: { kind: 'confirm', title: cut(`Dispatch ${p.entry} on ${on}`, 120), question: p.why, blocks, confirmLabel: 'Dispatch' } };
+        return { input: p, card: { kind: 'confirm', title: cut(`Start agent: ${p.entry} on ${on}`, 120), question: p.why, blocks, confirmLabel: 'Start agent' } };
       },
       run: async (card) => {
         const p = dispatchOf(card.action?.input ?? {}, String(card.action?.input.workSlug));

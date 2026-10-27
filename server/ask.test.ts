@@ -348,7 +348,7 @@ test('a proposal card shows what the agent proposes, is refused when it cannot r
   assert.equal(JSON.parse(told[0].split('```json\n')[1].split('\n```')[0]).result.link, '#/work/csv-export');
 
   const rejected = await propose('dispatch', { entry: 'ask', pr: 12, prompt: 'What is left?' });
-  assert.equal(rejected.title, 'Dispatch ask on #12');
+  assert.equal(rejected.title, 'Start agent: ask on #12');
   const no = await cards.answer(rejected.id, { approved: false, other: 'Not now' });
   assert.deepEqual([no.result, dispatched], [undefined, []]);
   const failed = await cards.answer((await propose('dispatch', { entry: 'broken' })).id, { approved: true });

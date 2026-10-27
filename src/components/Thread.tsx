@@ -43,10 +43,10 @@ const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model}${g.files ? ` · ${
 export const threadLabel = (s: ThreadSummary | undefined, idle: string) => (s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle);
 
 type ToggleProps ={ slug: string; threadKey: string; open?: boolean; onClick: () => void; label?: string };
-export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'discuss or dispatch' }: ToggleProps) {
+export function ThreadToggle({ slug, threadKey: key, open, onClick, label: idle = 'ask an agent' }: ToggleProps) {
   const s = useThreadSummary(slug, key);
   const label = threadLabel(s, idle);
-  return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: dispatch a scoped agent on it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
+  return <button type="button" className={`thread-toggle ${open ? 'on' : ''} ${s?.open || s?.asks ? 'hot' : ''}`} title="One box: ask a scoped agent about it, or leave a remark with your verdict" onClick={onClick}>{s?.waiting ? <span className="spinner" aria-hidden /> : '💬'} {label}</button>;
 }
 
 // options of a reply written before agents asked through cards: shown as they were, read-only
@@ -231,9 +231,9 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   return (
     <div className="thread">
       <div className="row thread-group">
-        <span className="status">{group ? `group ${groupLabel(group)}` : thread.newGroup ? 'new group on next dispatch' : decision || plan ? 'no agent yet: the first dispatch starts one' : 'no group yet: joins the one on the same file, or starts one'}</span>
+        <span className="status">{group ? `group ${groupLabel(group)}` : thread.newGroup ? 'a new agent group on the next message' : decision || plan ? 'no agent yet: the first message starts one' : 'no group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (
-          <span className={`chip ${thread.agent.live ? 'c-green' : 'c-grey'}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next dispatch starts a new one with the whole thread'}>
+          <span className={`chip ${thread.agent.live ? 'c-green' : 'c-grey'}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
             {thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
           </span>
         )}
@@ -275,7 +275,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         busy={false}
         pending={pending}
         withModel={!group}
-        sendLabel={!group ? 'Dispatch' : waiting ? 'Send while it works' : 'Send'}
+        sendLabel={!group ? 'Start agent' : waiting ? 'Send while it works' : 'Send'}
         verdicts={verdicts}
         autoFocus={autoFocus}
         placeholder={waiting ? 'Write while it works: the message reaches the agent mid-turn (markdown, ↵)' : thread.messages.length ? 'Reply or ask for a change (markdown, ↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ↵)' : decision ? 'Ask about the card or for a card change (markdown, ↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ↵)'}
@@ -301,7 +301,7 @@ type ComposerProps = {
   onStop?: () => Promise<unknown>;
   autoFocus?: boolean;
 };
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false }: ComposerProps) {
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start agent', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false }: ComposerProps) {
   const [model, setModel] = useState('sonnet');
   return (
     <Composer

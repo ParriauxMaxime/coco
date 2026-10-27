@@ -55,7 +55,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
   const state = prState(pr);
   const numbered = Boolean(pr.number);
   const ci = pr.ci ? CI_CHIP[pr.ci] : undefined;
-  const summary = userFacing(pr.body) || pr.planned?.scope || (state === 'planned' ? 'Not opened yet. Dispatch an agent to open it as a draft on top of the stack.' : '');
+  const summary = userFacing(pr.body) || pr.planned?.scope || (state === 'planned' ? 'Not opened yet. Start an agent to open it as a draft on top of the stack.' : '');
   const branch = pr.head || pr.planned?.branch;
   const agents = agentsOf(d, pr);
   const waiting = pendingOf(d, pr);
@@ -150,7 +150,7 @@ export default function Inspector({ d, prKey: key, onClose, asTab }: { d: Previe
         )}
       </div>
       <div className="dp-ins-actions">
-        <button type="button" className="dp-btn dp-split" onClick={() => setDispatching(!dispatching)}><Icon name="play" size={14} />Dispatch<Icon name="chevron-down" size={12} /></button>
+        <button type="button" className="dp-btn dp-split" onClick={() => setDispatching(!dispatching)}><Icon name="bot" size={14} />Agent<Icon name="chevron-down" size={12} /></button>
         {dispatching && (
           <div className="dp-pop dp-on">
             <DispatchMenu slug={d.slug} prKey={key} personas={owners} onClose={() => setDispatching(false)} />

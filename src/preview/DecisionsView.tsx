@@ -143,7 +143,7 @@ export function DecisionDetail({ d, slug, pr, onOpenPr, onDecide, onReload, talk
           <button type="button" className={`dp-btn dp-primary${pendingClass(pending === 'take')}`} disabled={busy || !validChoice(d, choice)} title={d.rows ? 'Every row needs a pick' : undefined} onClick={() => act('take', { id: d.id, choice, rationale })}><Icon name="check" size={14} />Take decision</button>
         )}
         <button type="button" className={`dp-btn dp-ghost${pendingClass(pending === 'archive')}`} disabled={busy} title={archived ? 'Back to the live decisions' : 'Overtaken by later work: out of counts, briefs and the review feed'} onClick={() => act('archive', { id: d.id, archived: !archived })}><Icon name="archive" size={14} />{archived ? 'Unarchive' : 'Archive'}</button>
-        <button type="button" className={`dp-btn dp-ghost dp-dc-talk${showThread ? ' dp-on' : ''}${summary?.asks ? ' dp-dc-hot' : ''}`} aria-expanded={showThread} title="Dispatch a scoped agent on this decision, or ask about it" onClick={() => setTalking(!showThread)}><Icon name="message-square" size={14} />{threadLabel(summary, 'Discuss or dispatch')}</button>
+        <button type="button" className={`dp-btn dp-ghost dp-dc-talk${showThread ? ' dp-on' : ''}${summary?.asks ? ' dp-dc-hot' : ''}`} aria-expanded={showThread} title="Ask a scoped agent about this decision" onClick={() => setTalking(!showThread)}><Icon name="message-square" size={14} />{threadLabel(summary, 'Ask an agent')}</button>
       </div>
       {showThread && <div className="dp-dc-thread"><Thread slug={slug} threadKey={key} onSettled={onReload} /></div>}
     </CodeRefScope>

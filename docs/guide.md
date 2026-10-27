@@ -267,7 +267,7 @@ The server normalizes the plan: each changed file appears once, and files the
 plan leaves out go to skim. It is stored with its head sha in
 `data/works/<slug>/reviews/pr-<n>-plan.json`. When the head moves, the plan
 is flagged "head moved" and "Re-plan" redoes it in full. "💬 ask or re-plan"
-opens the plan's thread (`p.<row key>`): **Dispatch** asks a scoped agent
+opens the plan's thread (`p.<row key>`): **Start agent** asks a scoped agent
 about the plan (read-only, through git at the plan's head), **↻ Re-plan with
 this** re-runs the plan with the text as guidance (`POST
 …/review-plan { guidance }`).
@@ -326,9 +326,9 @@ an open local comment at the head (a finding without a file is only marked
 accepted; an open comment is marked accepted); dismiss asks a one-line reason
 (declines a comment, dismisses a watch point, otherwise a `## Review remarks`
 line). An unfolded finding ends on its agent thread with the composer open:
-Dispatch (or "Accept & dispatch" for a finding not yet a comment), then
+Start agent (or "Accept & ask agent" for a finding not yet a comment), then
 ✓ Accept, ✕ Dismiss (the typed text is the reason) or ↺ Reopen; a folded
-row keeps ✓ ✕ and 💬 dispatch, which unfolds it and focuses the composer.
+row keeps ✓ ✕ and 💬 ask an agent, which unfolds it and focuses the composer.
 While the group's agent is alive and has seen the thread ("agent live"),
 a message goes out as a new turn only (the message, what changed since its
 last answer, the reply path), not the whole brief again. Accept or dismiss
@@ -587,9 +587,9 @@ global | work | pr, pr }`.
 
 ## Agent threads
 
-"💬 discuss or dispatch" on a review comment, a watch point or a decision
+"💬 ask an agent" on a review comment, a watch point or a decision
 card, and "💬 ask or re-plan" on the review plan, open the item's one text
-box: **Dispatch** sends the text to a small scoped agent (`models.fast` by
+box: **Start agent** sends the text to a small scoped agent (`models.fast` by
 default, `models.default` for deep work); on a comment, **✓ Resolve** / **✕ Decline** close it
 with the text as reason (saved in the work notes). There is no separate
 remark box. The agent answers inline and suggests a change; you approve or
@@ -797,7 +797,7 @@ Proposals are cards too. `propose_work_scaffold`, `propose_paseo_agent`,
 `dispatch` and `propose_repo` post a confirm card that coco builds from the
 proposal (stack, surfaces, open questions and flags as tables, the brief or
 prompt as code); its button says what it does (**Create work**, **Update
-work**, **Start agent**, **Dispatch**, **Add repo**) and pressing it runs it
+work**, **Start agent**, **Add repo**) and pressing it runs it
 there. An update of a work that already has a stack asks, with a toggle,
 whether the planned stack replaces it. The card then shows the outcome with
 an **Open** link to the work, the agent's tab or the repo, and the agent
