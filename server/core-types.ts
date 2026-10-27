@@ -149,6 +149,8 @@ export interface ArtifactMeta {
   kind: string | null;
   headSha: string | null;
   at: string;
+  // demo beats the video agent could not show, from the lem-demo-video render report
+  blocked?: { beat: string; what: string; unblock: string }[];
 }
 
 export interface Artifact {

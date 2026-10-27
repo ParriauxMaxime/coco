@@ -1,18 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDrift } from './drift.ts';
-import type { PrInfo, RowKey, Work } from './core-types.ts';
+import type { Artifact, PrInfo, RowKey, Work } from './core-types.ts';
 
 type Piece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 const piece = (id: string, state: string, extra: Partial<Piece> = {}): Piece => ({ id, label: id, state, madeFor: null, at: null, source: null, ...extra });
-type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[] };
+type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[] };
 
-const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas }: Setup = {}) => {
+const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [] }: Setup = {}) => {
   const work = { slug: 'w', title: 'W', stack: stack || [{ number: 1, personas: ['alice'] }], personas } as unknown as Work;
   const info = (n: number): PrInfo => ({ number: n, state: 'OPEN', head: `b${n}`, base: 'main', headOid: `remote${n}`, ...prs[n] });
   return createDrift({
     config: { repo: { path: '/repo', github: 'o/r', defaultBranch: 'main' }, kitKinds: ['body', 'diagram', 'video'], gateSkills: { 'kit-body': ['lem-pr'], 'kit-video': ['lem-demo-video'] } } as never,
-    works: { get: () => work, prInfo: async (n) => info(n as number) },
+    works: { get: () => work, prInfo: async (n) => info(n as number), listArtifacts: () => artifacts },
     kit: { view: async () => ({ pieces }) },
     reviewAgent: {
       branchSha: async (b) => tips[b] ?? null,
@@ -55,6 +55,13 @@ test('GitHub bases that differ from the work order are flagged with the gh comma
   assert.deepEqual(d.drift.map((i) => [i.kind, i.key]), [['stack', 2], ['stack-missing', 9]]);
   assert.deepEqual(d.drift[0].action, { type: 'copy', command: 'gh pr edit 2 --repo o/r --base b1', label: 'Copy base fix' });
   assert.deepEqual(await kinds(make({ stack, prs: { 2: { base: 'b1' } }, open: [{ number: 2, baseRefName: 'b1', headRefName: 'b2' }] })), []);
+});
+
+test('blocked demo beats of the latest video of a PR show, older videos and other PRs do not', async () => {
+  const video = (name: string, pr: string, at: string, beats: string[]): Artifact => ({ name, isDir: false, size: 1, mtime: at, url: '', files: [], meta: { pr, kind: 'video', headSha: null, at, blocked: beats.map((beat) => ({ beat, what: 'no LLM key', unblock: 'set the key' })) } });
+  const artifacts = [video('old.mp4', '1', '2026-10-01', ['old beat']), video('new.mp4', '1', '2026-10-02', ['lemAgent archives']), video('other.mp4', '2', '2026-10-03', ['x'])];
+  const items = (await make({ artifacts }).view('w', true)).drift;
+  assert.deepEqual(items.map((i) => [i.kind, i.text]), [['video-blocked-0', 'Demo beat "lemAgent archives" blocked: no LLM key. Unblock: set the key']]);
 });
 
 test('a merged parent does not count as the base: the next open PR is expected on the default branch', async () => {

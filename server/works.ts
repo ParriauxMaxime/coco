@@ -242,6 +242,19 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     });
   }
 
+  // lem-demo-video writes <name>.report.json next to <name>.mp4 (or in the imported folder)
+  function blockedBeats(abs: string): NonNullable<ArtifactMeta['blocked']> {
+    const dir = fs.statSync(abs).isDirectory();
+    const report = dir ? fs.readdirSync(abs).find((f) => f.endsWith('.report.json')) : `${abs.replace(/(\.draft)?\.mp4$/, '')}.report.json`;
+    const file = report && (dir ? path.join(abs, report) : report);
+    try {
+      const list = file ? JSON.parse(fs.readFileSync(file, 'utf8'))?.lint?.blocked : null;
+      return Array.isArray(list) ? list.slice(0, 20).map((b) => ({ beat: String(b.beat ?? '').slice(0, 120), what: String(b.what ?? '').slice(0, 400), unblock: String(b.unblock ?? '').slice(0, 300) })) : [];
+    } catch {
+      return [];
+    }
+  }
+
   async function importArtifact(slug: string, src: string, label: string | undefined, { pr, kind, headSha }: ArtifactSource = {}) {
     const abs = path.resolve(src.replace(/^~/, HOME));
     if (!config.importRoots.some((r) => abs === r || abs.startsWith(r + path.sep))) throw new Error(`source outside allowed roots: ${abs}`);
@@ -251,7 +264,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     const dest = path.join(artDir(slug), name);
     fs.cpSync(abs, dest, { recursive: true });
     const sha = pr && !headSha && /^\d+$/.test(String(pr)) ? (await prInfo(Number(pr))).sha : headSha;
-    if (pr || kind) setArtifactMeta(slug, name, { pr: pr ? String(pr) : null, kind: kind && config.kitKinds.includes(kind) ? kind : null, headSha: sha || null });
+    const blocked = kind === 'video' ? blockedBeats(abs) : [];
+    if (pr || kind) setArtifactMeta(slug, name, { pr: pr ? String(pr) : null, kind: kind && config.kitKinds.includes(kind) ? kind : null, headSha: sha || null, ...(blocked.length ? { blocked } : {}) });
     const work = get(slug);
     if (!work) throw new Error('no such work');
     work.timeline = work.timeline || [];

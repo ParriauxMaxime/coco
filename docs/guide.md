@@ -495,6 +495,10 @@ coco starts nothing by itself.
   GitHub's commits.
 - A stale kit piece (body, diagram, video, by the freshness rules above)
   starts that kit gate's skill, for example `/lem-pr` for the body.
+- A blocked demo beat: importing a video (`kind: video`) reads the
+  `<name>.report.json` lem-demo-video writes beside it and keeps its
+  `blocked` list on the artifact; each beat of the PR's latest video shows
+  what blocked it and the one action that unblocks it.
 - The GitHub stack differs: a PR's base is not the row below it (or the
   default branch for the first open row), or an open PR sits on a row's
   branch but is not in the work. The button copies the `gh pr edit --base`

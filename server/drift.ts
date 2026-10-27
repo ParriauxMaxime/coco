@@ -6,7 +6,7 @@ import { gatesFor, skillName } from './gates.ts';
 import { keyLabel, rowKey } from './stack.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { Config } from './config.ts';
-import type { Comment, Exec, PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
+import type { Artifact, Comment, Exec, PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const TTL_MS = 30000;
 
@@ -19,7 +19,7 @@ type Rows = { key: RowKey; number: number | null; pr: PrInfo | null; branch: str
 type Deps = {
   config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: { path?: string; github?: string; defaultBranch?: string } };
   DATA?: string;
-  works: { get(slug: string): Work | null; prInfo(n: number | null | undefined): Promise<PrInfo> };
+  works: { get(slug: string): Work | null; prInfo(n: number | null | undefined): Promise<PrInfo>; listArtifacts?(slug: string): Artifact[] };
   kit: { view(slug: string, key: string): Promise<{ pieces: KitPiece[] }> };
   reviewAgent: { exec: Exec; branchSha(branch: string): Promise<string | null> };
   comments: { list(slug: string, key: RowKey): { comments?: Pick<Comment, 'author' | 'sha'>[] } };
@@ -81,6 +81,9 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
         const entry = skillEntry(`kit-${p.id}`);
         add(drift, r.key, `kit-${p.id}`, `${p.label} is older than the head${p.madeFor ? ` (made for ${p.madeFor.slice(0, 7)})` : ''}`, entry ? { type: 'dispatch', entry, label: p.id === 'body' ? 'Update PR body' : `Redo ${p.id}` } : { type: 'tab', tab: 'artifacts', label: 'Artifacts' });
       }
+
+      const lastVideo = (works.listArtifacts?.(slug) || []).filter((a) => a.meta?.kind === 'video' && a.meta.pr === String(r.number)).sort((a, b) => (b.meta?.at ?? '').localeCompare(a.meta?.at ?? ''))[0];
+      for (const [i, b] of (lastVideo?.meta?.blocked || []).entries()) add(drift, r.key, `video-blocked-${i}`, `Demo beat "${b.beat}" blocked: ${b.what}. Unblock: ${b.unblock}`, { type: 'tab', tab: 'artifacts', label: 'Artifacts' });
 
       // an imported video newer than the body: the body should show it
       const video = pieces.find((p) => p.id === 'video');
