@@ -7,7 +7,7 @@ import type {
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
 import type { Card, CardAnswerBody, DriftResponse } from './types.ts';
-import type { UploadRef } from './types.ts';
+import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { ModelCatalog, ModelChoice } from './types.ts';
 
 export type * from './types.ts';
@@ -129,6 +129,9 @@ export const api = {
   card: (id: string) => fetch(`/api/cards/${encodeURIComponent(id)}`).then(jsonOrError<Card>),
   answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),
   cancelCard: (id: string) => postJson(`/api/cards/${encodeURIComponent(id)}/cancel`).then(jsonOrError<Card>),
+  waiting: (work?: string) => get<WaitingView>(work ? `/api/works/${work}/waiting` : '/api/waiting'),
+  // one button of a waiting item: its own endpoint and body, plus the text of a reply
+  waitingAct: (a: WaitingAction, text?: string) => postJson(a.url, a.kind === 'reply' ? { [a.field || 'text']: text } : a.body).then(jsonOrError<unknown>),
   packContents: () => get<PackContents>('/api/pack/contents'),
   exportPack: async (body: PackExportBody) => {
     const res = await fetch('/api/pack/export', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });

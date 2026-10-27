@@ -547,3 +547,7 @@ export type AddRepoResult = {
 export type OverviewRituals = { kinds: string[]; rituals: Ritual[]; history: RitualRun[] };
 export type RitualLaunchBody = { kind: string; login?: string; pr?: string; paths?: string; text?: string };
 export type RitualLaunchResult = RitualRun | { ok: false; error: string };
+
+export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack'; label: string; url: string; body?: Record<string, unknown>; field?: string };
+export type WaitingItem = { id: string; kind: 'card' | 'approve' | 'thread' | 'ask'; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[] };
+export type WaitingView = { items: WaitingItem[]; count: number };

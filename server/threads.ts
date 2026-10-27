@@ -104,6 +104,15 @@ const KEY = /^(d\.[\w-]+|c\.[\w.~-]+\.[0-9a-f]+|p\.[\w.~-]+)$/;
 const GROUP = /^[0-9a-f]{6}$/;
 const expandHome = (p: string) => p.replace(/^~(?=\/|$)/, os.homedir());
 const hex = (n: number) => crypto.randomBytes(n).toString('hex');
+// the hash that opens a thread's subject: a finding on its PR, the decisions, the review plan
+export function threadLink(slug: string, key: string) {
+  const ref = parseThreadKey(key);
+  if (!ref) return `#/work/${slug}`;
+  if (ref.kind === 'decision') return `#/work/${slug}/decisions`;
+  const tab = `#/work/${slug}/findings-${encodeURIComponent(String(ref.n))}`;
+  return ref.kind === 'comment' ? `${tab}/f-${ref.id}` : tab;
+}
+
 const APP_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BLOCKS_DOC = path.join(APP_ROOT, 'skills/coco-findings/SKILL.md');
 
@@ -135,6 +144,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const git = (cwd: string, args: string[]) => exec('git', ['-C', cwd, ...args]);
   const dir = (slug: string) => path.join(DATA, 'works', slug, 'threads');
   const groupDir = (slug: string) => path.join(DATA, 'works', slug, 'groups');
+  const changed = new Set<(slug: string, key: string) => void>();
   const readJson = <T>(f: string, fallback: T): T => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : fallback);
   const writeJson = <T>(f: string, data: T): T => {
     fs.mkdirSync(path.dirname(f), { recursive: true });
@@ -145,6 +155,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const write = (slug: string, thread: Thread) => {
     writeJson(path.join(dir(slug), `${thread.key}.json`), thread);
     notify(slug, thread.key, { type: 'thread' });
+    changed.forEach((l) => l(slug, thread.key));
     return thread;
   };
   const readGroup = (slug: string, id: unknown) => (GROUP.test(String(id)) ? readJson<Group | null>(path.join(groupDir(slug), `${id}.json`), null) : null);
@@ -724,6 +735,34 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     });
   }
 
+  // what each open thread of a work leaves to the owner (the waiting queue): the agent's last word and the suggestion not decided yet; no git here, see ready
+  function queue(slug: string) {
+    const work = works.get(slug);
+    if (!work) return [];
+    return listThreads(slug).flatMap((t) => {
+      const ref = parseThreadKey(t.key);
+      const item = ref && (itemOf(slug, work, ref) as (Item & { status?: string }) | null);
+      const group = t.groupId ? readGroup(slug, t.groupId) : null;
+      if (!ref || !item || group?.status !== 'active' || !['open', 'sent', 'pending', undefined].includes(item.status)) return [];
+      const last = t.messages.findLast((m) => m.role !== 'system');
+      const open = t.messages.findLast((m) => isOpenSuggestion(m.suggestion));
+      const s = open?.suggestion;
+      return [{
+        key: t.key,
+        pr: ref.kind === 'decision' ? null : String(ref.n),
+        title: ref.kind === 'comment' ? item.title || `${item.path?.split('/').pop()} L${item.startLine}` : ref.kind === 'plan' ? 'Review plan' : item.title || 'Decision',
+        link: threadLink(slug, t.key),
+        busy: Boolean(t.waiting),
+        agentLast: last?.role === 'agent',
+        code: group.kind === 'code',
+        at: (open ?? last)?.ts || '',
+        text: t.messages.findLast((m) => m.role === 'agent' && m.text)?.text || '',
+        asks: cardsOf(slug, t.key).filter((c) => c.status === 'open').length,
+        suggestion: s && open ? { msg: open.id, kind: s.kind, ...(s.kind === 'commit' ? { commit: s.commit, files: s.files } : {}) } : null,
+      }];
+    });
+  }
+
   // the commit a code group's agent left for this comment (its trailer) that is not on the PR branch yet, by trailer or patch-id; information only, Approve stays the owner's
   async function readyOf(slug: string, work: Work, ref: Ref, thread: Thread) {
     const group = ref.kind === 'comment' && thread.groupId ? readGroup(slug, thread.groupId) : null;
@@ -969,6 +1008,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     setFindingActor,
     cardHook,
     cardChanged: (slug: string, key: string) => notify(slug, key, { type: 'thread' }),
+    queue,
+    ready: (slug: string, key: string) => {
+      const { work, ref } = check(slug, key);
+      return readyOf(slug, work, ref, read(slug, key));
+    },
+    onChange: (l: (slug: string, key: string) => void) => (changed.add(l), () => changed.delete(l)),
     steerAgent,
     codeWorktrees: () => works.list().filter((w) => !w.archived).flatMap((w) => listGroups(w.slug).flatMap((g) => (g.kind === 'code' && g.status === 'active' && g.worktree && g.agentId ? [{ cwd: g.worktree, agentId: g.agentId }] : []))),
     groupKind: (slug: string, id: string) => readGroup(slug, id)?.kind ?? null,

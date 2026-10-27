@@ -435,6 +435,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     cancel,
     ofAgent,
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    open: () => [...cards.values()].filter((c) => c.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,
     handle,
     onChange: (l: (agentId: string, card: Card) => void) => (listeners.add(l), () => listeners.delete(l)),

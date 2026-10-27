@@ -225,7 +225,11 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   const fileOf = (id: string, ext: string) => path.join(DIR, `${id}.${ext}`);
   const agentsOf = (c: { agentId: string | null; agentIds?: string[] | null }) => [...new Set([...(c.agentIds || []), ...(c.agentId ? [c.agentId] : [])])];
   const meta = (c: Meta & Legacy): Meta => ({ ...(Object.fromEntries(META.map((k) => [k, c[k] ?? null])) as Meta), scope: scopeOf(c), proposed: c.proposed || legacyProposed(c), agentIds: agentsOf(c) });
-  const save = (c: Conv) => fs.writeFileSync(fileOf(c.id, 'json'), JSON.stringify(meta(c), null, 1));
+  const changed = new Set<() => void>();
+  const save = (c: Conv) => {
+    fs.writeFileSync(fileOf(c.id, 'json'), JSON.stringify(meta(c), null, 1));
+    changed.forEach((l) => l());
+  };
   const now = () => new Date().toISOString();
   const metas = (): Meta[] => fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8')));
   const remember = (c: Meta, events: Event[] = []): Conv => {
@@ -680,6 +684,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     load,
     byAgent: (agentId: string) => [...convs.values()].find((c) => c.agentId === agentId) || null,
     convOf,
+    onChange: (l: () => void) => (changed.add(l), () => changed.delete(l)),
     actions,
   };
 }
