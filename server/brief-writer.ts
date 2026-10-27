@@ -53,7 +53,7 @@ export function writerPrompt(d: BriefDispatch, facts: string | null, lessons: Le
   return [
     'Write the context brief for an agent coco is starting. The agent gets its task verbatim, then your brief under it.',
     '',
-    'Use only the facts and lessons below: keep what this task needs, drop what it does not (an agent that only reads does not commit, ship a kit or report gates), apply the lessons that fit, invent nothing. Keep paths, branches, PR numbers and commands exact. Markdown, under 400 words, no title, no preamble, do not restate the task. Answer with the brief only, without using any tool.',
+    'Use only the facts and lessons below: keep what this task needs, drop what it does not (an agent that only reads does not commit, ship a kit or report gates), apply the lessons that fit, invent nothing. Keep paths, branches, PR numbers and commands exact. Name the worktree and branch from the facts as settled; never tell the agent to check which branch it is on or to look for another worktree. Markdown, under 400 words, no title, no preamble, do not restate the task. Answer with the brief only, without using any tool.',
     '',
     '## Dispatch',
     '',

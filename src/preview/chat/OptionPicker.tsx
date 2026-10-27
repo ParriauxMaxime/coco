@@ -40,6 +40,7 @@ function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdow
         {o.details && <MoreButton open={open} onToggle={() => setOpen(!open)} />}
         {n !== undefined && <kbd className="dp-cd-key" title={`Press ${n} to pick it (⌥${n} while typing)`}>{n}</kbd>}
       </label>
+      {o.consequence && <Inline as="div" className="dp-cd-cons" text={o.consequence} />}
       {o.details && open && <Details text={o.details} markdown={markdown} />}
     </div>
   );

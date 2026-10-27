@@ -23,6 +23,7 @@
 .dp-btn.dp-cd-more svg.dp-i { transition: transform .16s ease; }
 .dp-btn.dp-cd-more.dp-open svg.dp-i { transform: rotate(90deg); }
 .dp-btn.dp-cd-fold { align-self: flex-start; margin-left: -6px; }
+.dp-cd-cons { margin: 0 0 4px 24px; font-size: 12px; line-height: 18px; color: var(--dp-t3); }
 .dp-cd-det { margin: 2px 0 6px 24px; padding: 6px 10px; border-left: 2px solid var(--dp-line-2); font-size: 12.5px; line-height: 19px; color: var(--dp-t2); }
 .dp .dp-cd-md .md { font-size: 12.5px; line-height: 19px; color: var(--dp-t2); }
 .dp-cd-lead { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }

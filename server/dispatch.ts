@@ -118,11 +118,12 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
   };
 
   // the template brief is the writer's facts and the fallback; a dispatch on the whole work has only the work's facts and no fallback
-  async function factsOf(work: Work, key: RowKey | null) {
+  async function factsOf(work: Work, key: RowKey | null, cwd?: string) {
     if (key === null) return { template: null, facts: workFacts(work), read: null };
     try {
       const ctx = await briefs.context(work.slug, String(key));
-      const template = renderBrief(ctx);
+      // the brief names the directory the agent runs in: the same value as its cwd
+      const template = renderBrief(cwd ? { ...ctx, worktree: cwd } : ctx);
       return { template, facts: template, read: { head: ctx.pr.head, base: ctx.pr.base, n: key } };
     } catch (e) {
       const template = `(The PR brief could not be rendered: ${errorMessage(e).slice(0, 200)}. Use the cocopilot MCP get_work ${work.slug}.)`;
@@ -130,9 +131,9 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     }
   }
 
-  async function briefOf(work: Work, d: Omit<BriefDispatch, 'slug' | 'repoId' | 'pr'> & { key: RowKey | null }) {
-    const { template, facts, read } = await factsOf(work, d.key);
-    const { key, ...rest } = d;
+  async function briefOf(work: Work, d: Omit<BriefDispatch, 'slug' | 'repoId' | 'pr'> & { key: RowKey | null; cwd?: string }) {
+    const { key, cwd, ...rest } = d;
+    const { template, facts, read } = await factsOf(work, key, cwd);
     const written = await writer.write({ ...rest, slug: work.slug, repoId: repoIdOf(work), pr: key === null ? null : keyLabel(key) }, facts);
     if (!written.brief) reviewAgent.timeline(work.slug, 'agent', `dispatch ${d.title}: the brief writer failed (${written.error || 'no brief'}), the template brief went instead`);
     return { brief: written.brief ?? template, read, written: Boolean(written.brief) };
@@ -170,7 +171,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const scope: Scope = key === null ? { kind: 'work', slug } : { kind: 'row', slug, key, edits };
     const placed = await placement.place(scope);
     const task = taskOf(entry, slug, key, { prompt, persona, args });
-    const { brief, read, written } = await briefOf(work, { key, title, label: entry.label, edits, task, ...(entry.kind === 'persona-review' ? { persona } : {}) });
+    const { brief, read, written } = await briefOf(work, { key, title, label: entry.label, edits, task, ...(edits ? { cwd: placed.cwd } : {}), ...(entry.kind === 'persona-review' ? { persona } : {}) });
     const setup = edits && readier ? await readier.ready(placed.cwd).catch(() => []) : [];
     const message = [firstMessage({ title, task, edits, brief, read }), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();
     const labels: Record<string, unknown> = { source: 'cocopilot', kind: 'dispatch', dispatch: entry.id, work: slug, ...(key === null ? {} : { pr: fileKey(key) }) };

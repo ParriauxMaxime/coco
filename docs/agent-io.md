@@ -59,7 +59,7 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 
 ```ts
 type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
-type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
+type CardOption = { key: string; label: string; details?: string; consequence?: string /* ≤ 200, one line: what happens, the risk */; recommended?: boolean; confidence?: number; effect?: CardEffect };
 type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };  // thread cards, single choice only
 type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
@@ -178,6 +178,13 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
   answer, then delivers it.
 - `POST /api/cards/<id>/cancel` → `Card` (user dismisses an open ask; the agent
   is told it was dismissed).
+- `POST /api/cards/<id>/explain` → `Card` (the "Explain more" button of a
+  choice card): sends the agent "[coco card <id> explain] … Explain the
+  options in more detail before I pick"; the card stays open, `explained`
+  records the send. On a choice card the `ask` tool takes `recommended` (the
+  option key, marked and pre-picked) and each option an optional
+  `consequence`; agents give one recommendation, and a consequence when the
+  options differ in risk, so nobody types a question into "Other".
 - Chat topic `agent-chat:<agentId>` of the page stream (`/api/events`, see the
   guide; also the SSE route `/api/agent-chat/<agentId>/events`) also emits
   `event: cards` with `data: Card[]` whenever a card of that agent changes.

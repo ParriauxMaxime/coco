@@ -5,6 +5,7 @@ import { cacheFile, swrCache } from './swr.ts';
 import { sameSha } from './kit.ts';
 import { gatesFor, skillName } from './gates.ts';
 import { keyLabel, rowKey } from './stack.ts';
+import { gitWorktrees } from './worktrees.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { Config } from './config.ts';
 import type { Artifact, Comment, Exec, PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
@@ -31,9 +32,12 @@ type Deps = {
   reviewAgent: { exec: Exec; branchSha(branch: string): Promise<string | null>; worktreeFor?(branch: string): Promise<string | null> };
   comments: { list(slug: string, key: RowKey): { comments?: Pick<Comment, 'author' | 'sha'>[] } };
   reviewPlan: { planOf(slug: string, n: RowKey): { headSha?: string | null } | null | undefined };
+  rowDir?(slug: string, key: RowKey): Promise<string | null>;  // the directory of the workspace remembered for a row
 };
 
-export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan }: Deps) {
+const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+
+export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir }: Deps) {
   const GATES = gatesFor(config);
   const DEFAULT = config.repo.defaultBranch || 'main';
   const GH = config.repo.github || '';
@@ -122,6 +126,17 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
         const fix = r.number && BRANCH.test(want) ? toRun({ type: 'base', number: r.number, base: want }, 'Fix base', 'Copy base fix') : null;
         add(drift, r.key, 'stack', `GitHub bases ${keyLabel(r.key)} on ${r.pr.base}, the work stacks it on ${want}`, fix?.action ?? null, fix ? { also: fix.also, run: fix.run } : {});
       }
+    }
+    // a row's agents run in its remembered workspace: it must be the worktree on the PR's head branch (a branch is checked out in one worktree only, so two means a stale name)
+    const withBranch = open.filter((r) => r.branch);
+    const trees = rowDir && withBranch.length ? await gitWorktrees(reviewAgent.exec, config.repo.path || '.') : [];
+    for (const r of rowDir ? withBranch : []) {
+      const kept = await rowDir?.(slug, r.key);
+      if (!kept) continue;
+      const onHead = trees.find((t) => t.branch === r.branch);
+      const keptTree = trees.find((t) => samePath(t.path, kept));
+      if (onHead && !samePath(onHead.path, kept)) add(drift, r.key, 'worktrees', `two worktrees for ${keyLabel(r.key)}: ${kept}${keptTree?.branch ? ` (on ${keptTree.branch})` : ''}, ${onHead.path} (on ${r.branch})`, null);
+      else if (!onHead && keptTree && keptTree.branch !== r.branch) add(drift, r.key, 'worktrees', `the worktree of ${keyLabel(r.key)}, ${kept}, is on ${keptTree.branch || 'no branch'}, not the PR head ${r.branch}`, null);
     }
     const mine = new Set(rows.map((r) => r.number));
     const heads = new Map(open.map((r) => [r.branch, r]));

@@ -54,7 +54,8 @@ import { createAgentWorktrees } from './agent-worktree.ts';
 import { createAgentChecks } from './agent-checks.ts';
 import { allowedHosts, guard } from './guard.ts';
 import { errorMessage } from './core-types.ts';
-import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
+import { rowKey } from './stack.ts';
+import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -129,7 +130,12 @@ const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
-const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan });
+// the directory of the workspace remembered for a row, which its agents run in
+const rowDir = async (slug: string, key: RowKey) => {
+  const id = works.get(slug)?.stack?.find((s) => rowKey(s) === key)?.workspaceId;
+  return id ? (await paseoAgents.listWorkspaces()).find((w) => w.id === id && !w.archivingAt)?.workspaceDirectory || null : null;
+};
+const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir });
 works.hooks.drift = (slug) => drift.view(slug).catch(() => null);
 // first listener: a page told of a change reads the drift recomputed, not the cached one
 works.onChange((slug) => drift.drop(slug));

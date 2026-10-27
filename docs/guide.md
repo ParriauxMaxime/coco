@@ -505,6 +505,10 @@ coco starts nothing by itself.
   default branch for the first open row), or an open PR sits on a row's
   branch but is not in the work. **Fix base** runs `gh pr edit <n> --base <b>`
   (**Copy base fix** copies it); the other opens the Stack.
+- Two worktrees for a PR: the workspace remembered for a row is not the
+  worktree on the PR's head branch (or sits on a stale branch name). Listed
+  with no button; the agents run in the remembered workspace and the brief
+  names that same directory, so fix it from Worktrees.
 - `POST /api/works/<slug>/drift/run { id }` backs Push and Fix base: the
   server recomputes the drift, refuses (409) an item that no longer applies,
   builds the command itself (the page never sends one; a `command` it shows
@@ -939,7 +943,10 @@ workspace, or the work's stack worktree workspace when asked from a work,
 with the cocopilot MCP server in its config (`server/mcp.ts`, stdio:
 `list_works`, `get_work`, `list_personas`, `read_persona`,
 `suggest_personas`, `consult_persona`, `read_skill`, `list_paseo`, `github_pr`,
-`github_search`, `propose_work_scaffold`). `consult_persona` is the quick
+`github_search`, `propose_work_scaffold`). A message that names a PR comment
+(a comment URL, or Sentry, Copilot and the like, or a reviewer, with
+answer/reply/comment) gets one line added to that turn:
+"draft the answer with cocopilot propose_pr_reply". `consult_persona` is the quick
 answer to "what would Camille do?" or "evaluate the tradeoff": a pack of that
 reviewer's relevant rules and past comments that the agent answers from in 3-6
 lines, then an ask card with their pick marked; a persona review (minutes,

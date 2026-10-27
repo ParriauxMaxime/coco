@@ -84,3 +84,22 @@ test('an answer is stored then sent to the agent with its summary and JSON; a di
   assert.deepEqual(reloaded.ofAgent(AGENT).map((c) => c.id).sort(), [asked.id, confirm.id, post.id].sort());
   assert.equal(reloaded.openCount(AGENT), 0);
 });
+
+test('a choice option carries a consequence and the card a recommended key, which marks that option', () => {
+  const opts = [{ key: 'csv', label: 'CSV', consequence: 'Ships today; no styling.' }, { key: 'xlsx', label: 'Excel', consequence: 'Adds a dependency.' }];
+  const c = validateCard({ ...choice, options: opts, recommended: 'xlsx' });
+  assert.deepEqual(c.options, [opts[0], { ...opts[1], recommended: true }]);
+  assert.throws(() => validateCard({ ...choice, options: opts, recommended: 'pdf' }), /recommended must be an option key among csv, xlsx/);
+  assert.throws(() => validateCard({ ...choice, options: [{ ...opts[0], consequence: 'x'.repeat(201) }, opts[1]] }), /options\[0\]\.consequence longer than 200/);
+});
+
+test('explain asks the agent for detail and leaves the card open, answerable', async () => {
+  const sent: string[] = [];
+  const cards = createCards({ DATA: tmpDir(), deliver: async (_a, text) => void sent.push(text) });
+  const asked = await cards.create({ ...choice, agentId: AGENT });
+  const r = await cards.explain(asked.id);
+  assert.deepEqual([r.status, r.explained?.ok], ['open', true]);
+  assert.match(sent[0], new RegExp(`^\\[coco card ${asked.id} explain\\] Export format\\nExplain the options in more detail before I pick\\n`));
+  assert.equal((await cards.answer(asked.id, { picked: ['csv'] })).status, 'answered');
+  await assert.rejects(cards.explain(asked.id), /already answered/);
+});

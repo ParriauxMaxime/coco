@@ -5,9 +5,9 @@ import type { Artifact, PrInfo, RowKey, Work } from './core-types.ts';
 
 type Piece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 const piece = (id: string, state: string, extra: Partial<Piece> = {}): Piece => ({ id, label: id, state, madeFor: null, at: null, source: null, ...extra });
-type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[]; calls?: { cmd: string; args: string[]; opts?: unknown }[]; events?: string[]; worktrees?: Record<string, string>; fail?: string; archived?: boolean; missing?: boolean };
+type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[]; calls?: { cmd: string; args: string[]; opts?: unknown }[]; events?: string[]; worktrees?: Record<string, string>; fail?: string; archived?: boolean; missing?: boolean; trees?: Record<string, string>; rowDirs?: Record<number, string> };
 
-const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [], calls = [], events = [], worktrees = {}, fail, archived, missing }: Setup = {}) => {
+const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [], calls = [], events = [], worktrees = {}, fail, archived, missing, trees, rowDirs }: Setup = {}) => {
   const work = { slug: 'w', title: 'W', stack: stack || [{ number: 1, personas: ['alice'] }], personas, ...(archived && { archived: { at: 'x', reason: 'y' } }) } as unknown as Work;
   const info = (n: number): PrInfo => ({ number: n, state: 'OPEN', head: `b${n}`, base: 'main', headOid: `remote${n}`, ...prs[n] });
   return createDrift({
@@ -24,6 +24,7 @@ const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = 
         }
         if (cmd === 'gh') return { ok: true, stdout: JSON.stringify(open), stderr: '' };
         assert.deepEqual(args.slice(0, 2), ['-C', '/repo']);
+        if (args[2] === 'worktree') return { ok: true, stdout: Object.entries(trees || {}).map(([p, b]) => `worktree ${p}\nHEAD abc\nbranch refs/heads/${b}`).join('\n\n'), stderr: '' };
         if (args.includes('rev-list')) return { ok: true, stdout: String(ahead[args.at(-1)?.split('..')[0] ?? ''] ?? 0), stderr: '' };
         const [a, b] = args.slice(-2);
         const n = ahead[a];
@@ -32,6 +33,7 @@ const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = 
     },
     comments: { list: () => ({ comments }) },
     reviewPlan: { planOf: (_s: string, _n: RowKey) => (planHead ? { headSha: planHead } : null) },
+    ...(rowDirs ? { rowDir: async (_s: string, key: RowKey) => rowDirs[key as number] ?? null } : {}),
   });
 };
 const kinds = async (d: ReturnType<typeof make>, list: 'drift' | 'next' = 'drift') => (await d.view('w', true))[list].map((i) => i.kind);
@@ -167,4 +169,13 @@ test('a pushed head with no persona review suggests the row persona; a review, a
   assert.deepEqual(await kinds(make({ tips: { b1: 'tip1' }, ahead: { remote1: 1 } }), 'next'), []);
   assert.deepEqual(await kinds(make({ stack: [{ number: 1 }] }), 'next'), []);
   assert.deepEqual(await kinds(make({ stack: [{ number: 1 }], personas: ['bob'] }), 'next'), ['persona-review']);
+});
+
+test('a row whose remembered workspace is not the worktree on the PR head is flagged, without an action', async () => {
+  const two = (await make({ tips: { b1: 'remote1' }, trees: { '/wt/old': 'old-name', '/wt/b1': 'b1' }, rowDirs: { 1: '/wt/old' } }).view('w', true)).drift[0];
+  assert.deepEqual([two.kind, two.text, two.action], ['worktrees', 'two worktrees for #1: /wt/old (on old-name), /wt/b1 (on b1)', null]);
+  const stale = (await make({ tips: { b1: 'remote1' }, trees: { '/wt/old': 'old-name' }, rowDirs: { 1: '/wt/old' } }).view('w', true)).drift[0];
+  assert.equal(stale.text, 'the worktree of #1, /wt/old, is on old-name, not the PR head b1');
+  assert.deepEqual(await kinds(make({ tips: { b1: 'remote1' }, trees: { '/wt/b1': 'b1' }, rowDirs: { 1: '/wt/b1/' } })), []);
+  assert.deepEqual(await kinds(make({ tips: { b1: 'remote1' }, trees: { '/wt/b1': 'b1' } })), []);
 });
