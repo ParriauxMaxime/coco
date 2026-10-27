@@ -7,6 +7,7 @@ import { createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import type { Artifact, PrInfo, StackRow, Work } from './core-types.ts';
+import { rowKey } from './stack.ts';
 
 const PAGE_ID_RE = /([0-9a-f]{32})(?:[?#]|$)/i;
 const TIMEOUT_MS = 10 * 60 * 1000;
@@ -118,6 +119,7 @@ interface SyncOptions {
   force?: boolean;
   parentPageId?: string | null;
   mode?: string;
+  rowPages?: { row: string; title: string }[];
 }
 
 interface FinishArgs {
@@ -182,13 +184,14 @@ export function createNotionSync({ DATA, REPO, config, works, agents = createPas
     return { ok: true };
   }
 
-  function prompt({ work, force, parentPageId }: { work: Work; force: boolean; parentPageId: string | null }) {
+  function prompt({ work, force, parentPageId, rowPages = [] }: { work: Work; force: boolean; parentPageId: string | null; rowPages?: { row: string; title: string }[] }) {
     const n = work.notion || {};
     const target = n.pageId
       ? `Target page id: ${n.pageId}. First call notion-fetch on it and read its last_edited_time. ${force ? 'Overwrite whatever is there.' : `If last_edited_time is later than ${n.syncedAt || '1970-01-01T00:00:00Z'}, STOP without writing and answer with status "edited-in-notion".`} Then notion-update-page with command replace_content, keeping the page title "${work.title}".`
       : `No page yet. Create ONE page titled "${work.title}" under parent page id ${parentPageId} with notion-create-pages and put the content in it.`;
     return `You sync a cocopilot work to Notion. Read the markdown in ${mdFile(work.slug)} (Read tool). ${target}
-Content rules: start with a gray callout "Synced from cocopilot on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC. Edits here are overwritten on the next sync; write in cocopilot or in a child page." Then the markdown as is: headings stay headings, tables become native tables, a mermaid block becomes a code block with language mermaid, links stay links, <mention-page> and <page> tags stay as they are (the <page> tags keep the existing child pages in place). Do not add, summarise or reorder anything. Do not touch comments or child pages. Do nothing else in Notion.
+Content rules: start with a gray callout "Synced from cocopilot on ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC. Edits here are overwritten on the next sync; write in cocopilot or in a child page." Then the markdown as is: headings stay headings, tables become native tables, a mermaid block becomes a code block with language mermaid, links stay links, <mention-page> and <page> tags stay as they are (the <page> tags keep the existing child pages in place). Do not add, summarise or reorder anything. Do not touch comments or child pages. Do nothing else in Notion.${rowPages.length ? `
+After the content, create ONE child page under the work page (notion-create-pages, parent = the work page) for each of these rows, titled as given, with a one-line body: ${rowPages.map((r) => `${r.row} "${r.title}"`).join('; ')}. Add "rowPages":[{"row":"<row as given>","url":"<page url>","title":"<page title>"}] to the JSON.` : ''}
 Final answer: one line of JSON only: {"status":"synced"|"edited-in-notion"|"error","pageId":"<id>","url":"<page url>","lastEditedTime":"<iso or null>","message":"<short>"}`;
   }
 
@@ -197,7 +200,7 @@ Final answer: one line of JSON only: {"status":"synced"|"edited-in-notion"|"erro
 Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes":[{"section":"<name>","severity":"high"|"medium"|"low","what":"<one sentence>"}],"lostText":["<verbatim first words of each paragraph that would be erased>"],"summary":"<two sentences max>"}`;
   }
 
-  function sync(slug: string, { force = false, parentPageId = null, mode = 'apply' }: SyncOptions = {}) {
+  function sync(slug: string, { force = false, parentPageId = null, mode = 'apply', rowPages = [] }: SyncOptions = {}) {
     const work = works.get(slug);
     if (!work) return { error: 'no such work' };
     if (running.has(slug)) return { error: 'sync already running' };
@@ -208,7 +211,7 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
       fs.writeFileSync(mdFile(slug), markdown);
       const hash = hashOf(markdown);
       const preview = mode === 'preview';
-      const brief = preview ? previewPrompt({ work }) : prompt({ work, force, parentPageId });
+      const brief = preview ? previewPrompt({ work }) : prompt({ work, force, parentPageId, rowPages });
       const run = { mode, startedAt: new Date().toISOString() };
       running.set(slug, run);
       const finish = ({ status = 'error', result = null, cost = null, agentId = null, workspaceId = null, createdWorkspace = null, err = '' }: FinishArgs) => {
@@ -225,6 +228,10 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
           }
         } else if (result?.status === 'synced') {
           w.notion = { ...n, pageId: result.pageId || n.pageId, url: result.url || n.url, syncedAt: new Date().toISOString(), syncedHash: hash, editedInNotion: null, lastError: null, preview: null };
+          for (const p of (Array.isArray(result.rowPages) ? result.rowPages : []) as { row?: string; url?: string; title?: string }[]) {
+            const row = w.stack.find((x) => String(rowKey(x)) === p.row && !x.notionPage);
+            if (row && p.url && /^https:\/\/(www\.)?notion\.(so|site)\//.test(p.url)) row.notionPage = { url: p.url, title: p.title || rowPages.find((r) => r.row === p.row)?.title || String(p.row) };
+          }
           w.timeline.unshift({ ts: new Date().toISOString(), kind: 'notion', text: `${n.pageId ? 'synced' : 'created and synced'} Notion page ${w.notion.pageId}` });
         } else if (result?.status === 'edited-in-notion') {
           w.notion = { ...n, editedInNotion: result.lastEditedTime || 'unknown', lastError: null };
