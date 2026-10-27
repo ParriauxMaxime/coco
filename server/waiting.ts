@@ -12,9 +12,12 @@ import type { Card } from './cards.ts';
 const TTL_MS = 30000;
 const SETTLE_MS = 500;
 const EXCERPT = 300;
+const MAX_IDS = 100;
+const MAX_ID = 200;
+const ACK_TTL_MS = 30 * 24 * 3600 * 1000;
 
 // kind: pick an option / approve / dismiss go through their endpoint as is; reply sends { [field]: text }; ack only hides the item here
-export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack'; label: string; url: string; body?: Record<string, unknown>; field?: string };
+export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
 export type WaitingItem = { id: string; kind: 'card' | 'approve' | 'thread' | 'ask'; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[] };
 export type WaitingView = { items: WaitingItem[]; count: number };
 
@@ -40,8 +43,13 @@ const enc = encodeURIComponent;
 const reply = (url: string, field = 'text'): WaitingAction => ({ id: 'reply', kind: 'reply', label: 'Send', url, field });
 const ackOf = (id: string): WaitingAction => ({ id: 'ack', kind: 'ack', label: 'Dismiss', url: '/api/waiting/ack', body: { ids: [id] } });
 
-function cardActions(c: Card): WaitingAction[] {
+const openOf = (link: string): WaitingAction => ({ id: 'open', kind: 'open', label: 'Open', url: link });
+// a card whose approval acts outside (an action proposal, a thread card, an option with an effect: GitHub, an agent, the stack) is answered on its own page, never inline
+const hasEffect = (c: Card) => Boolean(c.action || c.thread || c.options?.some((o) => o.effect));
+
+function cardActions(c: Card, link: string): WaitingAction[] {
   const url = `/api/cards/${c.id}`;
+  if (hasEffect(c)) return [openOf(link), { id: 'dismiss', kind: 'dismiss', label: 'Dismiss', url: `${url}/cancel` }];
   const picks: WaitingAction[] =
     c.kind === 'choice' && !c.multi ? (c.options || []).map((o) => ({ id: `pick:${o.key}`, kind: 'pick', label: o.label, url: `${url}/answer`, body: { picked: [o.key] } }))
     : c.kind === 'confirm' && !c.fields?.length ? [{ id: 'approve', kind: 'approve', label: c.confirmLabel || 'Approve', url: `${url}/answer`, body: { approved: true } }, { id: 'reject', kind: 'pick', label: c.rejectLabel || 'Reject', url: `${url}/answer`, body: { approved: false } }]
@@ -77,7 +85,7 @@ export function createWaiting({ DATA, works, cards, threads, ask, convOf, now = 
       if (work && !slugs.has(work)) continue;
       asked.add(c.agentId);
       const link = c.thread && c.work ? (threads.link?.(c.work, c.thread) ?? `#/work/${c.work}`) : conv ? (work ? `#/work/${work}/ask-${conv.id}` : `#/ask/${conv.id}`) : work ? `#/work/${work}/ag-${c.agentId}` : '#/agents';
-      items.push({ id: `card:${c.id}`, kind: 'card', work, pr: c.pr, title: c.title, excerpt: cut(c.question || ''), at: c.createdAt, link, actions: cardActions(c) });
+      items.push({ id: `card:${c.id}`, kind: 'card', work, pr: c.pr, title: c.title, excerpt: cut(c.question || ''), at: c.createdAt, link, actions: cardActions(c, link) });
     }
 
     for (const m of ask.list()) {
@@ -99,7 +107,7 @@ export function createWaiting({ DATA, works, cards, threads, ask, convOf, now = 
           const sug = `${base}/suggestions/${s.msg}`;
           items.push({
             id: `approve:${w.slug}:${q.key}:${s.msg}`, kind: 'approve', work: w.slug, pr: q.pr, key: q.key, title: q.title, excerpt: cut(`${what}. ${q.text}`), at: q.at, link: q.link,
-            actions: [{ id: 'approve', kind: 'approve', label: 'Approve', url: sug, body: { action: 'approve' } }, { id: 'dismiss', kind: 'dismiss', label: 'Dismiss', url: sug, body: { action: 'dismiss' } }, reply(base)],
+            actions: [openOf(q.link), { id: 'approve', kind: 'approve', label: 'Approve', url: sug, body: { action: 'approve' } }, { id: 'dismiss', kind: 'dismiss', label: 'Dismiss', url: sug, body: { action: 'dismiss' } }, reply(base)],
           });
           continue;
         }
@@ -145,9 +153,12 @@ export function createWaiting({ DATA, works, cards, threads, ask, convOf, now = 
   }
 
   function ack(ids: unknown) {
-    if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) throw new HttpError(400, 'ids must list item ids');
+    if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string' || i.length > MAX_ID)) throw new HttpError(400, `ids must list item ids of at most ${MAX_ID} chars`);
+    if (ids.length > MAX_IDS) throw new HttpError(400, `at most ${MAX_IDS} ids per call`);
     const at = new Date(now()).toISOString();
     for (const id of ids as string[]) acks[id] = at;
+    const old = new Date(now() - ACK_TTL_MS).toISOString();
+    for (const id of Object.keys(acks)) if (acks[id] < old) delete acks[id];
     if (file) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify(acks));

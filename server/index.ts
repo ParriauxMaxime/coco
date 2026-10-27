@@ -52,6 +52,7 @@ import { createStackSplit } from './stack-split.ts';
 import { createPrReply } from './pr-reply.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createAgentChecks } from './agent-checks.ts';
+import { allowedHosts, guard } from './guard.ts';
 import { errorMessage } from './core-types.ts';
 import type { Req, Res, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
@@ -68,6 +69,7 @@ const DIST = path.join(APP, 'dist');
 const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
+const HOSTS = allowedHosts(PORT, config.baseUrl);
 
 interface FeedbackItem {
   node?: unknown;
@@ -589,6 +591,10 @@ function serveStatic(res: Res, url: URL) {
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/works/')) {
+      const denied = guard(HOSTS, req);
+      if (denied) return send(res, 403, { error: denied });
+    }
     // module handlers are returned, not awaited, inside api's try: their rejections land here instead of killing the server
     if (url.pathname.startsWith('/api/')) return api(req, res, url).catch((e) => (res.headersSent ? res.end() : send(res, 500, { error: errorMessage(e) })));
     if (url.pathname.startsWith('/works/')) return works.serveArtifact(res, url.pathname, send);

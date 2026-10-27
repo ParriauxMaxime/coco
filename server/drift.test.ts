@@ -5,14 +5,14 @@ import type { Artifact, PrInfo, RowKey, Work } from './core-types.ts';
 
 type Piece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 const piece = (id: string, state: string, extra: Partial<Piece> = {}): Piece => ({ id, label: id, state, madeFor: null, at: null, source: null, ...extra });
-type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[]; calls?: { cmd: string; args: string[]; opts?: unknown }[]; events?: string[]; worktrees?: Record<string, string>; fail?: string };
+type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[]; calls?: { cmd: string; args: string[]; opts?: unknown }[]; events?: string[]; worktrees?: Record<string, string>; fail?: string; archived?: boolean; missing?: boolean };
 
-const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [], calls = [], events = [], worktrees = {}, fail }: Setup = {}) => {
-  const work = { slug: 'w', title: 'W', stack: stack || [{ number: 1, personas: ['alice'] }], personas } as unknown as Work;
+const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [], calls = [], events = [], worktrees = {}, fail, archived, missing }: Setup = {}) => {
+  const work = { slug: 'w', title: 'W', stack: stack || [{ number: 1, personas: ['alice'] }], personas, ...(archived && { archived: { at: 'x', reason: 'y' } }) } as unknown as Work;
   const info = (n: number): PrInfo => ({ number: n, state: 'OPEN', head: `b${n}`, base: 'main', headOid: `remote${n}`, ...prs[n] });
   return createDrift({
     config: { repo: { path: '/repo', github: 'o/r', defaultBranch: 'main' }, kitKinds: ['body', 'diagram', 'video'], gateSkills: { 'kit-body': ['lem-pr'], 'kit-video': ['lem-demo-video'] } } as never,
-    works: { get: () => work, prInfo: async (n) => info(n as number), listArtifacts: () => artifacts, changed: (slug, what) => void events.push(`${slug}:${what}`), dropPr: (n) => void events.push(`drop:${n}`) },
+    works: { get: () => (missing ? null : work), prInfo: async (n) => info(n as number), listArtifacts: () => artifacts, changed: (slug, what) => void events.push(`${slug}:${what}`), dropPr: (n) => void events.push(`drop:${n}`) },
     kit: { view: async () => ({ pieces }) },
     reviewAgent: {
       branchSha: async (b) => tips[b] ?? null,
@@ -56,7 +56,7 @@ test('run pushes the branch from the repo clone or its worktree, built here, and
   assert.deepEqual(calls.map((c) => [c.cmd, c.args]), [['git', ['-C', '/repo', 'push', 'origin', 'b1']]]);
   assert.deepEqual(events, ['drop:1', 'w:drift']);
   calls.length = 0;
-  await make({ ...setup, worktrees: { b1: '/wt/b1' } }).runItem('w', '1:unpushed', undefined);
+  await make({ ...setup, worktrees: { b1: '/wt/b1' } }).runItem('w', '1:unpushed', 'git push origin b1');
   assert.deepEqual(calls[0].args, ['-C', '/wt/b1', 'push', 'origin', 'b1']);
   assert.ok(calls.every((c) => !c.args.some((a) => /^-f|force|\+/.test(a))));
 });
@@ -68,7 +68,7 @@ test('run fixes a base with gh pr edit; a failed command returns its output as i
   await make(setup).runItem('w', '2:stack', 'gh pr edit 2 --repo o/r --base b1');
   assert.deepEqual(calls.map((c) => [c.cmd, c.args]), [['gh', ['pr', 'edit', '2', '--repo', 'o/r', '--base', 'b1']]]);
   events.length = 0;
-  const bad = await make({ ...setup, fail: 'pre-push: check-ts failed\nsrc/a.ts(1,1): error TS2322' }).runItem('w', '2:stack', undefined);
+  const bad = await make({ ...setup, fail: 'pre-push: check-ts failed\nsrc/a.ts(1,1): error TS2322' }).runItem('w', '2:stack', 'gh pr edit 2 --repo o/r --base b1');
   assert.deepEqual([bad.ok, bad.stderr], [false, 'pre-push: check-ts failed\nsrc/a.ts(1,1): error TS2322']);
   assert.deepEqual(events, []);
 });
@@ -83,7 +83,21 @@ test('run refuses an item that no longer applies, one with no run action, a chan
   await refused(make({ tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls }), '1:unpushed', 'git push --force origin b1');
   await refused(make({ calls }), '1:stack');
   await refused(make({ calls }), undefined);
+  await refused(make({ tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls }), '1:unpushed');
   assert.deepEqual(calls, []);
+});
+
+test('run refuses an archived or missing work', async () => {
+  const calls: NonNullable<Setup['calls']> = [];
+  const setup = { tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls };
+  await assert.rejects(make({ ...setup, archived: true }).runItem('w', '1:unpushed', 'git push origin b1'), (e: { status?: number }) => e.status === 409);
+  await assert.rejects(make({ ...setup, missing: true }).runItem('w', '1:unpushed', 'git push origin b1'), (e: { status?: number }) => e.status === 404);
+  assert.deepEqual(calls, []);
+});
+
+test('a fork PR gets no push to run', async () => {
+  const [i] = (await make({ tips: { b1: 'tip1' }, ahead: { remote1: 2 }, prs: { 1: { isCrossRepository: true } } }).view('w', true)).drift;
+  assert.deepEqual([i.kind, i.action, i.run], ['unpushed', null, undefined]);
 });
 
 test('the run route takes only an id: a command in the body is compared, never run', async () => {
@@ -98,7 +112,9 @@ test('the run route takes only an id: a command in the body is compared, never r
   const evil = await post({ id: '1:unpushed', command: 'rm -rf /', cmd: 'rm', args: ['-rf', '/'] });
   assert.equal(evil.code, 409);
   assert.equal(calls.length, 0);
-  const ok = await post({ id: '1:unpushed' });
+  assert.equal((await post({ id: '1:unpushed' })).code, 409);
+  assert.equal(calls.length, 0);
+  const ok = await post({ id: '1:unpushed', command: 'git push origin b1' });
   assert.deepEqual([ok.code, ok.body.ok], [200, true]);
   assert.deepEqual(calls.map((c) => c.args), [['-C', '/repo', 'push', 'origin', 'b1']]);
 });

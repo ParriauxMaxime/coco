@@ -37,7 +37,7 @@ function Row({ item, on, onTick, run, pending }: { item: WaitingItem; on: boolea
         {item.excerpt && <div className="dp-wt-x">{item.excerpt}</div>}
         <div className="dp-wt-f">
           {item.actions.filter((a) => a.kind !== 'reply').map((a) => (
-            <button key={a.id} type="button" className={`dp-btn dp-sm${a.kind === 'approve' ? ' dp-primary' : a.kind === 'dismiss' || a.kind === 'ack' ? ' dp-ghost' : ''}${pendingClass(pending === key(a))}`} disabled={pending !== null} onClick={() => run(a)}>{a.label}</button>
+            <button key={a.id} type="button" className={`dp-btn dp-sm${a.kind === 'approve' ? ' dp-primary' : a.kind === 'dismiss' || a.kind === 'ack' ? ' dp-ghost' : ''}${pendingClass(pending === key(a))}`} disabled={pending !== null} onClick={() => (a.kind === 'open' ? void (location.hash = a.url) : run(a))}>{a.label}</button>
           ))}
           {reply && (
             <span className="dp-wt-reply">

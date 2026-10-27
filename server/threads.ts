@@ -794,7 +794,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
 
   // the owner's Verify: the repo checks on the ready commit (else the open suggestion's) in the group's worktree, in the background; a run is kept per sha in the thread
   // and reused until a new commit comes, except a deps-pending one, which the next click tries again
-  const verifying = new Set<string>();
+  const verifying = new Map<string, VerifyRun>();
   async function verifyThread(slug: string, key: string, want?: unknown): Promise<VerifyRun> {
     const { work, ref } = check(slug, key);
     if (!worktrees?.verify) throw new HttpError(400, 'coco runs no checks here');
@@ -805,16 +805,20 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const ready = (await readyOf(slug, work, ref, thread))?.commit;
     const commit = want ? [ready, ...thread.messages.flatMap((m) => (m.suggestion?.kind === 'commit' && isOpenSuggestion(m.suggestion) ? [m.suggestion.commit] : []))].find((c) => c === want) : (ready ?? (open?.kind === 'commit' ? open.commit : null));
     if (!commit) throw new HttpError(400, want ? 'that commit is neither ready nor an open suggestion' : 'no commit to verify');
+    if (!/^[0-9a-f]{7,40}$/.test(commit)) throw new HttpError(400, 'not a commit sha');
     const id = `${slug}:${key}:${commit}`;
-    const cached = thread.verifies?.[commit];
-    if (reusable(cached, verifying.has(id))) return cached;
+    // no await from here to verifying.set: a second click gets the run in flight, and the thread is read again after the awaits above
+    const inflight = verifying.get(id);
+    const cached = read(slug, key).verifies?.[commit];
+    if (inflight) return cached ?? inflight;
+    if (reusable(cached, false)) return cached;
     const save = (run: VerifyRun) => withLock(`${slug}:${key}`, () => {
       const t = read(slug, key);
       t.verifies = { ...t.verifies, [commit]: { ...run } };
       write(slug, t);
     });
     const first: VerifyRun = { commit, startedAt: new Date().toISOString(), status: 'running', checks: [] };
-    verifying.add(id);
+    verifying.set(id, first);
     await save(first);
     verifyCommit({ prepare: worktrees.prepare, verify: worktrees.verify, head: worktrees.head }, group.worktree, commit, save)
       .catch((e) => save({ ...first, finishedAt: new Date().toISOString(), status: 'fail', note: `coco could not run the checks: ${errText(e)}`.slice(0, 500) }))

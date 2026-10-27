@@ -84,7 +84,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       const remote = pr.headOid || null;
       const count = r.tip && remote ? await ahead(r.tip, remote) : null;
       if (count) {
-        const push = count > 0 && r.branch && BRANCH.test(r.branch) ? toRun({ type: 'push', branch: r.branch }, 'Push', 'Copy push') : null;
+        const push = count > 0 && r.branch && BRANCH.test(r.branch) && !pr.isCrossRepository ? toRun({ type: 'push', branch: r.branch }, 'Push', 'Copy push') : null;
         add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', push?.action ?? null, push ? { also: push.also, run: push.run } : {});
       }
 
@@ -142,16 +142,19 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
   };
   const running = new Set<string>();
 
-  // recompute the item now; run it only if it is still there with a run action, and `command` (what the page showed) still matches
+  // recompute the item now; run it only if it is still there with a run action, and `command` (what the page showed, required) still equals it
   async function runItem(slug: string, id: unknown, command: unknown) {
     if (typeof id !== 'string') throw new HttpError(400, 'id required');
+    const work = works.get(slug);
+    if (!work) throw new HttpError(404, 'no such work');
+    if (work.archived) throw new HttpError(409, 'this work is archived: nothing was run');
     const at = `${slug}:${id}`;
     if (running.has(at)) throw new HttpError(409, 'already running');
     running.add(at);
     try {
       const item = (await cached(slug, () => compute(slug, true), true)).drift.find((i) => i.id === id);
       if (!item?.run || item.action?.type !== 'run') throw new HttpError(409, 'this item no longer applies: nothing was run');
-      if (command !== undefined && command !== item.action.command) throw new HttpError(409, `the item changed, it now reads "${item.action.command}": nothing was run`);
+      if (command !== item.action.command) throw new HttpError(409, `the item reads "${item.action.command}", not what was sent: nothing was run`);
       const [cmd, args, opts] = await argvOf(item.run);
       const r = await reviewAgent.exec(cmd, args, opts);
       if (r.ok) {

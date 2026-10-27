@@ -136,6 +136,7 @@ export interface PrInfo {
   base?: string;
   sha?: string;
   headOid?: string | null;
+  isCrossRepository?: boolean;
   ci?: string;
   checks?: { name: string; status: string; conclusion: string; url?: string }[];
   unresolvedThreads?: number;

@@ -36,7 +36,7 @@ export async function verifyCommit(wt: Worktrees, cwd: string, commit: string, u
   }
   await update({ ...run });
   const seen: VerifyCheck[] = [];
-  const v = await wt.verify(cwd, { base: `${commit}^`, head: commit, onCheck: (c) => (seen.push(checkOf(c)), void update({ ...run, checks: [...seen] })) });
+  const v = await wt.verify(cwd, { base: `${commit}^`, head: commit, onCheck: (c) => (seen.push(checkOf(c)), void Promise.resolve(update({ ...run, checks: [...seen] })).catch(() => {})) });
   if (!v) await update(done({ status: 'pass', note: 'no checks are configured for this repo' }));
   else if (v.state === 'unavailable') await update(done({ status: 'deps-pending', note: v.why || 'the dependencies are not ready' }));
   else await update(done({ status: v.state === 'failed' ? 'fail' : 'pass', checks: v.results.map(checkOf) }));

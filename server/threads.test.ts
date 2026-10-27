@@ -580,3 +580,39 @@ test('Verify also takes the commit of an open suggestion that is not the ready l
   await until(() => stored()?.[older]?.status === 'pass', 'pass at the commit');
   assert.deepEqual(ran, [older]);
 });
+
+test('a double click on Verify starts one run, and a commit that is not a sha is refused', async () => {
+  const commit = 'c'.repeat(40);
+  const exec: Exec = async (_cmd, args) => ({ ok: true, stdout: args.includes('cherry') ? '+ x\n' : args.includes('--grep') ? '' : args.includes('--no-patch') ? 'Guard\n' : args.includes('rev-parse') ? 'abc999\n' : args.includes('--name-only') ? 'src/widgets.ts\n' : '', stderr: '' });
+  const ran: string[] = [];
+  let release = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const { threads, post, daemon, read, reply } = setup(undefined, {
+    prepare: async () => ({ state: 'ready', root: '/wt/cc-group', deps: [], checks: [] }),
+    whenReady: () => {},
+    briefLines: (r) => briefLines(r),
+    verify: async (root, { head }) => (ran.push(head), await gate, { state: 'passed', at: 'now', head, files: [], results: [] }),
+    head: async () => commit,
+  }, () => [{ id: 'aa11', commit }], undefined, exec);
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  const click = async () => {
+    const req = { method: 'POST', url: `/api/works/${SLUG}/threads/${A}/verify`, on: () => {} } as unknown as Req;
+    let out = 0;
+    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A, 'verify'], async () => '{}', (_res, code) => void (out = code));
+    return out;
+  };
+  ran.length = 0;
+  assert.deepEqual(await Promise.all([click(), click(), click()]), [200, 200, 200]);
+  await until(() => ran.length >= 1, 'run started');
+  release();
+  await until(() => (read(A) as unknown as { verifies?: Record<string, { status: string }> }).verifies?.[commit]?.status === 'pass', 'pass');
+  assert.equal(ran.length, 1, 'one run for three clicks');
+  const bad = { method: 'POST', url: '', on: () => {} } as unknown as Req;
+  let code = 0;
+  await threads.handle(bad, {} as Res, ['works', SLUG, 'threads', A, 'verify'], async () => JSON.stringify({ commit: 'zzzzzzz' }), (_res, c) => void (code = c));
+  assert.equal(code, 400);
+});

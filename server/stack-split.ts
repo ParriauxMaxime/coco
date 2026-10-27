@@ -8,6 +8,7 @@ import { list, opt, str, strip } from './cards.ts';
 import type { ActionDef } from './cards.ts';
 import type { Raw } from './blocks.ts';
 import type { Exec, PrInfo, RowKey, StackRow, Work } from './core-types.ts';
+import type { Change } from './works.ts';
 
 const BRANCH = /^[\w][\w./-]*$/;
 export type Part = { title: string; branch: string; files?: string[]; scope?: string; existingPr?: number };
@@ -57,7 +58,7 @@ export function splitOps(stack: StackRow[], s: Pick<Split, 'pr' | 'parts'>): Sta
 const applied = (stack: StackRow[], s: Split) => s.parts.every((p) => stack.some((r) => rowKey(r) === partKey(p))) && (s.parts.some((p) => partKey(p) === s.pr) || !stack.some((r) => rowKey(r) === s.pr));
 
 type Deps = {
-  works: { get(slug: string): Work | null | undefined; save(work: Work): unknown; prInfo(n: number | null | undefined): Promise<PrInfo> };
+  works: { get(slug: string): Work | null | undefined; save(work: Work): unknown; prInfo(n: number | null | undefined, fresh?: boolean): Promise<PrInfo>; dropPr?(n: number): void; changed?(slug: string, what?: Change): void };
   exec: Exec;
   github?: (slug: string) => string | null | undefined;
   defaultBranch: string;
@@ -79,9 +80,19 @@ export function createStackSplit({ works, exec, github, defaultBranch, notion, b
   async function chain(stack: StackRow[], parts: Part[]) {
     const i = stack.findIndex((r) => rowKey(r) === partKey(parts[0]));
     const base = (await branchOf(stack[i - 1])) || defaultBranch;
-    const bases = parts.map((p, k) => ({ pr: p.existingPr, base: k ? parts[k - 1].branch : base }));
+    // the next part sits on the real head of the previous part's PR, which must be the branch the agent named
+    const heads: string[] = [];
+    for (const p of parts) {
+      if (p.existingPr) {
+        const head = (await works.prInfo(p.existingPr)).head;
+        if (head !== p.branch) throw new Error(`#${p.existingPr} has head ${head ?? 'unknown'} on GitHub, not ${p.branch}`);
+        heads.push(head);
+      } else heads.push(p.branch);
+    }
+    const bases = parts.map((p, k) => ({ pr: p.existingPr, base: k ? heads[k - 1] : base }));
+    for (const b of bases) if (!BRANCH.test(b.base)) throw new Error(`${b.base} is not a branch name`);
     const after = stack[i + parts.length];
-    return { bases, next: after?.number ? { pr: after.number, base: parts.at(-1)!.branch } : null };
+    return { bases, next: after?.number ? { pr: after.number, base: heads.at(-1)! } : null };
   }
 
   const cardAction: ActionDef = {
@@ -128,10 +139,12 @@ export function createStackSplit({ works, exec, github, defaultBranch, notion, b
       const edits = [...bases.filter((b) => b.pr).map((b) => ({ pr: b.pr as number, base: b.base })), ...(next ? [next] : [])];
       for (const e of edits) {
         await step(`base #${e.pr}`, async () => {
-          const cur = (await works.prInfo(e.pr).catch(() => null))?.base;
+          const cur = (await works.prInfo(e.pr, true).catch(() => null))?.base;
           if (cur === e.base) return `already on ${e.base}`;
           const r = await exec('gh', ['pr', 'edit', String(e.pr), ...(gh ? ['--repo', gh] : []), '--base', e.base]);
           if (!r.ok) throw new Error(r.stderr.trim().split('\n').pop() || 'gh pr edit failed');
+          works.dropPr?.(e.pr);
+          works.changed?.(w.slug, 'stack');
           return `base set to ${e.base}`;
         });
       }

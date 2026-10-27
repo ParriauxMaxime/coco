@@ -59,7 +59,7 @@ interface GhCheck {
   detailsUrl?: string | null;
   targetUrl?: string | null;
 }
-const PR_FIELDS = 'number title url state isDraft reviewDecision headRefName baseRefName headRefOid additions deletions changedFiles mergedAt updatedAt body labels(first:20){nodes{name}} reviews(last:100){nodes{author{login} state}} reviewThreads(first:100){nodes{isResolved}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion detailsUrl} ... on StatusContext{context state targetUrl}}}}}}}';
+const PR_FIELDS = 'number title url state isDraft reviewDecision headRefName baseRefName headRefOid isCrossRepository additions deletions changedFiles mergedAt updatedAt body labels(first:20){nodes{name}} reviews(last:100){nodes{author{login} state}} reviewThreads(first:100){nodes{isResolved}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion detailsUrl} ... on StatusContext{context state targetUrl}}}}}}}';
 interface GhPr {
   number: number;
   body?: string;
@@ -71,6 +71,7 @@ interface GhPr {
   headRefName: string;
   baseRefName: string;
   headRefOid?: string;
+  isCrossRepository?: boolean;
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -218,6 +219,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       base: d.baseRefName,
       sha: (d.headRefOid || '').slice(0, 11),
       headOid: d.headRefOid || null,
+      isCrossRepository: !!d.isCrossRepository,
       additions: d.additions,
       deletions: d.deletions,
       changedFiles: d.changedFiles,

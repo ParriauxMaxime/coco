@@ -44,10 +44,12 @@ const setup = (execFail: (args: string[]) => boolean = () => false) => {
   const calls: string[][] = [];
   const syncs: unknown[] = [];
   const queued: Raw[] = [];
-  const works = { get: (s: string) => (s === 'w' ? structuredClone(work) : null), save: (w: Work) => void (work = structuredClone(w)), prInfo: async (n: number | null | undefined) => ({ number: n ?? null, ...(heads[n as number] || {}) }) as never };
+  const events: string[] = [];
+  const fresh: unknown[] = [];
+  const works = { get: (s: string) => (s === 'w' ? structuredClone(work) : null), save: (w: Work) => void (work = structuredClone(w)), prInfo: async (n: number | null | undefined, f?: boolean) => (fresh.push([n, f]), { number: n ?? null, ...(heads[n as number] || {}) }) as never, dropPr: (n: number) => void events.push(`drop:${n}`), changed: (s: string, what?: string) => void events.push(`${s}:${what}`) };
   const split = createStackSplit({ works, exec: async (cmd, args) => (calls.push([cmd, ...args]), fail.on && execFail(args) ? { ok: false, stdout: '', stderr: 'boom\nGraphQL: not allowed' } : { ok: true, stdout: '', stderr: '' }), github: () => 'acme/app', defaultBranch: 'main', notion: { sync: (s, o) => (syncs.push([s, o]), undefined) }, bodyEntry: 'gate:kit-body:lem-pr', queue: async (_a, input) => void queued.push(input) });
   const cards = createCards({ DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'split-test-')), place: async () => ({ work: 'w', pr: null }), actions: { split: split.cardAction }, deliver: async () => {} });
-  return { fail, cards, calls, syncs, queued, work: () => work };
+  return { fail, cards, calls, syncs, queued, events, fresh, work: () => work };
 };
 const input = { pr: 101, parts, why: 'too big' };
 
@@ -67,6 +69,26 @@ test('the split card shows the plan and approving sets the GitHub base chain wit
   assert.match(t.work().timeline?.[0]?.text ?? '', /#101 split into #201, #202, feat\/c/);
   assert.deepEqual(t.syncs, [['w', { rowPages: [{ row: '202', title: 'Part B' }, { row: 'b:feat:c', title: 'Part C' }] }]]);
   assert.deepEqual(t.queued.map((q) => [q.entry, q.pr]), [['gate:kit-body:lem-pr', 201], ['gate:kit-body:lem-pr', 202]]);
+});
+
+test('after each base edit the PR cache is dropped and the work announced; the pre-check reads fresh PR info', async () => {
+  const t = setup();
+  const card = await t.cards.create({ agentId: 'agent-1', action: { type: 'split', input } });
+  await t.cards.answer(card.id, { approved: true, values: {} });
+  assert.deepEqual(t.events, ['drop:202', 'w:stack', 'drop:102', 'w:stack']);
+  assert.ok(t.fresh.some((f) => (f as unknown[])[1] === true));
+});
+
+test('a part whose PR head is not its branch is refused; a bad base name is refused', async () => {
+  const t = setup();
+  const bad = { pr: 101, parts: [parts[0], { ...parts[1], branch: 'feat/other' }, parts[2]] };
+  await assert.rejects(t.cards.create({ agentId: 'agent-1', action: { type: 'split', input: bad } }), /#202 has head feat\/b on GitHub, not feat\/other/);
+  heads[100] = { head: '-bad', base: 'main' };
+  try {
+    await assert.rejects(setup().cards.create({ agentId: 'agent-1', action: { type: 'split', input } }), /-bad is not a branch name/);
+  } finally {
+    heads[100] = { head: 'feat/p100', base: 'main' };
+  }
 });
 
 test('toggles off run nothing beyond the stack and the bases, and a failed gh call is reported per step and retried by the next approval', async () => {

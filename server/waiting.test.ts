@@ -41,6 +41,31 @@ test('a confirm card offers approve and reject, a multi-choice or form card only
   assert.deepEqual(by['card:f'], ['dismiss']);
 });
 
+test('a card with an external effect (action, thread, option effect) gets Open and Dismiss, no inline Approve or pick', async () => {
+  const effect = { type: 'x' } as never;
+  const w = make({ cards: [
+    card('k', { kind: 'confirm', options: undefined, other: false }),
+    card('a', { kind: 'confirm', options: undefined, other: false, action: { type: 'pr_reply', input: {} } }),
+    card('t', { thread: 'c.7.aa11' }),
+    card('e', { options: [{ key: 'a', label: 'A', effect }], other: true }),
+  ] });
+  const by = Object.fromEntries((await w.view()).items.map((i) => [i.id, i.actions.map((a) => a.id)]));
+  assert.deepEqual(by['card:k'], ['approve', 'reject', 'dismiss']);
+  for (const id of ['card:a', 'card:t', 'card:e']) assert.deepEqual(by[id], ['open', 'dismiss']);
+});
+
+test('ack takes at most 100 ids of 200 chars and prunes acks older than 30 days', () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'waiting-'));
+  let t = Date.parse('2026-01-01T00:00:00Z');
+  const w = createWaiting({ DATA, now: () => t, works: { list: () => [] }, cards: { open: () => [] }, threads: { queue: () => [], ready: async () => null }, ask: { list: () => [] } });
+  assert.throws(() => w.ack(Array.from({ length: 101 }, (_, i) => `i${i}`)), /at most 100/);
+  assert.throws(() => w.ack(['x'.repeat(201)]), /200 chars/);
+  w.ack(['old']);
+  t += 31 * 24 * 3600 * 1000;
+  w.ack(['new']);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(DATA, 'waiting-acks.json'), 'utf8'))), ['new']);
+});
+
 test('a cc-group thread whose agent has the last word is a question; one still running, with no reply, or with an open card is not', async () => {
   const w = make({ queue: [queued('c.7.aa11'), queued('c.7.bb22', { busy: true }), queued('c.7.cc33', { agentLast: false }), queued('c.7.dd44', { asks: 1 }), queued('c.7.ee55', { text: '' })] });
   const { items } = await w.view();
@@ -56,7 +81,8 @@ test('an open suggestion is an Approve item with the ready commit named; approve
   const [i] = (await w.view()).items;
   assert.equal(i.kind, 'approve');
   assert.match(i.excerpt, /^commit abcdef1 ready: Fix the null \(1 file changed\)\./);
-  assert.deepEqual(i.actions.slice(0, 2).map((a) => [a.kind, a.url, a.body]), [['approve', '/api/works/w/threads/c.7.aa11/suggestions/m1', { action: 'approve' }], ['dismiss', '/api/works/w/threads/c.7.aa11/suggestions/m1', { action: 'dismiss' }]]);
+  assert.deepEqual(i.actions[0], { id: 'open', kind: 'open', label: 'Open', url: '#/t/c.7.aa11' });
+  assert.deepEqual(i.actions.slice(1, 3).map((a) => [a.kind, a.url, a.body]), [['approve', '/api/works/w/threads/c.7.aa11/suggestions/m1', { action: 'approve' }], ['dismiss', '/api/works/w/threads/c.7.aa11/suggestions/m1', { action: 'dismiss' }]]);
   const card = make({ queue: [queued('d.x', { suggestion: { msg: 'm2', kind: 'card' }, pr: null })] });
   assert.match((await card.view()).items[0].excerpt, /^card change ready/);
 });

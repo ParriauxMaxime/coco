@@ -109,6 +109,7 @@ function Suggestion({ s, onDecide, busy, pending, verify, onVerify }: Suggestion
       {open && (
         <div className="dp-thr-sugg-f">
           {s.kind === 'commit' && <VerifyButton run={verify} busy={busy} pending={pending === 'verify'} onClick={onVerify} />}
+          {s.kind === 'commit' && <span style={{ fontSize: 11, opacity: 0.7 }}>runs the repo's checks on the agent's code</span>}
           {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>}
           <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}><Icon name="x" size={12} />Dismiss</button>
         </div>
