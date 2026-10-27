@@ -224,7 +224,7 @@ export type Refs = { number: RowKey; branch?: string; headSha: string; baseSha: 
 export type RefsOptions = { headSha?: string; baseSha?: string; baseRef?: string; headRef?: string; fresh?: boolean };
 export type PrFile = { filename: string; status: string; previous?: string; additions: number; deletions: number };
 
-export type Works = Pick<ReturnType<typeof createWorks>, 'get' | 'list' | 'save' | 'prInfo' | 'remark' | 'personasForPaths'>;
+export type Works = Pick<ReturnType<typeof createWorks>, 'get' | 'list' | 'save' | 'prInfo' | 'remark' | 'personasForPaths'> & Partial<Pick<ReturnType<typeof createWorks>, 'changed'>>;
 export type CommentsApi = ReturnType<typeof createComments>;
 export type CodeApi = ReturnType<typeof createCode>;
 export type ReviewAgentApi = ReturnType<typeof createReviewAgent>;

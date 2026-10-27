@@ -5,18 +5,23 @@ import type { Artifact, PrInfo, RowKey, Work } from './core-types.ts';
 
 type Piece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 const piece = (id: string, state: string, extra: Partial<Piece> = {}): Piece => ({ id, label: id, state, madeFor: null, at: null, source: null, ...extra });
-type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[] };
+type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[]; calls?: { cmd: string; args: string[]; opts?: unknown }[]; events?: string[]; worktrees?: Record<string, string>; fail?: string };
 
-const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [] }: Setup = {}) => {
+const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = [], planHead, open = [], personas, artifacts = [], calls = [], events = [], worktrees = {}, fail }: Setup = {}) => {
   const work = { slug: 'w', title: 'W', stack: stack || [{ number: 1, personas: ['alice'] }], personas } as unknown as Work;
   const info = (n: number): PrInfo => ({ number: n, state: 'OPEN', head: `b${n}`, base: 'main', headOid: `remote${n}`, ...prs[n] });
   return createDrift({
     config: { repo: { path: '/repo', github: 'o/r', defaultBranch: 'main' }, kitKinds: ['body', 'diagram', 'video'], gateSkills: { 'kit-body': ['lem-pr'], 'kit-video': ['lem-demo-video'] } } as never,
-    works: { get: () => work, prInfo: async (n) => info(n as number), listArtifacts: () => artifacts },
+    works: { get: () => work, prInfo: async (n) => info(n as number), listArtifacts: () => artifacts, changed: (slug, what) => void events.push(`${slug}:${what}`), dropPr: (n) => void events.push(`drop:${n}`) },
     kit: { view: async () => ({ pieces }) },
     reviewAgent: {
       branchSha: async (b) => tips[b] ?? null,
-      exec: async (cmd, args) => {
+      worktreeFor: async (b) => worktrees[b] ?? null,
+      exec: async (cmd, args, opts) => {
+        if (args.includes('push') || args.slice(0, 2).join() === 'pr,edit') {
+          calls.push({ cmd, args, opts });
+          return fail ? { ok: false, stdout: '', stderr: fail } : { ok: true, stdout: 'done', stderr: '' };
+        }
         if (cmd === 'gh') return { ok: true, stdout: JSON.stringify(open), stderr: '' };
         assert.deepEqual(args.slice(0, 2), ['-C', '/repo']);
         if (args.includes('rev-list')) return { ok: true, stdout: String(ahead[args.at(-1)?.split('..')[0] ?? ''] ?? 0), stderr: '' };
@@ -31,15 +36,71 @@ const make = ({ stack, prs = {}, tips = {}, ahead = {}, pieces = [], comments = 
 };
 const kinds = async (d: ReturnType<typeof make>, list: 'drift' | 'next' = 'drift') => (await d.view('w', true))[list].map((i) => i.kind);
 
-test('local commits ahead of the PR head are flagged with a push to copy; a level head is not', async () => {
+test('local commits ahead of the PR head are flagged with a push to run and to copy; a level head is not', async () => {
   const r = await (await make({ tips: { b1: 'tip1' }, ahead: { remote1: 3 } }).view('w', true)).drift[0];
-  assert.deepEqual([r.kind, r.text, r.action], ['unpushed', '3 local commits not pushed', { type: 'copy', command: 'git push origin b1', label: 'Copy push' }]);
+  assert.deepEqual([r.kind, r.text, r.action, r.also], ['unpushed', '3 local commits not pushed', { type: 'run', command: 'git push origin b1', label: 'Push' }, { type: 'copy', command: 'git push origin b1', label: 'Copy push' }]);
   assert.deepEqual(await kinds(make({ tips: { b1: 'remote1' } })), []);
 });
 
-test('a local branch that diverged from GitHub is flagged without a push to copy', async () => {
+test('a local branch that diverged from GitHub is flagged without a push to run or copy', async () => {
   const [i] = (await make({ tips: { b1: 'tip1' }, ahead: { remote1: 'diverged' } }).view('w', true)).drift;
-  assert.deepEqual([i.text, i.action], ['local branch and GitHub diverged: rebase or reset it before pushing', null]);
+  assert.deepEqual([i.text, i.action, i.also, i.run], ['local branch and GitHub diverged: rebase or reset it before pushing', null, undefined, undefined]);
+});
+
+test('run pushes the branch from the repo clone or its worktree, built here, and tells the page what changed', async () => {
+  const calls: NonNullable<Setup['calls']> = [];
+  const events: string[] = [];
+  const setup = { tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls, events };
+  const r = await make(setup).runItem('w', '1:unpushed', 'git push origin b1');
+  assert.deepEqual([r.ok, r.stdout, r.command], [true, 'done', 'git push origin b1']);
+  assert.deepEqual(calls.map((c) => [c.cmd, c.args]), [['git', ['-C', '/repo', 'push', 'origin', 'b1']]]);
+  assert.deepEqual(events, ['drop:1', 'w:drift']);
+  calls.length = 0;
+  await make({ ...setup, worktrees: { b1: '/wt/b1' } }).runItem('w', '1:unpushed', undefined);
+  assert.deepEqual(calls[0].args, ['-C', '/wt/b1', 'push', 'origin', 'b1']);
+  assert.ok(calls.every((c) => !c.args.some((a) => /^-f|force|\+/.test(a))));
+});
+
+test('run fixes a base with gh pr edit; a failed command returns its output as is and changes nothing', async () => {
+  const calls: NonNullable<Setup['calls']> = [];
+  const events: string[] = [];
+  const setup = { stack: [{ number: 1 }, { number: 2 }], prs: { 2: { base: 'main' } }, calls, events };
+  await make(setup).runItem('w', '2:stack', 'gh pr edit 2 --repo o/r --base b1');
+  assert.deepEqual(calls.map((c) => [c.cmd, c.args]), [['gh', ['pr', 'edit', '2', '--repo', 'o/r', '--base', 'b1']]]);
+  events.length = 0;
+  const bad = await make({ ...setup, fail: 'pre-push: check-ts failed\nsrc/a.ts(1,1): error TS2322' }).runItem('w', '2:stack', undefined);
+  assert.deepEqual([bad.ok, bad.stderr], [false, 'pre-push: check-ts failed\nsrc/a.ts(1,1): error TS2322']);
+  assert.deepEqual(events, []);
+});
+
+test('run refuses an item that no longer applies, one with no run action, a changed command or no id, and runs nothing', async () => {
+  const calls: NonNullable<Setup['calls']> = [];
+  const refused = (d: ReturnType<typeof make>, id: unknown, command?: unknown) => assert.rejects(d.runItem('w', id, command), (e: { status?: number }) => e.status === 409 || e.status === 400);
+  await refused(make({ tips: { b1: 'remote1' }, calls }), '1:unpushed');
+  await refused(make({ tips: { b1: 'tip1' }, ahead: { remote1: 'diverged' }, calls }), '1:unpushed');
+  await refused(make({ pieces: [piece('body', 'stale')], calls }), '1:kit-body');
+  await refused(make({ tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls }), '1:unpushed', 'git push origin other');
+  await refused(make({ tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls }), '1:unpushed', 'git push --force origin b1');
+  await refused(make({ calls }), '1:stack');
+  await refused(make({ calls }), undefined);
+  assert.deepEqual(calls, []);
+});
+
+test('the run route takes only an id: a command in the body is compared, never run', async () => {
+  const calls = [] as NonNullable<Setup['calls']>;
+  const d = make({ tips: { b1: 'tip1' }, ahead: { remote1: 2 }, calls });
+  const post = async (body: unknown) => {
+    const out = { code: 0, body: {} as { ok?: boolean; error?: string } };
+    const req = { method: 'POST', url: '/api/works/w/drift/run' } as never;
+    await d.handle(req, {} as never, ['works', 'w', 'drift', 'run'], async () => JSON.stringify(body), (_res, code, b) => void Object.assign(out, { code, body: b }));
+    return out;
+  };
+  const evil = await post({ id: '1:unpushed', command: 'rm -rf /', cmd: 'rm', args: ['-rf', '/'] });
+  assert.equal(evil.code, 409);
+  assert.equal(calls.length, 0);
+  const ok = await post({ id: '1:unpushed' });
+  assert.deepEqual([ok.code, ok.body.ok], [200, true]);
+  assert.deepEqual(calls.map((c) => c.args), [['-C', '/repo', 'push', 'origin', 'b1']]);
 });
 
 test('a stale body or video offers the kit gate skill; a stale diagram with no skill opens artifacts; notion is ignored', async () => {
@@ -53,7 +114,7 @@ test('GitHub bases that differ from the work order are flagged with the gh comma
   const stack = [{ number: 1 }, { number: 2 }];
   const d = await make({ stack, prs: { 2: { base: 'main' } }, open: [{ number: 9, baseRefName: 'b2', headRefName: 'b9' }, { number: 1, baseRefName: 'main', headRefName: 'b1' }] }).view('w', true);
   assert.deepEqual(d.drift.map((i) => [i.kind, i.key]), [['stack', 2], ['stack-missing', 9]]);
-  assert.deepEqual(d.drift[0].action, { type: 'copy', command: 'gh pr edit 2 --repo o/r --base b1', label: 'Copy base fix' });
+  assert.deepEqual([d.drift[0].action, d.drift[0].also], [{ type: 'run', command: 'gh pr edit 2 --repo o/r --base b1', label: 'Fix base' }, { type: 'copy', command: 'gh pr edit 2 --repo o/r --base b1', label: 'Copy base fix' }]);
   assert.deepEqual(await kinds(make({ stack, prs: { 2: { base: 'b1' } }, open: [{ number: 2, baseRefName: 'b1', headRefName: 'b2' }] })), []);
 });
 

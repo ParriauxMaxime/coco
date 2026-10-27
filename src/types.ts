@@ -457,8 +457,9 @@ export type BriefActionResult = { name?: string; path?: string; agentId?: string
 
 export type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 export type KitBetaFlag = { code: string; name?: string; why?: string; enable?: string; inBody?: boolean; mode?: string };
-export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
-export type DriftItem = { id: string; key: string | number | null; kind: string; text: string; action: DriftAction | null };
+export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'run'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
+export type DriftItem = { id: string; key: string | number | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction };
+export type DriftRunResult = { ok: boolean; id: string; command: string; stdout: string; stderr: string };
 export type DriftResponse = { drift: DriftItem[]; next: DriftItem[]; at: string };
 export type KitResponse ={ key: string | number; head: { sha: string | null; at: string | null }; betaFlags: KitBetaFlag[]; pieces: KitPiece[] };
 

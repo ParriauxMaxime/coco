@@ -6,7 +6,7 @@ import type {
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
-import type { Card, CardAnswerBody, DriftResponse } from './types.ts';
+import type { Card, CardAnswerBody, DriftResponse, DriftRunResult } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { ModelCatalog, ModelChoice } from './types.ts';
 
@@ -110,6 +110,7 @@ export const api = {
   stackKeeperAction: (slug: string, action: string) => postEmpty<KeepApplied & KeepPlan>(`${works(slug)}/stack-keeper/${action}`),
   inbox: (body: { url: string; note: string }) => post<{ id: string; kind: string }>('/api/inbox', body),
   drift: (slug: string, fresh = false) => get<DriftResponse>(`${works(slug)}/drift${fresh ? '?fresh=1' : ''}`),
+  driftRun: (slug: string, id: string, command: string) => postJson(`${works(slug)}/drift/run`, { id, command }).then((r) => jsonOrError<DriftRunResult>(r)),
   kit: (slug: string, n: string | number) => get<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`),
   decide: (slug: string, body: Record<string, unknown>) => post<Work['decisions']>(`${works(slug)}/decisions`, body),
   importArtifact: (slug: string, body: ImportArtifactBody) => post<ImportedArtifact>(`${works(slug)}/artifacts`, body),

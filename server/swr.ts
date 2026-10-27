@@ -40,7 +40,7 @@ export function swrCache<T>(ttlMs: number, file?: string) {
     next.then((v) => { cache.set(key, { at: Date.now(), value: next }); remember(key, Date.now(), v); }, () => {}).finally(() => refreshing.delete(key));
     return next;
   };
-  return (key: string, fn: () => Promise<T>, fresh = false): Promise<T> => {
+  const read = (key: string, fn: () => Promise<T>, fresh = false): Promise<T> => {
     const hit = cache.get(key);
     // other callers keep the old value until the new one lands
     if (hit && fresh) return refresh(key, fn);
@@ -54,6 +54,15 @@ export function swrCache<T>(ttlMs: number, file?: string) {
     value.then((v) => remember(key, at, v), () => cache.get(key)?.value === value && cache.delete(key));
     return value;
   };
+  // forget a key (every key without one): the next read recomputes instead of serving the old value once
+  const drop = (key?: string) => {
+    for (const k of key === undefined ? [...cache.keys()] : [key]) {
+      cache.delete(k);
+      store.values.delete(k);
+    }
+    store.save();
+  };
+  return Object.assign(read, { drop });
 }
 
 // calls made within `windowMs` of each other share one `fetchMany`; a key missing from its result rejects

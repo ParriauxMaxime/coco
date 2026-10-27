@@ -1,17 +1,24 @@
-// Drift check: per work, what moved since the owner last looked, and the next steps that follow. Read only: every item carries an action the owner clicks.
+// Drift check: per work, what moved since the owner last looked, and the next steps that follow. Reads only, until the owner clicks an item's button.
+// POST /api/works/<slug>/drift/run { id } runs a `run` action: the item is recomputed and the command rebuilt here, never taken from the page.
 // Unpushed commits, kit pieces older than the head (kit.ts), a GitHub stack that differs from the work's, and two suggestions: update the body after a newer video, review a pushed head.
 import { cacheFile, swrCache } from './swr.ts';
 import { sameSha } from './kit.ts';
 import { gatesFor, skillName } from './gates.ts';
 import { keyLabel, rowKey } from './stack.ts';
-import { errorMessage, httpStatus } from './core-types.ts';
+import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { Config } from './config.ts';
 import type { Artifact, Comment, Exec, PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
+import type { Change } from './works.ts';
 
 const TTL_MS = 30000;
+const PUSH_MS = 600000;
+const TAIL = 8000;
+const BRANCH = /^[\w][\w./-]*$/;
 
-export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
-export type DriftItem = { id: string; key: RowKey | null; kind: string; text: string; action: DriftAction | null };
+export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'run'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
+// what a `run` action does, kept as data: the command is built from it on the server
+export type DriftRun = { type: 'push'; branch: string } | { type: 'base'; number: number; base: string };
+export type DriftItem = { id: string; key: RowKey | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction; run?: DriftRun };
 export type Drift = { drift: DriftItem[]; next: DriftItem[]; at: string };
 
 type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
@@ -19,9 +26,9 @@ type Rows = { key: RowKey; number: number | null; pr: PrInfo | null; branch: str
 type Deps = {
   config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: { path?: string; github?: string; defaultBranch?: string } };
   DATA?: string;
-  works: { get(slug: string): Work | null; prInfo(n: number | null | undefined): Promise<PrInfo>; listArtifacts?(slug: string): Artifact[] };
+  works: { get(slug: string): Work | null; prInfo(n: number | null | undefined, fresh?: boolean): Promise<PrInfo>; listArtifacts?(slug: string): Artifact[]; changed?(slug: string, what?: Change): void; dropPr?(n: number): void };
   kit: { view(slug: string, key: string): Promise<{ pieces: KitPiece[] }> };
-  reviewAgent: { exec: Exec; branchSha(branch: string): Promise<string | null> };
+  reviewAgent: { exec: Exec; branchSha(branch: string): Promise<string | null>; worktreeFor?(branch: string): Promise<string | null> };
   comments: { list(slug: string, key: RowKey): { comments?: Pick<Comment, 'author' | 'sha'>[] } };
   reviewPlan: { planOf(slug: string, n: RowKey): { headSha?: string | null } | null | undefined };
 };
@@ -56,23 +63,30 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     return skill ? `gate:${gate}:${skill}` : null;
   };
 
-  async function compute(slug: string): Promise<Drift> {
+  const shown = (r: DriftRun) => (r.type === 'push' ? `git push origin ${r.branch}` : `gh pr edit ${r.number}${GH ? ` --repo ${GH}` : ''} --base ${r.base}`);
+  // never a force push: a diverged branch has no run
+  const toRun = (r: DriftRun, label: string, copy: string): Pick<DriftItem, 'action' | 'also' | 'run'> => ({ action: { type: 'run', command: shown(r), label }, also: { type: 'copy', command: shown(r), label: copy }, run: r });
+
+  async function compute(slug: string, fresh = false): Promise<Drift> {
     const work = works.get(slug);
     if (!work) throw Object.assign(new Error('no such work'), { status: 404 });
     const rows: Rows[] = await Promise.all((work.stack || []).map(async (s) => {
-      const pr = s.number ? await works.prInfo(s.number) : null;
+      const pr = s.number ? await works.prInfo(s.number, fresh) : null;
       const branch = pr?.head || s.planned?.branch || null;
       return { key: rowKey(s) as RowKey, number: s.number || null, pr, branch, tip: branch ? await reviewAgent.branchSha(branch) : null, personas: s.personas || [], gates: s.gates };
     }));
     const drift: DriftItem[] = [];
     const next: DriftItem[] = [];
-    const add = (list: DriftItem[], key: RowKey | null, kind: string, text: string, action: DriftAction | null) => list.push({ id: `${key ?? 'work'}:${kind}`, key, kind, text, action });
+    const add = (list: DriftItem[], key: RowKey | null, kind: string, text: string, action: DriftAction | null, more: Pick<DriftItem, 'also' | 'run'> = {}) => list.push({ id: `${key ?? 'work'}:${kind}`, key, kind, text, action, ...more });
 
     for (const r of rows.filter((x) => x.number && x.pr?.state === 'OPEN')) {
       const pr = r.pr as PrInfo;
       const remote = pr.headOid || null;
       const count = r.tip && remote ? await ahead(r.tip, remote) : null;
-      if (count) add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', count > 0 ? { type: 'copy', command: `git push origin ${r.branch}`, label: 'Copy push' } : null);
+      if (count) {
+        const push = count > 0 && r.branch && BRANCH.test(r.branch) ? toRun({ type: 'push', branch: r.branch }, 'Push', 'Copy push') : null;
+        add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', push?.action ?? null, push ? { also: push.also, run: push.run } : {});
+      }
 
       const pieces = await kit.view(slug, String(r.key)).then((v) => v.pieces, () => []);
       // a companion PR in another repo (a link) only has dates, too weak to call it stale
@@ -104,7 +118,10 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     for (const [i, r] of open.entries()) {
       const below = open[i - 1];
       const want = below?.branch || DEFAULT;
-      if (r.pr?.base && r.pr.base !== want) add(drift, r.key, 'stack', `GitHub bases ${keyLabel(r.key)} on ${r.pr.base}, the work stacks it on ${want}`, { type: 'copy', command: `gh pr edit ${r.number}${GH ? ` --repo ${GH}` : ''} --base ${want}`, label: 'Copy base fix' });
+      if (r.pr?.base && r.pr.base !== want) {
+        const fix = r.number && BRANCH.test(want) ? toRun({ type: 'base', number: r.number, base: want }, 'Fix base', 'Copy base fix') : null;
+        add(drift, r.key, 'stack', `GitHub bases ${keyLabel(r.key)} on ${r.pr.base}, the work stacks it on ${want}`, fix?.action ?? null, fix ? { also: fix.also, run: fix.run } : {});
+      }
     }
     const mine = new Set(rows.map((r) => r.number));
     const heads = new Map(open.map((r) => [r.branch, r]));
@@ -117,14 +134,55 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
 
   const view = (slug: string, fresh = false) => cached(slug, () => compute(slug), fresh);
 
-  async function handle(_req: Req, res: Res, parts: string[], _readBody: ReadBody, send: Send) {
+  const argvOf = async (r: DriftRun): Promise<[string, string[], Record<string, unknown>]> => {
+    if (r.type === 'base') return ['gh', ['pr', 'edit', String(r.number), ...(GH ? ['--repo', GH] : []), '--base', r.base], {}];
+    // in the branch's worktree when it has one, so the repo's pre-push hooks see that tree
+    const cwd = (await reviewAgent.worktreeFor?.(r.branch)) || config.repo.path || '.';
+    return ['git', ['-C', cwd, 'push', 'origin', r.branch], { timeout: PUSH_MS }];
+  };
+  const running = new Set<string>();
+
+  // recompute the item now; run it only if it is still there with a run action, and `command` (what the page showed) still matches
+  async function runItem(slug: string, id: unknown, command: unknown) {
+    if (typeof id !== 'string') throw new HttpError(400, 'id required');
+    const at = `${slug}:${id}`;
+    if (running.has(at)) throw new HttpError(409, 'already running');
+    running.add(at);
     try {
-      const fresh = new URL(_req.url ?? '', 'http://x').searchParams.get('fresh') === '1';
+      const item = (await cached(slug, () => compute(slug, true), true)).drift.find((i) => i.id === id);
+      if (!item?.run || item.action?.type !== 'run') throw new HttpError(409, 'this item no longer applies: nothing was run');
+      if (command !== undefined && command !== item.action.command) throw new HttpError(409, `the item changed, it now reads "${item.action.command}": nothing was run`);
+      const [cmd, args, opts] = await argvOf(item.run);
+      const r = await reviewAgent.exec(cmd, args, opts);
+      if (r.ok) {
+        cached.drop(slug);
+        if (typeof item.key === 'number') works.dropPr?.(item.key);
+        works.changed?.(slug, 'drift');
+      }
+      return { ok: r.ok, id, command: item.action.command, stdout: r.stdout.slice(-TAIL), stderr: r.stderr.slice(-TAIL) };
+    } finally {
+      running.delete(at);
+    }
+  }
+
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
+    try {
+      if (parts[3] === 'run') {
+        if (req.method !== 'POST') throw new HttpError(405, 'POST only');
+        let body: { id?: unknown; command?: unknown };
+        try {
+          body = JSON.parse((await readBody(req)) || '{}');
+        } catch {
+          throw new HttpError(400, 'the body is not JSON');
+        }
+        return send(res, 200, await runItem(parts[1], body?.id, body?.command));
+      }
+      const fresh = new URL(req.url ?? '', 'http://x').searchParams.get('fresh') === '1';
       return send(res, 200, await view(parts[1], fresh));
     } catch (e) {
       return send(res, httpStatus(e), { error: errorMessage(e) });
     }
   }
 
-  return { handle, view };
+  return { handle, view, runItem, drop: (slug: string) => cached.drop(slug) };
 }
