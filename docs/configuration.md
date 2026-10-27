@@ -161,8 +161,8 @@ worktrees"). Commands are argv arrays run without a shell; wrap one in
 
 `preflight` (also per repo, `repos[].settings`) configures the checks run before a
 kit-video dispatch (behavior: docs/guide.md, "Preflight"). Worktree deps and the dev server are always
-checked. Default `null`: repos on `lemlist/*` get the lemlist set below, others no extra check.
-Setting the key replaces that set. The key's value is never read or shown, only whether it exists.
+checked. Default `null`: no extra check. The example is illustrative: use the MCP URL, settings
+file and key names your app really uses. The key's value is never read or shown, only whether it exists.
 
 ```json
 "preflight": {

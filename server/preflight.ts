@@ -19,11 +19,6 @@ const TTL_MS = 60_000;
 const NET_MS = 2500;
 const PROBE_MS = 15_000;
 const DETAIL_MAX = 200;
-const LEMLIST: PreflightConfig = {
-  mcp: [{ name: 'lemlist-dev MCP', url: 'http://localhost:8000/mcp', fix: 'start the local app (dev_server_start) so :8000/mcp answers, or point the MCP at the port the dev server uses' }],
-  settingsFile: 'lemapp/settings-local.json',
-  llmKey: { env: ['ANTHROPIC_API_KEY'], paths: ['anthropic.apiKey', 'services.anthropic.apiKey'], fix: 'set the LLM key on the local server (settings-local.json or the env it starts with); never paste it in a chat or a brief' },
-};
 
 type Probe = { http(url: string): Promise<string | null>; tcp(host: string, port: number): Promise<string | null>; exec(argv: string[], o: { cwd: string; timeoutMs: number }): Promise<{ ok: boolean; output: string }> };
 type ServerView = { state?: string; lastError?: string; port?: number } | null;
@@ -89,9 +84,7 @@ export function createPreflight({ config, repoOf, preflightOf, works, devServers
 
   const settingsFor = (work: Work): PreflightConfig => {
     const repo = repoOf?.(work);
-    const set = preflightOf?.(work) ?? repo?.settings?.preflight ?? null;
-    const github = repo?.github || config.repo.github;
-    return set ?? (/^lemlist\//i.test(github) ? LEMLIST : {});
+    return preflightOf?.(work) ?? repo?.settings?.preflight ?? {};
   };
 
   async function compute(work: Work, key: RowKey): Promise<PreflightResult> {

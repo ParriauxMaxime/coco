@@ -117,13 +117,11 @@ test('fixture probes run only when configured, with their timeout, in the worktr
   assert.equal(by(await rig({ cfg }).preflight.run('csv', 101), 'Campaign has leads').ok, true);
 });
 
-test('lemlist repos get the lemlist defaults; others get none', async () => {
-  const lem = rig({ github: 'lemlist/lemlist' });
+test('no preflight config: only the deps and dev server checks run, nothing guessed', async () => {
+  const lem = rig({ github: 'l3mpire/lempire' });
   const r = await lem.preflight.run('csv', 101);
-  assert.deepEqual(lem.calls.http, ['http://localhost:8000/mcp']);
-  assert.deepEqual(r.checks.map((c) => c.name), ['Worktree deps', 'Dev server', 'lemlist-dev MCP', 'settings-local.json', 'LLM key']);
-  const other = rig();
-  assert.equal(other.calls.http.length, 0);
+  assert.equal(lem.calls.http.length, 0);
+  assert.deepEqual(r.checks.map((c) => c.name), ['Worktree deps', 'Dev server']);
 });
 
 test('the result is cached for 60 s per PR; fresh re-runs it', async () => {
