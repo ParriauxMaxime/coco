@@ -30,7 +30,7 @@ type PlanRun = { status: string; startedAt: string; finishedAt: string | null; h
 type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined>; dismissed?: DismissedWatch[] };
 type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
-type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
+type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark' | 'changed'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
 const MAX_STEPS = 8;
 const MAX_WATCH = 8;
 export const SEVERITIES = ['blocking', 'major', 'minor', 'nit'];
@@ -228,6 +228,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     const tmp = `${file(slug, n)}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(data, null, 1));
     fs.renameSync(tmp, file(slug, n));
+    works.changed?.(slug, 'plan');
   };
   const mutate = <T>(slug: string, n: RowKey, fn: (data: PlanData) => T): T => {
     const data = read(slug, n);

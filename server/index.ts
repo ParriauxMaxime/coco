@@ -127,6 +127,8 @@ const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan });
 works.hooks.drift = (slug) => drift.view(slug).catch(() => null);
+// first listener: a page told of a change reads the drift recomputed, not the cached one
+works.onChange((slug) => drift.drop(slug));
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
 const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
@@ -164,6 +166,7 @@ const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) =
 const events = createHub();
 events.topic('permissions', permissions.watch);
 events.topic('works', works.watch);
+events.topic('work', works.watchWork);
 events.topic('work-agents', workAgents.watchList);
 events.topic('agent-chat', workAgents.watchChat);
 events.topic('subagents', subagents.watchList);

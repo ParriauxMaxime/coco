@@ -19,6 +19,9 @@ import { sseSink } from './events.ts';
 import type { Sink } from './events.ts';
 import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Send, Work } from './core-types.ts';
 
+// what a work change touched: the work itself, its stack, review plan, drift or artifacts
+export type Change = 'work' | 'stack' | 'plan' | 'drift' | 'artifacts';
+
 const HOME = os.homedir();
 const run = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
   new Promise<RunResult>((resolve) => {
@@ -135,21 +138,30 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
       .map((f): Work => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')))
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   const get = (slug: string): Work | null => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
-  const save = (work: Work, { touch = true } = {}) => {
+  // listeners run in the order they were added
+  const listeners = new Set<(slug: string, what: Change) => void>();
+  const onChange = (fn: (slug: string, what: Change) => void) => {
+    listeners.add(fn);
+    return () => void listeners.delete(fn);
+  };
+  const changed = (slug: string, what: Change = 'work') => listeners.forEach((l) => l(slug, what));
+  const save = (work: Work, { touch = true, what }: { touch?: boolean; what?: Change } = {}) => {
     if (touch) work.updatedAt = new Date().toISOString();
     const before = get(work.slug);
     if (before && before.title !== work.title) Promise.resolve(hooks.onRetitled?.(work)).catch(() => {});
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
-    onSave.forEach((l) => l(work.slug));
+    changed(work.slug, what ?? (before && JSON.stringify(before.stack) !== JSON.stringify(work.stack) ? 'stack' : 'work'));
     return work;
   };
-  const onSave = new Set<(slug: string) => void>();
 
-  // the slug of each work saved, so open pages reload it
+  // topic `works`: the slug of each work changed, so open pages reload it
   function watch(sink: Sink) {
-    const write = (slug: string) => sink.send(JSON.stringify({ slug }));
-    onSave.add(write);
-    sink.onClose(() => onSave.delete(write));
+    sink.onClose(onChange((slug) => sink.send(JSON.stringify({ slug }))));
+  }
+
+  // topic `work:<slug>`: { slug, what } for each change of that work
+  function watchWork(sink: Sink, slug: string) {
+    sink.onClose(onChange((s, what) => s === slug && sink.send(JSON.stringify({ slug, what }))));
   }
 
   async function paseo() {
@@ -270,7 +282,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     if (!work) throw new Error('no such work');
     work.timeline = work.timeline || [];
     work.timeline.unshift({ ts: new Date().toISOString(), kind: 'artifact', text: `imported ${name} from ${abs}${pr ? ` for #${pr}${sha ? ` at ${String(sha).slice(0, 10)}` : ''}` : ''}` });
-    save(work);
+    save(work, { what: 'artifacts' });
     return { name, dest, headSha: sha || null };
   }
 
@@ -536,5 +548,6 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: st
     return save(work);
   };
 
-  return { paseo, handle, watch, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks, notion };
+  const dropPr = (number: number) => prCache.drop(String(number));
+  return { paseo, handle, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks, notion };
 }

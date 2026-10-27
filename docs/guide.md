@@ -490,9 +490,11 @@ The Drift block on the work page (`server/drift.ts`, `GET
 coco starts nothing by itself.
 
 - Unpushed: the local branch is ahead of the PR head on GitHub ("3 local
-  commits not pushed"); the button copies `git push`. A branch that diverged
-  from GitHub is flagged with no button, since a force push could drop
-  GitHub's commits.
+  commits not pushed"); **Push** runs `git push origin <branch>` (in the
+  branch's worktree, else the repo clone) and **Copy push** copies it. The
+  output of the repo's pre-push hooks (check-ts, say) shows as is when the
+  push fails. A branch that diverged from GitHub is flagged with no button,
+  since a force push could drop GitHub's commits; coco never force-pushes.
 - A stale kit piece (body, diagram, video, by the freshness rules above)
   starts that kit gate's skill, for example `/lem-pr` for the body.
 - A blocked demo beat: importing a video (`kind: video`) reads the
@@ -501,8 +503,13 @@ coco starts nothing by itself.
   what blocked it and the one action that unblocks it.
 - The GitHub stack differs: a PR's base is not the row below it (or the
   default branch for the first open row), or an open PR sits on a row's
-  branch but is not in the work. The button copies the `gh pr edit --base`
-  line or opens the Stack.
+  branch but is not in the work. **Fix base** runs `gh pr edit <n> --base <b>`
+  (**Copy base fix** copies it); the other opens the Stack.
+- `POST /api/works/<slug>/drift/run { id }` backs Push and Fix base: the
+  server recomputes the drift, refuses (409) an item that no longer applies,
+  builds the command itself (the page never sends one; a `command` it shows
+  is only compared) and runs it. On success it drops the drift and PR caches
+  and announces the change, so the item disappears.
 - PR title format is not checked: no title convention is configured.
 
 Below them, suggested next steps: "Update PR body" when an imported video
@@ -872,7 +879,10 @@ Pull based, no webhooks:
   when it closes, resubscribing everything (each topic replays, `open` first).
   `GET /api/events?sub=<topic>…` (first event `hello` with the stream id),
   `POST /api/events/<id>/subs` `{ add, remove }` to change topics without
-  reconnecting. Topics: `permissions`, `works`, `work-agents:<slug>`,
+  reconnecting. Topics: `permissions`, `works`, `work:<slug>` (`{ slug, what }`
+  for each change of a work: `work` saved, `stack`, `plan`, `drift`,
+  `artifacts`; the Overview, Plan, Stack, Drift and Kit views refetch on it,
+  the server having dropped its cached drift first), `work-agents:<slug>`,
   `agent-chat:<agentId>`, `ask:<convId>`, `thread:<slug>:<key>` (arguments
   URI-encoded); each message is `{ topic, event, data }`, `open` starting the
   topic's replay (a chat replays its timeline, cards come on subscribe). The

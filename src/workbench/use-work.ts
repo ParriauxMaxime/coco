@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
-import { subscribe } from '../live.ts';
+import { subscribe, topic } from '../live.ts';
 import type { ImportArtifactBody, StackRow, WorkDetail, WorkPlan } from '../types.ts';
 import type { WorkData, WorkPr } from './types.ts';
 
@@ -18,17 +18,22 @@ export function useWorkData(slug: string): LoadedWork {
   const [plan, setPlan] = useState<WorkPlan | null>(null);
   const [err, setErr] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const latest = useRef(0);
+  // only the newest load lands: a slow older one must not put the old work back
   const load = (fresh = false) => {
+    const n = ++latest.current;
     setRefreshing(true);
-    return Promise.all([api.work(slug, fresh), api.plan(slug)]).then(([d, p]) => { setW(d); setPlan(p); }).catch((e: Error) => setErr(e.message)).finally(() => setRefreshing(false));
+    return Promise.all([api.work(slug, fresh), api.plan(slug)]).then(([d, p]) => { if (n === latest.current) { setW(d); setPlan(p); } }).catch((e: Error) => { if (n === latest.current) setErr(e.message); }).finally(() => { if (n === latest.current) setRefreshing(false); });
   };
   useEffect(() => {
     load();
     const t = setInterval(() => load(), 30000);
     const onVisible = () => document.visibilityState === 'visible' && load(true);
     document.addEventListener('visibilitychange', onVisible);
-    const off = subscribe('works', { message: (d: { slug: string }) => d.slug === slug && load() });
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); off(); };
+    // the server says this work changed (saved, stack, plan, drift, artifacts): events in a burst make one load
+    let soon: ReturnType<typeof setTimeout>;
+    const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(() => load(), 50); } });
+    return () => { clearInterval(t); clearTimeout(soon); document.removeEventListener('visibilitychange', onVisible); off(); };
   }, [slug]);
   const syncing = Boolean(w?.notionStatus?.running);
   useEffect(() => { if (!syncing) return; const t = setInterval(() => load(), 5000); return () => clearInterval(t); }, [syncing]);

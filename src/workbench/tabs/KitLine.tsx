@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../api.ts';
+import { subscribe, topic } from '../../live.ts';
 import type { KitPiece, KitResponse } from '../../types.ts';
 import type { PrKey } from '../types.ts';
 import '../../components/parts.css';
@@ -15,7 +16,9 @@ export default function KitLine({ slug, n }: { slug: string; n: PrKey }) {
     const load = () => api.kit(slug, n).then(setData, () => {});
     load();
     const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
+    let soon: ReturnType<typeof setTimeout>;
+    const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(load, 50); } });
+    return () => { clearInterval(t); clearTimeout(soon); off(); };
   }, [slug, n]);
   const shown = data?.pieces.filter((p) => p.state !== 'off') || [];
   const betas = data?.betaFlags || [];

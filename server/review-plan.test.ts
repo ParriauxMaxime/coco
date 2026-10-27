@@ -174,3 +174,18 @@ test('get_review_context reads the latest run on a PR, in the given work or any'
   assert.match((readReviewContext(DATA, { pr: 8 }) as { error: string }).error, /no review plan run recorded for #8/);
   assert.match((readReviewContext(DATA, { pr: 'nope' }) as { error: string }).error, /PR number/);
 });
+
+test('a plan change (a tick) is announced as a plan change of its work', async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-plan-'));
+  const events: string[] = [];
+  const plan = createReviewPlan({
+    DATA,
+    REPO: DATA,
+    config: DEFAULTS,
+    code: { ensureRefs: async () => assert.fail('unused'), prFilesFromGit: async () => [] },
+    works: { get: () => ({ slug: 'csv', title: 'CSV', stack: [] }) as unknown as Work, prInfo: async () => ({}) as never, personasForPaths: () => [], remark: () => null, changed: (slug, what) => void events.push(`${slug}:${what}`) },
+  });
+  let out: unknown;
+  await plan.handle({ method: 'PUT' } as never, {} as never, ['works', 'csv', 'prs', '7', 'review-plan', 'ticks'], async () => JSON.stringify({ headSha: 'a'.repeat(40), path: 'src/a.ts', on: true }), (_r, _c, b) => (out = b));
+  assert.deepEqual([events, out], [['csv:plan'], { ticks: ['src/a.ts'] }]);
+});
