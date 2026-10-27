@@ -813,8 +813,11 @@ Pull based, no webhooks:
 - Paseo projects, workspaces and agents come from the CLI on each request;
   Projects polls every 20 s, Agents every 15 s.
 - Live updates (pending permissions, work saves, a work's agents, agent and
-  Ask chats with their cards, agent threads) share one event stream per page,
-  so a few open coco tabs stay under the browser's 6 connections per host:
+  Ask chats with their cards, agent threads) share one event stream across
+  all open coco tabs, so they stay under the browser's 6 connections per host:
+  the tab holding the `cocopilot-live` Web Lock opens it for every tab's
+  topics and relays events on a BroadcastChannel; the next tab takes over
+  when it closes, resubscribing everything (each topic replays, `open` first).
   `GET /api/events?sub=<topic>…` (first event `hello` with the stream id),
   `POST /api/events/<id>/subs` `{ add, remove }` to change topics without
   reconnecting. Topics: `permissions`, `works`, `work-agents:<slug>`,
