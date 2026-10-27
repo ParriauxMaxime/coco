@@ -2,7 +2,7 @@
 name: coco-findings
 description: "Report code-review findings to cocopilot's Findings board, one structured finding per issue (title, severity, confidence, location, body). Use at the end of any review of a PR that belongs to a cocopilot work: a persona review, a local review, an audit, a second opinion, a stack review."
 argument-hint: "[PR number] [reviewer id]"
-allowed-tools: Bash, Read, mcp__cocopilot__upsert_finding, mcp__cocopilot__upsert_decision, mcp__cocopilot__attach_media
+allowed-tools: Bash, Read, mcp__cocopilot__get_pr_findings, mcp__cocopilot__upsert_finding, mcp__cocopilot__upsert_decision, mcp__cocopilot__attach_media
 ---
 
 # coco-findings
@@ -12,8 +12,10 @@ one board. A finding posted here lands there with its claim, severity and
 confidence, and the user triages it: accept, dismiss with a reason, or
 dispatch to an agent.
 
-Inside a coco agent (the `cocopilot` MCP is mounted), call
-`cocopilot.upsert_finding` once per finding with the fields of section 2:
+Inside a coco agent (the `cocopilot` MCP is mounted), first call
+`cocopilot.get_pr_findings`: drop every finding it already lists (open, fixed,
+declined, or a dismissed watch point), unless the code it judged changed
+since. Then call `cocopilot.upsert_finding` once per finding with the fields of section 2:
 work, PR and head sha default to your agent's, pass `pr` for another row of
 the stack. The same author, path and title updates the finding instead of
 adding one. `cocopilot.attach_media` uploads a screenshot and returns its

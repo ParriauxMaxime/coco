@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { classify, createClassifier, createReviewPlan, normalizePlan, splitDiff, suggestedOrder } from './review-plan.ts';
-import { readReviewContext, reviewContextFile, writeReviewContext } from './review-context.ts';
+import { readPrFindings, readReviewContext, reviewContextFile, writeReviewContext } from './review-context.ts';
 import { DEFAULTS } from './config.ts';
 import type { Work } from './core-types.ts';
 
@@ -112,6 +112,24 @@ test('the plan prompt of a 250-file PR stays under 2k tokens: no diff, no file l
   assert.match(ctx.guidance, /^Focus on the export permission/);
   assert.deepEqual(ctx.rules, ['No ternaries in server code.']);
   assert.deepEqual(ctx.personas, [{ login: 'bob', hits: 250 }]);
+});
+
+test('get_pr_findings lists settled findings with their thread end and dismissed watch points, which outlive a re-plan', () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-seen-'));
+  const reviews = path.join(DATA, 'works', 'csv', 'reviews');
+  const write = (file: string, data: unknown) => (fs.mkdirSync(path.dirname(file), { recursive: true }), fs.writeFileSync(file, JSON.stringify(data)));
+  write(path.join(DATA, 'works', 'csv', 'comments', 'pr-7.json'), { number: 7, comments: [{ id: 'c1', path: 'src/a.ts', sha: 'a'.repeat(40), startLine: 4, endLine: 4, body: 'Partial write on a hidden invoice', author: 'alice', status: 'declined', resolution: { note: 'Kept on purpose' } }] });
+  write(path.join(DATA, 'works', 'csv', 'threads', 'c.7.c1.json'), { messages: [{ role: 'user', text: 'why?' }, { role: 'agent', text: 'Accept the gap until the REST PR.' }] });
+  write(path.join(reviews, 'pr-7-plan.json'), { run: null, ticks: {}, watch: {}, plan: { headSha: 'b'.repeat(40), createdAt: 'p1', watchPoints: [{ path: 'src/b.ts', startLine: 2, endLine: 3, body: 'Polled method now reads twice', severity: 'minor' }] } });
+  const plan = createReviewPlan({ DATA, REPO: DATA, config: DEFAULTS, code: { ensureRefs: async () => assert.fail(), prFilesFromGit: async () => [] }, works: { get: () => null, prInfo: async () => assert.fail(), personasForPaths: () => [], remark: () => null } });
+  plan.watch('csv', 7, { index: 0, state: 'dismissed', note: 'cheap enough' });
+  const stored = JSON.parse(fs.readFileSync(path.join(reviews, 'pr-7-plan.json'), 'utf8'));
+  write(path.join(reviews, 'pr-7-plan.json'), { ...stored, watch: {}, plan: { ...stored.plan, createdAt: 'p2', watchPoints: [] } });
+  const seen = readPrFindings(DATA, { pr: 7 });
+  assert.ok(!('error' in seen));
+  assert.equal(seen.work, 'csv');
+  assert.deepEqual(seen.findings.map((f) => [f.status, f.title, f.resolution?.note, f.thread?.at(-1)?.text]), [['declined', 'Partial write on a hidden invoice', 'Kept on purpose', 'Accept the gap until the REST PR.']]);
+  assert.deepEqual(seen.dismissedWatchPoints.map((d) => [d.path, d.lines, d.note]), [['src/b.ts', '2-3', 'cheap enough']]);
 });
 
 test('get_review_context reads the latest run on a PR, in the given work or any', () => {

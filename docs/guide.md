@@ -253,7 +253,11 @@ and merge-base shas and the git commands to read them (`git diff --name-status`
 lists the changed files, then `git diff`, `git show`, `git grep` at the head
 sha), plus `github_pr` and `get_work`. The guidance typed for the run, the
 rules and the owner personas come from the `get_review_context` tool
-(cocopilot MCP). Files the plan leaves out land in skim with their category.
+(cocopilot MCP). What is already raised comes from `get_pr_findings`: every
+finding on the PR with its status, resolution and thread end, plus the watch
+points you dismissed (kept across re-plans). The plan never raises one again
+unless the code it judged changed, and then names the finding it reopens.
+Files the plan leaves out land in skim with their category.
 It ends with one `propose_review_plan` call (cocopilot MCP) that returns:
 
 - a summary, product first;

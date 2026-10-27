@@ -8,6 +8,7 @@ import { capitalize } from './review-agent.ts';
 import { createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { Entry, Started } from './paseo-agent.ts';
 import { writeReviewContext } from './review-context.ts';
+import type { DismissedWatch } from './review-context.ts';
 import { HttpError, errorMessage, errorStatus, isSeverity } from './core-types.ts';
 import type { Config, FileLayers } from './config.ts';
 import type { CodeApi, PrFile, ReadBody, Refs, Req, Res, Rule, RowKey, Send, Works } from './core-types.ts';
@@ -25,7 +26,8 @@ type RawWatch = { path?: unknown; startLine?: unknown; endLine?: unknown; body?:
 type RawSurface = { area?: unknown; entryPoints?: unknown; risk?: unknown; note?: unknown };
 export type RawPlan = { summary?: unknown; steps?: RawStep[]; skim?: RawSkim[]; watchPoints?: RawWatch[]; surface?: RawSurface[]; personas?: unknown[] };
 type PlanRun = { status: string; startedAt: string; finishedAt: string | null; headSha: string; error: string; cost: number | null | undefined; progress: string[]; log: { kind: string; text: string }[]; proposal: RawPlan | null; agentId?: string };
-type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined> };
+// dismissed outlives re-plans: the next plan reads it through get_pr_findings
+type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined>; dismissed?: DismissedWatch[] };
 type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
 type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
@@ -36,6 +38,7 @@ const MAX_PROGRESS = 40;
 const MAX_LOG = 80;
 const MAX_LOG_TEXT = 2000;
 const KEEP_TICK_SHAS = 3;
+const MAX_DISMISSED = 40;
 const TIMEOUT_MS = 30 * 60 * 1000;
 
 const OTHER: Pattern[] = [
@@ -179,10 +182,11 @@ export function normalizePlan(raw: RawPlan, files: PrFile[], cats: Cats, lineCou
 const systemPrompt = (owner: string, repo: string) => `You are coco, the review copilot inside cocopilot, ${owner}'s local review tool. ${capitalize(owner)} reviews a pull request and asks you for a review plan: where to look, in which order, and what to check.
 Everything is a proposal: never edit, push, post or send. The working tree of ${repo} is on another branch: read PR code only through git at the given shas (git diff <mergeBase> <head>, git show <head>:<path>, git grep -n <term> <head> -- <pathspec>, git log). Never use the working tree.
 Method:
-1. Call get_review_context first: ${owner}'s guidance for this run overrides your defaults, code breaking one of their rules is a watch point, the owner personas tell whose surfaces the PR touches (read_persona only for the main one). Read the PR body (github_pr) and, when a work slug is given, its notes and decisions (get_work).
+1. Call get_review_context first: ${owner}'s guidance for this run overrides your defaults, code breaking one of their rules is a watch point, the owner personas tell whose surfaces the PR touches (read_persona only for the main one). Then call get_pr_findings: what is already raised on this PR, how ${owner} settled it, and the watch points ${owner} dismissed. Read the PR body (github_pr) and, when a work slug is given, its notes and decisions (get_work).
 2. List the changed files yourself: git diff --name-status <mergeBase> <head>, with --stat for sizes. Read the diff of the core files first (behaviour: entry points, use-cases, services, domain, repositories, client logic), then glance at tests, wiring (re-exports, type declarations, registries, import-only edits), docs and generated files. Evaluate the review surface: entry points touched (routes, MCP tools, RPC or server methods, UI actions), callers outside the diff (git grep at head), permission and validation checks, data writes.
 3. Build the reading path: steps in the order a reviewer should read, usually entry point first then use-case, service, domain, repository, then client. Group files that answer one question. Tests that only mirror logic, registries, config entries and small call-site edits go to skim, each with a short reason.
 4. Watch points: precise risks worth a review comment, anchored on head line numbers you verified with git show <head>:<path> (cat -n numbering). Eight at most, only real findings, phrased as the review comment ${owner} would leave. Each gets a severity (blocking: wrong behaviour, security or data loss; major: a real bug or gap to fix before merge; minor: worth fixing, not blocking; nit: style or naming) and a confidence from 0 to 100 that the finding is real, lower when you could not verify a caller or a runtime path.
+   Never raise again what get_pr_findings lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call, their resolution, note or thread says why; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.
 Write for ${owner}: product effect first, short plain English, no filler, paths quoted exactly. End with exactly one propose_review_plan call carrying the full plan; every file --name-status lists goes in exactly one step or in skim.`;
 
 type PromptInput = { n: RowKey; slug?: string; refs: Pick<Refs, 'headSha' | 'mergeBase'>; fileCount?: number };
@@ -192,7 +196,7 @@ export function buildPrompt({ n, slug, refs: { headSha: head, mergeBase: base },
     `Plan the review of ${isLocal(n) ? `local branch ${branchOf(n)} (no PR yet, skip github_pr)` : `PR #${n}`}${slug ? ` (work ${slug})` : ''}.`,
     `head ${head} · merge-base ${base} (diff base; a stacked PR shows its own slice)${fileCount === undefined ? '' : ` · ${fileCount} changed files`}.`,
     '',
-    `Call get_review_context with pr "${n}"${slug ? ` and work "${slug}"` : ''} first. The diff is not in this prompt: read it through git.`,
+    `Call get_review_context with pr "${n}"${slug ? ` and work "${slug}"` : ''} first, then get_pr_findings with the same arguments. The diff is not in this prompt: read it through git.`,
     '',
     '```bash',
     `git diff --stat ${base} ${head}`,
@@ -355,6 +359,11 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       const w = data.plan?.watchPoints?.[index];
       if (!w) throw new HttpError(404, 'no such watch point');
       data.watch[index] = st === 'accepted' || st === 'dismissed' ? st : undefined;
+      const plan = data.plan?.createdAt ?? null;
+      const others = (data.dismissed || []).filter((d) => d.plan !== plan || d.index !== index);
+      data.dismissed = st === 'dismissed'
+        ? [...others, { plan, index, headSha: data.plan?.headSha ?? '', path: w.path, startLine: w.startLine, endLine: w.endLine, body: w.body, ...(typeof note === 'string' && note ? { note: note.slice(0, 1000) } : {}), at: new Date().toISOString() }].slice(-MAX_DISMISSED)
+        : others;
       return { watch: data.watch, point: w };
     });
     if (typeof note === 'string' && out.watch[index]) {
