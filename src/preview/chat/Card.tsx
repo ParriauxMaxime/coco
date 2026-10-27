@@ -275,6 +275,11 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
               {tried && !ok && <span className="dp-cd-err">{c.kind === 'form' ? 'Fix the fields above' : c.kind === 'rows' && c.select === 'one' && !c.rowOptions?.length ? 'Tick one row, or write your own' : 'Pick one, or write your own'}</span>}
             </>
           )}
+          {c.kind === 'choice' && (
+            <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'explain')}`} disabled={busy} title="Ask the agent to explain the options; this card stays open" onClick={() => void run('explain', () => api.explainCard(c.id))}>
+              {c.explained?.ok ? 'Explain more (asked)' : 'Explain more'}
+            </button>
+          )}
           {err && <span className="dp-cd-err" role="alert">{err}</span>}
           <span className="dp-sp" />
           <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question; the agent is told you dismissed it" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>

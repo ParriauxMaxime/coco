@@ -143,7 +143,7 @@ export async function workCwd({ repo, work, key = null, prInfo, exec = defaultEx
   for (const s of ordered) {
     const pr = s.number ? await prInfo(s.number) : null;
     if (pr && (pr.state === 'MERGED' || pr.state === 'CLOSED') && rowKey(s) !== key) continue;
-    const branch = s.planned?.branch || pr?.head;
+    const branch = pr?.head || s.planned?.branch;
     const wt = branch ? await worktreeFor(repo, branch, exec) : null;
     if (wt) return wt;
   }

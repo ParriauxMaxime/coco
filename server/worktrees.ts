@@ -97,7 +97,7 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
     for (const { row, pr } of rows) {
       const key = rowKey(row);
       const space = row.workspaceId ? spaces.find((w) => w.id === row.workspaceId) : null;
-      const branch = row.planned?.branch || pr?.head || '';
+      const branch = pr?.head || row.planned?.branch || '';
       const tree = (space?.workspaceDirectory && trees.find((t) => samePath(t.path, space.workspaceDirectory))) || (branch ? trees.find((t) => t.branch === branch) : undefined);
       if (!tree || found.has(tree.path)) continue;
       found.set(tree.path, { branch: tree.branch, title: pr?.title || row.planned?.title || tree.branch || path.basename(tree.path), key: key === null ? null : String(key), headOid: pr?.headOid || null });

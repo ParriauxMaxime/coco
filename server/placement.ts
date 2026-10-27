@@ -179,7 +179,7 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     const repo = repoById(fresh.repo);
     const pr = row.number ? await works?.prInfo(row.number) : null;
     const title = pr?.title || row.planned?.title || String(key);
-    const branch = row.planned?.branch || pr?.head || '';
+    const branch = pr?.head || row.planned?.branch || '';
     const adopted = branch ? await worktreeOf(repo.path, branch) : null;
     let placed: Placed;
     if (adopted) placed = await workspaceOn(p.projectId, adopted, title, entries);

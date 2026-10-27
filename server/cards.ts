@@ -16,7 +16,7 @@ export type CardValue = string | number | boolean;
 export const EFFECT_TYPES = ['take_decision', 'dismiss_finding'] as const;
 // what picking a choice option asked in a thread does in coco instead of a new turn
 export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
-export type CardOption = { key: string; label: string; details?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
+export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
 export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string };
@@ -50,7 +50,9 @@ export type Card = CardBody & {
   answer?: CardAnswer;
   result?: CardResult;
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };
+  explained?: { at: string; ok: boolean; error?: string; skipped?: boolean };
 };
+export const EXPLAIN_TEXT = 'Explain the options in more detail before I pick';
 type Place = { work: string | null; pr: string | null };
 export type ActionContext = Place & { agentId: string };
 // a proposal card: card() checks the agent's input and builds the card showing it, run() does what approving it does
@@ -112,7 +114,7 @@ const effectOf = (e: Raw, at: string): CardEffect | undefined => {
 const option = (o: Raw, at: string, effects: boolean): CardOption => {
   if (o?.confidence != null && (typeof o.confidence !== 'number' || o.confidence < 0 || o.confidence > 100)) throw new Error(`${at}.confidence must be 0-100`);
   if (o?.effect != null && !effects) throw new Error(`${at}.effect is only for the options of a single choice card`);
-  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`) });
+  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), consequence: opt(o.consequence, 200, `${at}.consequence`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`) });
 };
 const options = (v: unknown, min: number, max: number, field: string, effects = false) => {
   const out = list(v, min, max, field).map((o, i) => option(o, `${field}[${i}]`, effects));
@@ -169,7 +171,13 @@ export function validateCard(c: Raw): CardBody {
     return strip(head);
   }
   const other = bool(c.other, 'other') ?? kind !== 'form';
-  if (kind === 'choice') return strip({ ...head, options: options(c.options, 2, 8, 'options', c.multi !== true), multi: bool(c.multi, 'multi'), other });
+  if (kind === 'choice') {
+    const opts = options(c.options, 2, 8, 'options', c.multi !== true);
+    // `recommended` names the option key the agent advises; the renderer reads it off the option
+    const rec = c.recommended == null ? undefined : key(c.recommended, 'recommended');
+    if (rec && !opts.some((o) => o.key === rec)) throw new Error(`recommended must be an option key among ${opts.map((o) => o.key).join(', ')}`);
+    return strip({ ...head, options: rec ? opts.map((o) => (o.key === rec ? { ...o, recommended: true } : o)) : opts, multi: bool(c.multi, 'multi'), other });
+  }
   if (kind === 'rows') {
     const columns = list(c.columns, 1, 8, 'columns').map((x, i) => str(String(x ?? ''), 60, `columns[${i}]`));
     const rowOptions = c.rowOptions == null ? undefined : options(c.rowOptions, 2, 4, 'rowOptions');
@@ -399,6 +407,19 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     return tell(c);
   }
 
+  // "Explain more": the agent is asked for detail, the card stays open and unanswered
+  async function explain(id: string) {
+    const c = open(id);
+    const text = `[coco card ${c.id} explain] ${c.title}\n${EXPLAIN_TEXT}\nThe card stays open: answer here, then wait for the pick.`;
+    try {
+      const r = c.thread && threads ? await threads.deliver(c, text) : await deliver(c.agentId, text);
+      c.explained = { at: now(), ok: true, ...(r === SKIPPED ? { skipped: true } : {}) };
+    } catch (e) {
+      c.explained = { at: now(), ok: false, error: errorMessage(e).slice(0, 300) };
+    }
+    return save(c);
+  }
+
   async function cancel(id: string) {
     const c = open(id);
     c.status = 'cancelled';
@@ -422,6 +443,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
       if (root === 'cards' && a && !b && req.method === 'GET') return send(res, 200, get(a));
       if (root === 'cards' && a && b === 'answer' && req.method === 'POST') return send(res, 200, await answer(a, await body()));
       if (root === 'cards' && a && b === 'cancel' && req.method === 'POST') return send(res, 200, await cancel(a));
+      if (root === 'cards' && a && b === 'explain' && req.method === 'POST') return send(res, 200, await explain(a));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
       return send(res, httpStatus(e), { error: errorMessage(e) });
@@ -433,6 +455,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     get,
     answer,
     cancel,
+    explain,
     ofAgent,
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     open: () => [...cards.values()].filter((c) => c.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),

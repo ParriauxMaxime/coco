@@ -7,7 +7,7 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import { createPaseoAgents } from './paseo-agent.ts';
 import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
-import { createAsk } from './ask.ts';
+import { PR_REPLY_HINT, createAsk, namesPrComment } from './ask.ts';
 import { createCards } from './cards.ts';
 import { DEFAULTS } from './config.ts';
 import { checkPick } from './models.ts';
@@ -418,4 +418,25 @@ test('the composer’s model and thinking start the agent, switch the live one o
   await ask.say(conv.id, 'Once more');
   await until(() => daemon.calls.created.length === 2, 'next agent');
   assert.deepEqual([daemon.calls.created[1].config.provider, daemon.calls.created[1].config.thinkingOptionId], ['claude/claude-opus-5-5', 'max']);
+});
+
+test('a message naming a PR comment carries the propose_pr_reply reminder on that turn only', async () => {
+  assert.equal(namesPrComment('Can you answer Sentry #2?'), true);
+  assert.equal(namesPrComment('please reply to Copilot on the null check'), true);
+  assert.equal(namesPrComment('see https://github.com/acme/widgets/pull/12#discussion_r998877 and answer'), true);
+  assert.equal(namesPrComment('what did https://github.com/acme/widgets/pull/12#issuecomment-5 say'), true);
+  assert.equal(namesPrComment('can you answer bob on the index?', ['bob']), true);
+  assert.equal(namesPrComment('can you answer bob on the index?'), false);
+  assert.equal(namesPrComment('how do we configure Sentry?'), false);
+  assert.equal(namesPrComment('Who reviews the widgets export?'), false);
+  const { ask, daemon } = setup();
+  const conv = ask.start({ prompt: 'Can you answer Sentry #2?' });
+  await until(() => daemon.calls.sent.length === 1, 'first send');
+  assert.equal(daemon.calls.sent[0].text, `Can you answer Sentry #2?\n\n(${PR_REPLY_HINT})`);
+  assert.equal(conv.events[0].text, 'Can you answer Sentry #2?');
+  daemon.finish(daemon.calls.created[0].id, 'ok');
+  await until(() => ends(conv) === 1, 'turn end');
+  await ask.say(conv.id, 'And the API part?');
+  await until(() => daemon.calls.sent.length === 2, 'follow-up send');
+  assert.equal(daemon.calls.sent[1].text, 'And the API part?');
 });

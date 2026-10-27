@@ -167,3 +167,10 @@ test('a dispatch starts on the picked model and thinking, checked first; unpicke
   await assert.rejects(dispatch.start('csv', { entry: 'ask', key: 102, prompt: 'Why?', thinking: 'ultra' }), /no thinking level ultra/);
   assert.equal(started.length, 3);
 });
+
+test('an editing brief names the directory the agent runs in, not another worktree of the PR', async () => {
+  const { dispatch, started, writes } = setup();
+  await dispatch.start('csv', { entry: 'gate:self-review:code-review', key: 101 });
+  assert.equal(started[0].cwd, '/tmp/x');
+  assert.match(String(writes[0].facts), /- Worktree: `\/tmp\/x`; branch `feat\/csv-2`/);
+});

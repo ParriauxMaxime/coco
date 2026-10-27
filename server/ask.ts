@@ -189,6 +189,14 @@ const repoAdded = (r: AddRepoResult) => [
   r.setup?.error ? `setup run failed: ${r.setup.error}` : r.setup?.agentId ? `setup run ${r.setup.agentId.slice(0, 8)} proposes its config` : null,
 ].filter(Boolean).join(' · ');
 
+// a message that names a PR comment: a comment URL, or a bot / reviewer login with an answer verb
+const COMMENT_URL = /github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+#(?:discussion_r|issuecomment-|pullrequestreview-)\d+/i;
+const BOT = /\b(?:sentry|copilot|coderabbit(?:ai)?|bugbot|dependabot|codecov|github-actions|sonarcloud|greptile)\b/i;
+const ANSWER = /\b(?:answer|repl(?:y|ies)|respond|comment|address)\b/i;
+export const PR_REPLY_HINT = 'This names a PR comment: draft the answer with cocopilot propose_pr_reply.';
+export const namesPrComment = (text: string, logins: string[] = []) =>
+  COMMENT_URL.test(text) || (ANSWER.test(text) && (BOT.test(text) || logins.some((l) => l && new RegExp(`(?:^|[^\\w-])@?${l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(text))));
+
 export function createAsk({ DATA, APP, REPO, config, works, agents = createPaseoAgents({ APP }), idleMs = IDLE_MS, place, dispatch, addRepo, uploads = createUploads({ DATA }), cards, models }: AskOptions) {
   const repos = config.repos || [];
   const where = async (scope: AskScope, pr: RowKey | null = null) => {
@@ -396,7 +404,8 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       return;
     }
     if (!s) return;
-    const prompt = conv.fresh ? withHistory(conv, text) : text;
+    const turn = namesPrComment(text) ? `${text}\n\n(${PR_REPLY_HINT})` : text;
+    const prompt = conv.fresh ? withHistory(conv, turn) : turn;
     conv.fresh = false;
     if (s.busy()) return s.say(prompt, { input }).catch((e) => push(conv, { type: 'stderr', text: `could not reach the agent: ${e instanceof Error ? e.message : String(e)}`.slice(0, 2000) }));
     if (conv.status !== 'running') {
