@@ -7,6 +7,8 @@ import { fromPaseo } from './agent-usage.ts';
 import type { AgentUsage, PaseoUsage } from './agent-usage.ts';
 import type { AgentSnapshot } from './permissions.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
+import { defaultExec } from './placement.ts';
+import type { Exec } from './placement.ts';
 import { randomUUID } from 'node:crypto';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import type { Upload, UploadRef, Uploads } from './uploads.ts';
@@ -36,6 +38,7 @@ type Options = {
   usage?: (agentId: string) => AgentUsage | null;
   cards?: CardFeed;
   uploads?: Pick<Uploads, 'resolve' | 'record' | 'pairer' | 'latest'>;
+  exec?: Exec;
 };
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
@@ -45,7 +48,7 @@ const titleOf = (title: string | null | undefined, id: string) => (title || '').
 
 const openStream = (res: Res) => res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -160,13 +163,20 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     return { ok: true };
   }
 
+  // the SDK has no interrupt: the CLI's `agent stop` ends the turn in flight (no-op on an idle agent)
+  async function stop(agentId: string) {
+    const r = await exec('paseo', ['agent', 'stop', agentId]);
+    if (!r.ok) throw new HttpError(502, `paseo agent stop: ${(r.stderr || r.stdout).trim().slice(0, 200) || 'failed'}`);
+    return { ok: true };
+  }
+
   // the work and stack row an agent's labels name
   async function placeOf(agentId: string) {
     const labels = (await (await client()).agents.ref(agentId).refresh())?.agent?.labels;
     return { work: labels?.work || null, pr: labels?.pr ? labels.pr.replaceAll('~', ':') : null };
   }
 
-  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>/events|place · POST /api/agent-chat/<agentId>/messages
+  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>/events|place · POST /api/agent-chat/<agentId>/messages|stop
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
@@ -174,6 +184,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
       if (root === 'agent-chat' && a && b === 'events') return await watchChat(req, res, a);
       if (root === 'agent-chat' && a && b === 'place' && req.method === 'GET') return send(res, 200, await placeOf(a));
+      if (root === 'agent-chat' && a && b === 'stop' && req.method === 'POST') return send(res, 200, await stop(a));
       if (root === 'agent-chat' && a && b === 'messages' && req.method === 'POST') {
         const { text, attachments } = JSON.parse((await readBody(req)) || '{}');
         const files = uploads?.resolve(attachments) ?? [];

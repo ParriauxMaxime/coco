@@ -60,7 +60,7 @@ export function NewAgentTab({ tabId }: { tabId: string }) {
           <div className="dp-ag-ex">{(pr ? PR_EXAMPLES : EXAMPLES).map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>
         </div>
       </div>
-      <Composer placeholder={`Ask about or extend ${pr ? prLabel(pr) : 'this work'}… (⌘↵)`} onSend={start} />
+      <Composer placeholder={`Ask about or extend ${pr ? prLabel(pr) : 'this work'}… (↵)`} onSend={start} />
     </div>
   );
 }
@@ -86,9 +86,10 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
       </Log>
       <CardsWaiting cards={cards} />
       <Composer
-        placeholder="Follow up, correct or narrow it down (⌘↵)"
+        placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
         note={state === 'archived' ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : ''}
         onSend={(text, files) => convo.send(text, undefined, files)}
+        onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined}
       />
     </div>
   );
@@ -144,10 +145,11 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
       </Log>
       <CardsWaiting cards={cards} />
       <Composer
-        placeholder={archived ? 'This agent is archived' : 'Message this agent (⌘↵)'}
+        placeholder={archived ? 'This agent is archived' : 'Message this agent (↵, ⇧↵ new line)'}
         note={archived ? 'Archived: + in Agents starts a new one' : state === 'running' ? 'Sends while it works' : ''}
         disabled={archived}
         onSend={send}
+        onStop={state === 'running' ? () => api.agentStop(agentId) : undefined}
       />
     </div>
   );

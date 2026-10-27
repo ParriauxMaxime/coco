@@ -120,6 +120,7 @@ export const api = {
   agentSay: (agentId: string, text: string, attachments: string[] = []) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text, ...(attachments.length ? { attachments } : {}) }).then(jsonOrError<{ ok: boolean }>),
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
+  agentStop: (agentId: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/stop`).then(jsonOrError<{ ok: boolean }>),
   cards: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/cards`).then(jsonOrError<Card[]>),
   card: (id: string) => fetch(`/api/cards/${encodeURIComponent(id)}`).then(jsonOrError<Card>),
   answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),

@@ -150,7 +150,7 @@ function Footer({ r, slug, verdicts, focus, onAct, pending }: { r: FindingRow; s
   return (
     <div className="fd-foot thread">
       {r.path && r.n != null && r.status === 'new'
-        ? <ThreadComposer withModel busy={Boolean(pending) || sending} pending={sending ? 'send' : pending} sendLabel="Accept & dispatch" verdicts={verdicts} autoFocus={focus} placeholder="Ask a scoped agent about it or for a fix; Dismiss uses this text as its reason (markdown, ⌘↵)" onSend={dispatch} />
+        ? <ThreadComposer withModel busy={Boolean(pending) || sending} pending={sending ? 'send' : pending} sendLabel="Accept & dispatch" verdicts={verdicts} autoFocus={focus} placeholder="Ask a scoped agent about it or for a fix; Dismiss uses this text as its reason (markdown, ↵)" onSend={dispatch} />
         : <div className="row" style={{ gap: 6 }}><span className="cc-spacer" />{verdicts.map((v) => <button key={v.label} type="button" className={`sm ${v.className || ''}${pendingClass(v.pending)}`} title={v.title} disabled={Boolean(pending)} onClick={() => v.on('')}>{v.label}</button>)}</div>}
     </div>
   );

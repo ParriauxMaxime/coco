@@ -379,7 +379,7 @@ export type ThreadMessage = {
 export type ThreadChoice = { label: string; text: string; change: boolean; option?: string };
 export type Thread = {
   messages: ThreadMessage[];
-  waiting?: { msgId: string } | null;
+  waiting?: { msgId: string; agentId?: string } | null;
   groupId?: string | null;
   newGroup?: boolean;
   agent?: { live: boolean; status: string } | null;

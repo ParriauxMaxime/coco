@@ -112,7 +112,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
               { label: '✓ Accept', title: 'Accept as a comment, the text saved as reason in the work notes', on: (note) => accept(wp, note).catch((e) => toast.error(errorMessage(e))) },
               { label: '✕ Dismiss', title: 'Dismiss, the text saved as reason in the work notes', on: (note) => dismiss(wp, note) },
             ]}
-            placeholder="Ask a scoped agent whether it holds or to fix it (accepts it as a comment), or accept / dismiss with this text as reason (markdown, ⌘↵)"
+            placeholder="Ask a scoped agent whether it holds or to fix it (accepts it as a comment), or accept / dismiss with this text as reason (markdown, ↵)"
             onSend={dispatch}
           />
         </div>

@@ -107,7 +107,7 @@ export default function InboxPage() {
       {run && (
         <Section title="Proposal" meta={<span className="dp-ell dp-inbox-src">{linkOf(run.prompt || '')}</span>}>
           <div className="dp-inbox-run">
-            <AskPanel convo={convo} placeholder="Reshape the proposal: smaller tier, split a PR, another precedent… (markdown, ⌘↵)" />
+            <AskPanel convo={convo} placeholder="Reshape the proposal: smaller tier, split a PR, another precedent… (markdown, ↵)" />
           </div>
         </Section>
       )}

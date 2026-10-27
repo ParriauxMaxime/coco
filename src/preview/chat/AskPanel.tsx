@@ -58,7 +58,7 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
           {examples.map((e) => <button key={e} type="button" className="dp-btn dp-sm" title={e} onClick={() => void ask(e)}>{e.slice(0, 48)}…</button>)}
         </div>
       )}
-      <Composer placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} onSend={ask} />
+      <Composer placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
     </div>
   );
 }
@@ -84,7 +84,7 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
         convo={convo}
         start={(prompt, nonce, files) => api.ask({ prompt, repoId, nonce, attachments: files.map((f) => f.id) })}
         examples={REPO_EXAMPLES}
-        placeholder={run ? 'Follow up, correct or narrow it down (markdown, ⌘↵)' : `Scaffold a work in ${repo} for … / Who reviews … (⌘↵)`}
+        placeholder={run ? 'Follow up, correct or narrow it down (markdown, ↵)' : `Scaffold a work in ${repo} for … / Who reviews … (↵)`}
       />
       {history.length > 0 && (
         <>

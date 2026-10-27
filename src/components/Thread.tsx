@@ -278,8 +278,9 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         sendLabel={!group ? 'Dispatch' : waiting ? 'Send while it works' : 'Send'}
         verdicts={verdicts}
         autoFocus={autoFocus}
-        placeholder={waiting ? 'Write while it works: the message reaches the agent mid-turn (markdown, ⌘↵)' : thread.messages.length ? 'Reply or ask for a change (markdown, ⌘↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ⌘↵)' : decision ? 'Ask about the card or for a card change (markdown, ⌘↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ⌘↵)'}
+        placeholder={waiting ? 'Write while it works: the message reaches the agent mid-turn (markdown, ↵)' : thread.messages.length ? 'Reply or ask for a change (markdown, ↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ↵)' : decision ? 'Ask about the card or for a card change (markdown, ↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ↵)'}
         onSend={send}
+        onStop={thread.waiting?.agentId ? () => api.agentStop(thread.waiting?.agentId ?? '') : undefined}
       />
       {error && <div className="danger status">{error}</div>}
       {note && <div className="status">{note}</div>}
@@ -297,9 +298,10 @@ type ComposerProps = {
   verdicts?: Verdict[];
   placeholder?: string;
   onSend: (text: string, model?: string, files?: UploadRef[]) => SendResult | Promise<SendResult>;
+  onStop?: () => Promise<unknown>;
   autoFocus?: boolean;
 };
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder = '', onSend, autoFocus = false }: ComposerProps) {
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false }: ComposerProps) {
   const [model, setModel] = useState('sonnet');
   return (
     <Composer
@@ -318,6 +320,7 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Dispatch
         <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text)} onClick={() => { v.on(text); clear(); }}>{v.label}</button>
       ))}
       onSend={async (text, files) => (await onSend(text, withModel ? model : undefined, files)) !== false}
+      onStop={onStop}
     />
   );
 }

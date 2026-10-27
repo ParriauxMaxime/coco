@@ -20,3 +20,5 @@ a.dp-upl-chip:hover { border-color: var(--dp-accent); }
 .dp-composer-in.dp-upl-drag { border-color: var(--dp-accent); border-style: dashed; background: color-mix(in srgb, var(--dp-accent) 6%, var(--dp-panel)); }
 .dp-comp-f .dp-btn.dp-upl-clip { padding: 0 6px; color: var(--dp-t2); }
 .dp-comp-f .dp-btn.dp-upl-clip:hover:not(:disabled) { color: var(--dp-t1); }
+.dp-comp-f .dp-btn.dp-comp-stop { color: var(--dp-bad); }
+.dp-comp-f .dp-btn.dp-comp-stop svg { fill: currentColor; }

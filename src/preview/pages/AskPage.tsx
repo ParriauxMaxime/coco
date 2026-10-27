@@ -102,9 +102,10 @@ export default function AskPage({ convId }: { convId?: string }) {
               </Log>
               <CardsWaiting cards={cards} />
               <Composer
-                placeholder="Follow up, correct or narrow it down (⌘↵)"
+                placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
                 note={ended ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : 'It reads and proposes; you apply. Nothing is pushed, posted or sent.'}
                 onSend={(text, files) => send(text, undefined, files)}
+                onStop={working && run.agentId ? () => api.agentStop(run.agentId ?? '') : undefined}
               />
             </>
           ) : convId ? (
@@ -119,7 +120,7 @@ export default function AskPage({ convId }: { convId?: string }) {
                   <div className="dp-ag-ex">{EXAMPLES.map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>
                 </div>
               </div>
-              <Composer placeholder="What is blocked across my repos … / Where does … belong (⌘↵)" onSend={start} />
+              <Composer placeholder="What is blocked across my repos … / Where does … belong (↵)" onSend={start} />
             </>
           )}
         </section>

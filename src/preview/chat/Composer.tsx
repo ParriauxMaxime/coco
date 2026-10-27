@@ -22,6 +22,7 @@ let seq = 0;
 
 // images and files come by paste, drop or the paperclip; each uploads at once and leaves with the message as an attachment id
 // tools: controls after the paperclip · actions(text, clear): buttons before Send that use the text · busy: another action holds Send · sending: Send in flight
+// onStop: the agent is mid-turn; a Stop button and Esc interrupt it
 type ComposerProps = {
   placeholder: string;
   note?: string;
@@ -34,9 +35,16 @@ type ComposerProps = {
   tools?: React.ReactNode;
   actions?: (text: string, clear: () => void) => React.ReactNode;
   onSend: (text: string, files: UploadRef[]) => Promise<boolean>;
+  onStop?: () => Promise<unknown>;
 };
-export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend }: ComposerProps) {
+export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop }: ComposerProps) {
   const [text, setText] = useState('');
+  const [stopping, setStopping] = useState(false);
+  const stop = () => {
+    if (!onStop || stopping) return;
+    setStopping(true);
+    onStop().catch((e) => setErrors([`Stop failed: ${errorMessage(e)}`])).finally(() => setStopping(false));
+  };
   const [files, setFiles] = useState<Attached[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [drag, setDrag] = useState(false);
@@ -117,7 +125,10 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
           placeholder={placeholder}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => { const pasted = [...e.clipboardData.files]; if (pasted.length) { e.preventDefault(); add(pasted); } }}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
+            else if (e.key === 'Escape' && onStop) { e.preventDefault(); stop(); }
+          }}
         />
         <div className="dp-comp-f">
           <input ref={picker} type="file" multiple hidden onChange={(e) => { add([...(e.target.files ?? [])]); e.target.value = ''; }} />
@@ -125,7 +136,8 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
           {tools}
           <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
           {actions?.(text.trim(), () => setText(''))}
-          <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading} title={uploading ? 'Waiting for the files to upload' : undefined} onClick={() => void send()}>{sendLabel}<kbd>⌘</kbd><kbd>↵</kbd></button>
+          {onStop && <button type="button" className={`dp-btn dp-sm dp-comp-stop${pendingClass(stopping)}`} disabled={stopping} title="Interrupt the agent (Esc)" onClick={stop}><Icon name="square" size={12} />Stop<kbd>esc</kbd></button>}
+          <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading} title={uploading ? 'Waiting for the files to upload' : 'Shift+Enter for a new line'} onClick={() => void send()}>{sendLabel}<kbd>↵</kbd></button>
         </div>
       </div>
     </div>
