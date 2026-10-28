@@ -86,8 +86,8 @@ export function transcriptOf(entries: { item?: { type: string; text?: string } }
 
 export function firstMessage({ owner, fromTitle, from, source, briefing, note, file }: { owner: string; fromTitle: string; from: string; source: 'agent' | 'transcript'; briefing: string; note: string; file: string }) {
   const lead = source === 'agent'
-    ? `You take over a task from another agent ("${fromTitle}", ${from}) whose context window filled up. It wrote the briefing below for you.`
-    : `You take over a task from another agent ("${fromTitle}", ${from}) whose context window filled up. It gave no briefing in time: below is the end of its conversation, as coco recorded it. Work out the task and where it stands from it.`;
+    ? `You take over a task from another agent ("${fromTitle}", ${from}), handed off to start with a fresh context. It wrote the briefing below for you.`
+    : `You take over a task from another agent ("${fromTitle}", ${from}), handed off to start with a fresh context. It gave no briefing in time: below is the end of its conversation, as coco recorded it. Work out the task and where it stands from it.`;
   return [
     lead,
     `Check the current state of the files it names before you act, then carry on. This briefing is saved at ${file}.`,
