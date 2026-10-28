@@ -136,6 +136,7 @@ const delivered = (c: Card) => {
 };
 
 function Status({ c }: { c: Card }) {
+  if (c.archived) return <div className="dp-cd-st"><Icon name="archive" size={12} /><span>Closed {clock(c.archived)}</span><span>its agent was archived: nothing left to answer it</span></div>;
   if (c.status === 'cancelled') return <div className="dp-cd-st"><Icon name="x" size={12} />Dismissed: the agent goes on with its recommendation if safe, else says what is left</div>;
   if (c.answer?.chat) return <div className="dp-cd-st"><Icon name="message-square" size={12} /><span>Answered in chat {clock(c.answer.at)}</span><span>your message went to the agent instead</span></div>;
   const bad = c.delivery && !c.delivery.ok;
@@ -164,6 +165,7 @@ function Result({ c }: { c: Card }) {
 
 const outcome = (c: Card): [string, string] => {
   if (c.status === 'open') return ['waiting on you', 'dp-warn'];
+  if (c.archived) return ['agent archived', ''];
   if (c.status === 'cancelled') return ['dismissed', ''];
   if (c.answer?.chat) return ['answered in chat', 'dp-ok'];
   if (c.result && !c.result.ok) return ['failed', 'dp-bad'];

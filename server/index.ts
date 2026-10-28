@@ -45,6 +45,7 @@ import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
 import type { ProviderUsage } from './paseo-agent.ts';
 import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
+import { createPaseoHealth } from './paseo-health.ts';
 import { contextOf, createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
 import { createSubagents } from './subagents.ts';
@@ -197,6 +198,14 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
 } });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
+// an archived agent's open cards close; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
+const archivedAgent = (agentId: string) => paseoAgents.attach(agentId).then((a) => a === null);
+const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} of archived agents closed`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));
+permissions.onAgent((a, removed) => {
+  if (a && (a.archivedAt || a.status === 'closed') && cards.openCount(a.id)) cards.agentArchived(a.id);
+  else if (removed && cards.openCount(removed)) void archivedAgent(removed).then((gone) => gone && cards.agentArchived(removed), () => {});
+});
+const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), models, subagents });
 const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
 for (const on of [cards.onChange, threads.onChange, ask.onChange]) on(() => waiting.touch());
@@ -212,8 +221,11 @@ events.topic('subagents', subagents.watchList);
 events.topic('subagent', subagents.watchTimeline);
 events.topic('ask', ask.watch);
 events.topic('thread', threads.watch);
+events.topic('paseo', paseoHealth.watch);
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
+void paseoHealth.boot().then(sweepArchivedCards);
+setInterval(sweepArchivedCards, 10 * 60 * 1000);
 agentChecks.resume(threads.codeWorktrees()).catch((e) => console.error(`agent worktrees: ${errorMessage(e)}`));
 spares.start().catch((e) => console.error(`spare worktrees: ${errorMessage(e)}`));
 const sweepUploads = () => {
@@ -486,6 +498,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'screenshot' && req.method === 'GET') return screenshots.handle(res, url, send);
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
+    if (root === 'paseo' && a) return paseoHealth.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());
     if (root === 'waiting' || (root === 'works' && b === 'waiting')) return waiting.handle(req, res, parts, readBody, send);
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);

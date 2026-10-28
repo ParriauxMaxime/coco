@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createCards, validateAnswer, validateCard } from './cards.ts';
+import { createWaiting } from './waiting.ts';
 
 const AGENT = '11111111-2222-3333-4444-555555555555';
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cards-test-'));
@@ -130,4 +131,43 @@ test("a message typed to the agent answers its open cards in chat, a thread mess
   assert.deepEqual(sent, []);
   await assert.rejects(cards.answer(plain.id, { picked: ['csv'] }), /already answered/);
   assert.equal(createCards({ DATA, deliver: async () => {} }).get(plain.id).answer?.chat, true);
+});
+
+test("an archived agent's open cards close as agent archived, nothing delivered, and leave the waiting count", async () => {
+  const sent: string[] = [];
+  const DATA = tmpDir();
+  const cards = createCards({ DATA, deliver: async (_a, text) => void sent.push(text) });
+  const asked = await cards.create({ ...choice, agentId: AGENT });
+  const answered = await cards.create({ ...choice, agentId: AGENT });
+  await cards.answer(answered.id, { picked: ['csv'] });
+  const other = await cards.create({ ...choice, agentId: 'someone-else' });
+  const waiting = createWaiting({ works: { list: () => [] }, cards, threads: { queue: () => [], ready: async () => null }, ask: { list: () => [] } });
+  assert.equal((await waiting.view()).count, 2);
+  sent.length = 0;
+  assert.deepEqual(cards.agentArchived(AGENT), [asked.id]);
+  const closed = cards.get(asked.id);
+  assert.deepEqual([closed.status, Boolean(closed.archived), closed.delivery?.skipped], ['cancelled', true, true]);
+  assert.deepEqual([cards.get(answered.id).status, cards.get(answered.id).archived, cards.get(other.id).status], ['answered', undefined, 'open']);
+  assert.deepEqual(sent, []);
+  assert.equal(cards.openCount(AGENT), 0);
+  waiting.touch();
+  assert.deepEqual((await waiting.view()).items.map((i) => i.id), [`card:${other.id}`]);
+  await assert.rejects(cards.cancel(asked.id), /already cancelled/);
+  assert.ok(createCards({ DATA, deliver: async () => {} }).get(asked.id).archived);
+});
+
+test('the boot sweep closes the cards of agents found archived, once per agent, and leaves those it cannot check', async () => {
+  const cards = createCards({ DATA: tmpDir(), deliver: async () => {} });
+  const ids = { gone: '11111111-0000-0000-0000-000000000001', live: '11111111-0000-0000-0000-000000000002', unreachable: '11111111-0000-0000-0000-000000000003' };
+  const made = { gone: [await cards.create({ ...choice, agentId: ids.gone }), await cards.create({ ...choice, agentId: ids.gone })], live: await cards.create({ ...choice, agentId: ids.live }), unreachable: await cards.create({ ...choice, agentId: ids.unreachable }) };
+  const asked: string[] = [];
+  const closed = await cards.sweepArchived(async (id) => {
+    asked.push(id);
+    if (id === ids.unreachable) throw new Error('cannot reach the Paseo daemon');
+    return id === ids.gone;
+  });
+  assert.deepEqual(closed.sort(), made.gone.map((c) => c.id).sort());
+  assert.deepEqual(asked.sort(), Object.values(ids).sort());
+  assert.deepEqual([cards.get(made.live.id).status, cards.get(made.unreachable.id).status], ['open', 'open']);
+  assert.deepEqual(await cards.sweepArchived(async () => true).then((x) => x.length), 2);
 });

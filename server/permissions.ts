@@ -19,6 +19,7 @@ export type PermissionResponse =
   | { behavior: 'deny'; selectedActionId?: string; message?: string; interrupt?: boolean };
 export type AgentSnapshot = { id: string; title?: string | null; labels?: Record<string, string>; archivedAt?: string | null; status?: string | null; updatedAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null; workspaceId?: string | null; cwd?: string | null; pendingPermissions?: PermissionRequest[]; lastUsage?: PaseoUsage | null };
 export type AgentUpdate = { kind: 'upsert'; agent: AgentSnapshot } | { kind: 'remove'; agentId: string };
+type AgentListener = (agent: AgentSnapshot | null, removed?: string) => void;
 type AgentPage = { entries: { agent: AgentSnapshot }[]; pageInfo?: { nextCursor?: string | null } };
 export type AgentListObserver = { snapshot(s: AgentPage): void; update(m: { type: string; payload?: unknown }): void; error?(e: unknown): void };
 export type PermissionClient = {
@@ -69,7 +70,7 @@ type Options = { client: () => Promise<PermissionClient>; locate?: (agent: Agent
 export function createPermissions({ client, locate = () => null, waitMs = WAIT_MS, retryMs = RETRY_MS }: Options) {
   const held = new Map<string, { agent: AgentSnapshot; since: Map<string, string> }>();
   const listeners = new Set<() => void>();
-  const agentListeners = new Set<(agent: AgentSnapshot | null) => void>();
+  const agentListeners = new Set<AgentListener>();
   let booting: Promise<void> | null = null;
 
   const changed = () => [...listeners].forEach((l) => l());
@@ -88,7 +89,7 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
     if (update.kind === 'upsert') keep(update.agent);
     else held.delete(id);
     if (idsOf(id) !== before) changed();
-    agentListeners.forEach((l) => l(update.kind === 'upsert' ? update.agent : null));
+    agentListeners.forEach((l) => (update.kind === 'upsert' ? l(update.agent) : l(null, id)));
   }
   function reset(agents: AgentSnapshot[]) {
     held.clear();
@@ -187,7 +188,7 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
     handle,
     watch,
     onChange: (l: () => void) => (listeners.add(l), () => listeners.delete(l)),
-    // every change Paseo pushes on any agent: the agent, or null when it is gone or the whole list was reloaded
-    onAgent: (l: (agent: AgentSnapshot | null) => void) => (agentListeners.add(l), () => agentListeners.delete(l)),
+    // every change Paseo pushes on any agent: the agent, or null when it is gone (its id with it) or the whole list was reloaded
+    onAgent: (l: AgentListener) => (agentListeners.add(l), () => agentListeners.delete(l)),
   };
 }

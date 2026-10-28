@@ -77,6 +77,9 @@ export type PaseoProject = {
   running: number;
   work: { slug: string; title: string } | null;
 };
+// server/paseo-health.ts
+export type ProviderHealth = { id: string; label: string; status: string; enabled: boolean; reason: string | null; diagnostic: string | null };
+export type PaseoHealth = { state: 'connected' | 'reconnecting' | 'down'; reason: string | null; since: string; version: string | null; lastError: string | null; nextRetryAt: string | null; providers: ProviderHealth[]; providersAt: string | null; restarting: boolean; restartError: string | null };
 export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgent & { cwdAbs: string })[]; error: string | null };
 
 // milestones: open PRs by current milestone, missing until the stack view computed them once
@@ -321,6 +324,8 @@ export type Card = {
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };
   // "Explain more" asked the agent for detail; the card is still open
   explained?: { at: string; ok: boolean; error?: string; skipped?: boolean };
+  // closed when its agent was archived
+  archived?: string;
 };
 
 export type ActivityEvent = {

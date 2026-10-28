@@ -153,6 +153,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       const live = createFollower({ onEntry: stream.onEntry, onDelta: stream.onDelta, onToolStart: stream.onToolStart, agentId });
       off = agent.timeline.subscribe((m) => {
         const ev = m?.event;
+        if (ev?.type === 'subscription_restored') return write({ type: 'meta', text: 'Paseo reconnected: reopen this tab to see what the agent did meanwhile' });
         if (ev?.type === 'timeline' && ev.item?.type === 'user_message') {
           live.end();
           stream.flush();

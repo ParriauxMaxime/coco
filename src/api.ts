@@ -1,7 +1,7 @@
 import type {
   AddRepoResult, AgentLog, AgentsResponse, AskRun, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, DispatchBody, DispatchEntry, PreflightResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
-  KitResponse, KitScope, LinkedAgent, RowMilestone, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
+  KitResponse, KitScope, LinkedAgent, RowMilestone, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoHealth, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
@@ -78,6 +78,9 @@ export const api = {
   sendFeedback: (item: Omit<FeedbackItem, 'ts'>) => post<{ ok: boolean }>('/api/feedback', item),
   rituals: () => get<OverviewRituals>('/api/rituals'),
   paseo: () => get<PaseoResponse>('/api/paseo'),
+  paseoHealth: () => get<PaseoHealth>('/api/paseo/health'),
+  restartPaseo: () => postEmpty<PaseoHealth>('/api/paseo/restart'),
+  refreshPaseoProviders: () => postEmpty<PaseoHealth>('/api/paseo/providers/refresh'),
   works: () => get<Work[]>('/api/works'),
   work: (slug: string, fresh?: boolean) => get<WorkDetail>(`${works(slug)}${fresh ? '?fresh=1' : ''}`),
   createWork: (body: CreateWorkBody) => post<Work>('/api/works', body),

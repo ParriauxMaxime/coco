@@ -94,6 +94,7 @@ type Card = {
   answer?: CardAnswer;
   result?: CardResult;            // what the action or the picked option's effect did, before delivery
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };  // skipped: nobody waits (a one-shot run)
+  archived?: string;              // when it closed (status 'cancelled') because its agent was archived
 };
 
 type CardAnswer = {

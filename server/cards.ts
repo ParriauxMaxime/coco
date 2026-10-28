@@ -52,6 +52,8 @@ export type Card = CardBody & {
   result?: CardResult;
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };
   explained?: { at: string; ok: boolean; error?: string; skipped?: boolean };
+  // closed because its agent was archived: nothing can answer it any more
+  archived?: string;
 };
 export const EXPLAIN_TEXT = 'Explain the options in more detail before I pick';
 export const DISMISS_TEXT = 'The user dismissed this card without choosing. Continue with your recommendation if it is safe; otherwise stop and say what is left.';
@@ -430,6 +432,22 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     return closed.map((c) => c.id);
   }
 
+  // an archived agent takes no message: its open cards close, nothing delivered, and stop waiting on the owner
+  function agentArchived(agentId: string) {
+    const closed = [...cards.values()].filter((c) => c.status === 'open' && c.agentId === agentId);
+    for (const c of closed) save({ ...c, status: 'cancelled', archived: now(), delivery: { at: now(), ok: true, skipped: true } });
+    return closed.map((c) => c.id);
+  }
+
+  // the agents of open cards, each checked once: archived (true) closes its cards, unknown (null) or unreachable leaves them
+  async function sweepArchived(isArchived: (agentId: string) => Promise<boolean | null>) {
+    const closed: string[] = [];
+    for (const agentId of new Set([...cards.values()].filter((c) => c.status === 'open').map((c) => c.agentId))) {
+      if ((await isArchived(agentId).catch(() => null)) === true) closed.push(...agentArchived(agentId));
+    }
+    return closed;
+  }
+
   async function cancel(id: string) {
     const c = open(id);
     c.status = 'cancelled';
@@ -470,6 +488,8 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     // a message to an agent closes its asks outside threads; a message in a thread closes that thread's
     chatted: (agentIds: string[]) => answeredInChat((c) => agentIds.includes(c.agentId) && !c.thread),
     chattedInThread: (work: string, thread: string) => answeredInChat((c) => c.work === work && c.thread === thread),
+    agentArchived,
+    sweepArchived,
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     open: () => [...cards.values()].filter((c) => c.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,

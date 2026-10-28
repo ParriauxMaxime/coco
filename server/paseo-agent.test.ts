@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CARDS_LINE, COCO_MCP_TOOLS, createFollower,createPaseoAgents, daemonUrl, workCwd } from './paseo-agent.ts';
-import type { DaemonAgent, Entry, Started, TimelineEvent, ToolDetail, ToolStart, WaitResult, WorkspaceEntry, WorkspaceHandle } from './paseo-agent.ts';
+import type { ConnectionState, DaemonAgent, DaemonConnection, Entry, Started, TimelineEvent, ToolDetail, ToolStart, WaitResult, WorkspaceEntry, WorkspaceHandle } from './paseo-agent.ts';
 import { createAsk } from './ask.ts';
 import { createNotionSync } from './notion.ts';
 import { DEFAULTS } from './config.ts';
@@ -199,6 +199,46 @@ test('a failed or timed-out run is still archived and says why', async () => {
   assert.equal(r2.status, 'timeout');
   assert.match(String(r2.error), /no answer within 1 min/);
   assert.deepEqual(slow.calls.archived, [AGENT]);
+});
+
+test('a daemon restart in mid-turn: the wait goes on once coco is reconnected, and the tool calls settled meanwhile are read back from the timeline', async () => {
+  let handler: Handler | null = null;
+  let up: ((s: ConnectionState) => void) | null = null;
+  let state: ConnectionState = { status: 'connected' };
+  const plan = { steps: [{ title: 'Read the API first' }] };
+  const waits: string[] = [];
+  const agent = {
+    id: AGENT,
+    workspaceId: 'wks_1',
+    timeline: {
+      subscribe: (h: Handler) => {
+        handler = h;
+        return Object.assign(() => void (handler = null), { ready: Promise.resolve() });
+      },
+      refetch: async () => ({ entries: [{ item: { type: 'user_message', text: 'old brief' } }, { item: tool('old', 'mcp__cocopilot__propose_review_plan', { type: 'unknown', input: { steps: [] } }).item }, { item: { type: 'user_message', text: 'p' } }, { item: mcp('c9', 'propose_review_plan', plan, null).item }] }),
+    },
+    send: async () => {},
+    waitForFinish: async () => {
+      waits.push(state.status);
+      if (waits.length > 1) return { status: 'idle', lastMessage: 'Planned.' };
+      state = { status: 'disconnected', reason: 'socket closed' };
+      setTimeout(() => {
+        state = { status: 'connected' };
+        handler?.({ agentId: AGENT, event: { type: 'subscription_restored' } });
+        up?.(state);
+      }, 5);
+      throw Object.assign(new Error('Connection lost'), { code: 'DAEMON_CONNECTION_LOST' });
+    },
+    refresh: async () => null,
+    archive: async () => ({}),
+  } as unknown as DaemonAgent;
+  const connection: DaemonConnection = { state: () => state, onChange: (l) => ((up = l), () => (up = null)), lastError: () => null, version: () => null, reconnect: () => {} };
+  const client = { connection, workspaces: { ref: () => ({ id: 'wks_1', agents: { create: async () => agent } }) }, agents: { ref: () => agent } };
+  const r = await createPaseoAgents({ APP, connect: async () => client as never }).run({ title: 'Plan', prompt: 'p', workspaceId: 'wks_1' });
+  assert.deepEqual(waits, ['connected', 'connected']);
+  assert.deepEqual([r.status, r.finalText], ['done', 'Planned.']);
+  assert.deepEqual(r.submitted, { propose_review_plan: plan });
+  assert.deepEqual(r.entries.map((e) => e.id), ['c9']);
 });
 
 test('the daemon endpoint comes from PASEO_URL, else from `paseo status`, else the default port', async () => {

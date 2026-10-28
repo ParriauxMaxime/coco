@@ -16,6 +16,9 @@ export const TITLE_PREFIX = 'coco · ';
 const TITLE_MAX = 60;
 const DEFAULT_LISTEN = '127.0.0.1:6767';
 const TIMEOUT_MS = 15 * 60 * 1000;
+// a restarted daemon is back within seconds: the SDK's backoff never waits longer than this between attempts
+const RECONNECT_MAX_MS = 10000;
+const FIRST_CONNECT_MS = 20000;
 const HOME = os.homedir();
 // the one cocopilot tool whose input is the run's result; the other proposals are cards
 const COCO_TOOL = /^mcp__cocopilot__(propose_review_plan)$/;
@@ -56,6 +59,10 @@ export type DaemonAgent = {
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };
 export type UsageWindow = { id: string; label: string; shortLabel?: string; summary?: boolean; usedPct?: number | null; resetsAt?: string | null; tone?: 'default' | 'ok' | 'warning' | 'danger' };
 export type ProviderUsage = { providerId: string; displayName: string; status: 'available' | 'unavailable' | 'error'; planLabel: string | null; windows: UsageWindow[]; error?: string | null };
+// coco's one connection to the daemon (server/paseo-health.ts): the SDK reconnects by itself and re-attaches every subscription
+export type ConnectionState = { status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'disposed'; reason?: string; nextRetryAt?: string; attempt?: number };
+export type DaemonConnection = { state(): ConnectionState; onChange(l: (s: ConnectionState) => void): () => void; lastError(): string | null; version(): string | null; reconnect(): void };
+export type ProviderEntry = { provider: string; status: string; enabled?: boolean; label?: string; source?: string; error?: string | null };
 export type WorkspaceHandle ={ id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
 export type DaemonClient = {
   workspaces: {
@@ -66,7 +73,8 @@ export type DaemonClient = {
     archive?(workspaceId: string): Promise<{ error?: string | null }>;
   };
   agents: { ref(id: string): DaemonAgent; list?: PermissionClient['agents']['list'] };
-  providers?: { listModels(provider: string): Promise<{ models?: { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string }[]; error?: string | null }>; listUsage?(): Promise<{ providers: ProviderUsage[] }> };
+  providers?: { listModels(provider: string): Promise<{ models?: { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string }[]; error?: string | null }>; listUsage?(): Promise<{ providers: ProviderUsage[] }>; snapshot?(): Promise<{ entries: ProviderEntry[] }>; refresh?(): Promise<unknown>; diagnostic?(provider: string): Promise<{ diagnostic?: string | null }>; subscribe?(handler: (payload: unknown) => void): () => void };
+  connection?: DaemonConnection;
   setAgentModel?(agentId: string, modelId: string | null): Promise<unknown>;
   setAgentThinkingOption?(agentId: string, thinkingOptionId: string | null): Promise<unknown>;
 } & SubagentApi;
@@ -112,19 +120,46 @@ export async function daemonServerId(exec: Exec = defaultExec): Promise<string |
 export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}): Promise<DaemonClient> {
   const url = await daemonUrl(exec);
   // the SDK's own client, plus the model and thinking setters only its inner daemon client has
-  const raw = new RawDaemon({ url, clientId: 'cocopilot', clientType: 'cli', password: process.env.PASEO_PASSWORD || undefined, reconnect: { enabled: true } });
+  const raw = new RawDaemon({ url, clientId: 'cocopilot', clientType: 'cli', password: process.env.PASEO_PASSWORD || undefined, reconnect: { enabled: true, maxDelayMs: RECONNECT_MAX_MS } });
   const api = createPaseoApi(raw);
   const close = () => api.dispose().finally(() => raw.close());
-  const client = { ...api, close, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
+  const connection: DaemonConnection = {
+    state: () => raw.getConnectionState() as ConnectionState,
+    onChange: (l) => raw.subscribeConnectionStatus((s) => l(s as ConnectionState)),
+    lastError: () => raw.lastError,
+    version: () => raw.getLastServerInfoMessage()?.version ?? null,
+    reconnect: () => raw.ensureConnected(),
+  };
+  const client = { ...api, close, connection, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
   Object.assign(client, { listProviderSubagents: (id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts) });
+  // with reconnect on, the SDK's first connect waits for the daemon forever: past the deadline coco reports it unreachable and tries again later
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await raw.connect();
+    await Promise.race([raw.connect(), new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(raw.lastError || 'no answer')), FIRST_CONNECT_MS)))]);
   } catch (e) {
     await close().catch(() => {});
     throw new Error(`cannot reach the Paseo daemon at ${url}: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    clearTimeout(timer);
   }
   return client as unknown as DaemonClient;
 }
+
+export const lostConnection = (e: unknown) => (e as { code?: string } | null)?.code === 'DAEMON_CONNECTION_LOST';
+
+// true once the connection is up (at once when it is), false after ms
+export const whenConnected = (conn: DaemonConnection | undefined, ms: number) =>
+  new Promise<boolean>((resolve) => {
+    if (!conn || conn.state().status === 'connected') return resolve(true);
+    let off: (() => void) | null = null;
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      off?.();
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), Math.max(0, ms));
+    off = conn.onChange((s) => s.status === 'connected' && done(true));
+  });
 
 export async function worktreeFor(repo: string, branch: string, exec: Exec = defaultExec) {
   const r = await exec('git', ['-C', repo, 'worktree', 'list', '--porcelain']);
@@ -458,7 +493,14 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     }
     const callbacks = { onEntry, onDelta, onToolStart, onPermission, agentId: started.agentId };
     let follow = createFollower(callbacks);
-    const unsubscribe = agent.timeline.subscribe((m) => follow.push(m));
+    const { connection } = await client();
+    // the tool calls the turn settled while the daemon was away (a proposal among them), read back once its timeline is followed again
+    const recover = async () => {
+      const items = (await timelineOf(agent, 1).catch(() => [])).map((e) => e.item);
+      const asked = items.findLastIndex((it) => it?.type === 'user_message');
+      for (const item of items.slice(asked + 1)) if (item?.type === 'tool_call' && item.status !== 'running') follow.push({ agentId: started.agentId, event: { type: 'timeline', item } });
+    };
+    const unsubscribe = agent.timeline.subscribe((m) => (m?.event?.type === 'subscription_restored' ? void (inFlight && recover()) : follow.push(m)));
     const { ready } = unsubscribe;
     ready?.catch(() => {});
     // messages leave in order, once the timeline is followed; one reaching a busy agent joins its turn
@@ -467,6 +509,16 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     let inFlight: Promise<Outcome> | null = null;
     let steered = false;
     let first = !agentId;
+    // a daemon restart cuts the wait short: once coco is connected again, it waits on until the deadline
+    async function finish(deadline: number): Promise<WaitResult> {
+      for (let retries = 0; ; retries++) {
+        try {
+          return await agent.waitForFinish(Math.max(1, deadline - Date.now()));
+        } catch (e) {
+          if (!lostConnection(e) || retries >= 5 || !(await whenConnected(connection, deadline - Date.now()))) throw e;
+        }
+      }
+    }
 
     // prompt null waits on the turn the agent is already in; waits through permissions answered in coco or Paseo and a steer landing as the turn ends
     async function turn(prompt: string | null, timeoutMs: number, input?: AgentInput): Promise<Outcome> {
@@ -478,7 +530,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
       let result: WaitResult;
       try {
         await (prompt === null ? ready : deliver(prompt, input));
-        result = await agent.waitForFinish(timeoutMs);
+        result = await finish(deadline);
         for (let left; (left = deadline - Date.now()) > 0; ) {
           if (result.status === 'permission') await follow.nextSettle(left);
           else if (result.status === 'idle' && steered) {
@@ -487,7 +539,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
             await agent.refresh().catch(() => null);
             if (agent.status !== 'running') break;
           } else break;
-          result = await agent.waitForFinish(Math.max(1, deadline - Date.now()));
+          result = await finish(deadline);
         }
       } catch (e) {
         result = { status: 'error', error: e instanceof Error ? e.message : String(e) };

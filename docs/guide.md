@@ -56,6 +56,38 @@ log in `<dataDir>/server-restart.log`).
 - Every `git status` coco runs for polling passes `--no-optional-locks`, so it
   never takes the index lock from an agent committing in the same worktree.
 
+### Paseo health
+
+The status bar's **Paseo** item is the daemon as coco's bridge sees it
+(`server/paseo-health.ts`): a green dot while connected, amber and spinning
+while reconnecting, red once down for 30 s or unreachable at boot (coco tries
+again every 15 s), amber "Paseo · OpenCode is out" when a provider of
+`models.*` in the config is not ready. Its popover shows the daemon version,
+why it is not connected (the SDK's last error, the next retry), and each
+provider with its status; one out says why (its own error, else its
+diagnostic: "codex not found on PATH", the status line), the whole
+diagnostic on hover.
+
+- **Refresh providers** asks the daemon to look at its providers again
+  (`refreshProvidersSnapshot`, what to try when one stays unavailable).
+- **Restart Paseo daemon**, after an in-app confirm, runs
+  `paseo daemon restart --json --timeout 120` (the worker restarts under its
+  supervisor; `PASEO_AGENT_*` / `PASEO_WORKSPACE_ID` stripped from its env).
+  The item reads "Restarting Paseo…", then reconnecting, then connected; a
+  failure shows in the popover.
+- Routes: `GET /api/paseo/health`, `POST /api/paseo/restart`,
+  `POST /api/paseo/providers/refresh`, SSE topic `paseo` on each change.
+  Providers are read on connect, on Paseo's provider updates and at most once
+  a minute on a read.
+- coco's bridge reconnects by itself (backoff capped at 10 s) and the SDK
+  re-attaches every subscription: agent timelines, the live agent list
+  (permissions, jobs, agent rows reload from its fresh snapshot) and subagent
+  events. A turn coco waits on keeps waiting across the restart until its
+  deadline, and the tool calls it settled while the daemon was away (a
+  proposal among them) are read back from its timeline. An open agent tab
+  notes "Paseo reconnected: reopen this tab to see what the agent did
+  meanwhile".
+
 ### Setup checklist (first install and updates)
 
 Until the setup is complete, the Dashboard shows a checklist: config file,
@@ -1163,6 +1195,12 @@ thread cards open. The composer notes "A message answers its open cards"
 while some are open. **Dismiss** is not a silent stop: the agent is told
 "The user dismissed this card without choosing. Continue with your
 recommendation if it is safe; otherwise stop and say what is left."
+
+An archived agent takes no message, so its open cards close as **agent
+archived** (nothing delivered) and leave the waiting counts: when Paseo
+reports it archived or closed, when it drops from the live agent list and is
+found gone, and in a sweep of every open card's agent at boot and every
+10 minutes (an unreachable daemon leaves them open).
 
 Proposals are cards too. `propose_work_scaffold`, `propose_paseo_agent`,
 `dispatch` and `propose_repo` post a confirm card that coco builds from the
