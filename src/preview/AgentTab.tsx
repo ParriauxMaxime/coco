@@ -15,6 +15,7 @@ import { AgentDot } from './AgentsSection.tsx';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
+import { ContextRing } from './Ring.tsx';
 import Thread, { threadLabel, useThreadsOf } from '../components/Thread.tsx';
 import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadSummary, UploadRef } from '../types.ts';
 import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
@@ -39,6 +40,7 @@ export function Header({ title, kind, pr, state, agentId, metrics, chips }: Head
       <span className="dp-xs dp-t3">{STATE_LABEL[state]}</span>
       <span className="dp-sp" />
       {usage && metrics && <span className="dp-xs dp-t3 dp-ag-usage" title={usageTitle(metrics)}>{usage}</span>}
+      <span className="dp-xs dp-t3"><ContextRing used={metrics?.contextTokens} max={metrics?.contextMax} label /></span>
       {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} /><span className="dp-ag-paseo">Open in Paseo</span></a>}
     </div>
   );

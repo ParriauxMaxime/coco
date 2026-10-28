@@ -27,8 +27,9 @@ export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // id is the agent's tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; subagents: SubagentCount } & Metrics;
 // estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
+// contextTokens of contextMax: its context window at its last turn
 // openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
-type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; openCards: number };
+type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens: number | null; contextMax: number | null; openCards: number };
 type CardFeed = { ofAgent(agentId: string): unknown[]; openCount(agentId: string): number; onChange(l: (agentId: string) => void): () => void };
 
 type AskMeta = { id: string; prompt: string; kind: string; pr?: RowKey | null; status: string; agentId: string | null; lastActivity?: string; startedAt: string };
@@ -63,7 +64,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
     const kept = agentId ? usage?.(agentId) : null;
     const now = fromPaseo(live);
-    return { promptTokens: kept?.promptTokens ?? null, systemTokens: kept?.systemTokens ?? null, inputTokens: now.inputTokens ?? kept?.inputTokens ?? null, costUsd: now.costUsd ?? kept?.costUsd ?? null, openCards: agentId ? cards?.openCount(agentId) ?? 0 : 0 };
+    return { promptTokens: kept?.promptTokens ?? null, systemTokens: kept?.systemTokens ?? null, inputTokens: now.inputTokens ?? kept?.inputTokens ?? null, costUsd: now.costUsd ?? kept?.costUsd ?? null, contextTokens: now.contextTokens ?? kept?.contextTokens ?? null, contextMax: now.contextMax ?? kept?.contextMax ?? null, openCards: agentId ? cards?.openCount(agentId) ?? 0 : 0 };
   };
 
   async function list(slug: string): Promise<WorkAgent[]> {
@@ -83,7 +84,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     return [
       ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: m.prompt.split('\n')[0].slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, ...metrics(m.agentId) })),
       ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: a.labels?.pr ? a.labels.pr.replaceAll('~', ':') : null, status: statusOf(a), updatedAt: a.updatedAt || null, ...metrics(a.id, a.lastUsage) })),
-      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, ...metrics(l.agentId) })),
+      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, ...metrics(l.agentId, a?.lastUsage) })),
     ];
   }
 

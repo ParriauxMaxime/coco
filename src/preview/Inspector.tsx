@@ -28,6 +28,7 @@ import { DevServerPanel } from './widgets/DevServer.tsx';
 import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { ago, sevClass, usageLine, usageTitle } from './format.ts';
+import { ContextRing } from './Ring.tsx';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { hostReview, requestJump, useInspector } from './inspector-state.ts';
 import { isLive } from '../../server/decisions.ts';
@@ -239,6 +240,7 @@ function AgentBody({ d, tabId }: { d: PreviewData; tabId: string }) {
             <dt>Status</dt><dd>{STATE_LABEL[state]}{agent.updatedAt && <span className="dp-t3"> · {ago(agent.updatedAt)}</span>}</dd>
             {model && <><dt>Model</dt><dd className="dp-mono">{model}</dd></>}
             {usage && <><dt>Usage</dt><dd title={usageTitle(agent)}>{usage}</dd></>}
+            {agent.contextTokens != null && <><dt>Context</dt><dd><ContextRing used={agent.contextTokens} max={agent.contextMax} label /></dd></>}
             <dt>Works on</dt>
             <dd className="dp-ins-on">
               {pr ? <><PrChip pr={pr} onOpen={(k) => openTab(`pr-${k}`)} /><span className="dp-ell">{prTitle(pr)}</span></>

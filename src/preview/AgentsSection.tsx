@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
 import Icon from './Icon.tsx';
 import { SidebarSubagents, SubagentCount } from './Subagents.tsx';
+import { ContextRing } from './Ring.tsx';
 import { STATE_LABEL, reloadWorkAgents } from './agents.ts';
 import type { AgentGroup, AgentState, ListedAgent } from './agents.ts';
 
@@ -64,6 +65,7 @@ function AgentRow({ a, onOpen, arc }: { a: ListedAgent; onOpen: (id: string) => 
         <AgentDot state={a.state} />
         <span className="dp-ell dp-grow">{a.title}</span>
         {subs > 0 && <SubagentCount n={subs} />}
+        {a.state !== 'archived' && <ContextRing used={a.contextTokens} max={a.contextMax} size={12} />}
         <span className="dp-ag-ago">{ago(a.updatedAt)}</span>
         {arc && <ArchiveButton id={a.id} ids={[a.id]} arc={arc} title="Archive this agent" armedTitle={busy ? `It is ${STATE_LABEL[a.state]}: click again to archive it anyway` : 'Click again to archive'} />}
       </div>

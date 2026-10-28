@@ -8,7 +8,7 @@ import type {
 } from './types.ts';
 import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
-import type { ModelCatalog, ModelChoice } from './types.ts';
+import type { ModelCatalog, ModelChoice, ProviderUsage } from './types.ts';
 
 export type * from './types.ts';
 
@@ -69,6 +69,7 @@ export const api = {
   saveSkillFile: (name: string, file: string, body: string) => putText<{ ok: boolean; bytes: number }>(`/api/skills/${name}/files/${encodeURIComponent(file)}`, body),
   agents: () => get<AgentsResponse>('/api/agents'),
   agentActivity: (id: string) => get<AgentLog>(`/api/agents-activity/${id}`),
+  usage: () => get<{ usage: ProviderUsage | null }>('/api/usage').then((r) => r.usage),
   respondPermission: (agentId: string, requestId: string, body: PermissionResponse) => postJson(`/api/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}`, body).then(jsonOrError<{ ok: boolean }>),
   askConversation: (id: string) => get<AskRun>(`/api/ask/${encodeURIComponent(id)}`),
   linkedAgents: (slug?: string) => get<{ agents: LinkedAgent[] }>(`/api/paseo-link/agents${slug ? `?work=${encodeURIComponent(slug)}` : ''}`).then((r) => r.agents),

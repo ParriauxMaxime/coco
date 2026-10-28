@@ -11,6 +11,7 @@ import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './p
 import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
 import ServerStatus from './ServerStatus.tsx';
+import Quota from './Quota.tsx';
 import WorkMenu from './WorkMenu.tsx';
 import { desktop } from '../desktop.ts';
 import cocoMark from '../coco-mark.svg';
@@ -313,6 +314,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
           <span className="dp-sp" />
           {waiting.length > 0 && <span className="dp-sbi dp-wait" onClick={() => (prefs.questions === 'tab' && onWaitingTab ? onWaitingTab() : setWaitOpen((w) => !w))}><Icon name="message-square" />{waiting.length} waiting on you</span>}
           {statusRight}
+          <Quota />
           <ServerStatus />
           <span className="dp-sbi" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
           <span className="dp-sbi" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>

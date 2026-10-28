@@ -4,6 +4,7 @@ import { toHash } from '../../workbench/hash.ts';
 import { PendingPermissions, usePendingPermissions } from '../chat/Permission.tsx';
 import Icon from '../Icon.tsx';
 import { usageLine, usageTitle } from '../format.ts';
+import { ContextRing } from '../Ring.tsx';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { AgentsResponse, LinkedAgent, PaseoAgent, PaseoWorkspace } from '../../types.ts';
 import './agents-page.css';
@@ -39,6 +40,7 @@ function AgentRow({ r, open, log, where, onToggle }: { r: Row; open: boolean; lo
         <span className="dp-chip dp-agp-prov" title={a.provider}>{a.provider}</span>
         {a.thinking && <span className="dp-chip">{a.thinking}</span>}
         {usage && a.usage && <span className="dp-xs dp-t3 dp-agp-usage" title={usageTitle(a.usage)}>{usage}</span>}
+        {r.state !== 'closed' && <span className="dp-xs dp-t3"><ContextRing used={a.usage?.contextTokens} max={a.usage?.contextMax} label /></span>}
         <span className="dp-rowi-m dp-agp-ago">{a.created}</span>
         <span className="dp-agp-caret"><Icon name="chevron-right" size={12} /></span>
       </div>

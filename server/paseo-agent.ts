@@ -6,7 +6,7 @@ import { createPaseoApi } from '@getpaseo/client';
 import { DaemonClient as RawDaemon } from '@getpaseo/client/internal/daemon-client';
 import { rowKey } from './stack.ts';
 import { promptSize, systemSize } from './agent-usage.ts';
-import type { UsageStore } from './agent-usage.ts';
+import type { PaseoUsage, UsageStore } from './agent-usage.ts';
 import type { PermissionClient, PermissionRequest } from './permissions.ts';
 import type { UploadRef } from './uploads.ts';
 import type { SubagentApi } from './subagents.ts';
@@ -50,11 +50,13 @@ export type DaemonAgent = {
   timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string } & AgentInput): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; lastUsage?: PaseoUsage | null } | null } | null>;
   archive(): Promise<unknown>;
 } & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };
-export type WorkspaceHandle = { id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
+export type UsageWindow = { id: string; label: string; shortLabel?: string; summary?: boolean; usedPct?: number | null; resetsAt?: string | null; tone?: 'default' | 'ok' | 'warning' | 'danger' };
+export type ProviderUsage = { providerId: string; displayName: string; status: 'available' | 'unavailable' | 'error'; planLabel: string | null; windows: UsageWindow[]; error?: string | null };
+export type WorkspaceHandle ={ id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
 export type DaemonClient = {
   workspaces: {
     list(opts: { page: { limit: number; cursor?: string } }): Promise<{ entries: WorkspaceEntry[]; pageInfo?: { nextCursor?: string } }>;
@@ -64,7 +66,7 @@ export type DaemonClient = {
     archive?(workspaceId: string): Promise<{ error?: string | null }>;
   };
   agents: { ref(id: string): DaemonAgent; list?: PermissionClient['agents']['list'] };
-  providers?: { listModels(provider: string): Promise<{ models?: { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string }[]; error?: string | null }> };
+  providers?: { listModels(provider: string): Promise<{ models?: { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string }[]; error?: string | null }>; listUsage?(): Promise<{ providers: ProviderUsage[] }> };
   setAgentModel?(agentId: string, modelId: string | null): Promise<unknown>;
   setAgentThinkingOption?(agentId: string, thinkingOptionId: string | null): Promise<unknown>;
 } & SubagentApi;

@@ -307,6 +307,14 @@ html[data-theme="dark"] .dp .dp-av { color: hsl(var(--dp-h) 60% 80%); background
 .dp-sbi.dp-wait { color: var(--dp-on-accent); background: var(--dp-accent); font-weight: 500; }
 .dp-sbi.dp-wait:hover { background: var(--dp-accent-2); color: var(--dp-on-accent); }
 .dp-sbi kbd { height: 15px; min-width: 15px; font-size: 10px; background: transparent; }
+.dp-quota { gap: 10px; cursor: default; }
+.dp-quota-w, .dp-ring-label { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.dp-ring { flex: none; color: var(--dp-t3); fill: none; stroke: currentColor; stroke-width: 2.2; }
+.dp-ring .dp-ring-track { opacity: .22; }
+.dp-ring circle:not(.dp-ring-track) { transition: stroke-dasharray .4s ease; }
+.dp-ring.dp-warn { color: var(--dp-warn); }
+.dp-ring.dp-bad { color: var(--dp-bad); }
+@media (prefers-reduced-motion: reduce) { .dp-ring circle { transition: none; } }
 
 .dp-pop { position: absolute; z-index: 40; background: var(--dp-panel); border: 1px solid var(--dp-line); border-radius: var(--dp-r3); box-shadow: var(--dp-sh-2); min-width: 220px; display: none; }
 .dp-pop.dp-on { display: block; }

@@ -1,10 +1,11 @@
-// What each coco agent cost: the size of its first prompt and system prompt, and the input tokens and cost Paseo reports, kept once Paseo forgets them.
+// What each coco agent cost: the size of its first prompt and system prompt, and the input tokens and cost Paseo reports, kept once Paseo forgets them;
+// for any agent, how full its context window was at its last turn.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export type PaseoUsage = { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; totalCostUsd?: number };
-export type AgentUsage = { promptChars?: number; promptTokens?: number; systemChars?: number; systemTokens?: number; inputTokens?: number; outputTokens?: number; costUsd?: number; at: string };
+export type PaseoUsage = { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; totalCostUsd?: number; contextWindowUsedTokens?: number; contextWindowMaxTokens?: number };
+export type AgentUsage = { promptChars?: number; promptTokens?: number; systemChars?: number; systemTokens?: number; inputTokens?: number; outputTokens?: number; costUsd?: number; contextTokens?: number; contextMax?: number; at: string };
 export type UsageStore = ReturnType<typeof createAgentUsage>;
 
 const KEEP = 3000;
@@ -12,11 +13,14 @@ export const estimateTokens = (chars: number) => Math.ceil(chars / 4);
 export const promptSize = (text: string | null | undefined) => (text ? { promptChars: text.length, promptTokens: estimateTokens(text.length) } : {});
 export const systemSize = (text: string | null | undefined) => (text ? { systemChars: text.length, systemTokens: estimateTokens(text.length) } : {});
 
+// the context window is the last turn's, not a sum
+export const contextOf = (u: PaseoUsage | null | undefined): Partial<AgentUsage> => (u?.contextWindowUsedTokens && u.contextWindowMaxTokens ? { contextTokens: u.contextWindowUsedTokens, contextMax: u.contextWindowMaxTokens } : {});
+
 // Paseo's lastUsage is per agent and cumulative; cached reads count as input
 export const fromPaseo = (u: PaseoUsage | null | undefined): Partial<AgentUsage> => {
   if (!u) return {};
   const input = (u.inputTokens || 0) + (u.cachedInputTokens || 0);
-  return { ...(input ? { inputTokens: input } : {}), ...(u.outputTokens ? { outputTokens: u.outputTokens } : {}), ...(u.totalCostUsd ? { costUsd: u.totalCostUsd } : {}) };
+  return { ...(input ? { inputTokens: input } : {}), ...(u.outputTokens ? { outputTokens: u.outputTokens } : {}), ...(u.totalCostUsd ? { costUsd: u.totalCostUsd } : {}), ...contextOf(u) };
 };
 
 export function createAgentUsage(file: string) {

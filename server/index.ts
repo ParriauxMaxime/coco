@@ -43,8 +43,9 @@ import { SWEEP_AGE, createUploads, servePaseoAttachment } from './uploads.ts';
 import { loadConfig, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId } from './paseo-agent.ts';
+import type { ProviderUsage } from './paseo-agent.ts';
 import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
-import { createAgentUsage, fromPaseo } from './agent-usage.ts';
+import { contextOf, createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createWorkAgents } from './work-agents.ts';
 import { createSubagents } from './subagents.ts';
 import { createModels } from './models.ts';
@@ -181,7 +182,7 @@ const permissions = createPermissions({
 });
 permissions.onAgent(jobs.onAgent);
 permissions.onAgent((a) => {
-  if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
+  if (a?.lastUsage) agentUsage.record(a.id, isCocoAgent(a) ? fromPaseo(a.lastUsage) : contextOf(a.lastUsage));
 });
 const bodyGate = () => {
   const skill = runSkill(config, 'kit-body');
@@ -350,6 +351,15 @@ async function agents(cached = false) {
   const agents = parse<{ id?: string; cwd?: string }>(a).map((x) => ({ ...x, cwd: x.cwd?.replace(/^~/, os.homedir()), usage: x.id ? agentUsage.get(x.id) : null }));
   return { agents, workspaces: parse<unknown>(w), error: a.ok ? null : a.stderr };
 }
+
+// the account quota of the provider coco's agents run on by default
+const usageCache = swrCache<ProviderUsage | null>(60000);
+const mainUsage = () =>
+  usageCache('main', async () => {
+    const c = await paseoAgents.client();
+    const id = config.models.default.split('/')[0];
+    return (await c.providers?.listUsage?.())?.providers.find((p) => p.providerId === id) || null;
+  });
 
 function listReviews() {
   if (!fs.existsSync(REVIEWS)) return [];
@@ -601,6 +611,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'events') return events.handle(req, res, parts, readBody, send);
     if (root === 'permissions' || (root === 'agents' && b === 'permissions')) return permissions.handle(req, res, parts, readBody, send);
     if (root === 'agents') return send(res, 200, await agents());
+    if (root === 'usage') return send(res, 200, { usage: await mainUsage() });
     if (root === 'agents-activity' && a) {
       const r = await run('paseo', ['logs', a, '--tail', '40']);
       return send(res, 200, { ok: r.ok, out: r.stdout.slice(-20000), err: r.stderr.slice(0, 2000) });

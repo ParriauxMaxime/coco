@@ -60,7 +60,7 @@ export type PersonaDetail = Persona & { md: string; json: PersonaJson | null; fe
 export type Skill = { name: string; description: string; argumentHint: string; userInvocable: boolean; mtime: string; files: string[] };
 export type SkillDetail = Skill & { md: string };
 
-export type PaseoAgent = { id: string; shortId: string; name: string; status: string; provider: string; thinking: string; created: string; cwd: string; usage?: { promptTokens?: number; systemTokens?: number; inputTokens?: number; costUsd?: number } | null };
+export type PaseoAgent = { id: string; shortId: string; name: string; status: string; provider: string; thinking: string; created: string; cwd: string; usage?: { promptTokens?: number; systemTokens?: number; inputTokens?: number; costUsd?: number; contextTokens?: number; contextMax?: number } | null };
 export type PaseoWorkspace = { workspaceId: string; project: string; name: string; cwd: string; isolation: string };
 export type AgentsResponse = { agents: PaseoAgent[]; workspaces: PaseoWorkspace[]; error: string | null };
 // an agent started by hand in a PR row workspace, linked to that row by the Paseo plugin
@@ -559,8 +559,10 @@ export type ModelCatalog = { mode: string; defaults: { default: string; fast: st
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
-// estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them
-export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null };
+// estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them; the context window at the last turn
+export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens?: number | null; contextMax?: number | null };
+export type UsageWindow = { id: string; label: string; shortLabel?: string; summary?: boolean; usedPct?: number | null; resetsAt?: string | null; tone?: 'default' | 'ok' | 'warning' | 'danger' };
+export type ProviderUsage = { providerId: string; displayName: string; status: 'available' | 'unavailable' | 'error'; planLabel: string | null; windows: UsageWindow[]; error?: string | null };
 export type WorkAgents = { agents: WorkAgent[]; serverId: string | null; error?: string };
 export type AddRepoResult = {
   ok: boolean;
