@@ -1052,7 +1052,8 @@ opens the panel as a `git-<workspace>` tab). `server/workspace-git.ts`,
   the upstream when there is none), Create PR (title, description, Draft on
   by default; a branch with no upstream is pushed first), Stash (new files
   included) and Pop stash, which takes the newest stash made on this branch,
-  never `stash@{0}` blindly (the stack is shared by every worktree).
+  never `stash@{0}` blindly (the stack is shared by every worktree), applies
+  it by its sha and then drops that entry wherever it now sits.
 - Side: the uncommitted files (staged or not, new ones included) with
   their counts; a click shows the file's diff (Monaco, side by side or
   inline) in the main column, a tick picks it. The commit box commits the
@@ -1065,13 +1066,15 @@ opens the panel as a `git-<workspace>` tab). `server/workspace-git.ts`,
   the server polls the worktree every 3 s (status, HEAD, stashes, changed
   files' mtimes) and sends `changed`, after which the panel reads again.
 - Every write is your click: no MCP tool reaches these routes, so no agent
-  pushes or opens a PR through them.
+  pushes or opens a PR through them. Writes to one worktree run one at a
+  time, and a path is always a file name, never a glob (`*` is a file
+  called `*`).
 - Paseo's checkout API (`client.checkout`: status, diff, commits, PR status,
   commit all, pull, push, PR, discard, stash) answers while the daemon is
   connected; git in the workspace does the rest and stands in when Paseo is
   down or errs (reads with `--no-optional-locks`). Git always handles a
   commit of picked files, a draft PR (`gh pr create --draft`), the stash
-  list and the commits list when Paseo's 10-commit page may hide more.
+  list, Pop stash, and the commits list when Paseo's 10-commit page may hide more.
 - Routes: `GET /api/workspaces/<id>/git/status|diff|diff/file?path=|commits|pr|commit/<sha>/refs|file|diff`,
   `POST …/git/commit {message, paths?}|pull|push|pr {title, body, draft}|discard {paths}|stash {action: save|pop}`.
   `<id>` is a Paseo workspace id, or `p.<base64url of the path>` for a

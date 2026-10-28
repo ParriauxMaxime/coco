@@ -30,6 +30,7 @@ type Deps = {
 const SDK_MS = 10000;
 const NET_MS = 120000;
 const SPACES_TTL = 30000;
+const TREES_TTL = 5000;
 const POLL_MS = 3000;
 const MAX_TEXT = 5 * 1024 * 1024;
 const MAX_PATHS = 500;
@@ -80,6 +81,16 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
     }
     return spaces.list;
   };
+  // the configured repos' worktrees, read again after TREES_TTL: a `p.` id comes with every terminal keystroke
+  let trees: { at: number; list: Promise<{ path: string }[]> } | null = null;
+  const worktrees = (fresh = false) => {
+    if (!trees || fresh || Date.now() - trees.at > TREES_TTL) {
+      const list = Promise.all(repos.filter((r) => r.path).map((r) => gitWorktrees((cmd, args) => run(cmd, args, r.path), r.path))).then((all) => all.flat());
+      trees = { at: Date.now(), list };
+      list.catch(() => (trees = null));
+    }
+    return trees.list;
+  };
 
   async function dirOf(id: string): Promise<string> {
     const m = PATH_ID.exec(id);
@@ -87,8 +98,8 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
     if (m) {
       dir = Buffer.from(m[1], 'base64url').toString('utf8');
       if (!path.isAbsolute(dir)) throw new HttpError(400, 'bad workspace id');
-      const trees = (await Promise.all(repos.filter((r) => r.path).map((r) => gitWorktrees((cmd, args) => run(cmd, args, r.path), r.path)))).flat();
-      if (!trees.some((t) => samePath(t.path, dir as string))) throw new HttpError(404, 'not a worktree of a configured repo');
+      const known = async (fresh: boolean) => (await worktrees(fresh)).some((t) => samePath(t.path, dir as string));
+      if (!(await known(false)) && !(await known(true))) throw new HttpError(404, 'not a worktree of a configured repo');
     } else {
       if (!PASEO_ID.test(id)) throw new HttpError(400, 'bad workspace id');
       const find = async (fresh: boolean) => (await workspaces(fresh)).find((w) => w.id === id && !w.archivingAt);
@@ -111,14 +122,20 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
     return null;
   }
 
-  async function stashesOf(cwd: string, branch: string | null) {
-    const r = await read(cwd, ['stash', 'list', '--format=%gd%x1f%gs']);
-    if (!r.ok || !branch) return [];
+  // the whole shared stack, newest first; mine(branch) keeps the entries made on that branch
+  async function stashList(cwd: string) {
+    const r = await read(cwd, ['stash', 'list', '--format=%gd%x1f%H%x1f%gs']);
+    if (!r.ok) return [];
     return r.stdout.split('\n').flatMap((line) => {
-      const [ref, subject = ''] = line.split('\x1f');
+      const [ref, sha = '', message = ''] = line.split('\x1f');
       const n = /^stash@\{(\d+)\}$/.exec(ref);
-      return n && (subject.startsWith(`On ${branch}:`) || subject.startsWith(`WIP on ${branch}:`)) ? [{ index: Number(n[1]), message: subject }] : [];
+      return n ? [{ ref, index: Number(n[1]), sha, message }] : [];
     });
+  }
+  const mine = (branch: string | null) => (s: { message: string }) => Boolean(branch) && (s.message.startsWith(`On ${branch}:`) || s.message.startsWith(`WIP on ${branch}:`));
+
+  async function stashesOf(cwd: string, branch: string | null) {
+    return (await stashList(cwd)).filter(mine(branch)).map(({ index, message }) => ({ index, message }));
   }
 
   async function gitStatus(cwd: string): Promise<GitStatus> {
@@ -393,7 +410,8 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
     return { ok: true };
   }
 
-  // the stash stack is shared by every worktree of the repo: pop takes the newest entry made on this branch, never stash@{0} blindly
+  // the stash stack is shared by every worktree of the repo: pop takes the newest entry made on this branch, never stash@{0} blindly, and by its
+  // sha, since another worktree may push or pop meanwhile and move the indexes (the daemon's pop goes by index: git does it)
   async function stash(cwd: string, body: Record<string, unknown>) {
     const branch = await branchOf(cwd);
     if (body.action === 'save') {
@@ -403,11 +421,11 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
       return { ok: true };
     }
     if (body.action !== 'pop') throw new HttpError(400, 'action: save or pop');
-    const [mine] = await stashesOf(cwd, branch);
-    if (!mine) throw new HttpError(409, `no stash made on ${branch}`);
-    const c = await sdk();
-    if (c) refused(await c.stashPop(cwd, mine.index));
-    else await must(git(cwd, ['stash', 'pop', `stash@{${mine.index}}`]));
+    const entry = (await stashList(cwd)).find(mine(branch));
+    if (!entry) throw new HttpError(409, `no stash made on ${branch}`);
+    await must(git(cwd, ['stash', 'apply', entry.sha]));
+    const still = (await stashList(cwd)).find((s) => s.sha === entry.sha);
+    if (still) await must(git(cwd, ['stash', 'drop', '-q', still.ref]));
     return { ok: true };
   }
 
@@ -467,6 +485,16 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
   }
 
   const WRITES: Record<string, (cwd: string, body: Record<string, unknown>) => Promise<unknown>> = { commit, pull, push, pr: createPr, discard, stash };
+  // one write at a time per worktree: two clicks (or tabs) never race on its index or HEAD
+  const queues = new Map<string, Promise<unknown>>();
+  function queued<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+    const key = path.resolve(cwd);
+    const next = (queues.get(key) ?? Promise.resolve()).then(fn, fn);
+    const tail = next.catch(() => {});
+    queues.set(key, tail);
+    void tail.then(() => queues.get(key) === tail && queues.delete(key));
+    return next;
+  }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [, id, , action, sub, subAction] = parts;
@@ -497,7 +525,7 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
       }
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'the body must be an object');
       const cwd = await dirOf(id);
-      const out = await write(cwd, body as Record<string, unknown>);
+      const out = await queued(cwd, () => write(cwd, body as Record<string, unknown>));
       notify(cwd);
       return send(res, 200, out);
     } catch (e) {

@@ -155,6 +155,15 @@ test('paths are literal, never glob pathspecs: "*" and app/[id].tsx touch only t
   fs.rmSync(path.join(clone, 'loose.txt'));
 });
 
+test('writes to one worktree run one at a time: concurrent commits both land', async () => {
+  write('q1.txt', '1\n');
+  write('q2.txt', '2\n');
+  write('q3.txt', '3\n');
+  const outs = await Promise.all(['q1.txt', 'q2.txt', 'q3.txt'].map((f) => call('POST', at('commit'), { message: `add ${f}`, paths: [f] })));
+  assert.deepEqual(outs.map((o) => [o.status, o.body.error]), [[200, undefined], [200, undefined], [200, undefined]]);
+  assert.deepEqual(git(clone, 'log', '-3', '--format=%s').split('\n').sort(), ['add q1.txt', 'add q2.txt', 'add q3.txt']);
+});
+
 test('a watcher hears a change in the working tree, and stops polling once gone', async () => {
   const got: string[] = [];
   const closers: (() => void)[] = [];
