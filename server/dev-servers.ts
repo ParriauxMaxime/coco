@@ -25,6 +25,7 @@ const LOOPBACK = new Set<string | null>(['127.0.0.1', 'localhost', '[::1]', '::1
 const READ_TIMEOUT_MS = 2500;
 const BOARD_FRESH_MS = 3000;
 const BOARD_KEEP_MS = 60000;
+const PLACEMENT_FRESH_MS = 10000;
 // a start may first stop another server (its grace period), and a login waits for the project's provider (60 s by default)
 const ACTION_TIMEOUT_MS = 65000;
 const MAX_LOG_LINES = 200;
@@ -149,9 +150,15 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return !('down' in reply) && reply.status === 200;
   };
 
+  // placement walks git over the stack: asked per worktree at most once per few seconds, the last good answer kept when one is slow
+  const placements = new Map<string, { at: number; placement: Placement }>();
   const placementOf = async (worktree: string): Promise<Placement | null> => {
+    const hit = placements.get(worktree);
+    if (hit && Date.now() - hit.at < PLACEMENT_FRESH_MS) return hit.placement;
     const reply = await call('GET', `/api/placement?cwd=${encodeURIComponent(worktree)}`, undefined, READ_MS);
-    return !('down' in reply) && reply.status === 200 && reply.body?.placement?.mode ? reply.body.placement : null;
+    const placement = !('down' in reply) && reply.status === 200 && reply.body?.placement?.mode ? reply.body.placement : null;
+    if (placement) placements.set(worktree, { at: Date.now(), placement });
+    return placement || (hit && Date.now() - hit.at < BOARD_KEEP_MS ? hit.placement : null);
   };
 
   // one brief line: what dev_server_start gives an agent in this worktree right now
