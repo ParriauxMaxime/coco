@@ -77,8 +77,8 @@ onThemeChange((t) => monaco.editor.setTheme(themeName(t)));
 const EXT: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
-  scss: 'scss', css: 'css', html: 'html', json: 'javascript',
-  md: 'markdown', yml: 'yaml', yaml: 'yaml', sh: 'shell',
+  scss: 'scss', css: 'css', html: 'html', htm: 'html', svg: 'html', json: 'javascript', jsonc: 'javascript', json5: 'javascript',
+  md: 'markdown', mdx: 'markdown', yml: 'yaml', yaml: 'yaml', sh: 'shell', bash: 'shell', zsh: 'shell',
 };
 
 export const languageFor = (path: string | null | undefined) => EXT[(String(path || '').split('.').pop() ?? '').toLowerCase()] || 'plaintext';

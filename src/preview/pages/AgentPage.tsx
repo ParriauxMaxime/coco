@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
-import { AgentTranscript, CHANGES, Header, ViewSeg } from '../AgentTab.tsx';
+import { AgentTranscript, CHANGES, FILES, Header, ViewSeg } from '../AgentTab.tsx';
+import type { AgentView } from '../AgentTab.tsx';
 import { GitPanel } from '../GitPanel.tsx';
+import { FilesPanel } from '../FilesPanel.tsx';
 import { focusCard } from '../chat/Card.tsx';
 import { useSeen, useWaitingByAgent } from '../waiting.ts';
 import Icon from '../Icon.tsx';
@@ -23,7 +25,7 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   const [err, setErr] = useState('');
   const waiting = useWaitingByAgent();
   const seen = useSeen(`agent:${agentId}`);
-  const [changes, setChanges] = useState(false);
+  const [picked, setPicked] = useState<AgentView>('transcript');
   const load =() => api.agentInfo(agentId).then((i) => { setInfo(i); setErr(''); }, (e) => setErr(errorMessage(e)));
   useEffect(() => {
     void load();
@@ -45,13 +47,13 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   const state: AgentState = info.status !== 'archived' && waiting[agentId] ? 'waiting' : info.status;
   const inWork = info.work && <a className="dp-btn dp-sm" href={`#/work/${encodeURIComponent(info.work)}/ag-${agentId}`} title="Open it among its work's tabs"><Icon name="layers" size={14} />In its work</a>;
   const wsId = info.workspaceId;
-  const git = Boolean(changes && wsId);
-  const views = <ViewSeg views={wsId ? [{ id: 'transcript', label: 'Transcript', title: "The agent's chat" }, CHANGES] : []} value={git ? 'changes' : 'transcript'} onPick={(v) => setChanges(v === 'changes')} />;
+  const view = wsId ? picked : 'transcript';
+  const views = <ViewSeg views={wsId ? [{ id: 'transcript', label: 'Transcript', title: "The agent's chat" }, CHANGES, FILES] : []} value={view} onPick={setPicked} />;
   return (
     <div ref={seen} className="dp-page dp-agpage" role="main">
       <section className="dp-agpage-chat">
         <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={<>{views}{inWork}</>} handoff onRenamed={() => void load()} />
-        {git && wsId ? <GitPanel wsId={wsId} /> : <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />}
+        {view === 'changes' && wsId ? <GitPanel wsId={wsId} /> : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} /> : <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />}
       </section>
     </div>
   );

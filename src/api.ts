@@ -10,7 +10,7 @@ import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './typ
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
-import type { GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
+import type { FsEntry, FsFile, GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
 
 export type * from './types.ts';
 
@@ -67,6 +67,27 @@ export const gitApi = {
   createPr: (wsId: string, body: { title: string; body: string; draft: boolean }) => gitPost<{ ok: boolean; url: string | null; number: number | null }>(wsId, 'pr', body),
   discard: (wsId: string, paths: string[]) => gitPost(wsId, 'discard', { paths }),
   stash: (wsId: string, action: 'save' | 'pop') => gitPost(wsId, 'stash', { action }),
+};
+// a workspace's files (server/workspace-files.ts); a save over a file changed on disk since it was read throws FileConflict
+export class FileConflict extends Error {
+  modifiedAt: string | null;
+  constructor(message: string, modifiedAt: string | null) {
+    super(message);
+    this.modifiedAt = modifiedAt;
+  }
+}
+const filesBase = (wsId: string) => `/api/workspaces/${encodeURIComponent(wsId)}/files`;
+export const filesApi = {
+  list: (wsId: string, dir: string) => getOrError<{ path: string; entries: FsEntry[]; truncated: boolean }>(`${filesBase(wsId)}/list?${new URLSearchParams({ path: dir })}`),
+  read: (wsId: string, path: string) => getOrError<FsFile>(`${filesBase(wsId)}/read?${new URLSearchParams({ path })}`),
+  tree: (wsId: string) => getOrError<{ files: string[]; truncated: boolean }>(`${filesBase(wsId)}/tree`),
+  write: async (wsId: string, body: { path: string; content: string; expectedModifiedAt: string; expectedRevision?: string }) => {
+    const res = await postJson(`${filesBase(wsId)}/write`, body);
+    const out = await res.json().catch(() => null);
+    if (out?.conflict) throw new FileConflict(out.error, out.modifiedAt ?? null);
+    if (!res.ok) throw new Error(out?.error || `${res.status} ${res.statusText}`);
+    return out as { ok: boolean; modifiedAt: string; size: number; revision?: string };
+  },
 };
 // a worktree with no Paseo workspace, by its path
 export const pathWsId = (dir: string) => `p.${btoa(String.fromCharCode(...new TextEncoder().encode(dir))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;

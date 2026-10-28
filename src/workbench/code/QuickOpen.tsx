@@ -45,9 +45,10 @@ type Props = {
   prFiles?: PathEntry[];
   fetchTree?: () => Promise<PathEntry[] | { files?: PathEntry[] }>;
   onOpen: (path: string) => void;
+  placeholder?: string;
 };
 
-export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOpen }: Props) {
+export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOpen, placeholder = 'Go to file (PR files first)' }: Props) {
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
   const [tree, setTree] = useState<string[] | null>(null);
@@ -116,7 +117,7 @@ export default function QuickOpen({ open, onClose, prFiles = [], fetchTree, onOp
           className="qo-input"
           aria-label="Go to file"
           value={query}
-          placeholder="Go to file (PR files first)"
+          placeholder={placeholder}
           onChange={(e) => {
             setQuery(e.target.value);
             setCursor(0);

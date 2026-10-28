@@ -1,0 +1,33 @@
+/* a workspace's Files view (FilesPanel.tsx): the lazy tree on the side, the picked file in Monaco */
+.fx { display: flex; flex-direction: column; flex: 1; min-height: 0; container: fx / inline-size; }
+.fx-body { display: flex; flex: 1; min-height: 0; }
+.fx-side { flex: none; width: 280px; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--dp-line); }
+.fx-tools { flex: none; display: flex; align-items: center; gap: 2px; padding: 8px; border-bottom: 1px solid var(--dp-line); }
+.fx-tools .dp-inp { flex: 1; min-width: 0; height: 26px; font-size: 12px; margin-right: 4px; }
+.fx-tree { flex: 1; min-height: 0; overflow: auto; padding: 4px 0 12px; }
+.fx-row { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 4px; height: 24px; padding-right: 8px; font-size: 12.5px; color: var(--dp-t2); cursor: pointer; white-space: nowrap; }
+.fx-row:hover, .fx-row.dp-on { background: var(--dp-hover); color: var(--dp-t1); }
+.fx-row.dp-on { box-shadow: inset 2px 0 0 var(--dp-accent); }
+.fx-row > svg { flex: none; color: var(--dp-t3); }
+.fx-row .dp-caret { width: 14px; height: 14px; }
+.fx-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fx-tone.dp-ok { color: var(--dp-ok); } .fx-tone.dp-warn { color: var(--dp-warn); } .fx-tone.dp-bad { color: var(--dp-bad); text-decoration: line-through; } .fx-tone.dp-info { color: var(--dp-info); }
+.fx-link { flex: none; font-size: 10px; color: var(--dp-t3); }
+.fx-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--dp-warn); }
+.fx-none { height: 22px; display: flex; align-items: center; font-size: 12px; color: var(--dp-t3); }
+.fx-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.fx-file-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dp-tabview.fx-tab { overflow: hidden; display: flex; flex-direction: column; }
+.fx-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 12px; min-height: 40px; box-sizing: border-box; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); }
+.fx-bar > svg { flex: none; color: var(--dp-t3); }
+.fx-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.fx-path b { font-weight: 500; }
+.fx-banner { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 12px 0; }
+.fx-editor { flex: 1; }
+.fx-editor .cc-editor { min-height: 0; }
+.fx-image { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 16px; background: repeating-conic-gradient(var(--dp-subtle) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+.fx-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+@container fx (max-width: 640px) {
+  .fx-body { flex-direction: column; }
+  .fx-side { width: auto; max-height: 40%; border-right: 0; border-bottom: 1px solid var(--dp-line); }
+}

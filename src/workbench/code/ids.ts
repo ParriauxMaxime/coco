@@ -44,6 +44,12 @@ export const parseWorkspaceCommitTab = (id: string | null | undefined) => {
 };
 export const changesTabId = (wsId: string) => `git-${wsId}`;
 export const parseChangesTab = (id: string | null | undefined) => /^git-([\w.-]+)$/.exec(id || '')?.[1] ?? null;
+// a file of a workspace (its Files view) in its own tab: `wsfile-<workspace id>~<path>`
+export const wsFileTabId = (wsId: string, path: string) => `wsfile-${wsId}~${path}`;
+export const parseWsFileTab = (id: string | null | undefined) => {
+  const m = /^wsfile-([\w.-]+)~(.+)$/.exec(id || '');
+  return m ? { wsId: m[1], path: m[2] } : null;
+};
 
 export const codeTabId =(n: PrKey, path: string, files: Pick<RefFile, 'filename'>[] = []) => `${files.some((f) => f.filename === path) ? 'diff' : 'file'}-${n}~${path}`;
 

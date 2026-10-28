@@ -560,6 +560,9 @@ export type GitFile = { filename: string; status: string; previous?: string; add
 export type GitCommit = { sha: string; shortSha: string; subject: string; author: string; date: string; files: number | null };
 export type GitPr = { number: number | null; url: string; title: string; state: string; isDraft: boolean };
 export type GitTexts = { path: string; original: string; modified: string; binary?: boolean; tooLarge?: boolean; unified?: string };
+// a workspace's files (server/workspace-files.ts)
+export type FsEntry = { name: string; path: string; kind: 'dir' | 'file'; size: number; modifiedAt: string; link?: boolean };
+export type FsFile = { path: string; size: number; modifiedAt: string; revision?: string; kind: 'text' | 'image' | 'binary' | 'large'; content?: string; mime?: string; dataUrl?: string };
 export type AskRun = {
   id: string;
   prompt: string;

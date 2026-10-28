@@ -43,7 +43,7 @@ const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 export const pathId = (dir: string) => `p.${Buffer.from(dir).toString('base64url')}`;
 const samePath = (a: string, b: string) => path.resolve(a) === path.resolve(b);
-const within = <T>(p: Promise<T>, ms: number) => {
+export const within = <T>(p: Promise<T>, ms: number) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([p, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('Paseo did not answer in time')), ms)))]).finally(() => clearTimeout(timer));
 };

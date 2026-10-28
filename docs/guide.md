@@ -1077,6 +1077,43 @@ opens the panel as a `git-<workspace>` tab). `server/workspace-git.ts`,
   worktree of a configured repo that no workspace holds; anything else is
   refused, as are paths outside the worktree.
 
+### Files (a workspace's file explorer)
+
+What the Paseo app's file explorer shows, for any agent's workspace: the
+**Files** toggle next to Transcript / Changes in an agent tab (`ag-<id>`) and
+on an agent's page (`#/agents/<id>`). `server/workspace-files.ts`,
+`src/preview/FilesPanel.tsx`.
+
+- Side: the workspace's tree, a folder read when you first open it (open
+  folders and the picked file are kept per workspace). `.git` and
+  `node_modules` are hidden until the eye button shows them; the filter box
+  narrows the folders read so far; changed files carry their git letter
+  (A / M / D / R, from the Changes panel's diff) and a folder holding one a
+  dot. The tree reads again when the workspace's git moves.
+- Main column: the picked file in Monaco, language from its extension,
+  read-only. **Edit** makes it editable; **Save** (or ⌘S) writes it over
+  the version you read, **Revert** drops your edits. An image shows inline,
+  a binary file or one over 2 MB shows a note instead.
+- Live: the open file follows topic `workspace-file:<id>:<path>` (Paseo's
+  file subscription, else a 1 s stat poll). Unedited, it reloads in place
+  when it changes on disk; edited, a banner says so with **Reload** (drops
+  your edits) or **Overwrite with mine**. A save over a file changed since
+  you read it is refused the same way (409), never written blindly.
+- ⌘P in the Files view you clicked last goes to a file of that workspace
+  (`git ls-files`, tracked and untracked; a walk past `.git` and
+  `node_modules` outside git), ahead of the work's PR quick open.
+- In a work, the ↗ button (or a double click in the tree) opens the file
+  as its own tab, `wsfile-<workspace>~<path>`, with the same Edit / Save.
+- Paths: relative only, no `..`, and the real path (symlinks followed) must
+  stay inside the workspace, checked by coco before Paseo or the file system
+  is asked; nothing is written inside `.git`. Paseo's file API
+  (`listDirectory`, `readFile`, `writeFile`, `subscribeFile`) answers while
+  the daemon is connected, the file system otherwise.
+- Routes: `GET /api/workspaces/<id>/files/list|read|stat?path=`,
+  `GET …/files/tree`, `POST …/files/write {path, content, expectedModifiedAt, expectedRevision?}`
+  (409 `{conflict, modifiedAt}` when the disk moved on). Writes are your
+  click only: no MCP tool reaches these routes.
+
 ### Preflight (kit-video dispatches)
 
 A `gate:kit-video:*` dispatch first runs cheap checks (`server/preflight.ts`):
