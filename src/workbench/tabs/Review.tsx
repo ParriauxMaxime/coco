@@ -116,6 +116,12 @@ export default function Review({ tabId }: { tabId: string }) {
     const step = groups?.find((g) => folded.includes(g.key) && g.files.some((f) => f.filename === path));
     if (step) setFolded(folded.filter((x) => x !== step.key));
   };
+  // ticking a plan step's last unreviewed file folds the step, on that tick only: a step unfolded afterwards stays open
+  const foldDone = useRef<((path: string) => void) | null>(null);
+  foldDone.current = (path: string) => {
+    const step = groups?.find((g) => g.files.some((f) => f.filename === path));
+    if (step && !folded.includes(step.key) && step.files.every((f) => f.filename === path || ticks.has(f.filename))) setFolded([...folded, step.key]);
+  };
   const lock = useRef(0);
   const pendingScroll = useRef<string | null>(null);
   const raf = useRef(0);
@@ -264,6 +270,7 @@ export default function Review({ tabId }: { tabId: string }) {
   }), []);
   const onTick = useCallback((path: string, on: boolean) => {
     rv.tick(path, on).catch((e: unknown) => rv.setNotice(errorMessage(e)));
+    if (on) foldDone.current?.(path);
     setOpened((prev) => {
       const next = new Set(prev);
       if (on) next.delete(path);

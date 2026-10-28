@@ -370,7 +370,8 @@ plan, files show as a tree with the category chips. In plan mode the list is
 grouped by step, then Skim: each file shows its folder (longer where two
 files share a name), each step its why, reviewed count and watch point
 count. A click on a step folds it in the list and the cards (kept per PR);
-`j`/`k` skip folded steps and a jump into one unfolds it. The cards sit under
+ticking a step's last file Reviewed folds it too, on that tick only (unfold
+it again and it stays open); `j`/`k` skip folded steps and a jump into one unfolds it. The cards sit under
 a header per step. The focus note of a file and its watch points (lines,
 severity, a click jumps to the line) show under its card header, folded
 cards included. Watch points also appear as dashed "coco suggests" zones in
