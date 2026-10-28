@@ -12,10 +12,11 @@ const conv = (id: string, extra: Record<string, unknown> = {}) => ({ id, prompt:
 
 const perm = (agentId: string, id: string, extra: Record<string, unknown> = {}) => ({ agentId, agentTitle: `coco · ${agentId}`, request: { id, kind: 'tool', name: 'Bash', title: 'npm test' }, since: '2026-10-20T09:00:00Z', where: null, work: 'w', pr: '7', ...extra });
 
-type Setup = { cards?: Card[]; queue?: ReturnType<typeof queued>[]; asks?: ReturnType<typeof conv>[]; perms?: ReturnType<typeof perm>[]; ready?: { commit: string; subject: string; stat: string } | null; DATA?: string; archived?: boolean };
-const make = ({ cards = [], queue = [], asks = [], perms = [], ready = null, DATA, archived }: Setup = {}) =>
+type Setup = { cards?: Card[]; queue?: ReturnType<typeof queued>[]; asks?: ReturnType<typeof conv>[]; perms?: ReturnType<typeof perm>[]; ready?: { commit: string; subject: string; stat: string } | null; DATA?: string; archived?: boolean; at?: string };
+const make = ({ cards = [], queue = [], asks = [], perms = [], ready = null, DATA, archived, at = '2026-10-21T12:00:00Z' }: Setup = {}) =>
   createWaiting({
     DATA,
+    now: () => Date.parse(at),
     works: { list: () => [{ slug: 'w', title: 'W', archived }, { slug: 'other', title: 'Other' }] },
     cards: { open: () => cards.filter((c) => c.status === 'open') },
     threads: { queue: (slug) => (slug === 'w' ? queue : []), ready: async () => ready },
@@ -23,6 +24,12 @@ const make = ({ cards = [], queue = [], asks = [], perms = [], ready = null, DAT
     permissions: { list: () => perms },
   });
 const ids = async (w: ReturnType<typeof make>, slug?: string) => (await w.view(slug)).items.map((i) => i.id);
+
+test("an agent's last word left two days unanswered stops waiting on you; its open card does not", async () => {
+  const card = { id: 'c1', agentId: 'agent-a1', work: 'w', pr: null, kind: 'confirm', title: 'Go?', question: 'Go?', status: 'open', createdAt: '2026-10-20T10:00:00Z' } as unknown as Card;
+  const w = make({ asks: [conv('a2')], queue: [queued('k1')], cards: [card], at: '2026-10-23T12:00:00Z' });
+  assert.deepEqual(await ids(w), ['card:c1']);
+});
 
 test('an open choice card is a card item with its options as buttons, a reply and a dismiss; answered and cancelled ones are not listed', async () => {
   const w = make({ cards: [card('c1'), card('c2', { status: 'answered' }), card('c3', { status: 'cancelled' })] });

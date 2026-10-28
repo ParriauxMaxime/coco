@@ -17,6 +17,8 @@ const EXCERPT = 300;
 const MAX_IDS = 100;
 const MAX_ID = 200;
 const ACK_TTL_MS = 30 * 24 * 3600 * 1000;
+// an agent's last word left unanswered this long is read and let go: questions and permissions stay until answered
+const LAST_WORD_MS = 2 * 24 * 3600 * 1000;
 
 // kind: pick an option / approve / dismiss go through their endpoint as is; reply sends { [field]: text }; ack only hides the item here
 export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
@@ -84,7 +86,7 @@ export function createWaiting({ DATA, works, cards, threads, ask, permissions, c
   let dirty = true;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const acked = (id: string, at: string) => (acks[id] ? acks[id] >= at : false);
+  const acked = (id: string, at: string) => (acks[id] ? acks[id] >= at : false) || now() - Date.parse(at) > LAST_WORD_MS;
 
   async function build(): Promise<WaitingItem[]> {
     const live = works.list().filter((w) => !w.archived);
