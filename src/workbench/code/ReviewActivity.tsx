@@ -7,7 +7,7 @@ import { useLocal } from '../tabs/Code.tsx';
 import { DecisionDetail } from '../../preview/DecisionsView.tsx';
 import Icon from '../../preview/Icon.tsx';
 import { isLive } from '../../../server/decisions.ts';
-import { CommentActions, SevChip, SureChip, WatchActions, lineSpan, remarkVerdicts, setStatus } from './CommentZone.tsx';
+import { CommentActions, confirmDelete, SevChip, SureChip, WatchActions, lineSpan, remarkVerdicts, setStatus } from './CommentZone.tsx';
 import { reviewApi } from './use-comments.ts';
 import { toast } from '../../components/Toast.tsx';
 import { errorMessage } from '../../api.ts';
@@ -85,7 +85,7 @@ function CommentRow({ c, rv, slug, open, onToggle, onJump, ts }: { c: ReviewComm
         comment={c}
         onJump={onJump}
         onStatus={(x, status, note) => setStatus(rv, x, status, note).catch(fail)}
-        onDelete={(x) => confirm('Delete this comment?') && rv.remove(x.id).catch(fail)}
+        onDelete={async (x) => (await confirmDelete()) && rv.remove(x.id).catch(fail)}
         thread={<ThreadToggle slug={slug} threadKey={key} open={open} onClick={onToggle} />}
       />
       {open && <Thread slug={slug} threadKey={key} onSettled={rv.load} verdicts={remarkVerdicts(c, (x, status, note) => setStatus(rv, x, status, note).catch(fail))} />}

@@ -4,6 +4,7 @@ import type { RowAction } from '../../api.ts';
 import type { DevServerRowData, DevServersResponse } from '../../types.ts';
 import { useAction } from '../../components/action.ts';
 import { toast } from '../../components/Toast.tsx';
+import { confirmDialog } from '../../components/Dialogs.tsx';
 import { baseName, holdersText, idleText, loginSteps, optInsText, pinnedText, placementText, serverActions, statusText } from '../../../dev-servers/shared/view-model.ts';
 import type { LoginSteps as LoginStepsData, StopAction } from '../../../dev-servers/shared/view-model.ts';
 
@@ -59,7 +60,7 @@ export function useDevServerRow(slug: string, row: DevServerRowData, onChange: (
     const evicted = (r.evicted || []).map((e) => `stopped ${baseName(e.worktree)} to make room`);
     toast.success([placementText(r.placement, row.worktree ?? ''), r.next, ...evicted].join(' · '));
   });
-  const stop = (action: StopAction) => server && confirm(action.confirm) && act('stop', async () => toast.success((await rowAction('stop', { serverId: server.id, force: action.force })).next));
+  const stop = async (action: StopAction) => server && (await confirmDialog({ title: action.confirm, ok: action.label, danger: action.force })) && act('stop', async () => toast.success((await rowAction('stop', { serverId: server.id, force: action.force })).next));
   const pin = () => server && act('pin', async () => toast.success((await rowAction('pin', { serverId: server.id, pinned: !server.pinned })).next));
   const login = () => server && run('login', async () => setSteps(loginSteps(await api.devServerLogin(server.id))));
 

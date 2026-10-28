@@ -3,6 +3,7 @@ import { api, errorMessage } from '../../api.ts';
 import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import Checks from '../../components/Checks.tsx';
+import { ask } from '../../components/Dialogs.tsx';
 import { KitRedo } from './DriftPanel.tsx';
 import { JobButton } from '../../components/JobButton.tsx';
 import { isLive, jobOf, useJobs } from '../../jobs.ts';
@@ -33,11 +34,11 @@ export function useGates(slug: string, n: PrKey | null) {
     return () => clearInterval(t);
   }, [slug, n, running]);
   const act = (id: string, body: GateActionBody) => n !== null && go(`${id}:${body.action}`, async () => { setData(await api.gateAction(slug, n, id, body)); setError(''); });
-  const run = (id: string, s: Gate['skills'][number]) => {
-    const { name, ask } = skillSpec(s);
-    const answer = ask ? prompt(ask) : '';
-    if (answer === null || (ask && !answer.trim())) return;
-    act(id, { action: 'run', skill: name, ...(ask ? { args: `${answer.trim()} ${n}` } : {}) });
+  const run = async (id: string, s: Gate['skills'][number]) => {
+    const { name, ask: question } = skillSpec(s);
+    const answer = question ? (await ask({ title: `/${name}`, fields: [question], ok: 'Run' }))?.[0] : '';
+    if (answer == null || (question && !answer.trim())) return;
+    act(id, { action: 'run', skill: name, ...(question ? { args: `${answer.trim()} ${n}` } : {}) });
   };
   return { data, error, pending, busy, act, run };
 }
@@ -61,7 +62,7 @@ export function ReviewSplit({ slug, n, gates, onReview }: { slug: string; n: PrK
         <div className="dp-pop dp-on dp-split-pop">
           {skills.map((s) => {
             const live = running.some((j) => j.action === `gate:self-review:${skillSpec(s).name}`);
-            return <button key={skillSpec(s).name} type="button" className="dp-mi" disabled={gates.busy || live} title={live ? 'Already running' : 'Starts the skill in the PR agent (or a new agent in the PR worktree)'} onClick={() => { setOpen(false); gates.run('self-review', s); }}>/{skillSpec(s).name}{live ? ' · running' : ''}</button>;
+            return <button key={skillSpec(s).name} type="button" className="dp-mi" disabled={gates.busy || live} title={live ? 'Already running' : 'Starts the skill in the PR agent (or a new agent in the PR worktree)'} onClick={() => { setOpen(false); void gates.run('self-review', s); }}>/{skillSpec(s).name}{live ? ' · running' : ''}</button>;
           })}
         </div>
       )}
@@ -77,8 +78,8 @@ export default function GateRail({ slug, gates, n, onOpen }: { slug: string; gat
   const jobs = useJobs(slug);
   const busySteps = new Set(jobs.filter((j) => isLive(j) && j.pr === String(n)).map((j) => stepOf(j.action)));
   const spin = (id: string, action: string) => pendingClass(pending === `${id}:${action}`);
-  const skip = (id: string) => {
-    const reason = prompt('Skip: one-line reason');
+  const skip = async (id: string) => {
+    const reason = (await ask({ title: 'Skip this milestone', fields: ['One-line reason'], ok: 'Skip' }))?.[0].trim();
     if (reason) act(id, { action: 'skipped', reason });
   };
 
@@ -124,7 +125,7 @@ export default function GateRail({ slug, gates, n, onOpen }: { slug: string; gat
             {gate.canRun && <JobButton job={jobOf(jobs, n, 'ready')} label="Mark ready for review" primary disabled={busy} title={`gh pr ready ${n}`} onRun={() => act(gate.id, { action: 'ready' })} />}
             {gate.tab && /^\d+$/.test(String(n)) && <button type="button" className="dp-btn dp-sm" onClick={() => onOpen(`${gate.tab}-${n}`)}>Open {gate.tab}<Icon name="chevron-right" size={12} /></button>}
             {gate.state !== 'done' && <button type="button" className={`dp-btn dp-sm${spin(gate.id, 'done')}`} disabled={busy} onClick={() => act(gate.id, { action: 'done' })}><Icon name="check" size={12} />Done</button>}
-            {gate.state !== 'skipped' && <button type="button" className={`dp-btn dp-sm dp-ghost${spin(gate.id, 'skipped')}`} disabled={busy} onClick={() => skip(gate.id)}>Skip…</button>}
+            {gate.state !== 'skipped' && <button type="button" className={`dp-btn dp-sm dp-ghost${spin(gate.id, 'skipped')}`} disabled={busy} onClick={() => void skip(gate.id)}>Skip…</button>}
             {gate.at && <button type="button" className={`dp-btn dp-sm dp-ghost${spin(gate.id, 'todo')}`} disabled={busy} onClick={() => act(gate.id, { action: 'todo' })}><Icon name="refresh" size={12} />Reset</button>}
           </div>
         </div>

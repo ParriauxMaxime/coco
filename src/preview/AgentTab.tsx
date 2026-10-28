@@ -74,7 +74,7 @@ export function NewAgentTab({ tabId }: { tabId: string }) {
           <div className="dp-ag-ex">{(pr ? PR_EXAMPLES : EXAMPLES).map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>
         </div>
       </div>
-      <Composer placeholder={`Ask about or extend ${pr ? prLabel(pr) : 'this work'}… (↵)`} tools={model.tools} onSend={start} />
+      <Composer draft={`${slug}:${tabId}`} placeholder={`Ask about or extend ${pr ? prLabel(pr) : 'this work'}… (↵)`} tools={model.tools} onSend={start} />
     </div>
   );
 }
@@ -104,6 +104,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
       <CardsWaiting cards={cards} />
       <SubagentBar agentId={run?.agentId ?? listed?.agentId} />
       <Composer
+        draft={`ask:${id}`}
         placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
         note={state === 'archived' ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : ''}
         tools={model.tools}
@@ -175,6 +176,7 @@ export function AgentTranscript({ agentId, state, who, lead, fallback, inline = 
       <CardsWaiting cards={cards} />
       <SubagentBar agentId={agentId} inline={inline} />
       <Composer
+        draft={`agent:${agentId}`}
         placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
         note={archived ? (inline ? 'Archived' : 'Archived: + in Agents starts a new one') : state === 'running' ? 'Sends while it works' : cards.some((c) => c.status === 'open' && c.kind !== 'post') ? 'A message answers its open cards' : ''}
         disabled={archived || gone}

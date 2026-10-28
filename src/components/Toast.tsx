@@ -1,6 +1,7 @@
 import React from 'react';
 import { create } from 'zustand';
 import Icon from '../preview/Icon.tsx';
+import { connected } from '../live.ts';
 import './parts.css';
 
 type ToastKind = 'error' | 'success';
@@ -18,8 +19,9 @@ const push = (kind: ToastKind, text: string, extra: { undo?: () => unknown } = {
 };
 
 // toast.error(text) · toast.success(text, { undo }): undo runs once, then the toast goes
+// while the server is away (a restart) errors stay quiet: the status bar says it reconnects
 export const toast = {
-  error: (text?: unknown) => push('error', String(text || 'Something went wrong')),
+  error: (text?: unknown) => (connected() ? push('error', String(text || 'Something went wrong')) : 0),
   success: (text: string, { undo }: { undo?: () => unknown } = {}) => push('success', text, { undo }),
 };
 

@@ -6,6 +6,7 @@ import Checks, { VerifyChips } from './Checks.tsx';
 import { api, errorMessage } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
 import { toast } from './Toast.tsx';
+import { confirmDialog } from './Dialogs.tsx';
 import { pendingClass } from './action.ts';
 import Icon from '../preview/Icon.tsx';
 import { Avatar, PersonaName } from '../preview/parts.tsx';
@@ -116,7 +117,7 @@ export function SuggestionActions({ s, onDecide, busy, pending, verify, onVerify
       {isOpenSuggestion(s) && (
         <div className="dp-thr-sugg-f">
           {s.kind === 'commit' && <VerifyButton run={verify} busy={busy} pending={pending === 'verify'} onClick={onVerify} />}
-          {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>}
+          {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={async () => (!red || (await confirmDialog({ title: "coco's checks fail on this commit. Approve anyway?", ok: 'Approve anyway', danger: true }))) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>}
           <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}><Icon name="x" size={12} />Dismiss</button>
         </div>
       )}
@@ -330,7 +331,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
           </select>
         )}
         {thread.messages.length > 1 && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}><Icon name="book" size={12} />Rules</button>}
-        {!waiting && group?.status === 'active' && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={() => confirm(`Prune the agent of group ${group.id} (${group.items.length} item(s)): archive it and its worktree, delete its branch?`) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}><Icon name="archive" size={12} />Prune agent</button>}
+        {!waiting && group?.status === 'active' && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={async () => (await confirmDialog({ title: `Prune the agent of group ${group.id}?`, body: `${group.items.length} item(s): archive its agent and worktree, delete its branch.`, ok: 'Prune', danger: true })) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}><Icon name="archive" size={12} />Prune agent</button>}
         </span>
       </div>
       {thread.ready && (
@@ -372,6 +373,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       {cardsAt(thread.messages.length)}
       {sending.map((p) => <div key={p.nonce} className="dp-msg-u dp-cv-u dp-cv-sending"><div className="dp-cv-unote">sending…</div>{p.files.length > 0 && <SentFiles files={p.files} />}<Markdown text={p.text} /></div>)}
       <ThreadComposer
+        draft={`thread:${slug}:${key}`}
         busy={false}
         pending={pending}
         withModel={!group}
@@ -404,12 +406,14 @@ type ComposerProps = {
   // login of the reviewer mapped to the file: a chip prefills "What would <persona> do here?" (you still send it)
   persona?: string | null;
   onCancel?: () => void;
+  draft?: string;
 };
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start agent', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false, persona, onCancel }: ComposerProps) {
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start agent', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false, persona, onCancel, draft }: ComposerProps) {
   const model = useModelChoice('thread', { fast: true });
   return (
     <Composer
       className="dp-tcomp"
+      draft={draft}
       placeholder={placeholder}
       sendLabel={sendLabel}
       autoFocus={autoFocus}

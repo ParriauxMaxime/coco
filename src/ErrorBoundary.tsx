@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { chunkGone, reloadWhenSafe } from './updates.ts';
 
 export const reportError = (kind: string, error: unknown, extra: Record<string, unknown> = {}) => {
   const e = error instanceof Error ? error : new Error(String(error));
@@ -22,6 +23,7 @@ export default class ErrorBoundary extends React.Component<Props, { error: Error
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (chunkGone(error)) reloadWhenSafe();
     reportError(this.props.label ?? 'render', error, { componentStack: info.componentStack });
   }
 

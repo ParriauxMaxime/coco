@@ -7,6 +7,7 @@ import type { Verdict } from '../../components/Thread.tsx';
 import type { UploadRef } from '../../types.ts';
 import { errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
+import { confirmDialog } from '../../components/Dialogs.tsx';
 import { useAction, pendingClass } from '../../components/action.ts';
 import { Composer } from '../../preview/chat/Composer.tsx';
 import Icon from '../../preview/Icon.tsx';
@@ -23,6 +24,7 @@ type RowVerdict = { icon: IconName; title: string; cls?: string; on: () => unkno
 const SEV_WORD: Record<string, string> = { blocking: 'Blocking', major: 'Major', minor: 'Minor', nit: 'Nit' };
 export const SevChip = ({ value }: { value?: string }) => (value ? <span className={`dp-chip ${sevTone(value)}`} title="severity"><span className="dp-d" />{SEV_WORD[value] || value}</span> : null);
 export const SureChip = ({ value }: { value?: number }) => (value !== undefined && Number.isFinite(value) ? <span className="dp-chip" title="how sure its author is">{value}% sure</span> : null);
+export const confirmDelete = () => confirmDialog({ title: 'Delete this comment?', ok: 'Delete', danger: true });
 export const lineSpan = (c: ReviewComment) => `L${c.startLine}${c.endLine !== c.startLine ? `–${c.endLine}` : ''}`;
 
 export function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
@@ -345,7 +347,7 @@ export function fileCommentProps(rv: ReviewHandle, path: string, file?: RefFile)
       return false;
     }
   };
-  const del = (c: ReviewComment) => (c.draft ? rv.dropDraft(c.id) : confirm('Delete this comment?') && rv.remove(c.id).catch(fail));
+  const del = async (c: ReviewComment) => (c.draft ? rv.dropDraft(c.id) : (await confirmDelete()) && rv.remove(c.id).catch(fail));
   const zone = (c: ReviewComment) => (isProposal(c) ? <ProposalZone comment={c} rv={rv} /> : <CommentZone comment={c} draft={Boolean(c.draft)} onSave={save} onStart={start} onDelete={del} onStatus={(x, status, note) => setStatus(rv, x, status, note).catch(fail)} thread={rv.slug ? { slug: rv.slug, n: rv.n, onSettled: rv.load } : undefined} />);
   return { mine, onCreate, zone };
 }

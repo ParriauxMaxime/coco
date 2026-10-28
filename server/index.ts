@@ -75,7 +75,7 @@ const REPO = config.repo.path;
 const REVIEWS = REPO ? path.join(REPO, config.repo.reviewsDir) : '';
 const DATA = config.dataDir;
 const DIST = path.join(APP, 'dist');
-const self = createSelf({ APP, DATA });
+const self = createSelf({ APP, DATA, DIST });
 const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
@@ -642,13 +642,17 @@ async function api(req: Req, res: Res, url: URL) {
 
 const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2' };
 function serveStatic(res: Res, url: URL) {
-  let file = path.join(DIST, url.pathname === '/' ? 'index.html' : url.pathname);
+  const file = path.join(DIST, url.pathname === '/' ? 'index.html' : url.pathname);
   if (!file.startsWith(DIST)) return send(res, 403, 'forbidden', 'text/plain');
-  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, 'index.html');
-  if (!fs.existsSync(file)) return send(res, 503, 'run `npm run build` first', 'text/plain');
-  // vite puts a content hash in every /assets/ name
-  const cache = file.startsWith(path.join(DIST, 'assets') + path.sep) ? 'public, max-age=31536000, immutable' : 'no-store';
-  send(res, 200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream', cache);
+  const asset = file.startsWith(path.join(DIST, 'assets') + path.sep);
+  if (fs.existsSync(file) && !fs.statSync(file).isDirectory() && file !== path.join(DIST, 'index.html'))
+    // vite puts a content hash in every /assets/ name
+    return send(res, 200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream', asset ? 'public, max-age=31536000, immutable' : 'no-store');
+  // a chunk of a build since replaced: a 404 the page reads as a chunk-load error and reloads on, not index.html as JavaScript
+  if (asset) return send(res, 404, 'not found', 'text/plain');
+  const page = self.index();
+  if (!page) return send(res, 503, 'run `npm run build` first', 'text/plain');
+  send(res, 200, page.html, 'text/html', 'no-store');
 }
 
 http

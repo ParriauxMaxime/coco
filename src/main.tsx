@@ -2,9 +2,11 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import ErrorBoundary, { watchErrors } from './ErrorBoundary.tsx';
+import { watchUpdates } from './updates.ts';
 import './styles.css';
 import './workbench/workbench.css';
 
 watchErrors();
+watchUpdates();
 const root = document.getElementById('root');
 if (root) createRoot(root).render(<ErrorBoundary><App /></ErrorBoundary>);

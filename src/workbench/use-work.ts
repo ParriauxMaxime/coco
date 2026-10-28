@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
+import { ask } from '../components/Dialogs.tsx';
 import type { ImportArtifactBody, StackRow, WorkDetail, WorkPlan } from '../types.ts';
 import type { WorkData, WorkPr } from './types.ts';
 
@@ -52,7 +53,12 @@ export function useWorkData(slug: string): LoadedWork {
   const saveNotes = async (notes: string) => { await api.updateWork(slug, { notes }); await load(); };
   const addNote = async (text: string) => { if (!text) return; await api.addTimeline(slug, { kind: 'note', text }); load(); };
   const importArtifact = async (body: ImportArtifactBody) => { const r = await api.importArtifact(slug, body); load(); return r; };
-  const addLink = async () => { const label = prompt('Label'); const url = label && prompt('URL'); if (!label || !url) return; await api.updateWork(slug, { links: [...(w?.links || []), { label, url }] }); load(); };
+  const addLink = async () => {
+    const [label, url] = ((await ask({ title: 'Add a link', fields: ['Label', 'URL'], ok: 'Add' })) ?? []).map((v) => v.trim());
+    if (!label || !url) return;
+    await api.updateWork(slug, { links: [...(w?.links || []), { label, url }] });
+    load();
+  };
   const decide = async (body: Record<string, unknown>) => { await api.decide(slug, body); load(); };
   return { slug, w, plan, prs, refreshing, err, load, saveStack, saveMeta, saveNotes, addNote, importArtifact, addLink, decide };
 }

@@ -16,7 +16,8 @@ import './chat.css';
 type StartFn = (prompt: string, nonce: string, files: UploadRef[], pick: ModelChoice) => Promise<{ id: string }>;
 
 // a conversation in a box: its header, messages, then the composer that stays open while coco works
-export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: AskConvo; start?: StartFn; placeholder: string; examples?: string[] }) {
+// draft: where a new conversation's unsent text is kept; a running one keeps it under its own id
+export function AskPanel({ convo, start, placeholder, examples = [], draft }: { convo: AskConvo; start?: StartFn; placeholder: string; examples?: string[]; draft?: string }) {
   const { run, events, pending, working, state, send, reset, cards, mergeCard } = convo;
   const [closing, setClosing] = useState(false);
   const st = askState(state);
@@ -65,7 +66,7 @@ export function AskPanel({ convo, start, placeholder, examples = [] }: { convo: 
           {examples.map((e) => <button key={e} type="button" className="dp-btn dp-sm" title={e} onClick={() => void ask(e)}>{e.slice(0, 48)}…</button>)}
         </div>
       )}
-      <Composer placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} tools={model.tools} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
+      <Composer draft={run ? `ask:${run.id}` : draft} placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} tools={model.tools} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
     </div>
   );
 }
@@ -89,6 +90,7 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
       <p className="dp-repoask-lead">Coco for {repo}, on its main checkout: scaffolds new works in this repo and answers about its code and PRs. {SAFE}</p>
       <AskPanel
         convo={convo}
+        draft={`repo:${repoId}`}
         start={(prompt, nonce, files, pick) => api.ask({ prompt, repoId, nonce, attachments: files.map((f) => f.id), ...pick })}
         examples={REPO_EXAMPLES}
         placeholder={run ? 'Follow up, correct or narrow it down (markdown, ↵)' : `Scaffold a work in ${repo} for … / Who reviews … (↵)`}

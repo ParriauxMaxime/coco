@@ -96,6 +96,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
       {entry.kind === 'prompt' && onPr && <label className="dp-dsp-chk"><input type="checkbox" checked={edits} onChange={(e) => setEdits(e.target.checked)} />works on the PR branch</label>}
       <Composer
         key={entry.id}
+        draft={`dispatch:${slug}:${key}:${entry.id}`}
         autoFocus
         attach={false}
         allowEmpty={!entry.needsPrompt}

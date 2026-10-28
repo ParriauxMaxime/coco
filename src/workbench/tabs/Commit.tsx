@@ -243,6 +243,7 @@ export default function CommitTab({ tabId }: { tabId: string }) {
       {isOpenSuggestion(s) && (
         <div className="cm-send">
           <Composer
+            draft={`commit:${slug}:${tabId}`}
             attach={false}
             allowEmpty={unsent.length > 0}
             placeholder={unsent.length ? 'A note sent along with the line comments (optional, ↵ sends)' : 'Comment a line of the diff, or write to the agent about this commit (↵)'}

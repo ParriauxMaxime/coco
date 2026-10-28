@@ -187,6 +187,7 @@ function Detail({ slug, r, bucket, pr, inFlight, busy, onAct, onDismiss, onDispa
           <div className="dp-sec-t">Ask an agent</div>
           <ThreadComposer
             key={r.key}
+            draft={`finding:${slug}:${r.key}`}
             withModel
             busy={busy || sending}
             pending={sending ? 'send' : inFlight}

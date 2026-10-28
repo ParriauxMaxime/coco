@@ -28,6 +28,34 @@ the app serves your repo and starts agents for anyone who can reach the port.
 Dev loop: `npm run serve` in one shell, `npm run dev` in another (Vite on
 8778 proxies `/api`).
 
+### Restarts and rebuilds under an open page
+
+The status bar shows the commit the server runs (`coco <sha>`, `*` when the
+checkout was dirty at boot) and, once the checkout moved past it, "N commits
+behind · Restart" (`POST /api/server/restart`: rebuild, then the same argv;
+log in `<dataDir>/server-restart.log`).
+
+- While the server is away (a restart, a crash) the status bar reads
+  "Reconnecting…" and error toasts stay quiet; the page reconnects by itself.
+- The served `index.html` carries its build (`<meta name="coco-build">`, a hash
+  of `dist/index.html`, also `build` in `GET /api/server`). When the page sees
+  another build (on reconnect, on focus, on the minute poll of `/api/server`)
+  or a lazy chunk of its old build is gone (`vite:preloadError`, "Failed to
+  fetch dynamically imported module"; a missing `/assets/` file answers 404),
+  it reloads once the server answers, keeping its hash and layout.
+- It never reloads while a text box holds unsent text, a focused field has
+  text or an in-app dialog is open: the status bar shows "coco updated ·
+  Reload" and the reload happens once the box is empty. A second automatic
+  reload within 20 s waits for the click instead.
+- Composers (agent and Ask chats, threads, findings, commit review, dispatch)
+  keep their unsent text per tab in sessionStorage (`coco.draft.<key>`), so a
+  reload loses no words.
+- Questions and confirmations open an in-app dialog (`src/components/Dialogs.tsx`:
+  `ask`, `confirmDialog`, `choose`), never `window.prompt` / `confirm`, which
+  the desktop app does not show.
+- Every `git status` coco runs for polling passes `--no-optional-locks`, so it
+  never takes the index lock from an agent committing in the same worktree.
+
 ### Setup checklist (first install and updates)
 
 Until the setup is complete, the Dashboard shows a checklist: config file,
@@ -599,7 +627,9 @@ with 409 and the running job.
   while the same one runs, a second request runs untracked rather than refused.
 - The last 50 jobs of each work are kept in `<dataDir>/jobs/<work>.json`. After
   a restart, a command, a review plan or a Notion sync that was running is
-  lost; an agent job keeps following its agent.
+  lost; an agent job keeps following its agent; a spare worktree or an agent
+  worktree's install starts over on boot under a new job, its cut one dropped
+  from the list.
 
 Each action button stands for its job: a running chip with the elapsed time
 that opens the agent, then a ✓ for a minute, or a failure with Retry and

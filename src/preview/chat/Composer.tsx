@@ -43,9 +43,35 @@ type ComposerProps = {
   initial?: string;
   // Esc when no agent runs to stop
   onCancel?: () => void;
+  // where the unsent text is kept for this tab (sessionStorage), so a reload onto a new coco build loses no words
+  draft?: string;
 };
-export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', onCancel }: ComposerProps) {
-  const [text, setText] = useState(initial);
+
+const DRAFT = 'coco.draft.';
+const readDraft = (key?: string) => {
+  try {
+    return key ? sessionStorage.getItem(DRAFT + key) : null;
+  } catch {
+    return null;
+  }
+};
+const keepDraft = (key: string, text: string) => {
+  try {
+    if (text.trim()) sessionStorage.setItem(DRAFT + key, text);
+    else sessionStorage.removeItem(DRAFT + key);
+  } catch {}
+};
+
+export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', onCancel, draft }: ComposerProps) {
+  const [text, setText] = useState(() => readDraft(draft) ?? initial);
+  const [draftOf, setDraftOf] = useState(draft);
+  if (draftOf !== draft) {
+    setDraftOf(draft);
+    setText(readDraft(draft) ?? initial);
+  }
+  useEffect(() => {
+    if (draft) keepDraft(draft, text);
+  }, [draft, text]);
   const [stopping, setStopping] = useState(false);
   const stop = () => {
     if (!onStop || stopping) return;
@@ -97,7 +123,10 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   const empty = withText && !allowEmpty && !text.trim() && !files.length;
   const send = async () => {
     if (empty || disabled || busy || sending || uploading) return;
+    // the key can change while it sends (a new conversation gets its id) and the box unmount: the sent text leaves its own key
+    const from = draft;
     if (await onSend(text.trim() || (files.length ? FILES_ONLY : ''), files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
+      if (from) keepDraft(from, '');
       files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
       setText('');
       setFiles([]);

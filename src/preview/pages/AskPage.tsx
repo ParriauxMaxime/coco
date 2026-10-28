@@ -106,6 +106,7 @@ export default function AskPage({ convId }: { convId?: string }) {
               <CardsWaiting cards={cards} />
               <SubagentBar agentId={run.agentId} inline />
               <Composer
+                draft={`ask:${run.id}`}
                 placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
                 note={ended ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : 'It reads and proposes; you apply. Nothing is pushed, posted or sent.'}
                 tools={model.tools}
@@ -125,7 +126,7 @@ export default function AskPage({ convId }: { convId?: string }) {
                   <div className="dp-ag-ex">{EXAMPLES.map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>
                 </div>
               </div>
-              <Composer placeholder="What is blocked across my repos … / Where does … belong (↵)" tools={model.tools} onSend={start} />
+              <Composer draft="ask:new" placeholder="What is blocked across my repos … / Where does … belong (↵)" tools={model.tools} onSend={start} />
             </>
           )}
         </section>

@@ -9,7 +9,8 @@ type Msg =
   | { type: 'event'; topic: string; event: string; data: unknown }
   | { type: 'subs'; tab: string; topics: string[]; replay: string[] }
   | { type: 'bye'; tab: string }
-  | { type: 'leader' };
+  | { type: 'leader' }
+  | { type: 'conn'; up: boolean };
 
 const MAX_BACKOFF_MS = 30000;
 const IDLE_MS = 5000;
@@ -35,6 +36,21 @@ let watchdog: ReturnType<typeof setInterval> | undefined;
 let heard = 0;
 let queued = false;
 let syncing = false;
+let up = true;
+const watchers = new Set<(up: boolean) => void>();
+
+function setUp(v: boolean, share = true) {
+  if (v === up) return;
+  up = v;
+  watchers.forEach((w) => w(v));
+  if (share) channel?.postMessage({ type: 'conn', up: v } satisfies Msg);
+}
+// whether the stream reaches the server: false from a drop (a restart, a rebuild, the server down) until it says hello again
+export const connected = () => up;
+export function onConnection(fn: (up: boolean) => void) {
+  watchers.add(fn);
+  return () => void watchers.delete(fn);
+}
 
 export const topic = (name: string, ...args: (string | number)[]) => [name, ...args.map((a) => encodeURIComponent(String(a)))].join(':');
 
@@ -53,6 +69,7 @@ function drop() {
 
 function retry() {
   drop();
+  setUp(false);
   retryTimer = setTimeout(() => {
     retryTimer = undefined;
     if (wanted().size) connect();
@@ -74,6 +91,7 @@ function connect() {
     heard = Date.now();
     conn = (JSON.parse((m as MessageEvent<string>).data) as { id: string }).id;
     retries = 0;
+    setUp(true);
     schedule();
   });
   es.addEventListener('ping', () => (heard = Date.now()));
@@ -143,6 +161,7 @@ if (channel) {
   channel.onmessage = ({ data: m }: MessageEvent<Msg>) => {
     if (m.type === 'event') return dispatch(m.topic, m.event, m.data);
     if (m.type === 'leader') return announce();
+    if (m.type === 'conn') return setUp(m.up, false);
     if (!leader) return;
     if (m.type === 'bye') tabs.delete(m.tab);
     else {

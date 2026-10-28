@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Toasts from './components/Toast.tsx';
+import Dialogs from './components/Dialogs.tsx';
 import DesignPreview from './preview/DesignPreview.tsx';
 import Pages from './preview/Pages.tsx';
 
@@ -24,6 +25,6 @@ const useHash = () => {
 export default function App() {
   const route = useHash();
   const [root, a] = route.split('/').filter(Boolean);
-  if (root === 'work' && a !== 'new') return <><DesignPreview slug={a} /><Toasts /></>;
-  return <><Pages route={route} /><Toasts /></>;
+  if (root === 'work' && a !== 'new') return <><DesignPreview slug={a} /><Toasts /><Dialogs /></>;
+  return <><Pages route={route} /><Toasts /><Dialogs /></>;
 }
