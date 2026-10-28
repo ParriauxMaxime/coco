@@ -14,7 +14,7 @@ import Fold from '../code/Fold.tsx';
 import { useInspector } from '../../preview/inspector-state.ts';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
 import { orderGroups, planNotes } from '../code/review-order.ts';
-import { useLangProviders, useLangStatus, useLocal } from './Code.tsx';
+import { openCodeAt, useLangProviders, useLangStatus, useLocal } from './Code.tsx';
 import PrChip from '../../preview/PrChip.tsx';
 import Icon from '../../preview/Icon.tsx';
 import { stateLabel } from '../../preview/parts.tsx';
@@ -274,10 +274,13 @@ export default function Review({ tabId }: { tabId: string }) {
     if (el && main) scrollMain(el.offsetTop + y - (center ? main.clientHeight / 2 : SCROLL_GAP));
   }, []);
   const jump = useCallback((c: ReviewComment) => {
-    const path = (c.side === 'base' && orderRef.current.find((f) => f.previous === c.path)?.filename) || c.path;
+    const files = orderRef.current;
+    const path = (c.side === 'base' && files.find((f) => f.previous === c.path)?.filename) || c.path;
+    // a finding on a file the PR does not change opens that file at the PR head, where its zone still shows
+    if (files.length && !files.some((f) => f.filename === path)) return void openCodeAt(slug, n, path, c.startLine, { side: c.side, group: useWorkbench.getState().otherGroup() });
     goTo(path);
     setReveal({ path, line: c.startLine, side: c.side, at: Date.now() });
-  }, [goTo]);
+  }, [goTo, slug, n]);
   useEffect(() => {
     if (!asked || !opened) return;
     useInspector.setState({ jump: null });
