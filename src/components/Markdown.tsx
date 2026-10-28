@@ -40,6 +40,29 @@ const keepScale = (root: HTMLElement) => {
   if (svg && w) svg.style.minWidth = `${Math.round(w * MIN_SCALE)}px`;
 };
 
+// one render at a time, each with its own id: mermaid's config is global and run() names every diagram by
+// Date.now(), so two views (or two blocks of one post) rendering together drew into each other and lost their colors
+let seq = 0;
+let queue: Promise<void> = Promise.resolve();
+const renderDiagrams = (nodes: HTMLElement[], resolved: string) => {
+  nodes.forEach((n) => n.setAttribute('data-processed', 'true'));
+  queue = queue.then(async () => {
+    // mermaid sizes labels with the font loaded at run time; Inter arrives later from a webfont and clips them
+    const [mermaid] = await Promise.all([loadMermaid(), fontsReady]);
+    initMermaid(mermaid, resolved);
+    for (const n of nodes) {
+      if (!n.isConnected) continue;
+      try {
+        const { svg, bindFunctions } = await mermaid.render(`cc-mermaid-${++seq}`, (n.dataset.src || '').trim(), n);
+        n.innerHTML = svg;
+        bindFunctions?.(n);
+        toneNodes(n);
+        keepScale(n);
+      } catch {}
+    }
+  }).catch(() => {});
+};
+
 export default function Markdown({ text }: { text?: string | null }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => marked.parse(text || '', { renderer, async: false }), [text]);
@@ -56,11 +79,7 @@ export default function Markdown({ text }: { text?: string | null }) {
     const nodes = Array.from(all).filter((n) => !n.hasAttribute('data-processed'));
     if (!nodes.length) return;
     nodes.forEach((n) => { n.dataset.theme = resolved; });
-    // mermaid sizes labels with the font loaded at run time; Inter arrives later from a webfont and clips them
-    Promise.all([loadMermaid(), fontsReady])
-      .then(([mermaid]) => { initMermaid(mermaid, resolved); return mermaid.run({ nodes }); })
-      .then(() => nodes.forEach((n) => { toneNodes(n); keepScale(n); }))
-      .catch(() => {});
+    renderDiagrams(nodes, resolved);
   }, [html, resolved]);
   useEffect(() => {
     const root = ref.current;
