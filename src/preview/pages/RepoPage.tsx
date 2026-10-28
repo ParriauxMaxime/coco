@@ -10,7 +10,7 @@ import { SegBar, workDot } from '../Shell.tsx';
 import { workHref } from '../prefs.ts';
 import { reloadOverview } from '../overview.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
-import type { AddRepoResult, LoosePr, RepoPage as RepoData } from '../../types.ts';
+import type { AddRepoResult, JudgeStat, LoosePr, RepoPage as RepoData } from '../../types.ts';
 import './newwork.css';
 import './repo.css';
 
@@ -123,6 +123,29 @@ export function NewRepoPage() {
   );
 }
 
+const pct = (n: number, of: number) => (of ? `${Math.round((100 * n) / of)}%` : '–');
+
+// how each model judged this repo's lessons: kept is the share of its lessons you did not drop, agrees the share of shadow answers that made the main judge's call
+function JudgeTable({ rows }: { rows: JudgeStat[] }) {
+  return (
+    <table className="dp-tbl dp-repop-judge">
+      <thead><tr><th>Model</th><th>Role</th><th>Decisions</th><th>Failed</th><th>Lessons kept</th><th>Agrees</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={`${r.kind} ${r.model} ${r.role}`}>
+            <td><code>{r.model}</code></td>
+            <td>{r.role}</td>
+            <td>{r.decisions}</td>
+            <td>{r.failed}</td>
+            <td>{r.role === 'judge' ? `${pct(r.items - r.dropped, r.items)} of ${r.items}` : '–'}</td>
+            <td>{r.role === 'shadow' ? pct(r.agree, r.decisions - r.failed) : '–'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 export default function RepoPage({ id }: { id: string }) {
   const [data, setData] = useState<RepoData | null>(null);
   const [err, setErr] = useState('');
@@ -139,6 +162,7 @@ export default function RepoPage({ id }: { id: string }) {
     setRefreshing(true);
     load(true).finally(() => setRefreshing(false));
   };
+  const drop = (text: string) => api.dropLesson(data.id, text).then(() => load(), toast.error);
   const openPrs = data.works.reduce((n, w) => n + w.progress.ready + w.progress.draft, 0);
   const attention = data.works.filter((w) => w.progress.attention || w.progress.restack).length;
 
@@ -199,10 +223,12 @@ export default function RepoPage({ id }: { id: string }) {
                 <Icon name="notebook" size={14} />
                 <span className="dp-grow">{l.text}</span>
                 {(l.work || l.at) && <span className="dp-rowi-m">{l.work && <a href={workHref(l.work)}>{l.work}</a>}{l.work && l.at && ' · '}{l.at?.slice(0, 10)}</span>}
+                <button type="button" className="dp-ibtn" title="Drop: briefs stop carrying it, and the judge that kept it is marked wrong" onClick={() => drop(l.text)}><Icon name="x" size={12} /></button>
               </div>
             ))}
           </div>
         ) : <Empty icon="notebook">No lesson yet.</Empty>}
+        {data.judge.length > 0 && <JudgeTable rows={data.judge} />}
       </Section>
 
       <Section title="Rules" meta={data.ruleFiles.length ? `${data.ruleFiles.length} repo rule ${data.ruleFiles.length === 1 ? 'file' : 'files'}` : undefined}>

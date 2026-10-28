@@ -56,6 +56,7 @@ export const api = {
   saveLayout: (body: { repos: string[] } | { repo: string; works: string[] }) => send<unknown>('PUT', '/api/layout', body),
   addRepo: (source: string) => postJson('/api/repos', { source }).then(jsonOrError<AddRepoResult>),
   repo: (id: string, fresh?: boolean) => get<RepoPage>(`/api/repos/${encodeURIComponent(id)}${fresh ? '?fresh=1' : ''}`),
+  dropLesson: (id: string, text: string) => fetch(`/api/repos/${encodeURIComponent(id)}/lessons`, { method: 'DELETE', headers: JSON_HEADERS, body: JSON.stringify({ text }) }).then(jsonOrError<{ ok: boolean }>),
   setup: () => get<SetupStatus>('/api/setup'),
   setupAgent: () => postEmpty<StartedAgent>('/api/setup/agent'),
   personas: () => get<Persona[]>('/api/personas'),

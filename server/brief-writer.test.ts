@@ -82,8 +82,21 @@ test('once a tracked run is archived, the follow-ups that supplied context becom
   assert.doesNotMatch(runs[0].prompt, /## Follow-ups[\s\S]*Why a new index\?/);
   const saved = JSON.parse(fs.readFileSync(lessonsFile, 'utf8'));
   assert.equal(saved.length, 2);
-  assert.deepEqual({ ...saved[1], at: undefined }, { text: 'Billing queries go through `server/billing/queries.ts`.', at: undefined, work: 'csv', agentId: AGENT });
+  assert.deepEqual({ ...saved[1], at: undefined, decision: undefined }, { text: 'Billing queries go through `server/billing/queries.ts`.', at: undefined, work: 'csv', agentId: AGENT, decision: undefined });
+  assert.match(saved[1].decision, /^[0-9a-f]{8}$/);
   assert.deepEqual(tracked(), []);
+});
+
+test('a dropped lesson leaves the repo lessons and is counted against the judge decision that kept it', async () => {
+  const { writer, DATA, lessonsFile } = setup({ answers: [{ status: 'done', finalText: '["Fixtures use the acme team.", "Bob owns billing."]' }], history: historyOf('first', ['context'], { archived: true }) });
+  writer.track({ agentId: AGENT, slug: 'csv', repoId: 'widgets', title: 'Ask', message: 'first' });
+  await writer.ended(AGENT);
+  assert.equal(writer.dropLesson('widgets', 'Alice owns billing.'), null);
+  assert.equal(writer.dropLesson('widgets', 'bob owns billing')?.text, 'Bob owns billing.');
+  assert.deepEqual(JSON.parse(fs.readFileSync(lessonsFile, 'utf8')).map((l: { text: string }) => l.text), ['Fixtures use the acme team.']);
+  const [label] = fs.readFileSync(path.join(DATA, 'judge-labels.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(label.decision, JSON.parse(fs.readFileSync(lessonsFile, 'utf8'))[0].decision);
+  assert.equal(label.dropped, 'Bob owns billing.');
 });
 
 test('a run with no follow-up is forgotten at its end without a review', async () => {

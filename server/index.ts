@@ -139,7 +139,8 @@ const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents, jobs });
-const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, judge: createJudge({ DATA, config, agents: paseoAgents }), place: (slug) => placement.place({ kind: 'work', slug }) });
+const judge = createJudge({ DATA, config, agents: paseoAgents });
+const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, judge, place: (slug) => placement.place({ kind: 'work', slug }) });
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent, jobs });
@@ -422,6 +423,7 @@ async function repoPage(repo: RepoConfig, fresh: boolean) {
     archivedCount: order.length - live.length,
     loose: await loosePrs(repo, held, fresh),
     lessons: briefWriter.lessons(repo.id).map(({ text, at, work }) => ({ text, at, work })),
+    judge: judge.stats(repo.id),
     ruleFiles: repo.rules || [],
   };
 }
@@ -527,6 +529,10 @@ async function api(req: Req, res: Res, url: URL) {
       if (!String(source || '').trim()) return send(res, 400, { error: 'source required: a GitHub slug or a folder' });
       const r = await repoAdder.add(String(source));
       return send(res, r.ok ? 200 : 400, r);
+    }
+    if (root === 'repos' && a && b === 'lessons' && req.method === 'DELETE') {
+      const { text } = JSON.parse((await readBody(req)) || '{}');
+      return briefWriter.dropLesson(a, String(text || '')) ? send(res, 200, { ok: true }) : send(res, 404, { error: 'no such lesson' });
     }
     if (root === 'repos' && a) {
       const repo = repos.byId(a);

@@ -7,7 +7,7 @@ import type { Config } from './config.ts';
 import type { Judge } from './judge.ts';
 import type { AgentHistory } from './paseo-agent.ts';
 
-export type Lesson = { text: string; at?: string; work?: string; agentId?: string };
+export type Lesson = { text: string; at?: string; work?: string; agentId?: string; decision?: string };
 export type BriefDispatch = { slug: string; repoId: string | null; title: string; label: string; pr: string | null; edits: boolean; persona?: string; task: string };
 export type Written = { brief: string | null; error?: string };
 type Placed = { workspaceId: string; cwd: string };
@@ -135,7 +135,7 @@ export function createBriefWriter({ DATA, config, agents, judge, place, now = Da
 
   const lessons = (repoId: string) => readLessons(DATA, repoId);
 
-  function addLessons(repoId: string, texts: string[], meta: { work: string; agentId: string }) {
+  function addLessons(repoId: string, texts: string[], meta: { work: string; agentId: string; decision?: string }) {
     if (!REPO_ID.test(repoId)) return [];
     const have = lessons(repoId);
     const known = new Set(have.map((l) => norm(l.text)));
@@ -145,6 +145,16 @@ export function createBriefWriter({ DATA, config, agents, judge, place, now = Da
     fs.mkdirSync(path.dirname(lessonsFile(DATA, repoId)), { recursive: true });
     fs.writeFileSync(lessonsFile(DATA, repoId), JSON.stringify([...have, ...fresh.map((text) => ({ text, at, ...meta }))], null, 1));
     return fresh;
+  }
+
+  // the user drops a wrong lesson: gone from future briefs, and counted against the judge decision that made it
+  function dropLesson(repoId: string, text: string) {
+    const have = lessons(repoId);
+    const gone = have.find((l) => norm(l.text) === norm(text));
+    if (!gone) return null;
+    fs.writeFileSync(lessonsFile(DATA, repoId), JSON.stringify(have.filter((l) => l !== gone), null, 1));
+    if (gone.decision) judge.drop(gone.decision, gone.text);
+    return gone;
   }
 
   // the brief for this dispatch, or null with why: the caller then falls back to the template brief
@@ -174,7 +184,7 @@ export function createBriefWriter({ DATA, config, agents, judge, place, now = Da
 
   async function judgeLessons(run: Tracked, followUps: string[]) {
     const where = await place(run.slug);
-    return judge.decide({ kind: 'brief-lessons', parse: parseLessons, title: `Brief lessons · ${run.title}`, prompt: lessonPrompt(run.message, followUps, lessons(run.repoId)), labels: { source: 'cocopilot', kind: 'brief-lessons', work: run.slug }, ...where, timeoutMs: JUDGE_MS });
+    return judge.decide({ kind: 'brief-lessons', repo: run.repoId, parse: parseLessons, title: `Brief lessons · ${run.title}`, prompt: lessonPrompt(run.message, followUps, lessons(run.repoId)), labels: { source: 'cocopilot', kind: 'brief-lessons', work: run.slug }, ...where, timeoutMs: JUDGE_MS });
   }
 
   // once the run ended (archived, or idle for an hour), its new follow-ups are judged; an archived run is then forgotten
@@ -190,7 +200,8 @@ export function createBriefWriter({ DATA, config, agents, judge, place, now = Da
     let kept: string[] = [];
     if (fresh.length) {
       try {
-        kept = addLessons(run.repoId, await judgeLessons(run, fresh), { work: run.slug, agentId: run.agentId });
+        const { output, id } = await judgeLessons(run, fresh);
+        kept = addLessons(run.repoId, output, { work: run.slug, agentId: run.agentId, decision: id });
       } catch (e) {
         const tries = run.tries + 1;
         updateRun(run.agentId, tries >= MAX_TRIES ? null : { tries });
@@ -229,5 +240,5 @@ export function createBriefWriter({ DATA, config, agents, judge, place, now = Da
 
   const boot = () => setInterval(() => sweep().catch(() => {}), SWEEP_MS).unref();
 
-  return { write, track, ended, sweep, boot, lessons, addLessons };
+  return { write, track, ended, sweep, boot, lessons, addLessons, dropLesson };
 }

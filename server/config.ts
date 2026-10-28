@@ -66,7 +66,7 @@ export interface Config {
   personasDir: string;
   personaFiles: { ignore: string[]; companionSuffixes: string[] };
   kitBody: { maxChars: number; mustMatch: string };
-  models: { default: string; fast: string; judge?: string };
+  models: { default: string; fast: string; judge?: string; judgeShadow?: string };
   importRoots: string[];
   kitKinds: string[];
   gateSkills: Record<string, (string | { name: string; ask?: string })[]>;

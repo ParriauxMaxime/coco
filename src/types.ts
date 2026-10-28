@@ -94,8 +94,11 @@ export type RepoPage = {
   archivedCount: number;
   loose: { prs: LoosePr[]; error: string | null };
   lessons: { text: string; at?: string; work?: string }[];
+  judge: JudgeStat[];
   ruleFiles: string[];
 };
+// the judge's answers in a repo per kind and model: the main judge's, with how many items the user dropped, and the shadow's, with how often it made the same call
+export type JudgeStat = { kind: string; model: string; role: 'judge' | 'shadow'; decisions: number; failed: number; items: number; dropped: number; agree: number };
 export type RitualRun = { ts: string; kind: string; title: string; prompt: string; agentId: string | null; ok: boolean; out: string };
 
 // a repo in sidebar order, its works' slugs in theirs
