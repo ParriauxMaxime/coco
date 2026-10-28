@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { parseFindings } from './review-import.ts';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import type { Jobs } from './jobs.ts';
-import { cacheFile, swrCache } from './swr.ts';
+import { GITHUB_MIN_FRESH_MS, cacheFile, swrCache } from './swr.ts';
 import type { Block, Source } from './blocks.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
 
@@ -212,6 +212,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
   };
 
   const ghCache = swrCache<unknown>(GH_TTL_MS, cacheFile(DATA, 'findings-gh'));
+  let ghDroppedAt = 0;
   const gh = <T>(args: string[], lines = true): Promise<T> =>
     ghCache(args.join(' '), () =>
       exec('gh', args).then((r) => {
@@ -347,8 +348,11 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
   async function rowsOf(slug: string, only: RowKey | null, fresh: boolean) {
     const hit = cache.get(`${slug}|${only}`);
     if (!fresh && hit && Date.now() - hit.at < 15000) return hit.data;
-    // an asked refresh must see a comment posted within the GitHub cache's lifetime
-    if (fresh) ghCache.drop();
+    // an asked refresh must see a comment posted within the GitHub cache's lifetime, once per floor
+    if (fresh && Date.now() - ghDroppedAt >= GITHUB_MIN_FRESH_MS) {
+      ghDroppedAt = Date.now();
+      ghCache.drop();
+    }
     return refresh(slug, only);
   }
   function snapshot(slug: string, only: RowKey | null): Board | null {

@@ -24,8 +24,12 @@ function persisted<T>(file: string | undefined) {
   return { values, save };
 }
 
+// a GitHub refresh asked within this long of the last one is served from it
+export const GITHUB_MIN_FRESH_MS = 15000;
+
 // stale-while-revalidate: an expired entry is served at once and refreshed in the background; with a file, entries outlive a restart
-export function swrCache<T>(ttlMs: number, file?: string) {
+// minFreshMs: a fresh read of an entry younger than that, or already refreshing, gets that entry instead of a new call
+export function swrCache<T>(ttlMs: number, file?: string, { minFreshMs = 0 }: { minFreshMs?: number } = {}) {
   const store = persisted<T>(file);
   const cache = new Map<string, { at: number; value: Promise<T> }>([...store.values].map(([k, e]) => [k, { at: e.at, value: Promise.resolve(e.value) }]));
   const remember = (key: string, at: number, value: T) => {
@@ -33,15 +37,20 @@ export function swrCache<T>(ttlMs: number, file?: string) {
     store.values.set(key, { at, value });
     store.save();
   };
-  const refreshing = new Set<string>();
+  const refreshing = new Map<string, Promise<T>>();
   const refresh = (key: string, fn: () => Promise<T>) => {
-    refreshing.add(key);
     const next = fn();
-    next.then((v) => { cache.set(key, { at: Date.now(), value: next }); remember(key, Date.now(), v); }, () => {}).finally(() => refreshing.delete(key));
+    refreshing.set(key, next);
+    next.then((v) => { cache.set(key, { at: Date.now(), value: next }); remember(key, Date.now(), v); }, () => {}).finally(() => refreshing.get(key) === next && refreshing.delete(key));
     return next;
   };
   const read = (key: string, fn: () => Promise<T>, fresh = false): Promise<T> => {
     const hit = cache.get(key);
+    if (hit && fresh && minFreshMs) {
+      const running = refreshing.get(key);
+      if (running) return running;
+      if (Date.now() - hit.at < minFreshMs) return hit.value;
+    }
     // other callers keep the old value until the new one lands
     if (hit && fresh) return refresh(key, fn);
     if (hit) {

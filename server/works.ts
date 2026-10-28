@@ -13,7 +13,7 @@ import { decisionBullet, decisionSummary, validChoice } from './decisions.ts';
 import type { Decision } from './decisions.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { validateNext } from './next.ts';
-import { batcher, cacheFile, swrCache } from './swr.ts';
+import { GITHUB_MIN_FRESH_MS, batcher, cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import { sseSink } from './events.ts';
@@ -131,7 +131,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug: string) => path.join(ROOT, `${slug}.json`);
   const artDir = (slug: string) => path.join(ROOT, slug, 'artifacts');
-  const prCache = swrCache<GhPrNode>(60000, cacheFile(DATA, 'pr'));
+  const prCache = swrCache<GhPrNode>(60000, cacheFile(DATA, 'pr'), { minFreshMs: GITHUB_MIN_FRESH_MS });
+  const freshAt = new Map<string, number>();
 
   const list = (): Work[] =>
     fs
@@ -472,7 +473,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       fs.rmSync(file(a));
       return send(res, 200, { ok: true });
     }
-    const fresh = query().get('fresh') === '1';
+    // a refresh asked again within the floor serves what the last one fetched, with no job of its own
+    const fresh = query().get('fresh') === '1' && Date.now() - (freshAt.get(a) || 0) >= GITHUB_MIN_FRESH_MS;
+    if (fresh) freshAt.set(a, Date.now());
     if (fresh && jobs) return send(res, 200, await jobs.wrap({ work: a, action: 'github-refresh', label: 'GitHub refresh', kind: 'sync' }, () => detail(a, true)));
     return send(res, 200, await detail(a, fresh));
   }
