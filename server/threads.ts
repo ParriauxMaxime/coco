@@ -206,6 +206,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const r = await git(REPO, ['rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`]);
     return r.ok ? r.stdout.trim() : null;
   };
+  // Paseo may check a code group out on another branch than the one asked (cocopilot-<id>-1): the agent commits on its worktree's HEAD
+  const worktreeHead = async (group: CodeGroup) => {
+    const r = group.worktree ? await git(group.worktree, ['rev-parse', '--verify', '-q', 'HEAD']) : null;
+    return r?.ok ? r.stdout.trim() : null;
+  };
+  const groupTip = async (group: CodeGroup) => (await worktreeHead(group)) || `refs/heads/${group.branch}`;
 
   function summaries(slug: string) {
     return Object.fromEntries(listThreads(slug).map((t) => [t.key, {
@@ -375,8 +381,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // a fix an earlier group already committed for this comment (its Cc-Comment trailer), for the brief of a fresh agent
   async function earlierFix(slug: string, ref: Ref, group: Group, pr: ThreadPr | null) {
     if (ref.kind !== 'comment' || !pr) return null;
-    for (const g of listGroups(slug).filter((x) => x.id !== group.id && x.kind === 'code' && x.n === ref.n)) {
-      const fix = (await reviewAgent.trailersBetween(REPO, pr.sha, `refs/heads/${g.branch}`).catch(() => [])).find((t) => t.id === ref.id);
+    for (const g of listGroups(slug).filter((x): x is CodeGroup => x.id !== group.id && x.kind === 'code' && x.n === ref.n)) {
+      const fix = (await reviewAgent.trailersBetween(REPO, pr.sha, await groupTip(g)).catch(() => [])).find((t) => t.id === ref.id);
       if (!fix) continue;
       const subject = (await git(REPO, ['show', '--no-patch', '--format=%s', fix.commit])).stdout.trim();
       return `an earlier agent already committed ${fix.commit.slice(0, 7)}${subject ? `: ${subject}` : ''} (branch \`${g.branch}\`)`;
@@ -551,7 +557,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const cardPath = path.join(dir(slug), `${key}-${msg.id}-card.json`);
     const busy = live && prior?.agentId === live.agentId ? prior : null;
     const seen = live && thread.messages.some((m) => m.agentId === live.agentId && m.role !== 'system');
-    const sha = busy ? busy.sha : group.kind === 'code' ? (await branchHead(group.branch)) || pr?.sha : null;
+    const sha = busy ? busy.sha : group.kind === 'code' ? (await worktreeHead(group)) || (await branchHead(group.branch)) || pr?.sha : null;
     const s = live || (await startSession(slug, group, pr));
     if (!live && group.kind === 'code') delete group.briefed;
     // the prompts read the thread as it was before this message; the message is stored first so the owner sees it while a first prompt waits for the deps
@@ -627,7 +633,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     }
     const group = readGroup(slug, waiting.groupId);
     if (!group || group.kind !== 'code' || !waiting.sha) return null;
-    const fix = (await reviewAgent.trailersBetween(REPO, waiting.sha, `refs/heads/${group.branch}`)).find((t) => ref.kind === 'comment' && t.id === ref.id);
+    const fix = (await reviewAgent.trailersBetween(REPO, waiting.sha, await groupTip(group))).find((t) => ref.kind === 'comment' && t.id === ref.id);
     if (!fix) return null;
     const [diff, names] = await Promise.all([git(REPO, ['show', '--format=', '--stat', '--patch', fix.commit]), git(REPO, ['show', '--format=', '--name-only', fix.commit])]);
     const files = names.stdout.split('\n').filter(Boolean);
@@ -779,10 +785,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       }
       if (final) {
         const group = readGroup(slug, waiting.groupId);
-        if (group?.kind === 'code' && !group.worktree) {
+        if (group?.kind === 'code') {
           const s = await sessions.get(at(slug, group.id))?.catch(() => null);
           const cwd = s?.agentId === waiting.agentId ? s.cwd() : (agent || (await reviewAgent.agentsList()).find((x) => x.id === waiting.agentId))?.cwd;
-          if (cwd) writeGroup(slug, { ...group, worktree: expandHome(cwd) });
+          if (cwd && !(group.worktree && reviewAgent.sameDir(group.worktree, expandHome(cwd)))) writeGroup(slug, { ...group, worktree: expandHome(cwd) });
         }
         const suggestion = await suggestionOf(slug, ref, { ...waiting, cardPath: asked.map((a) => a.cardPath).findLast((f) => fs.existsSync(f)) || waiting.cardPath });
         const lastAdded = added[added.length - 1];
@@ -860,7 +866,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (ref.kind !== 'comment' || group?.kind !== 'code' || group.status !== 'active') return null;
     const pr = await prOf(work, ref.n).catch(() => null);
     if (!pr) return null;
-    const fix = (await reviewAgent.trailersBetween(REPO, pr.sha, `refs/heads/${group.branch}`)).find((t) => t.id === ref.id);
+    const fix = (await reviewAgent.trailersBetween(REPO, pr.sha, await groupTip(group))).find((t) => t.id === ref.id);
     if (!fix) return null;
     const tip = (await branchHead(pr.head)) || pr.sha;
     const [cherry, same, shown, stat] = await Promise.all([

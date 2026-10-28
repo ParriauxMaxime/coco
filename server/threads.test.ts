@@ -19,7 +19,7 @@ type TimelineItem = NonNullable<TimelineEvent['item']>;
 type FakeAgent = { id: string; workspaceId: string; status: string; handlers: Set<Handler>; waiters: ((r: WaitResult) => void)[] };
 type Created = { id: string; [key: string]: unknown };
 type Sent = { agentId: string; text: string; behavior: string | null; busy: boolean; images?: unknown[]; attachments?: { fileName: string }[] };
-type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; model?: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[]; suggestion?: { checks?: { state: string } } }[]; groupId?: string };
+type ThreadFile = { waiting?: { msgId: string; replyPath: string; earlier?: { msgId: string }[] } | null; messages: { id: string; role: string; text: string; model?: string; blocks?: unknown; steer?: boolean; card?: string; files?: { fileName: string }[]; suggestion?: { kind?: string; commit?: string; state?: string; checks?: { state: string } } }[]; groupId?: string };
 type Activity = { type: string; status?: string; msgId?: string; text?: string };
 
 const APP = '/opt/coco';
@@ -639,6 +639,22 @@ test('two first messages on different comments of one file land in one group and
   const [a, b] = await Promise.all([threads.post(SLUG, A, { text: 'one' }), threads.post(SLUG, B, { text: 'two' })]);
   assert.equal(a.groupId, b.groupId);
   assert.equal(daemon.calls.created.length, 1);
+});
+
+test('a commit on whatever branch Paseo checked the group out on becomes an approvable suggestion', async () => {
+  const exec: Exec = async (_cmd, args) => {
+    if (args[1] === '/wt/cc-group' && args.includes('rev-parse')) return { ok: true, stdout: 'c0ffee\n', stderr: '' };
+    if (args.includes('show')) return { ok: true, stdout: args.includes('--name-only') ? 'src/widgets.ts\n' : 'diff --git a/src/widgets.ts', stderr: '' };
+    return { ok: false, stdout: '', stderr: '' };
+  };
+  const { post, daemon, read, reply } = setup(undefined, undefined, (to) => (to === 'c0ffee' ? [{ id: 'aa11', commit: 'c0ffee' }] : []), undefined, exec);
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  reply(a1.waiting.replyPath, 'Committed.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  const suggestion = read(A).messages.findLast((m) => m.suggestion)?.suggestion;
+  assert.deepEqual([suggestion?.kind, suggestion?.commit, suggestion?.state], ['commit', 'c0ffee', 'pending']);
 });
 
 test('a fresh agent for a comment whose earlier group already committed is told the sha and subject', async () => {
