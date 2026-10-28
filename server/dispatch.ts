@@ -61,12 +61,12 @@ export function catalog(config: Config, repo?: RepoConfig | null): CatalogEntry[
   ];
 }
 
-// a rewritten local history (tidy, restack) only needs a force push, which stays the owner's: rebasing it would replay commits GitHub already has
-const SYNC_TASK = [
-  'The local branch checked out here and its GitHub head diverged. Put the local commits back on top of GitHub\'s head, `origin/<branch>` (`<branch>`: `git branch --show-current`).',
-  '1. `git fetch origin`, then read both sides: `git log --oneline --left-right --cherry-mark origin/<branch>...HEAD`.',
+// coco compares the PR's head branch by name, so a worktree on another name (a `-1` alias) must end on that branch
+const syncTask = (pr: string) => [
+  `The PR's local branch and its GitHub head diverged. Put the local commits back on top of GitHub's head, \`origin/<branch>\` (\`<branch>\`: ${pr ? `\`gh pr view ${pr} --json headRefName -q .headRefName\`` : 'the head branch your brief names'}).`,
+  '1. `git fetch origin`. When the branch checked out here has another name, `git switch <branch>` first; when another worktree holds it, report and stop. Then read both sides: `git log --oneline --left-right --cherry-mark origin/<branch>...<branch>`.',
   '2. When every GitHub-only commit has a local twin (`=` marks), the local history was rewritten: change nothing and report that it needs `git push --force-with-lease`.',
-  '3. Otherwise `git rebase origin/<branch>`. On each conflict, read both sides and the commits that made them, and keep both intents. Abort with `git rebase --abort` and report when a conflict needs a product call you cannot make.',
+  '3. Otherwise `git rebase origin/<branch>`. A local commit a squash merge on the base already carries (an old copy of a merged PR) is skipped with `git rebase --skip` once you have checked GitHub\'s side holds its change. On any other conflict, read both sides and the commits that made them, and keep both intents. Abort with `git rebase --abort` and report when a conflict needs a product call you cannot make.',
   '4. Run the checks of your brief on the files the conflicts touched, and fix what they report in the commit that caused it.',
   'Never push. Report each conflict, its file and how you resolved it.',
 ].join('\n');
@@ -120,7 +120,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
       return `${review}\n${known.length ? `Already raised on this PR (title, where, status):\n${known.join('\n')}\n` : ''}Before reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}" for their resolutions and threads. Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
     }
     if (entry.kind === 'gate') return `/${entry.skill} ${args || pr}`.trim() + (prompt ? `\n\n${prompt}` : '');
-    if (entry.kind === 'sync-remote') return SYNC_TASK + (prompt ? `\n\n${prompt}` : '');
+    if (entry.kind === 'sync-remote') return syncTask(pr) + (prompt ? `\n\n${prompt}` : '');
     return prompt;
   }
 
