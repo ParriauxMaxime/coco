@@ -8,6 +8,8 @@ import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import type { Artifact, PrInfo, StackRow, Work } from './core-types.ts';
 import { rowKey } from './stack.ts';
+import { deferredJob } from './jobs.ts';
+import type { Jobs } from './jobs.ts';
 
 const PAGE_ID_RE = /([0-9a-f]{32})(?:[?#]|$)/i;
 const TIMEOUT_MS = 10 * 60 * 1000;
@@ -132,7 +134,7 @@ interface FinishArgs {
   err?: string;
 }
 
-export function createNotionSync({ DATA, REPO, config, works, agents = createPaseoAgents() }: { DATA: string; REPO: string; config: Config; works: NotionWorks; agents?: NotionAgents }) {
+export function createNotionSync({ DATA, REPO, config, works, agents = createPaseoAgents(), jobs }: { DATA: string; REPO: string; config: Config; works: NotionWorks; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link'> }) {
   const running = new Map<string, { mode: string; startedAt: string }>();
   const runsFile = (slug: string) => path.join(DATA, 'works', slug, 'notion-runs.jsonl');
   const mdFile = (slug: string) => path.join(DATA, 'works', slug, 'notion-sync.md');
@@ -214,7 +216,15 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
       const brief = preview ? previewPrompt({ work }) : prompt({ work, force, parentPageId, rowPages });
       const run = { mode, startedAt: new Date().toISOString() };
       running.set(slug, run);
-      const finish = ({ status = 'error', result = null, cost = null, agentId = null, workspaceId = null, createdWorkspace = null, err = '' }: FinishArgs) => {
+      const tracked = deferredJob(jobs, { work: slug, action: `notion-${mode}`, label: `Notion ${preview ? 'preview' : 'sync'}`, kind: 'sync' });
+      const finish = (args: FinishArgs) => {
+        settle(args);
+        const n = works.get(slug)?.notion;
+        if (tracked.job) jobs?.link(tracked.job, args.agentId);
+        if (preview ? n?.preview && !n.lastError : n?.syncedHash === hash && !n.lastError) tracked.resolve();
+        else tracked.reject(new Error(n?.editedInNotion ? 'the page was edited in Notion: confirm to overwrite' : n?.lastError || `Notion ${mode} failed`));
+      };
+      const settle = ({ status = 'error', result = null, cost = null, agentId = null, workspaceId = null, createdWorkspace = null, err = '' }: FinishArgs) => {
         running.delete(slug);
         const w = works.get(slug);
         if (!w) return;

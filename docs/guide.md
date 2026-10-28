@@ -577,11 +577,16 @@ with 409 and the running job.
 
 - An agent job (a dispatch, a gate skill run) needs you while its agent waits
   on a permission and is done once the agent's first turn ends.
+- A thread message is its own agent job (a thread takes a second message while
+  its agent still works), so it is never refused as a duplicate.
+- A review plan and a Notion sync or preview end with their own outcome, not
+  at their agent's first idle turn: a plan with no proposal, an error or a
+  page edited in Notion fails the job. Their agent is linked for the chip.
 - A command job (push, fix base, mark ready) keeps the command's output tail;
   a failed command fails the job with it.
 - The last 50 jobs of each work are kept in `<dataDir>/jobs/<work>.json`. After
-  a restart, a command that was running is lost; an agent job keeps following
-  its agent.
+  a restart, a command, a review plan or a Notion sync that was running is
+  lost; an agent job keeps following its agent.
 
 Each action button stands for its job: a running chip with the elapsed time
 that opens the agent, then a ✓ for a minute, or a failure with Retry and
@@ -591,9 +596,8 @@ work sidebar lists running or failed commands under Jobs. Each job's end is
 toasted once. Routes: `GET /api/jobs?work=<slug>`, `POST
 /api/jobs/<id>/dismiss`, topic `jobs` (optional work).
 
-Not jobs yet: review plan runs, thread asks, Notion sync, GitHub refresh,
-findings collect, dev servers, restack, split, worktree installs, coco verify,
-repo add.
+Not jobs yet: GitHub refresh, findings collect, dev servers, restack, split,
+worktree installs, coco verify, repo add.
 
 ## Stack keeper
 

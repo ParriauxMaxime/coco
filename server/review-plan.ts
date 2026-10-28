@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { branchOf, fileKey, isLocal, parseKey, rowKey } from './stack.ts';
+import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
+import { deferredJob } from './jobs.ts';
+import type { Jobs } from './jobs.ts';
 import { capitalize } from './review-agent.ts';
 import { createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { Entry, Started } from './paseo-agent.ts';
@@ -30,7 +32,7 @@ type PlanRun = { status: string; startedAt: string; finishedAt: string | null; h
 type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined>; dismissed?: DismissedWatch[] };
 type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
-type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark' | 'changed'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }> };
+type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark' | 'changed'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; jobs?: Pick<Jobs, 'start' | 'link'> };
 const MAX_STEPS = 8;
 const MAX_WATCH = 8;
 export const SEVERITIES = ['blocking', 'major', 'minor', 'nit'];
@@ -209,7 +211,7 @@ export function buildPrompt({ n, slug, refs: { headSha: head, mergeBase: base },
   ].join('\n');
 }
 
-export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }), place }: Deps) {
+export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }), place, jobs }: Deps) {
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   const OWNER = config.owner.name;
   const SYSTEM = systemPrompt(OWNER, REPO);
@@ -268,12 +270,21 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     };
   }
 
+  async function prepare(n: RowKey) {
+    const refs = await code.ensureRefs(n, { fresh: true });
+    const files = await code.prFilesFromGit(n, refs);
+    return { refs, files, cats: await categories(refs, files) };
+  }
+
   async function start(slug: string, n: RowKey, { guidance = '' }: { guidance?: unknown } = {}) {
     const k = `${slug}:${n}`;
     if (live.get(k)?.status === 'running') return { ok: true, running: true };
-    const refs = await code.ensureRefs(n, { fresh: true });
-    const files = await code.prFilesFromGit(n, refs);
-    const cats = await categories(refs, files);
+    const tracked = deferredJob(jobs, { work: slug, pr: n, action: 'review-plan', label: `Plan review ${keyLabel(n)}`, kind: 'agent', settle: 'promise' });
+    const prepared = await prepare(n).catch((e) => {
+      tracked.reject(e);
+      throw e;
+    });
+    const { refs, files, cats } = prepared;
     const work = works.get(slug);
     const kept = rules && work ? rules.keptFor(work, (work.stack || []).findIndex((s) => rowKey(s) === n)) : [];
     writeReviewContext(DATA, slug, n, { guidance: String(guidance).slice(0, 4000).trim(), rules: kept.map((r) => r.text), personas: works.personasForPaths(files.map((f) => f.filename)), headSha: refs.headSha, at: new Date().toISOString() });
@@ -332,9 +343,12 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
         data.run = kept;
       });
       live.delete(k);
+      if (run.status === 'error') tracked.reject(new Error(run.error));
+      else tracked.resolve({ output: `${run.proposal?.watchPoints?.length ?? 0} watch points` });
     };
     const onStart = ({ agentId, createdWorkspace }: Started) => {
       run.agentId = agentId;
+      if (tracked.job) jobs?.link(tracked.job, agentId);
       if (!createdWorkspace) return;
       note(`created Paseo workspace ${createdWorkspace}`);
       log('say', `No Paseo workspace was open for this PR: created ${createdWorkspace}.`);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { JobConflict, createJobs } from './jobs.ts';
+import { JobConflict, createJobs, deferredJob } from './jobs.ts';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jobs-'));
 const meta = { work: 'w', pr: 7, action: 'drift:7:unpushed', label: 'Push #7', kind: 'command' as const };
@@ -39,6 +39,17 @@ test('an agent job follows its agent: needs you on a pending permission, done on
   assert.equal(other.job.state, 'running', 'an agent idle before its first turn is not done yet');
   jobs.onAgent({ id: 'a2', status: 'error' });
   assert.equal(other.job.state, 'failed');
+});
+
+test('a deferred job (review plan, Notion sync) ends when its work says so, not at its agent first idle turn', () => {
+  const jobs = createJobs({ DATA: tmp() });
+  const t = deferredJob(jobs, { ...meta, action: 'review-plan', kind: 'agent', settle: 'promise' });
+  assert.ok(t.job);
+  jobs.link(t.job, 'a1');
+  jobs.onAgent({ id: 'a1', status: 'idle' });
+  assert.equal(t.job.state, 'running');
+  t.reject(new Error('the agent ended without a plan'));
+  return new Promise((r) => setImmediate(r)).then(() => assert.deepEqual([t.job?.state, t.job?.error, t.job?.agentId], ['failed', 'the agent ended without a plan', 'a1']));
 });
 
 test('a restart loses the commands that ran and keeps following the agents; a dismissed job leaves the list', async () => {

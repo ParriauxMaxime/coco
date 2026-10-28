@@ -27,6 +27,7 @@ import type { AgentWorktrees, Verification } from './agent-worktree.ts';
 import { reusable, verifyCommit } from './verify.ts';
 import type { VerifyRun } from './verify.ts';
 import type { Models } from './models.ts';
+import type { Jobs } from './jobs.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const SETTLE_MS = 15000;
@@ -92,6 +93,7 @@ type ThreadsOptions = {
   agents?: ReturnType<typeof createPaseoAgents>;
   uploads?: Pick<Uploads, 'resolve' | 'record'>;
   cardsOf?: (slug: string, key: string) => Card[];
+  jobs?: Pick<Jobs, 'start'>;
   // readies a code group's worktree before each turn and checks its commits
   worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify' | 'head'>>;
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
@@ -143,7 +145,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models, hold = { ms: 90_000, pollMs: 2000 } }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models, jobs, hold = { ms: 90_000, pollMs: 2000 } }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -517,7 +519,15 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (model && !short && !models) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
     const picked = models && (thinking || (model && !short)) ? await models.check({ provider: short ? MODELS[model || ''] : model, thinking }, MODELS[model || 'sonnet']) : {};
     const chosen = short ? model : picked.provider || model;
-    return withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files }));
+    const send = () => withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files }));
+    if (!jobs) return send();
+    // each message is its own job: a thread takes a second message while its agent still works
+    const label = `Thread: ${said.split('\n')[0].slice(0, 50)}`;
+    const { done } = jobs.start({ work: slug, pr: ref.kind === 'decision' ? null : ref.n, action: `thread:${key}:${crypto.randomUUID()}`, label, kind: 'agent' }, async () => {
+      const thread = await send();
+      return { agentId: thread.waiting?.agentId ?? null, thread };
+    });
+    return (await done).thread;
   }
 
   // a message (the owner's, a card answer, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight;

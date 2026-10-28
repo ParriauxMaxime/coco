@@ -16,8 +16,9 @@ const GLOBAL = '_global';
 
 export type JobKind = 'agent' | 'command' | 'sync' | 'setup';
 export type JobState = 'running' | 'needs-you' | 'done' | 'failed' | 'lost';
-export type Job = { id: string; work: string | null; pr: string | null; action: string; label: string; kind: JobKind; state: JobState; agentId: string | null; startedAt: string; endedAt: string | null; output: string; error: string; dismissed?: boolean; ran?: boolean };
-export type JobMeta = { work?: string | null; pr?: string | number | null; action: string; label: string; kind: JobKind };
+// settle: agent (an agent job ends with its agent's first turn) or promise (it ends when run resolves, its agent only linked)
+export type Job = { id: string; work: string | null; pr: string | null; action: string; label: string; kind: JobKind; state: JobState; agentId: string | null; startedAt: string; endedAt: string | null; output: string; error: string; settle?: 'promise'; dismissed?: boolean; ran?: boolean };
+export type JobMeta = { work?: string | null; pr?: string | number | null; action: string; label: string; kind: JobKind; settle?: 'promise' };
 export type JobResult = { agentId?: string | null; output?: string } | void;
 
 const live = (j: Job) => j.state === 'running' || j.state === 'needs-you';
@@ -45,7 +46,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
       jobs = dir ? JSON.parse(fs.readFileSync(fileOf(work), 'utf8')) : [];
     } catch {}
     // a command cut by a restart cannot be followed again; an agent keeps running and reports through its events
-    for (const j of jobs) if (live(j) && j.kind !== 'agent') Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: 'coco restarted while it ran' });
+    for (const j of jobs) if (live(j) && (j.kind !== 'agent' || j.settle === 'promise')) Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: 'coco restarted while it ran' });
     byWork.set(work, jobs);
     return jobs;
   };
@@ -76,7 +77,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     const pr = meta.pr == null ? null : String(meta.pr);
     const running = load(work || GLOBAL).find((j) => live(j) && j.pr === pr && j.action === meta.action);
     if (running) throw new JobConflict(running);
-    const job: Job = { id: randomUUID(), work, pr, action: meta.action, label: meta.label, kind: meta.kind, state: 'running', agentId: null, startedAt: new Date().toISOString(), endedAt: null, output: '', error: '' };
+    const job: Job = { id: randomUUID(), work, pr, action: meta.action, label: meta.label, kind: meta.kind, state: 'running', agentId: null, startedAt: new Date().toISOString(), endedAt: null, output: '', error: '', ...(meta.settle ? { settle: meta.settle } : {}) };
     const list = load(work || GLOBAL);
     list.push(job);
     list.splice(0, Math.max(0, list.length - KEEP));
@@ -84,7 +85,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     const done = (async () => run(job))()
       .then(
         (r) => {
-          if (r?.agentId && job.kind === 'agent') {
+          if (r?.agentId && job.kind === 'agent' && job.settle !== 'promise') {
             job.agentId = r.agentId;
             changed(job);
           } else end(job, 'done', { output: r?.output ?? '' });
@@ -102,7 +103,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
   // an agent job: needs you while a permission waits, done once its turn ends
   function onAgent(agent: AgentSnapshot | null) {
     if (!agent) return;
-    for (const job of all().filter((j) => j.agentId === agent.id && live(j))) {
+    for (const job of all().filter((j) => j.agentId === agent.id && live(j) && j.settle !== 'promise')) {
       if (agent.archivedAt) { end(job, 'done'); continue; }
       if (agent.status === 'error') { end(job, 'failed', { error: 'the agent stopped on an error' }); continue; }
       const waiting = (agent.pendingPermissions || []).length > 0;
@@ -116,6 +117,13 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
       }
       if (job.ran || Date.now() - Date.parse(job.startedAt) > SETTLE_MS) end(job, 'done');
     }
+  }
+
+  // the agent a promise job runs, for its chip to open
+  function link(job: Job, agentId: string | null | undefined) {
+    if (!agentId || job.agentId === agentId) return;
+    job.agentId = agentId;
+    changed(job);
   }
 
   const list = (work?: string | null) => (work ? load(work) : all()).filter((j) => !j.dismissed).slice(-KEEP);
@@ -146,9 +154,16 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     }
   }
 
-  return { start, onAgent, list, dismiss, watch, handle, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
+  return { start, link, onAgent, list, dismiss, watch, handle, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
 }
 
 export type Jobs = ReturnType<typeof createJobs>;
+
+// a job for work that settles elsewhere (callbacks, not a promise of its own): resolve or reject it when that work ends
+export function deferredJob(jobs: Pick<Jobs, 'start'> | null | undefined, meta: JobMeta) {
+  let settle: { resolve: (r: JobResult) => void; reject: (e: unknown) => void } = { resolve: () => {}, reject: () => {} };
+  const started = jobs?.start(meta, () => new Promise<JobResult>((resolve, reject) => (settle = { resolve, reject })));
+  return { job: started?.job ?? null, resolve: (r?: JobResult) => settle.resolve(r), reject: (e: unknown) => settle.reject(e) };
+}
 // the reply to a refused duplicate: the running job, for the page to show its chip
 export const conflictBody = (e: unknown) => (e instanceof JobConflict ? { error: e.message, job: e.job } : null);

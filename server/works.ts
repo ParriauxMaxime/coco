@@ -7,6 +7,7 @@ import type { ExecFileOptions } from 'node:child_process';
 import { globToRegExp, surfaceGlobs } from './glob.ts';
 import { createNotionSync } from './notion.ts';
 import type { NotionAgents } from './notion.ts';
+import type { Jobs } from './jobs.ts';
 import { keyLabel, rowKey } from './stack.ts';
 import { decisionBullet, decisionSummary, validChoice } from './decisions.ts';
 import type { Decision } from './decisions.ts';
@@ -120,12 +121,12 @@ interface NotionBody {
   mode?: string;
 }
 
-export function createWorks({ DATA, PERSONAS, REPO, config, agents }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents }) {
+export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link'> }) {
   const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; drift?: (slug: string) => Promise<unknown> } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
-  const notion = createNotionSync({ DATA, REPO, config, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => Promise.all((get(s)?.stack || []).map((x) => prInfo(x.number))), prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
+  const notion = createNotionSync({ DATA, REPO, config, jobs, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => Promise.all((get(s)?.stack || []).map((x) => prInfo(x.number))), prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
   const ROOT = path.join(DATA, 'works');
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug: string) => path.join(ROOT, `${slug}.json`);
