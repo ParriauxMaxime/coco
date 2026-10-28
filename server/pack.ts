@@ -9,7 +9,7 @@ import { isObject, merge, personaLogins } from './config.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { ReadBody, Req, Res, Send } from './core-types.ts';
 
-export const PERSONAL_KEYS = ['owner', 'dataDir', 'briefsDir', 'skillsDir', 'personasDir', 'baseUrl', 'importRoots', 'repo.path', 'file'];
+export const PERSONAL_KEYS = ['owner', 'dataDir', 'briefsDir', 'skillsDir', 'personasDir', 'baseUrl', 'hosts', 'importRoots', 'repo.path', 'file'];
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'data']);
 const MAX_BYTES = 200 * 1024 * 1024;
 const ID = /^[a-f0-9]{12}$/;

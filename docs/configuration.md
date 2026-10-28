@@ -58,6 +58,7 @@ The server port and bind address are command-line arguments, not config:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `baseUrl` | `"http://127.0.0.1:8777"` | URL agents use to call cocopilot back (briefs, skills). Match the port you start the server on. |
+| `hosts` | `[]` | Extra Host names a reverse proxy serves cocopilot under, e.g. `["coco.local", "coco.tail1234.ts.net"]`. The server refuses any request whose Host is not `127.0.0.1`/`localhost` on its port or the vite port, the `baseUrl` host, or one of these; a write from a browser must also come from one of them (http or https Origin). |
 | `dataDir` | `~/.cocopilot/data` (`<app>/data` when that folder exists, for older installs) | Where works, comments, findings, threads and caches are stored. Back it up; it is the only state. Keep it outside the checkout: `git clean -x` there would delete it. |
 | `briefsDir` | `<tmp>/cocopilot-handoffs` | Scratch folder for ritual briefs handed to agents. |
 | `skillsDir` | `"~/.claude/skills"` | Claude Code skills folder, listed and editable from the Dashboard. |

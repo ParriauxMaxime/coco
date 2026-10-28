@@ -54,6 +54,8 @@ export interface Config {
   repo: RepoIdentity;
   repos: RepoConfig[];
   baseUrl: string;
+  // extra Host names a reverse proxy serves cocopilot under (e.g. "coco.local"); the guard refuses any other
+  hosts: string[];
   dataDir: string;
   briefsDir: string;
   skillsDir: string;
@@ -98,6 +100,7 @@ export const DEFAULTS: Config = {
   },
   repos: [],
   baseUrl: 'http://127.0.0.1:8777',
+  hosts: [],
   dataDir: '',
   briefsDir: path.join(os.tmpdir(), 'cocopilot-handoffs'),
   skillsDir: '~/.claude/skills',

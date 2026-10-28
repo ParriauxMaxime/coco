@@ -72,7 +72,7 @@ const DIST = path.join(APP, 'dist');
 const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
-const HOSTS = allowedHosts(PORT, config.baseUrl);
+const HOSTS = allowedHosts(PORT, config.baseUrl, config.hosts);
 
 interface FeedbackItem {
   node?: unknown;
