@@ -60,9 +60,14 @@ export function createSelf({ APP, DATA, DIST = path.join(APP, 'dist') }: { APP: 
     if (restarting) return;
     restarting = true;
     const log = fs.openSync(path.join(DATA, 'server-restart.log'), 'a');
-    const child = spawn('sh', ['-c', RESTART, process.execPath, ...process.argv.slice(1)], { cwd: APP, detached: true, stdio: ['ignore', log, log], env: { ...process.env, COCO_OLD_PID: String(process.pid) } });
-    child.on('exit', () => (restarting = false));
-    child.unref();
+    try {
+      const child = spawn('sh', ['-c', RESTART, process.execPath, ...process.argv.slice(1)], { cwd: APP, detached: true, stdio: ['ignore', log, log], env: { ...process.env, COCO_OLD_PID: String(process.pid) } });
+      child.on('exit', () => (restarting = false));
+      child.unref();
+    } finally {
+      // the child holds its own copy of the log
+      fs.closeSync(log);
+    }
   }
 
   function handle(req: Req, res: Res, parts: string[], send: Send) {
