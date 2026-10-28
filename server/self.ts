@@ -10,8 +10,9 @@ export type ServerInfo = { running: string | null; head: string | null; behind: 
 
 // the client builds beside dist/ while this server keeps serving; its chunks join dist/ next to the old ones an open page still loads
 // (two days), then index.html is renamed over the old one, so dist/ is never missing a file; then this server stops and the new one
-// takes the port; a failed build leaves this one running
+// takes the port; a lockfile newer than the last install installs first; a failed install or build leaves this one running
 const RESTART = [
+  '[ package-lock.json -nt node_modules/.package-lock.json ] && { npm install --no-audit --no-fund || { echo "restart: npm install failed, coco keeps running"; exit 1; }; }',
   'npx vite build --outDir dist.next --emptyOutDir --logLevel warn || { echo "restart: client build failed, coco keeps running"; exit 1; }',
   'rsync -a --exclude index.html dist.next/ dist/ && mv dist.next/index.html dist/index.html && rm -rf dist.next',
   'find dist/assets -type f -mtime +2 -delete',

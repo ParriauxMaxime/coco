@@ -36,8 +36,9 @@ behind · Restart" (`POST /api/server/restart`: the client builds into
 `dist.next` while the running server keeps serving, its chunks join `dist`
 beside the old ones (kept two days so open pages still load them), then
 `index.html` is renamed over the old one, so `dist` never misses a file; the old
-server stops and the same argv starts; a failed build leaves the old server
-running; log in `<dataDir>/server-restart.log`). A server that finds its port
+server stops and the same argv starts; a `package-lock.json` newer than the
+last install runs `npm install` first; a failed install or build leaves the old
+server running; log in `<dataDir>/server-restart.log`). A server that finds its port
 taken exits quietly.
 
 - While the server is away (a restart, a crash) the status bar reads
