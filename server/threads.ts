@@ -232,8 +232,22 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return [`- The PR moved since your last turn: coco fast-forwarded this worktree from \`${head.slice(0, 9)}\` to \`${base.slice(0, 9)}\`. Re-read the files you rely on.`, ''];
   };
 
+  // what a thread hangs on, in a few words: the comment's file and lines, the decision's title, the review plan
+  function threadLabel(slug: string, work: Work | null, key: string, commentsOf: Map<RowKey, Item[]>) {
+    const ref = parseThreadKey(key);
+    if (!ref || !work) return key;
+    if (ref.kind === 'plan') return 'Review plan';
+    if (ref.kind === 'decision') return itemOf(slug, work, ref)?.title || `Decision ${ref.id}`;
+    if (!commentsOf.has(ref.n)) commentsOf.set(ref.n, comments.list(slug, ref.n).comments || []);
+    const c = commentsOf.get(ref.n)?.find((x) => x.id === ref.id);
+    return c ? `${c.path.split('/').pop()}:${c.startLine}${c.title ? ` · ${c.title}` : ''}` : `Comment ${ref.id}`;
+  }
+
   function summaries(slug: string) {
+    const work = works.get(slug);
+    const commentsOf = new Map<RowKey, Item[]>();
     return Object.fromEntries(listThreads(slug).map((t) => [t.key, {
+      label: threadLabel(slug, work, t.key, commentsOf),
       count: t.messages.length,
       waiting: Boolean(t.waiting),
       lastTs: t.messages.at(-1)?.ts || null,

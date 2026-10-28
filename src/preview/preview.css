@@ -575,6 +575,12 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp-tabview.dp-agtab { overflow: hidden; }
 .dp-agent-log { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px; }
 .dp-agent-log > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+.dp-ag-threads { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+.dp-ag-thread { width: 100%; max-width: 760px; margin: 0 auto; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-panel); }
+.dp-ag-thread > .dp-thr { padding: 4px 10px 10px; }
+.dp-ag-thread-h { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; padding: 0 10px 0 6px; cursor: pointer; font: 12.5px var(--dp-mono); color: var(--dp-t1); }
+.dp-ag-thread-h:hover { background: var(--dp-hover); }
+.dp-ag-thread-h.dp-open { border-bottom: 1px solid var(--dp-line); }
 .dp-ag-bar .dp-title { min-width: 0; }
 .dp-ag-usage { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dp-ag-start { display: flex; align-items: center; justify-content: center; }

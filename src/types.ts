@@ -404,8 +404,8 @@ export type Thread = {
   verifies?: Record<string, VerifyRun>;
 };
 export type VerifyRun = { commit: string; startedAt: string; finishedAt?: string; status: 'running' | 'pass' | 'fail' | 'deps-pending' | 'stale-head'; checks: { name: string; ok: boolean; ms: number; tail?: string; skipped?: string }[]; note?: string; head?: string };
-export type ThreadSummary = { count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number };
-export type ThreadGroup = { id: string; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number };
+export type ThreadSummary = { label?: string; count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number };
+export type ThreadGroup = { id: string; agentId?: string | null; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number };
 export type ThreadPostBody = { text: string; model?: string; thinking?: string; attachments?: string[] };
 export type SuggestionAction = 'approve' | 'dismiss';
 

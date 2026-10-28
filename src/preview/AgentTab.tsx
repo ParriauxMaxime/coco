@@ -15,7 +15,8 @@ import { AgentDot } from './AgentsSection.tsx';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
-import type { ActivityEvent, AgentMetrics, ModelChoice, UploadRef } from '../types.ts';
+import Thread, { threadLabel, useThreadsOf } from '../components/Thread.tsx';
+import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadSummary, UploadRef } from '../types.ts';
 import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
 import { useOverview } from './overview.ts';
 import { SubagentBar } from './Subagents.tsx';
@@ -185,10 +186,45 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const listed = useWorkAgent(slug, tabId);
   const { pending: asked } = usePendingPermissions();
   const state = listed ? stateOf(listed, asked) : 'done';
+  const { summaries, groups } = useThreadsOf(slug);
+  const group = groups.find((g) => g.agentId === agentId);
+  const keys = group ? Object.keys(summaries).filter((k) => summaries[k].groupId === group.id).sort((a, b) => (summaries[b].lastTs ?? '').localeCompare(summaries[a].lastTs ?? '')) : [];
+  const [raw, setRaw] = useState(false);
+  const toggle = keys.length > 0 && (
+    <span className="dp-seg" role="tablist">
+      <button type="button" role="tab" aria-selected={!raw} className={raw ? '' : 'dp-on'} title="Each item this agent works on, as its thread: blocks, suggestions, Approve" onClick={() => setRaw(false)}>Threads · {keys.length}</button>
+      <button type="button" role="tab" aria-selected={raw} className={raw ? 'dp-on' : ''} title="The agent's raw Paseo transcript: coco's prompts, thinking, tool calls" onClick={() => setRaw(true)}>Transcript</button>
+    </span>
+  );
   return (
     <div className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} />
-      <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={toggle} />
+      {keys.length && !raw ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
+    </div>
+  );
+}
+
+// a group agent seen as the items it works on: the same threads as under the comments, the most recent open
+function GroupThreads({ slug, keys, summaries }: { slug: string; keys: string[]; summaries: Record<string, ThreadSummary> }) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set(keys.filter((k, i) => i === 0 || summaries[k].waiting || summaries[k].open || summaries[k].asks)));
+  const flip = (k: string) => setOpen((s) => {
+    const next = new Set(s);
+    next[next.has(k) ? 'delete' : 'add'](k);
+    return next;
+  });
+  return (
+    <div className="dp-ag-threads">
+      {keys.map((k) => (
+        <section key={k} className="dp-ag-thread">
+          <button type="button" className={`dp-ag-thread-h${open.has(k) ? ' dp-open' : ''}`} aria-expanded={open.has(k)} onClick={() => flip(k)}>
+            <span className={`dp-caret${open.has(k) ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span>
+            <span className="dp-ell">{summaries[k].label || k}</span>
+            <span className="dp-sp" />
+            <span className="dp-xs dp-t3">{threadLabel(summaries[k], '')}</span>
+          </button>
+          {open.has(k) && <Thread slug={slug} threadKey={k} />}
+        </section>
+      ))}
     </div>
   );
 }
