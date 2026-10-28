@@ -122,7 +122,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'> }) {
-  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; drift?: (slug: string) => Promise<unknown> } = {};
+  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown> } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
@@ -470,8 +470,12 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       return send(res, 200, save({ ...work, ...body, slug: work.slug }));
     }
     if (req.method === 'DELETE') {
+      // full=1: also its folder (threads, artifacts, findings) and what coco made for it in Paseo and git
+      const full = query().get('full') === '1';
+      const done = full ? await Promise.resolve(hooks.forgetWork?.(work)).catch((e) => [`cleanup failed: ${errorMessage(e)}`]) || [] : [];
       fs.rmSync(file(a));
-      return send(res, 200, { ok: true });
+      if (full) fs.rmSync(path.join(ROOT, a), { recursive: true, force: true });
+      return send(res, 200, { ok: true, done: full ? [...done, 'work folder removed'] : [] });
     }
     // a refresh asked again within the floor serves what the last one fetched, with no job of its own
     const fresh = query().get('fresh') === '1' && Date.now() - (freshAt.get(a) || 0) >= GITHUB_MIN_FRESH_MS;

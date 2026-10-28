@@ -150,6 +150,23 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return { ...made, name: work.title };
   }
 
+  // a deleted work takes along only what coco made for it: its plan worktree and the Paseo project rooted there; a project of the user's own stays
+  async function forgetWork(work: Work): Promise<string[]> {
+    const repo = repoById(work.repo);
+    const dir = path.join(plansDir, repo.id, work.slug);
+    const done: string[] = [];
+    const p = work.projectId ? (await projects()).find((x) => x.projectId === work.projectId) : null;
+    if (p && path.resolve(p.path) === path.resolve(dir)) {
+      const r = await exec('paseo', ['project', 'delete', p.projectId]);
+      done.push(r.ok ? `Paseo project ${p.name} deleted` : `Paseo project ${p.name} kept: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
+    } else if (p) done.push(`Paseo project ${p.name} kept: it is not coco's plan worktree`);
+    if (fs.existsSync(dir)) {
+      const r = await exec('git', ['-C', repo.path, 'worktree', 'remove', '--force', dir]);
+      done.push(r.ok ? `plan worktree ${dir} removed` : `plan worktree kept: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
+    }
+    return done;
+  }
+
   // a clean plan worktree, detached or on a branch the default branch already holds, moves to the default branch's tip before an agent reads it
   async function refreshPlan(dir: string, repo: RepoConfig) {
     if (!path.resolve(dir).startsWith(path.resolve(plansDir) + path.sep)) return;
@@ -250,5 +267,5 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return workPlace(work);
   }
 
-  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace, repoProject };
+  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace, repoProject, forgetWork };
 }

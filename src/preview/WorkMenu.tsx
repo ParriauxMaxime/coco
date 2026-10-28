@@ -25,7 +25,15 @@ export default function WorkMenu({ w }: { w: WorkSummary }) {
   const act = (fn: () => Promise<unknown>, done: string) => fn().then(() => (toast.success(done), reloadOverview()), (e) => toast.error(errorMessage(e)));
   const remove = () => {
     if (!confirm(`Delete the work "${w.title}"? coco forgets its stack, decisions and notes; its PRs and branches stay on GitHub.`)) return;
-    act(() => api.deleteWork(w.slug), `Deleted ${w.title}`).then(() => { if (location.hash.startsWith(workHref(w.slug))) location.hash = '#/'; });
+    const full = confirm(`Also delete everything coco kept for "${w.title}"?\n\nOK: its folder (threads, findings, artifacts, videos), and the plan worktree and Paseo project coco made for it, with that project's workspaces and agents. A Paseo project of your own stays.\nCancel: forget the work only, keep its folder.`);
+    api.deleteWork(w.slug, full).then(
+      (r) => {
+        toast.success([`Deleted ${w.title}`, ...r.done].join(' · '));
+        reloadOverview();
+        if (location.hash.startsWith(workHref(w.slug))) location.hash = '#/';
+      },
+      (e) => toast.error(errorMessage(e)),
+    );
   };
   const items: Item[][] = [
     [
