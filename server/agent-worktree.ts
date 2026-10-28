@@ -103,11 +103,14 @@ type Deps = {
   registry?: Pick<Jobs, 'start'>;
   // the dev-servers plugin answers: a brief names its tools only then
   devServersUp?: () => Promise<boolean>;
+  // what a dev server costs in this worktree right now (running, building, warm, cold), one brief line
+  devServerLine?: (root: string) => Promise<string | null>;
 };
 
 const DEV_UP_TTL_MS = 30000;
 
-export function createAgentWorktrees({ config, run = defaultRun, notify = async () => {}, log = () => {}, retryMs = RETRY_MS, platform = process.platform, registry, devServersUp }: Deps) {
+export function createAgentWorktrees({ config, run = defaultRun, notify = async () => {}, log = () => {}, retryMs = RETRY_MS, platform = process.platform, registry, devServersUp, devServerLine }: Deps) {
+  const devNow = new Map<string, string | null>();
   const devConfigured = Boolean(config.devServers && 'projects' in config.devServers);
   let devUp = { at: 0, on: false };
   const probeDev = async () => {
@@ -244,6 +247,7 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     const s = await settingsOf(root);
     if (!s) return { state: 'off', root, deps: [], checks: [] };
     await probeDev();
+    if (devUp.on && devServerLine) devNow.set(root, await devServerLine(root).catch(() => null));
     const { cfg, main, marks } = s;
     if (!retrying) attempts.delete(root);
     const atMain = sameReal(root, main);
@@ -388,14 +392,14 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     return r.ok ? r.output.split('\n')[0].trim() : null;
   };
 
-  return { prepare, whenReady, ownDeps, verify, head, briefLines: (r: Readiness) => briefLines(r, devConfigured && (!devServersUp || devUp.on)) };
+  return { prepare, whenReady, ownDeps, verify, head, briefLines: (r: Readiness) => briefLines(r, devConfigured && (!devServersUp || devUp.on), devNow.get(r.root) ?? null) };
 }
 export type AgentWorktrees = ReturnType<typeof createAgentWorktrees>;
 
 const listPaths = (deps: DepState[]) => deps.map((d) => `\`${d.path}\``).join(', ');
 
 // what a code-writing agent's brief says of its worktree: which folders are shared, the check commands that work, the dev server when it is worth one
-export function briefLines(r: Readiness, devServers = false): string[] {
+export function briefLines(r: Readiness, devServers = false, devNow: string | null = null): string[] {
   if (r.state === 'off') return [];
   const linked = r.deps.filter((d) => d.mode === 'linked');
   const own = r.deps.filter((d) => d.mode === 'own');
@@ -410,7 +414,7 @@ export function briefLines(r: Readiness, devServers = false): string[] {
     ...(installing.length ? [`- ${listPaths(installing)}: coco is installing this worktree's own copy (${installing.map((d) => d.note).filter(Boolean).join('; ') || 'asked for'}).`] : []),
     ...(usable.length ? ['- Before you commit, run these on your changes and fix what they report. Always from the worktree root, exactly as written (a `cd` inside a command is part of it): never `cd` into a subfolder first, and give files as the command says (repo-relative):', ...usable.map((c) => `  - ${c.label}: \`${c.command}\`${c.fix ? ` (fix with \`${c.fix}\`)` : ''}`), '- After your commit coco runs them again; a failure comes back to you once.'] : []),
     ...(unusable.length ? [`- Not available yet: ${unusable.map((c) => c.label).join(', ')} (${unusable[0].why}). coco keeps preparing the worktree and a message tells you once they work. Never borrow tools from another checkout or \`npx\` a package in the meantime; commit, and coco checks your commit once it can.`] : []),
-    ...(devServers ? ['- Dev server: only when the change has UI or runtime behavior to see. Use the dev-servers tools: `dev_server_start`, then `dev_server_status` until ready, `dev_server_login` to open it logged in, `dev_server_logs` when it misbehaves, `dev_server_stop` once done. At most 3 run at once: never start one for what lint, types and tests show.'] : []),
+    ...(devServers ? ['- Dev server: only when the change has UI or runtime behavior to see. Use the dev-servers tools: `dev_server_start`, then `dev_server_status` until ready, `dev_server_login` to open it logged in, `dev_server_logs` when it misbehaves, `dev_server_stop` once done. At most 3 run at once: never start one for what lint, types and tests show.', ...(devNow ? [`  ${devNow}`] : [])] : []),
     '',
   ];
 }

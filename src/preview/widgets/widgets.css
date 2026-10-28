@@ -1,5 +1,8 @@
 .dp-dev { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .dp-dev-acts { flex-wrap: wrap; }
+.dp-dev-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dp-dev-li { min-width: 0; }
+.dp-dev-li > .dp-mono { min-width: 52px; color: var(--dp-t2); }
 .dp-dev-acts:empty { display: none; }
 .dp-dev-head a.dp-chip { text-decoration: none; }
 .dp-dev-login { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-subtle); }

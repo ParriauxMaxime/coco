@@ -170,7 +170,7 @@ test("logs read the tail without counting as use, and failures come back with th
   assert.equal(login.ok ? null : login.error.code, "login_unavailable");
 
   const down = createRpcHandlers(async () => ({ deps: null, error: "config file not found" }));
-  assert.deepEqual(await down.board(), { error: "config file not found", cap: null, servers: [], lost: [] });
+  assert.deepEqual(await down.board(), { error: "config file not found", cap: null, servers: [], lost: [], prebuilds: [] });
   assert.deepEqual(await down.start(startRpc.input.parse({ cwd: worktree })), { ok: false, error: { code: "internal", message: "config file not found" } });
 });
 

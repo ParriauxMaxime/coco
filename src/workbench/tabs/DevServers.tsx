@@ -67,6 +67,9 @@ export function useDevServerRow(slug: string, row: DevServerRowData, onChange: (
   const startLabel = !row.worktree ? null : !server?.running ? 'Start' : held ? null : 'Use this server';
   const actions = server ? serverActions(server) : null;
   const stopAction = actions?.stop ?? null;
-  const details = server ? [statusText(server), holdersText(server), pinnedText(server), optInsText(server), idleText(server)].filter(Boolean) : [];
+  const queued = row.prebuildQueued == null ? null : `Warm build queued${row.prebuildQueued ? `, ${row.prebuildQueued} ahead` : ', next'}`;
+  // what an agent that asks for a server here gets, before anyone starts one
+  const placed = row.placement && row.worktree && !server?.running ? `An agent here gets: ${placementText(row.placement, row.worktree)}` : null;
+  const details = [...(server ? [statusText(server), holdersText(server), pinnedText(server), optInsText(server), idleText(server)] : []), queued, placed].filter((x): x is string => Boolean(x));
   return { server, pending, busy, steps, setSteps, start, stop, pin, login, startLabel, actions, stopAction, details };
 }

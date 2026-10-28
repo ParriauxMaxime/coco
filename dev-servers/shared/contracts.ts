@@ -243,6 +243,8 @@ export const boardSchema = z.object({
   cap: z.number().nullable(),
   servers: z.array(boardServerSchema),
   lost: z.array(boardLostSchema),
+  // worktrees waiting for their background build, oldest first
+  prebuilds: z.array(z.object({ worktree: z.string(), queuedAt: z.string() })).default([]),
 });
 export type Board = z.output<typeof boardSchema>;
 

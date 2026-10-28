@@ -55,7 +55,7 @@ const server = (extra: Partial<BoardServer> = {}): BoardServer => ({
   ...extra,
 });
 
-const board = (servers: BoardServer[], extra: Partial<Board> = {}): Board => ({ error: null, cap: 3, servers, lost: [], ...extra });
+const board = (servers: BoardServer[], extra: Partial<Board> = {}): Board => ({ error: null, cap: 3, servers, lost: [], prebuilds: [], ...extra });
 
 const placement = (mode: Placement["mode"], servedFrom = "/work/widgets-alice"): Placement => ({ mode, servedFrom, because: [] });
 

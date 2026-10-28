@@ -1,5 +1,5 @@
 import type { Board, LoginResult, StartResult, StopResult, PinResult } from '../dev-servers/shared/contracts.ts';
-import type { BoardServer } from '../dev-servers/shared/contracts.ts';
+import type { BoardServer, Placement } from '../dev-servers/shared/contracts.ts';
 
 export type { Board, LoginResult, StartResult, StopResult, PinResult, BoardServer };
 
@@ -506,6 +506,9 @@ export type DevServerRowData = {
   holderId: string;
   server: (BoardServer & { leases: (BoardServer['leases'][number] & { mine: boolean })[] }) | null;
   servedFrom: string | null;
+  // where an agent starting a server here is served, and the row's place in the warm-build queue (0 = next)
+  placement?: Placement | null;
+  prebuildQueued?: number | null;
 };
 export type DevServersResponse = { on: true; board: Board; rows: DevServerRowData[] } | { on: false; reason: string };
 export type DevServerLogs = { lines: string[] };

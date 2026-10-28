@@ -7,7 +7,7 @@ import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prState, prTitle } from './data.ts';
 import DriftPanel from '../workbench/tabs/DriftPanel.tsx';
-import { DevServersLine } from './widgets/DevServer.tsx';
+import { DevServersLine, DevServersList } from './widgets/DevServer.tsx';
 import { openDecision } from './DecisionsView.tsx';
 import type { PreviewData } from './data.ts';
 import type { WhatsNextData, WorkPr } from '../workbench/types.ts';
@@ -218,6 +218,12 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                 <dt>Dev servers</dt><dd><DevServersLine data={d.dev.data} /></dd>
               </dl>
             </div>
+            {d.dev.data?.on && (
+              <div className="dp-side-sec">
+                <div className="dp-sec-t" title="What an agent of this work gets when it needs a dev server: a running one it reuses, a warm build, or a cold start">Dev servers for agents</div>
+                <DevServersList data={d.dev.data} />
+              </div>
+            )}
           </aside>
         </div>
       </div>

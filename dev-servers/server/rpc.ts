@@ -43,7 +43,7 @@ export function createRpcHandlers(runtime: () => Promise<RpcRuntime>) {
   return {
     board: async (): Promise<Board> => {
       const { deps, error } = await runtime();
-      if (!deps) return { error: error ?? "the dev servers plugin is not running", cap: null, servers: [], lost: [] };
+      if (!deps) return { error: error ?? "the dev servers plugin is not running", cap: null, servers: [], lost: [], prebuilds: [] };
       return createPresenter(deps).board(await deps.service.list());
     },
 

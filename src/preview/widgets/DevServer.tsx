@@ -3,7 +3,7 @@ import { errorMessage } from '../../api.ts';
 import { pendingClass } from '../../components/action.ts';
 import { toast } from '../../components/Toast.tsx';
 import { useDevLogs, useDevServerRow } from '../../workbench/tabs/DevServers.tsx';
-import { baseName, stateLabel, stateTone, summarize } from '../../../dev-servers/shared/view-model.ts';
+import { baseName, stateLabel, stateTone, statusText, summarize } from '../../../dev-servers/shared/view-model.ts';
 import type { Action, LoginSteps as LoginStepsData } from '../../../dev-servers/shared/view-model.ts';
 import type { DevServerRowData, DevServersResponse } from '../../types.ts';
 import './widgets.css';
@@ -16,6 +16,32 @@ export function DevServersLine({ data }: { data: DevServersResponse | null }) {
   if (!data) return <span className="dp-t4">…</span>;
   if (!data.on) return <span className="dp-t3" title={data.reason}>off</span>;
   return <>{summarize(data.board)}</>;
+}
+
+// the work's checked-out rows and what a dev server costs there now: running (agents reuse it), building, a warm build, queued, or a cold start
+export function DevServersList({ data }: { data: DevServersResponse | null }) {
+  if (!data?.on) return null;
+  const rows = data.rows.filter((r) => r.worktree);
+  if (!rows.length) return <div className="dp-t3 dp-xs">No PR of this work is checked out</div>;
+  const queued = (r: DevServerRowData) => r.prebuildQueued != null;
+  return (
+    <div className="dp-dev-list">
+      {rows.map((r) => {
+        const s = r.server;
+        const state = s?.running ? `${stateLabel(s.state)} :${s.port}` : s && statusText(s)?.startsWith('Warm') ? 'warm build' : queued(r) ? 'warm build queued' : 'cold start';
+        const tone = s?.running ? toneOf(s) : s && statusText(s)?.startsWith('Warm') ? 'dp-info' : '';
+        const why = [s ? statusText(s) : null, r.servedFrom ? `served from ${baseName(r.servedFrom)}` : null].filter(Boolean).join(' · ');
+        const label = typeof r.key === 'number' ? `#${r.key}` : baseName(r.worktree || '');
+        return (
+          <div key={String(r.key)} className="dp-row dp-g4 dp-dev-li" title={why || undefined}>
+            <span className="dp-mono dp-xs">{label}</span>
+            {s?.running ? <a className={`dp-chip ${tone}`} href={s.url} target="_blank" rel="noreferrer">{state}</a> : <span className={`dp-chip ${tone}`}>{state}</span>}
+            {r.servedFrom && <span className="dp-t3 dp-xs dp-ell">from {baseName(r.servedFrom)}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // stack cell: the state of the server serving the row, or a start button when its worktree has none

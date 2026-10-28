@@ -48,7 +48,11 @@ export function idleText(server: Pick<BoardServer, "idleStopAt" | "pinned" | "st
 }
 
 export function statusText(server: Pick<BoardServer, "state" | "progress" | "lastError" | "buildSeconds">): string | null {
-  if (BUILDING_STATES.includes(server.state)) return server.progress ? `Building: ${server.progress}` : null;
+  if (BUILDING_STATES.includes(server.state)) {
+    const label = server.state === "prewarming" ? "Prebuilding" : "Building";
+    return server.progress ? `${label}: ${server.progress}` : `${label}…`;
+  }
+  if (server.state === "stopped" && server.buildSeconds !== undefined) return `Warm build (built in ${server.buildSeconds} s): a start reuses it`;
   if (server.state === "crashed") return server.lastError ?? "Crashed; read the logs";
   if (server.state === "ready" && server.buildSeconds !== undefined) return `Built in ${server.buildSeconds} s`;
   return null;

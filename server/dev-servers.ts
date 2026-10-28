@@ -13,8 +13,9 @@ type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[]) => Promise<ExecResult>;
 type DevServersConfig = { devServers?: { api?: { bind?: string; port?: number } } } | null;
 type Lease = { kind: string; holderId: string | null };
-type PluginServer = { running: boolean; state?: string; lastError?: string; leases: Lease[]; worktree: { path: string; branch?: string | null } };
-type ApiBody = { servers?: PluginServer[]; error?: { code?: string; message?: string; details?: Record<string, unknown> } };
+type PluginServer = { running: boolean; state?: string; buildSeconds?: number; lastError?: string; leases: Lease[]; worktree: { path: string; branch?: string | null } };
+type Placement = { mode: string; servedFrom: string; because: string[] };
+type ApiBody = { servers?: PluginServer[]; prebuilds?: { worktree: string }[]; placement?: Placement; error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 type Reply = { status: number; body?: ApiBody } | { down: string };
 type Holder = { kind: 'coco'; id: string; title: string };
 type Row = { key: RowKey; label: string; branch: string | null; worktree: string | null; holder: Holder };
@@ -135,16 +136,41 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return !('down' in reply) && reply.status === 200;
   };
 
+  const placementOf = async (worktree: string): Promise<Placement | null> => {
+    const reply = await call('GET', `/api/placement?cwd=${encodeURIComponent(worktree)}`, undefined, READ_MS);
+    return !('down' in reply) && reply.status === 200 && reply.body?.placement?.mode ? reply.body.placement : null;
+  };
+
+  // one brief line: what dev_server_start gives an agent in this worktree right now
+  async function lineFor(worktree: string): Promise<string | null> {
+    const reply = await call('GET', '/api/board', undefined, READ_MS);
+    if ('down' in reply || reply.status !== 200 || !reply.body?.servers) return null;
+    const placement = await placementOf(worktree);
+    const from = placement?.servedFrom || worktree;
+    const server = reply.body.servers.find((s) => samePath(s.worktree.path, from));
+    const where = samePath(from, worktree) ? 'this worktree' : `\`${path.basename(from)}\`, the top of its stack`;
+    if (server?.running && server.state && ['ready', 'idle', 'external'].includes(server.state)) return `- Right now: a server for ${where} already runs (${server.state}); \`dev_server_start\` reuses it in seconds.`;
+    if (server?.running) return `- Right now: the server for ${where} is building; \`dev_server_start\` joins it, then \`dev_server_status\` until ready.`;
+    if ((reply.body.prebuilds || []).some((p) => samePath(p.worktree, from))) return `- Right now: the warm build of ${where} is queued; a start now builds cold.`;
+    if (server?.buildSeconds !== undefined) return `- Right now: ${where} has a warm build (built in ${server.buildSeconds} s); a start only boots it.`;
+    return `- Right now: no build of ${where} yet; a first start builds cold, several minutes.`;
+  }
+
   async function workView(work: Work) {
     const reply = await call('GET', '/api/board', undefined, READ_MS);
     if ('down' in reply) return { on: false, reason: reply.down };
     const board = reply.body;
     if (reply.status !== 200 || !board || !Array.isArray(board.servers)) return { on: false, reason: reply.body?.error?.message || `the dev servers API answered ${reply.status}` };
-    const servers = board.servers;
-    const rows = (await rowsOf(work)).map(({ holder, ...row }) => {
-      const server = serverFor({ ...row, holder }, servers);
-      return { ...row, holderId: holder.id, server, servedFrom: server && row.worktree && !samePath(server.worktree.path, row.worktree) ? server.worktree.path : null };
-    });
+    const servers: PluginServer[] = board.servers;
+    const queue: { worktree: string }[] = board.prebuilds || [];
+    const rows = await Promise.all((await rowsOf(work)).map(async ({ holder, ...row }) => {
+      const placement = row.worktree ? await placementOf(row.worktree) : null;
+      // a row with no server of its own rides the stack top's when that one runs: what an agent starting here gets
+      const shared = placement && !samePath(placement.servedFrom, row.worktree) ? servers.find((s) => s.running && samePath(s.worktree.path, placement.servedFrom)) : null;
+      const server = serverFor({ ...row, holder }, servers) || (shared && { ...shared, leases: shared.leases.map((lease) => ({ ...lease, mine: false })) }) || null;
+      const queued = row.worktree ? queue.findIndex((p) => samePath(p.worktree, row.worktree)) : -1;
+      return { ...row, holderId: holder.id, server, servedFrom: server && row.worktree && !samePath(server.worktree.path, row.worktree) ? server.worktree.path : null, placement, prebuildQueued: queued < 0 ? null : queued };
+    }));
     return { on: true, board, rows };
   }
 
@@ -219,5 +245,5 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     }
   }
 
-  return { handle, workView, rowsOf, up };
+  return { handle, workView, rowsOf, up, lineFor };
 }

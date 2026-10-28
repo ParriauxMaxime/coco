@@ -56,6 +56,7 @@ export function createPresenter({ leases, store, config }: BoardDeps): Presenter
         agentId: leases.agentOf(holder),
         seen: Boolean(seenAt),
       })),
+      prebuilds: store.snapshot().prebuilds.map(({ worktree, queuedAt }) => ({ worktree, queuedAt })),
     }),
   };
 }
