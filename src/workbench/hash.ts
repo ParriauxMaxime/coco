@@ -38,8 +38,10 @@ export function startHashSync(slug: string) {
     const s = store.getState();
     if (h.legacy) s.replaceLayout(['plan'], [h.legacy], 2);
     else if (h.tabId) {
+      const other = h.tabId !== focusedTab(s);
       if (allTabs(s).includes(h.tabId)) s.activate(h.tabId); else s.open(h.tabId);
-      s.setMax(Boolean(h.max));
+      // a link to another tab keeps a maximized pane maximized; on the same tab the hash's /max decides
+      s.setMax(Boolean(h.max) || (other && s.max));
     }
     applying = false;
     write(store.getState(), false);

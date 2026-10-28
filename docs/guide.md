@@ -1580,7 +1580,9 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
     with the tab id URL-encoded (`#/work/<slug>/diff-101~src%2Fbilling%2F…`).
     Opening a tab pushes a history entry, switching tabs replaces it; a link
     to a tab that is not in the layout opens it (pinned) in the focused
-    group. `#/work/<slug>` restores the saved layout. The layout tree (splits,
+    group. A link to another tab keeps a maximized group maximized; `/max`
+    on the current tab's hash turns maximize on or off.
+    `#/work/<slug>` restores the saved layout. The layout tree (splits,
     sizes, groups, focus, max) is saved per work in `localStorage`
     `cc.wb.<slug>`; the older two-group format is migrated on load.
   - Inspector (right panel, `Cmd/Ctrl+I` or × hides it): it follows the
