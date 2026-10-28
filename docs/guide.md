@@ -824,12 +824,15 @@ config (docs/configuration.md); without it nothing changes.
   `install` command, run in the folder's parent. The lockfile it was
   installed for is kept in the worktree's git dir, so a later lockfile
   change reinstalls and an install cut short is retried.
-- First prompt hold: a code group's first prompt waits (90 s, polling every
-  2 s) while the worktree installs its own copy, in the background: the
-  owner's POST returns once the message is stored, the thread shows "waiting
-  for deps (n s)" and no lock is held while it waits. Past the timeout the prompt says the checks are not ready and to run
-  no install, and the agent gets "checks are available now: <commands>" when
-  they work. Check commands are to be run from the worktree root as written
+- No first prompt hold: a code group's first prompt goes out while the
+  worktree still installs its own copy (`hold.ms` in `createThreads`, 0 by
+  default). The prompt says the dependencies are still installing: the agent
+  reads and changes code meanwhile and runs no check or install of its own,
+  and it gets "checks are available now: <commands>" when they work. Until
+  the message is stored, the thread header shows what it waits on (finding
+  the agent, taking a spare worktree or creating one, starting the agent)
+  with the seconds spent, streamed as `step` events and returned as
+  `starting` by `GET /threads/<key>`. Check commands are to be run from the worktree root as written
   (a `cd` is part of the command, file paths relative to it), never after a
   `cd` of the agent's own.
 - `own_deps`: an agent that must add, upgrade or remove a package calls this
@@ -867,6 +870,22 @@ config (docs/configuration.md); without it nothing changes.
   `data/agent-worktrees.json`. When coco starts, it readies again the
   worktrees of active code groups and tracked agents, so an install a
   restart cut short starts over and its agent hears when done.
+
+### Spare worktrees
+
+`git worktree add` takes seconds on a big repo (~15 s on a 30k-file one), a
+branch switch in an existing worktree a fraction of one. With
+`agentWorktree.spares` set, coco keeps that many worktrees per repo ready in
+`data/spares/<repo>/<id>` (`server/spares.ts`, listed in `data/spares.json`):
+detached at `origin/<default branch>`, deps readied like any agent worktree,
+then the `warm` steps run (a type check, so the agent's first one is
+incremental). A review-comment code group takes one (`checkout -B
+cocopilot/<group> <PR head>`), adopts it as a Paseo workspace and starts its
+agent at once; the pool refills in the background, one spare at a time, shown
+in Jobs. A spare still warming can be taken: its step is cut short. No spare
+ready: the group makes its own worktree as before. Closing such a group
+removes its worktree (Paseo only removes the ones it made). On restart,
+spares cut short or beyond the wanted count are removed, then the pool fills.
 
 ### Preflight (kit-video dispatches)
 

@@ -59,7 +59,8 @@ type GroupBase = { id: string; model: string; thinking?: string | null; agentId:
 type DecisionGroup = GroupBase & { kind: 'decision'; decisionId: string; n?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; files?: undefined; branch?: undefined; worktree?: undefined };
 // briefed: the worktree section its agent was last told, sent again only once it changes
-type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined; briefed?: string };
+// spare: the worktree came from the spare pool, so closing the group removes it (Paseo only removes the worktrees it made)
+type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined; briefed?: string; spare?: boolean };
 type Group = DecisionGroup | PlanGroup | CodeGroup;
 type Finding = { action?: string; reason?: string; patch?: Record<string, unknown> };
 type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string; dropped?: string[] };
@@ -99,7 +100,7 @@ type ThreadsOptions = {
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
   placement?: {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
-    sideWorkspace(slug: string, opts: { branch: string; base: string; title: string }): Promise<{ workspaceId: string; cwd: string }>;
+    sideWorkspace(slug: string, opts: { branch: string; base: string; title: string; onStep?: (text: string) => void }): Promise<{ workspaceId: string; cwd: string; spare?: boolean }>;
   };
   // checks a model and thinking picked in the composer beyond the sonnet / opus shorthands
   models?: Pick<Models, 'check'>;
@@ -145,7 +146,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models, jobs, hold = { ms: 90_000, pollMs: 2000 } }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models, jobs, hold = { ms: 0, pollMs: 2000 } }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -373,7 +374,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // a code group's worktree, readied before each of its turns; its section goes in the prompt when it differs from what the agent was last told
-  // a first prompt waits (up to hold.ms) while the worktree installs its dependencies; past that it says so, and the agent hears when they are ready
+  // a first prompt may wait (hold.ms, 0 by default: the agent works on the code meanwhile) while the worktree installs its dependencies; past that it says so, and the agent hears when they are ready
   async function setupOf(group: Group, s: AgentSession, first = false, onHold: () => void = () => {}) {
     if (group.kind !== 'code' || !worktrees) return [];
     const cwd = group.worktree || s.cwd();
@@ -391,7 +392,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (r.state !== 'ready' && r.state !== 'off') worktrees.whenReady(group.worktree, s.agentId);
     const lines = worktrees.briefLines(r);
     const said = lines.join('\n');
-    const waited = late ? [`- coco waited ${Math.round(hold.ms / 1000)}s for the dependencies and they are not ready: run no checks, no \`npm ci\` or install of your own. A message "checks are available now: <commands>" follows when they work; commit meanwhile and coco checks your commit.`, ''] : [];
+    const waited = late ? ['- The dependencies are still installing: read and change the code meanwhile, but run no checks, no `npm ci` or install of your own. A message "checks are available now: <commands>" follows when they work; commit meanwhile and coco checks your commit.', ''] : [];
     if (said === group.briefed) return waited;
     group.briefed = said;
     return [...lines, ...waited];
@@ -430,6 +431,14 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   function notify(slug: string, key: string, ev: ThreadEvent) {
     for (const l of listeners.get(at(slug, key)) || []) l(ev);
   }
+  // what a message waits on until it is stored (the agent group, a worktree, the agent's start): the thread header shows it, nothing keeps it
+  const starting = new Map<string, { text: string; at: string }>();
+  const stepTo = (slug: string, key: string, text: string | null) => {
+    const step = text ? { text, at: new Date().toISOString() } : null;
+    if (step) starting.set(at(slug, key), step);
+    else starting.delete(at(slug, key));
+    notify(slug, key, { type: 'step', step });
+  };
   const activityFile = (slug: string, key: string) => path.join(dir(slug), `${key}.activity.jsonl`);
   const readActivity = (slug: string, key: string): ThreadEvent[] => (fs.existsSync(activityFile(slug, key)) ? fs.readFileSync(activityFile(slug, key), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
   function routeOf(slug: string, groupId: string) {
@@ -473,18 +482,21 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // the first dispatch of a group starts its agent, in a worktree branched off the PR head for code
-  async function startSession(slug: string, group: Group, pr: ThreadPr | null) {
+  async function startSession(slug: string, group: Group, pr: ThreadPr | null, onStep: (text: string) => void) {
     const title = group.kind === 'code' ? `cc ${keyLabel(group.n)} · ${group.files[0]?.split('/').pop()}` : group.kind === 'plan' ? `cc plan ${keyLabel(group.n)}` : `cc decision ${group.decisionId}`;
     const worktree = group.kind === 'code' ? { mode: 'branch-off', newBranch: group.branch, base: (await prBase(pr)) ?? undefined, slug: `cc-${group.id}` } : null;
     let s;
     try {
       const fileName = group.files?.[0]?.split('/').pop() || 'the PR';
+      if (!placement && worktree) onStep('Creating a worktree');
       const where = !placement
         ? { cwd: REPO, worktree }
         : worktree
-          ? await placement.sideWorkspace(slug, { branch: worktree.newBranch, base: String(worktree.base || ''), title: `Finding fixes on ${fileName}` })
+          ? await placement.sideWorkspace(slug, { branch: worktree.newBranch, base: String(worktree.base || ''), title: `Finding fixes on ${fileName}`, onStep })
           : await placement.place({ kind: 'work', slug });
       if (group.kind === 'code' && 'workspaceId' in where && where.cwd) group.worktree = expandHome(where.cwd);
+      if (group.kind === 'code' && 'spare' in where && where.spare) group.spare = true;
+      onStep('Starting the agent');
       s = await agents.session({ title, provider: MODELS[group.model] || group.model, thinking: group.thinking || 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id, ...(group.kind === 'decision' ? {} : { pr: fileKey(group.n) }) }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
@@ -562,11 +574,13 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const delivering = new Map<string, Promise<void>>();
   async function dispatch(slug: string, work: Work, ref: Ref, key: string, sending: Sending): Promise<Thread> {
     const subject = ref.kind === 'comment' ? itemOf(slug, work, ref) : null;
+    stepTo(slug, key, 'Finding the agent');
     const release = subject ? await acquire(`${slug}:file:${subject.path}`) : () => {};
     try {
       return await dispatchIn(slug, work, ref, key, sending, release);
     } finally {
       release();
+      stepTo(slug, key, null);
     }
   }
   async function dispatchIn(slug: string, work: Work, ref: Ref, key: string, { text, model, thinking, groupId, role, files = [], card }: Sending, release: () => void): Promise<Thread> {
@@ -586,7 +600,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const seen = live && thread.messages.some((m) => m.agentId === live.agentId && m.role !== 'system');
     const moved = live && !busy && group.kind === 'code' ? await catchUp(group, pr) : [];
     const sha = busy ? busy.sha : group.kind === 'code' ? (await worktreeHead(group)) || (await branchHead(group.branch)) || pr?.sha : null;
-    const s = live || (await startSession(slug, group, pr));
+    const s = live || (await startSession(slug, group, pr, (text) => stepTo(slug, key, text)));
     if (!live && group.kind === 'code') delete group.briefed;
     // the prompts read the thread as it was before this message; the message is stored first so the owner sees it while a first prompt waits for the deps
     const prev: Thread = { ...thread, messages: [...thread.messages] };
@@ -1076,6 +1090,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const ws = r?.ok && worktree ? JSON.parse(r.stdout).find((w: { cwd?: string }) => w.cwd && reviewAgent.sameDir(w.cwd, worktree)) : null;
     if (ws) await exec('paseo', ['workspace', 'archive', ws.workspaceId]);
     else if (g.agentId) await exec('paseo', ['archive', g.agentId]);
+    if (g.kind === 'code' && g.spare && worktree) await git(REPO, ['worktree', 'remove', '--force', worktree]);
     if (g.branch) await git(REPO, ['branch', '-D', g.branch]);
     return writeGroup(slug, { ...g, status: 'closed' });
   }
@@ -1173,7 +1188,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
       const { work, ref } = check(slug, key);
-      return send(res, 200, { ...thread, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), persona: personaOf(slug, work, ref, group), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
+      return send(res, 200, { ...thread, starting: starting.get(at(slug, key)) ?? null, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), persona: personaOf(slug, work, ref, group), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
     } catch (e) {
       return send(res, httpStatus(e), { error: errText(e) });
     }

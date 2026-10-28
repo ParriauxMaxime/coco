@@ -19,6 +19,8 @@ type Deps = {
   exec?: Exec;
   listWorkspaces?: () => Promise<WorkspaceEntry[]>;
   works?: { get(slug: string): Work | null; save(w: Work, opts?: { touch?: boolean }): unknown; prInfo(n: number): Promise<{ title?: string; head?: string | null; state?: string } | null | undefined> };
+  // a spare worktree of the repo switched to `branch`, null when none is ready (server/spares.ts)
+  claimSpare?: (repoId: string, opts: { branch: string; base: string }) => Promise<string | null>;
 };
 
 const AMBIENT_PASEO = ['PASEO_AGENT_ID', 'PASEO_AGENT_CWD', 'PASEO_WORKSPACE_ID'];
@@ -41,7 +43,7 @@ const fail = (what: string, r: RunResult) => new Error(`${what}: ${(r.stderr || 
 export const REPO_WORKSPACE_TITLE = 'cocopilot';
 export const WORK_WORKSPACE_TITLE = 'Plan';
 
-export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWorkspaces = async () => [], works }: Deps) {
+export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWorkspaces = async () => [], works, claimSpare }: Deps) {
   const projects = async (): Promise<PaseoProject[]> => json(await exec('paseo', ['project', 'ls', '--json']), []);
   // a project rooted at a repo clone is that repo's, never a work's: it keeps its name
   const isRepoProject = (p: PaseoProject) => repos.some((r) => samePath(r.path, p.path));
@@ -248,11 +250,16 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return placed;
   }
 
-  // a scratch branch for an agent that proposes commits without touching the PR's branch (finding fixes), in the work's project
-  async function sideWorkspace(slug: string, { branch, base, title }: { branch: string; base: string; title: string }) {
+  // a scratch branch for an agent that proposes commits without touching the PR's branch (finding fixes), in the work's project: a spare worktree
+  // switched to it when one is ready, else a new worktree; onStep says which
+  async function sideWorkspace(slug: string, { branch, base, title, onStep = () => {} }: { branch: string; base: string; title: string; onStep?: (text: string) => void }): Promise<Placed & { spare?: boolean }> {
     const work = works?.get(slug);
     if (!work) throw new Error(`unknown work ${slug}`);
     const p = await ensureWorkProject(work);
+    onStep('Taking a spare worktree');
+    const dir = claimSpare ? await claimSpare(repoById(work.repo).id, { branch, base }).catch(() => null) : null;
+    if (dir) return { ...(await workspaceOn(p.projectId, dir, title)), spare: true };
+    onStep('No spare worktree ready: creating one (about 15 s)');
     return createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', base, '--title', title], title);
   }
 

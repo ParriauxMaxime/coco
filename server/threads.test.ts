@@ -693,7 +693,7 @@ test('the first prompt of a code agent waits for the worktree deps; past the tim
   installed = true;
   await until(() => held.daemon.calls.sent.length === 1, 'prompt after the deps');
   await until(() => !(held.read(A).waiting as { deps?: unknown } | null)?.deps, 'status cleared');
-  assert.doesNotMatch(held.daemon.calls.sent[0].text, /Not available yet|coco waited/);
+  assert.doesNotMatch(held.daemon.calls.sent[0].text, /Not available yet|still installing/);
   assert.match(held.daemon.calls.sent[0].text, /Lint: `lint <changed files>`/);
   assert.ok(a1.waiting);
 
@@ -702,7 +702,7 @@ test('the first prompt of a code agent waits for the worktree deps; past the tim
   await slow.threads.post(SLUG, A, { text: 'Add the null check' });
   await until(() => slow.daemon.calls.sent.length === 1, 'prompt after the timeout');
   const agent = slow.daemon.calls.created[0].id;
-  assert.match(slow.daemon.calls.sent[0].text, /coco waited 0s for the dependencies[\s\S]*checks are available now/);
+  assert.match(slow.daemon.calls.sent[0].text, /dependencies are still installing[\s\S]*checks are available now/);
   assert.deepEqual(heard, [['/wt/cc-group', agent]]);
   assert.equal(await slow.threads.steerAgent(agent, readyText(wt('ready'))), true);
   await until(() => slow.daemon.calls.sent.length === 2, 'ready message');

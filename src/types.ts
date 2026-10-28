@@ -386,12 +386,15 @@ export type ThreadMessage = {
   files?: UploadRef[];
 };
 export type ThreadChoice = { label: string; text: string; change: boolean; option?: string };
+export type ThreadStep = { text: string; at: string };
 export type Thread = {
   messages: ThreadMessage[];
   waiting?: { msgId: string; agentId?: string; deps?: { since: string } } | null;
   groupId?: string | null;
   newGroup?: boolean;
   agent?: { live: boolean; status: string } | null;
+  // what a message waits on before it is stored (a worktree, the agent's start); also streamed as `step` events
+  starting?: ThreadStep | null;
   // the best-mapped persona of the commented file: the "Ask <persona>" chip prefills the box
   persona?: string | null;
   cards?: Card[];

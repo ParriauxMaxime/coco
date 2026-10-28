@@ -56,6 +56,7 @@ import { createStackEdit } from './stack-edit.ts';
 import { createStackSplit } from './stack-split.ts';
 import { createPrReply } from './pr-reply.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
+import { createSpares } from './spares.ts';
 import { createAgentChecks } from './agent-checks.ts';
 import { allowedHosts, guard } from './guard.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
@@ -93,7 +94,7 @@ const models = createModels({ client: paseoAgents.client, config });
 const jobs = createJobs({ DATA });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents, jobs });
 const repos = createRepos({ DATA, repos: config.repos });
-const placement = createPlacement({ repos: config.repos, APP, DATA, listWorkspaces: paseoAgents.listWorkspaces, works });
+const placement = createPlacement({ repos: config.repos, APP, DATA, listWorkspaces: paseoAgents.listWorkspaces, works, claimSpare: (repoId, opts) => spares.claim(repoId, opts) });
 const logRenames = (renames: Awaited<ReturnType<typeof placement.syncProjectNames>>) => renames.forEach((r) => console.log(`Paseo project ${r.from} → ${r.to}${r.skipped ? ` skipped: ${r.skipped}` : ''}`));
 repos
   .assign(works.list(), (w) => works.save(w, { touch: false }))
@@ -118,6 +119,7 @@ const agentWorktrees = createAgentWorktrees({
   devServersUp: () => devServers.up(),
   devServerLine: (root) => devServers.lineFor(root),
 });
+const spares = createSpares({ DATA, config, prepare: agentWorktrees.prepare, registry: jobs, log: (text) => console.log(text) });
 const agentChecks = createAgentChecks({
   DATA,
   worktrees: agentWorktrees,
@@ -210,6 +212,7 @@ events.topic('thread', threads.watch);
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 agentChecks.resume(threads.codeWorktrees()).catch((e) => console.error(`agent worktrees: ${errorMessage(e)}`));
+spares.start().catch((e) => console.error(`spare worktrees: ${errorMessage(e)}`));
 const sweepUploads = () => {
   try {
     const gone = uploads.sweep();

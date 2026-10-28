@@ -15,8 +15,9 @@ import { mergeCards } from '../preview/chat/cards.ts';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { SentFiles } from '../preview/chat/Attachments.tsx';
+import { useNow } from '../preview/subagents.ts';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
-import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
+import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
 import './thread.css';
 
 const POLL_MS = 10000;
@@ -150,15 +151,18 @@ function activityByMessage(events: ActivityEvent[]) {
 }
 
 // the thread's agent activity over SSE (stored, then live), and a fresh thread on every change the server reports
-function useThreadStream(slug: string, key: string, onChange: () => void) {
+function useThreadStream(slug: string, key: string, onChange: () => void, onStep: (step: ThreadStep | null) => void) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const changed = useRef(onChange);
   changed.current = onChange;
+  const stepped = useRef(onStep);
+  stepped.current = onStep;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const off = subscribe(topic('thread', slug, key), {
       open: () => setEvents([]),
-      message: (ev: ActivityEvent) => {
+      message: (ev: ActivityEvent & { step?: ThreadStep | null }) => {
+        if (ev.type === 'step') return stepped.current(ev.step ?? null);
         if (ev.type !== 'thread') return setEvents((prev) => [...prev, ev]);
         clearTimeout(timer);
         timer = setTimeout(() => changed.current?.(), 100);
@@ -220,7 +224,9 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     refreshThreads(slug);
     if (answered) settled.current?.();
   }, () => {});
-  const activity = useThreadStream(slug, key, reload);
+  const activity = useThreadStream(slug, key, reload, (step) => setThread((prev) => prev && { ...prev, starting: step }));
+  const now = useNow(1000, Boolean(thread?.starting || thread?.waiting?.deps));
+  const secs = (since: string) => Math.max(0, Math.round((now - Date.parse(since)) / 1000));
   useEffect(() => {
     api.thread(slug, key).then(setThread, (e) => setError(errorMessage(e)));
   }, [slug, key]);
@@ -284,10 +290,10 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   return (
     <div className="dp-thr">
       <div className="dp-thr-h">
-        <span className="dp-ell">{group ? `Group ${groupLabel(group)}` : sending.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
+        <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : sending.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (
           <span className={`dp-chip${thread.agent.live ? ' dp-ok' : ''}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
-            <span className="dp-d" />{thread.waiting?.deps ? `waiting for deps (${Math.max(0, Math.round((Date.now() - Date.parse(thread.waiting.deps.since)) / 1000))} s)` : thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
+            <span className="dp-d" />{thread.waiting?.deps ? `waiting for deps (${secs(thread.waiting.deps.since)} s)` : thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
           </span>
         )}
         <span className="dp-thr-hx">

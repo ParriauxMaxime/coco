@@ -32,7 +32,8 @@ export type DepsEntry = { path: string; lockfile?: string; install?: string[]; o
 // a check coco runs on an agent's commit; {files} expands to the changed files matching `files`, {tests} to the test files next to them, both relative to `cwd`;
 // needs: worktree paths without which the check cannot run
 export type CheckDef = { id: string; label: string; command: string[]; fix?: string[]; cwd?: string; files?: string; needs?: string[]; timeoutSeconds?: number };
-export type AgentWorktreeConfig = { mainCheckout?: string; deps: DepsEntry[]; checks: CheckDef[] };
+export type WarmStep = { label: string; command: string[]; cwd?: string; timeoutSeconds?: number };
+export type AgentWorktreeConfig = { mainCheckout?: string; deps: DepsEntry[]; checks: CheckDef[]; spares?: number; warm?: WarmStep[] };
 // the preflight run before a kit-video dispatch (docs/configuration.md, "Preflight"): mcp = endpoints that must answer (http(s) URL or tcp://host:port);
 // llmKey = env vars, else a settings file's dotted paths, one of which must hold a value (only its existence is read); probes = argv commands, none by default
 export type PreflightConfig = {

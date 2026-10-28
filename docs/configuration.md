@@ -159,6 +159,8 @@ worktrees"). Commands are argv arrays run without a shell; wrap one in
 | `checks[].fix` | The command the brief gives to fix what the check reports. |
 | `checks[].cwd` | Folder the check runs in, relative to the worktree. Default: the worktree root. |
 | `checks[].timeoutSeconds` | Default 600. |
+| `spares` | How many spare worktrees coco keeps ready for this repo's code agents (docs/guide.md, "Spare worktrees"). Default 0: each agent waits for its own `git worktree add`. Each spare costs a checkout of disk, so a top-level `spares` serves the default repo only; another repo sets its own in `repos[].settings`. |
+| `warm` | Steps run in each spare once its deps are ready, e.g. `[{ "label": "Type check cache", "command": ["npm", "run", "typecheck"] }]` so the agent's first typecheck is incremental. `cwd` relative to the worktree, `timeoutSeconds` default 900. A claim cuts a step in flight short; a failed step keeps the spare. |
 
 ## Preflight
 
