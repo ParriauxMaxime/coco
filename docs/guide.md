@@ -32,8 +32,12 @@ Dev loop: `npm run serve` in one shell, `npm run dev` in another (Vite on
 
 The status bar shows the commit the server runs (`coco <sha>`, `*` when the
 checkout was dirty at boot) and, once the checkout moved past it, "N commits
-behind · Restart" (`POST /api/server/restart`: rebuild, then the same argv;
-log in `<dataDir>/server-restart.log`).
+behind · Restart" (`POST /api/server/restart`: the client builds into
+`dist.next` while the running server keeps serving, old chunks of the last two
+days are kept so open pages still load them, then `dist` is swapped, the old
+server stops and the same argv starts; a failed build leaves the old server
+running; log in `<dataDir>/server-restart.log`). A server that finds its port
+taken exits quietly.
 
 - While the server is away (a restart, a crash) the status bar reads
   "Reconnecting…" and error toasts stay quiet; the page reconnects by itself.

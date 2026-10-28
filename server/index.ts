@@ -692,4 +692,10 @@ http
     if (url.pathname.startsWith('/works/')) return works.serveArtifact(res, url.pathname, send);
     return serveStatic(res, url);
   })
+  .on('error', (e: NodeJS.ErrnoException) => {
+    if (e.code !== 'EADDRINUSE') throw e;
+    // another coco took the port (the desktop app starts one when none answers): it serves, this one leaves
+    console.log(`cocopilot: ${BIND}:${PORT} is taken by another server, exiting`);
+    process.exit(0);
+  })
   .listen(PORT, BIND, () => console.log(`cocopilot on http://${BIND}:${PORT}  (personas: ${PERSONAS})`));

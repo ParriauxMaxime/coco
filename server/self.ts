@@ -8,8 +8,15 @@ import type { Req, Res, Send } from './core-types.ts';
 
 export type ServerInfo = { running: string | null; head: string | null; behind: number; dirty: boolean; startedAt: string; build: string | null };
 
-// the old process must free the port before the new one listens; the client build runs in that gap
-const RESTART = 'sleep 1; npm run -s build; exec "$0" "$@"';
+// the client builds beside dist/ while this server keeps serving, keeps the old chunks an open page still loads (two days), swaps in,
+// then this server stops and the new one takes the port; a failed build leaves this one running
+const RESTART = [
+  'npx vite build --outDir dist.next --emptyOutDir --logLevel warn || { echo "restart: client build failed, coco keeps running"; exit 1; }',
+  '[ -d dist/assets ] && cp -pn dist/assets/* dist.next/assets/ 2>/dev/null; find dist.next/assets -type f -mtime +2 -delete',
+  'rm -rf dist.old; [ -d dist ] && mv dist dist.old; mv dist.next dist; rm -rf dist.old',
+  'kill "$COCO_OLD_PID"; while kill -0 "$COCO_OLD_PID" 2>/dev/null; do sleep 0.2; done',
+  'exec "$0" "$@"',
+].join('\n');
 
 export function createSelf({ APP, DATA, DIST = path.join(APP, 'dist') }: { APP: string; DATA: string; DIST?: string }) {
   const git = (args: string[]) => {
@@ -47,10 +54,14 @@ export function createSelf({ APP, DATA, DIST = path.join(APP, 'dist') }: { APP: 
     return { running, head, behind, dirty: dirtyAtBoot, startedAt, build: index()?.build ?? null };
   }
 
+  let restarting = false;
   function restart() {
+    if (restarting) return;
+    restarting = true;
     const log = fs.openSync(path.join(DATA, 'server-restart.log'), 'a');
-    spawn('sh', ['-c', RESTART, process.execPath, ...process.argv.slice(1)], { cwd: APP, detached: true, stdio: ['ignore', log, log] }).unref();
-    setTimeout(() => process.exit(0), 200);
+    const child = spawn('sh', ['-c', RESTART, process.execPath, ...process.argv.slice(1)], { cwd: APP, detached: true, stdio: ['ignore', log, log], env: { ...process.env, COCO_OLD_PID: String(process.pid) } });
+    child.on('exit', () => (restarting = false));
+    child.unref();
   }
 
   function handle(req: Req, res: Res, parts: string[], send: Send) {
