@@ -11,6 +11,7 @@ import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './p
 import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
 import ServerStatus from './ServerStatus.tsx';
+import WorkMenu from './WorkMenu.tsx';
 import { desktop } from '../desktop.ts';
 import './preview.css';
 
@@ -76,6 +77,7 @@ function WorkRow({ w, on, expanded, onToggle, views }: { w: WorkSummary; on: boo
           <span className={`dp-dot dp-lg ${workDot(w)}`} />
           <span className="dp-grow dp-ell">{w.title}</span>
           {p.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}
+          <WorkMenu w={w} />
         </span>
         <span className="dp-work-bar">
           <SegBar w={w} />

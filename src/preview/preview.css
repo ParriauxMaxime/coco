@@ -494,6 +494,9 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp-work.dp-work2 { padding-left: 4px; }
 .dp-work-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .dp-work-top .dp-chip { height: 18px; font-size: 10.5px; }
+.dp-work-more { width: 20px; height: 20px; flex: none; opacity: 0; }
+.dp-work:hover .dp-work-more, .dp-work-more.dp-on, .dp-work-more:focus-visible { opacity: 1; }
+.dp-mi.dp-danger { color: var(--dp-bad); }
 .dp-work-bar { display: flex; align-items: center; gap: 8px; padding-left: 22px; }
 .dp-caret { all: unset; flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--dp-r1); color: var(--dp-t3); cursor: pointer; transition: transform .18s ease, background .12s; }
 .dp-caret:hover { background: var(--dp-hover); color: var(--dp-t1); }

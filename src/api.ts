@@ -82,6 +82,7 @@ export const api = {
   notionStatus: (slug: string) => get<NotionStatus>(`${works(slug)}/notion`),
   notionAction: (slug: string, body: Record<string, unknown>) => post<NotionResult>(`${works(slug)}/notion`, body),
   archiveWork: (slug: string, archived: boolean) => post<Work>(`${works(slug)}/archive`, { archived }),
+  deleteWork: (slug: string) => fetch(works(slug), { method: 'DELETE' }).then(json<{ ok: boolean }>),
   worktrees: (slug: string) => get<WorkWorktree[]>(`${works(slug)}/worktrees`),
   removeWorktrees: (slug: string, paths: string[]) => postJson(`${works(slug)}/worktrees/remove`, { paths }).then(jsonOrError<WorktreesRemoved>),
   notices: () => get<WorktreeNotice[]>('/api/notices'),
