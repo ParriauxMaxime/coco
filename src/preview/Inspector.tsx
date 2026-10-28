@@ -9,6 +9,7 @@ import { focusOldestCard } from './chat/Card.tsx';
 import { PersonaChip } from '../components/PersonaChip.tsx';
 import GateRail from '../workbench/tabs/Gates.tsx';
 import KitLine from '../workbench/tabs/KitLine.tsx';
+import { PushBadge } from '../workbench/tabs/DriftPanel.tsx';
 import { briefKeyOfTab } from './BriefView.tsx';
 import { openCodeAt } from '../workbench/tabs/Code.tsx';
 import ReviewActivity from '../workbench/code/ReviewActivity.tsx';
@@ -90,6 +91,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
             {!asTab && <button type="button" className="dp-btn dp-sm dp-ghost" title="Open as a tab  ⌘↵" onClick={() => openTab(`pr-${key}`)}>Open as tab</button>}
           </div>
         )}
+        {numbered && <PushBadge slug={d.slug} prKey={key} />}
       </div>
       <div className="dp-ins-scroll">
         {summary && <Sec title="Summary" wide><div className="dp-md"><Markdown text={summary} /></div></Sec>}

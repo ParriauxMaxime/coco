@@ -20,7 +20,9 @@ export type DriftAction = { type: 'dispatch'; entry: string; label: string; pers
 // what a `run` action does, kept as data: the command is built from it on the server
 export type DriftRun = { type: 'push'; branch: string } | { type: 'base'; number: number; base: string };
 export type DriftItem = { id: string; key: RowKey | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction; run?: DriftRun };
-export type Drift = { drift: DriftItem[]; next: DriftItem[]; at: string };
+// a PR's local branch tip against GitHub's head; remote: no local branch
+export type DriftHead = { key: RowKey; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number };
+export type Drift = { drift: DriftItem[]; next: DriftItem[]; heads: DriftHead[]; at: string };
 
 type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
 type Rows = { key: RowKey; number: number | null; pr: PrInfo | null; branch: string | null; tip: string | null; personas: string[]; gates: Work['stack'][number]['gates'] };
@@ -55,11 +57,13 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       }
     });
 
-  // local commits on top of GitHub's head; null when GitHub is level or ahead
-  async function ahead(tip: string, remote: string) {
-    if (sameSha(tip, remote)) return null;
-    if ((await git(['merge-base', '--is-ancestor', remote, tip])).ok) return Number((await git(['rev-list', '--count', `${remote}..${tip}`])).stdout.trim()) || 0;
-    return (await git(['merge-base', '--is-ancestor', tip, remote])).ok ? null : -1;
+  const commits = async (range: string) => Number((await git(['rev-list', '--count', range])).stdout.trim()) || 0;
+  async function headOf(tip: string | null, remote: string): Promise<Omit<DriftHead, 'key'>> {
+    if (!tip) return { state: 'remote' };
+    if (sameSha(tip, remote)) return { state: 'pushed' };
+    if ((await git(['merge-base', '--is-ancestor', remote, tip])).ok) return { state: 'ahead', count: await commits(`${remote}..${tip}`) };
+    if ((await git(['merge-base', '--is-ancestor', tip, remote])).ok) return { state: 'behind', count: await commits(`${tip}..${remote}`) };
+    return { state: 'diverged' };
   }
 
   const skillEntry = (gate: string) => {
@@ -81,12 +85,15 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     }));
     const drift: DriftItem[] = [];
     const next: DriftItem[] = [];
+    const heads: DriftHead[] = [];
     const add = (list: DriftItem[], key: RowKey | null, kind: string, text: string, action: DriftAction | null, more: Pick<DriftItem, 'also' | 'run'> = {}) => list.push({ id: `${key ?? 'work'}:${kind}`, key, kind, text, action, ...more });
 
     for (const r of rows.filter((x) => x.number && x.pr?.state === 'OPEN')) {
       const pr = r.pr as PrInfo;
       const remote = pr.headOid || null;
-      const count = r.tip && remote ? await ahead(r.tip, remote) : null;
+      const head = remote ? await headOf(r.tip, remote) : null;
+      if (head) heads.push({ key: r.key, ...head });
+      const count = head?.state === 'diverged' ? -1 : head?.state === 'ahead' ? head.count : 0;
       if (count) {
         const push = count > 0 && r.branch && BRANCH.test(r.branch) && !pr.isCrossRepository ? toRun({ type: 'push', branch: r.branch }, 'Push', 'Copy push') : null;
         add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', push?.action ?? null, push ? { also: push.also, run: push.run } : {});
@@ -139,12 +146,12 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       else if (!onHead && keptTree && keptTree.branch !== r.branch) add(drift, r.key, 'worktrees', `the worktree of ${keyLabel(r.key)}, ${kept}, is on ${keptTree.branch || 'no branch'}, not the PR head ${r.branch}`, null);
     }
     const mine = new Set(rows.map((r) => r.number));
-    const heads = new Map(open.map((r) => [r.branch, r]));
+    const byBranch = new Map(open.map((r) => [r.branch, r]));
     for (const p of open.length ? await listOpen().catch(() => []) : []) {
-      const parent = heads.get(p.base);
+      const parent = byBranch.get(p.base);
       if (parent && !mine.has(p.number)) add(drift, p.number, 'stack-missing', `#${p.number} is stacked on ${keyLabel(parent.key)} on GitHub but not in this work`, { type: 'tab', tab: 'stack', label: 'Open stack' });
     }
-    return { drift, next, at: new Date().toISOString() };
+    return { drift, next, heads, at: new Date().toISOString() };
   }
 
   const view = (slug: string, fresh = false) => cached(slug, () => compute(slug), fresh);

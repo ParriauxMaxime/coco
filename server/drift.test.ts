@@ -49,6 +49,15 @@ test('a local branch that diverged from GitHub is flagged without a push to run 
   assert.deepEqual([i.text, i.action, i.also, i.run], ['local branch and GitHub diverged: rebase or reset it before pushing', null, undefined, undefined]);
 });
 
+test('each open PR reports its local head against GitHub: pushed, commits ahead or behind, diverged, or no local branch', async () => {
+  const heads = async (tips: Record<string, string>, ahead: Setup['ahead'] = {}) => (await make({ tips, ahead }).view('w', true)).heads.map(({ state, count }) => [state, count]);
+  assert.deepEqual(await heads({ b1: 'remote1' }), [['pushed', undefined]]);
+  assert.deepEqual(await heads({ b1: 'tip1' }, { remote1: 3 }), [['ahead', 3]]);
+  assert.deepEqual(await heads({ b1: 'tip1' }, { tip1: 2 }), [['behind', 2]]);
+  assert.deepEqual(await heads({ b1: 'tip1' }, { remote1: 'diverged' }), [['diverged', undefined]]);
+  assert.deepEqual(await heads({}), [['remote', undefined]]);
+});
+
 test('run pushes the branch from the repo clone or its worktree, built here, and tells the page what changed', async () => {
   const calls: NonNullable<Setup['calls']> = [];
   const events: string[] = [];

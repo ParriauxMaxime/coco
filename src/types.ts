@@ -462,7 +462,9 @@ export type KitBetaFlag = { code: string; name?: string; why?: string; enable?: 
 export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'run'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
 export type DriftItem = { id: string; key: string | number | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction };
 export type DriftRunResult = { ok: boolean; id: string; command: string; stdout: string; stderr: string };
-export type DriftResponse = { drift: DriftItem[]; next: DriftItem[]; at: string };
+export type DriftHead = { key: string | number; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number };
+// heads is missing from a drift cached on disk before it existed
+export type DriftResponse = { drift: DriftItem[]; next: DriftItem[]; heads?: DriftHead[]; at: string };
 export type KitResponse ={ key: string | number; head: { sha: string | null; at: string | null }; betaFlags: KitBetaFlag[]; pieces: KitPiece[] };
 
 export type KeepStep = {
