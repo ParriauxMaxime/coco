@@ -8,3 +8,4 @@ coco.config.json
 .claude/
 paseo-plugin/node_modules
 desktop/app-dir.json
+desktop/build/candidates/
