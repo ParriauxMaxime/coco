@@ -23,6 +23,8 @@ type Send = (res: ServerResponse, status: number, body: unknown) => unknown;
 
 const LOOPBACK = new Set<string | null>(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const READ_TIMEOUT_MS = 2500;
+const BOARD_FRESH_MS = 3000;
+const BOARD_KEEP_MS = 60000;
 // a start may first stop another server (its grace period), and a login waits for the project's provider (60 s by default)
 const ACTION_TIMEOUT_MS = 65000;
 const MAX_LOG_LINES = 200;
@@ -131,8 +133,19 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return server && { ...server, leases: server.leases.map((lease) => ({ ...lease, mine: mine(lease) })) };
   }
 
+  // every open view polls the board: one call per few seconds serves them all, and a slow answer keeps the last good board
+  let lastBoard: { at: number; reply: Reply } | null = null;
+  let boardCall: Promise<Reply> | null = null;
+  const boardReply = async (): Promise<Reply> => {
+    if (lastBoard && Date.now() - lastBoard.at < BOARD_FRESH_MS) return lastBoard.reply;
+    boardCall ??= call('GET', '/api/board', undefined, READ_MS).finally(() => (boardCall = null));
+    const reply = await boardCall;
+    if (!('down' in reply) && reply.status === 200) lastBoard = { at: Date.now(), reply };
+    else if (lastBoard && Date.now() - lastBoard.at < BOARD_KEEP_MS) return lastBoard.reply;
+    return reply;
+  };
   const up = async () => {
-    const reply = await call('GET', '/api/board', undefined, READ_MS);
+    const reply = await boardReply();
     return !('down' in reply) && reply.status === 200;
   };
 
@@ -143,7 +156,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
 
   // one brief line: what dev_server_start gives an agent in this worktree right now
   async function lineFor(worktree: string): Promise<string | null> {
-    const reply = await call('GET', '/api/board', undefined, READ_MS);
+    const reply = await boardReply();
     if ('down' in reply || reply.status !== 200 || !reply.body?.servers) return null;
     const placement = await placementOf(worktree);
     const from = placement?.servedFrom || worktree;
@@ -157,7 +170,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
   }
 
   async function workView(work: Work) {
-    const reply = await call('GET', '/api/board', undefined, READ_MS);
+    const reply = await boardReply();
     if ('down' in reply) return { on: false, reason: reply.down };
     const board = reply.body;
     if (reply.status !== 200 || !board || !Array.isArray(board.servers)) return { on: false, reason: reply.body?.error?.message || `the dev servers API answered ${reply.status}` };
