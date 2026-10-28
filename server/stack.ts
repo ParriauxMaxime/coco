@@ -5,7 +5,11 @@ const LOCAL = /^b:[\w][\w.:-]*$/;
 const BRANCH = /^[\w][\w./-]*$/;
 
 export const rowKey = (row: StackRow | null | undefined): RowKey | null => (row?.number ? row.number : BRANCH.test(row?.planned?.branch || '') ? `b:${row?.planned?.branch?.replaceAll('/', ':')}` : null);
-export const parseKey = (k: unknown): RowKey | null => (/^\d+$/.test(String(k)) ? Number(k) : LOCAL.test(String(k)) ? String(k) : null);
+// takes a key as agents write it too: "#12", "b:feat/x"
+export const parseKey = (k: unknown): RowKey | null => {
+  const s = String(k).replace(/^#/, '').replaceAll('/', ':');
+  return /^\d+$/.test(s) ? Number(s) : LOCAL.test(s) ? s : null;
+};
 export const isLocal = (k: unknown): k is `b:${string}` => typeof k === 'string' && LOCAL.test(k);
 export const branchOf = (k: RowKey): string => String(k).slice(2).replaceAll(':', '/');
 export const fileKey = (k: unknown): string => String(k).replaceAll(':', '~');

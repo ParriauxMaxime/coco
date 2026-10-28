@@ -24,7 +24,7 @@ export type StackEdit = { work: string; ops: StackOp[]; syncNotion: boolean; why
 type Change = 'added' | 'updated' | 'moved' | 'kept';
 
 const keyOf = (v: unknown, field: string): RowKey => {
-  const k = parseKey(typeof v === 'string' ? v.replace(/^#/, '') : v);
+  const k = parseKey(v);
   if (k == null) throw new Error(`${field} must be a PR number or "b:<branch>"`);
   return k;
 };
