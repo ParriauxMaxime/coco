@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createDrift } from './drift.ts';
 import type { Artifact, PrInfo, RowKey, Work } from './core-types.ts';
 
-type Piece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
+type Piece = { id: string; label: string; state: string; expected?: boolean; madeFor: string | null; at: string | null; source: string | null };
 const piece = (id: string, state: string, extra: Partial<Piece> = {}): Piece => ({ id, label: id, state, madeFor: null, at: null, source: null, ...extra });
 type Setup = { stack?: Work['stack']; prs?: Record<number, Partial<PrInfo>>; tips?: Record<string, string>; ahead?: Record<string, number | 'diverged'>; pieces?: Piece[]; comments?: { author: string; sha: string }[]; planHead?: string; open?: { number: number; baseRefName: string; headRefName: string }[]; personas?: string[]; artifacts?: Artifact[]; calls?: { cmd: string; args: string[]; opts?: unknown }[]; events?: string[]; worktrees?: Record<string, string>; fail?: string; archived?: boolean; missing?: boolean; trees?: Record<string, string>; rowDirs?: Record<number, string> };
 
@@ -137,6 +137,12 @@ test('a stale body or video offers the kit gate skill; a stale diagram with no s
   assert.deepEqual(d.drift.map((i) => [i.kind, i.action]), [['kit-body', { type: 'dispatch', entry: 'gate:kit-body:lem-pr', label: 'Update PR body' }], ['kit-diagram', { type: 'tab', tab: 'artifacts', label: 'Artifacts' }]]);
   const video = await make({ pieces: [piece('video', 'stale')] }).view('w', true);
   assert.equal((video.drift[0].action as { entry: string }).entry, 'gate:kit-video:lem-demo-video');
+});
+
+test('a missing piece in the kit scope suggests making it when a skill does; out of scope or without a skill, nothing', async () => {
+  const pieces = [piece('video', 'missing', { expected: true }), piece('diagram', 'missing', { expected: true }), piece('body', 'missing', { expected: false })];
+  const next = (await make({ pieces }).view('w', true)).next.filter((i) => i.kind.startsWith('kit-'));
+  assert.deepEqual(next.map((i) => [i.kind, i.action]), [['kit-video', { type: 'dispatch', entry: 'gate:kit-video:lem-demo-video', label: 'Make video' }]]);
 });
 
 test('GitHub bases that differ from the work order are flagged with the gh command; a PR stacked on a row but missing from the work too', async () => {

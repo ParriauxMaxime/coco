@@ -93,7 +93,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
             {!asTab && <button type="button" className="dp-btn dp-sm dp-ghost" title="Open as a tab  ⌘↵" onClick={() => openTab(`pr-${key}`)}>Open as tab</button>}
           </div>
         )}
-        {numbered && <div className="dp-ins-steps"><GateRail gates={gates} n={key} onOpen={openTab} /></div>}
+        {numbered && <div className="dp-ins-steps"><GateRail slug={d.slug} gates={gates} n={key} onOpen={openTab} /></div>}
         {numbered && <HeadBadges slug={d.slug} prKey={key} />}
       </div>
       <div className="dp-ins-scroll">

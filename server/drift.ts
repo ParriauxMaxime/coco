@@ -110,6 +110,11 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
         const entry = skillEntry(`kit-${p.id}`);
         add(drift, r.key, `kit-${p.id}`, `${p.label} is older than the head${p.madeFor ? ` (made for ${p.madeFor.slice(0, 7)})` : ''}`, entry ? { type: 'dispatch', entry, label: p.id === 'body' ? 'Update PR body' : `Redo ${p.id}` } : { type: 'tab', tab: 'artifacts', label: 'Artifacts' });
       }
+      // a piece in the kit scope not made yet, when a skill makes it
+      for (const p of pieces.filter((x) => x.state === 'missing' && x.expected)) {
+        const entry = skillEntry(`kit-${p.id}`);
+        if (entry) add(next, r.key, `kit-${p.id}`, `${p.label} is in the kit scope and not made yet`, { type: 'dispatch', entry, label: `Make ${p.id}` });
+      }
 
       const lastVideo = (works.listArtifacts?.(slug) || []).filter((a) => a.meta?.kind === 'video' && a.meta.pr === String(r.number)).sort((a, b) => (b.meta?.at ?? '').localeCompare(a.meta?.at ?? ''))[0];
       for (const [i, b] of (lastVideo?.meta?.blocked || []).entries()) add(drift, r.key, `video-blocked-${i}`, `Demo beat "${b.beat}" blocked: ${b.what}. Unblock: ${b.unblock}`, { type: 'tab', tab: 'artifacts', label: 'Artifacts' });

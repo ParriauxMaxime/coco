@@ -91,6 +91,17 @@ export function HeadBadges({ slug, prKey }: { slug: string; prKey: string }) {
   );
 }
 
+// the kit step's actions: redo a stale piece, make a missing one in scope
+export function KitRedo({ slug, prKey }: { slug: string; prKey: string }) {
+  const { data, pending, busy, go } = useDrift(slug);
+  const items = [...(data?.drift || []), ...(data?.next || [])].filter((i) => String(i.key) === prKey && i.kind.startsWith('kit-') && i.action);
+  return (
+    <>
+      {items.map((it) => <button key={`${it.id}:${it.action?.label}`} type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === it.id)}`} disabled={busy} title={it.text} onClick={() => go(it, it.action as DriftAction)}>{it.action?.label}</button>)}
+    </>
+  );
+}
+
 // what drifted on the work's PRs and the next steps that follow; every button is a click of yours, nothing runs by itself
 export default function DriftPanel({ slug }: { slug: string }) {
   const { data, failed, pending, busy, go } = useDrift(slug);

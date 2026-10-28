@@ -3,6 +3,7 @@ import { api, errorMessage } from '../../api.ts';
 import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import Checks from '../../components/Checks.tsx';
+import { KitRedo } from './DriftPanel.tsx';
 import Icon from '../../preview/Icon.tsx';
 import '../../components/parts.css';
 import type { PrKey } from '../types.ts';
@@ -58,7 +59,7 @@ export function ReviewSplit({ gates, onReview }: { gates: Gates; onReview: () =>
 }
 
 // the PR's milestones in order; the current one is open with its action, any other opens on a click
-export default function GateRail({ gates, n, onOpen }: { gates: Gates; n: PrKey; onOpen: (tab: string) => void }) {
+export default function GateRail({ slug, gates, n, onOpen }: { slug: string; gates: Gates; n: PrKey; onOpen: (tab: string) => void }) {
   const { data, error, pending, busy, act, run } = gates;
   const [picked, setPicked] = useState<string | null | undefined>(undefined);
   const spin = (id: string, action: string) => pendingClass(pending === `${id}:${action}`);
@@ -105,6 +106,7 @@ export default function GateRail({ gates, n, onOpen }: { gates: Gates; n: PrKey;
           </div>
           <div className="dp-gt-f">
             {gate.skills.map((s) => <button key={skillSpec(s).name} type="button" className={`dp-btn dp-sm dp-primary${spin(gate.id, 'run')}`} disabled={busy || gate.state === 'running'} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => run(gate.id, s)}>/{skillSpec(s).name}</button>)}
+            {gate.id === 'kit' && gate.state !== 'done' && <KitRedo slug={slug} prKey={String(n)} />}
             {gate.canRun && <button type="button" className={`dp-btn dp-sm dp-primary${spin(gate.id, 'ready')}`} disabled={busy} title={`gh pr ready ${n}`} onClick={() => act(gate.id, { action: 'ready' })}>Mark ready for review</button>}
             {gate.tab && /^\d+$/.test(String(n)) && <button type="button" className="dp-btn dp-sm" onClick={() => onOpen(`${gate.tab}-${n}`)}>Open {gate.tab}<Icon name="chevron-right" size={12} /></button>}
             {gate.state !== 'done' && <button type="button" className={`dp-btn dp-sm${spin(gate.id, 'done')}`} disabled={busy} onClick={() => act(gate.id, { action: 'done' })}><Icon name="check" size={12} />Done</button>}

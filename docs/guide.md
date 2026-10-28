@@ -546,7 +546,10 @@ worktrees"). Each is derived:
   worktree, else a new agent there); a mid-turn agent is refused. A run shows
   running and settles once the agent is idle, keeping the head it left.
 - kit: every piece in the PR's kit scope is fresh or present, and the body
-  fits `kitBody`. See "Kit freshness" for the scope.
+  fits `kitBody`. See "Kit freshness" for the scope. Open, it carries the
+  drift's kit buttons for that PR: Update PR body or Redo <piece> for a stale
+  piece, Make <piece> for a missing one in scope (a suggested next step when
+  a `kit-<piece>` gate skill exists).
 - pushed: the local branch tip is GitHub's head, or there is no local branch.
 - ready: out of draft. Once self-reviewed, kit and pushed are done or
   skipped, "Mark ready for review" runs `gh pr ready <n>` from the server.
