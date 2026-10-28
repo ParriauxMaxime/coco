@@ -48,7 +48,6 @@
 .dp-sb-person span { max-width: 100%; }
 .dp-sb-av { width: 18px; height: 18px; border-radius: 50%; }
 .dp-sb-skill { font-weight: 400; font-size: 12.5px; padding-left: 26px; height: 26px; }
-.dp a.dp-brandmark { color: var(--dp-on-accent); }
 .dp a.dp-repo { color: var(--dp-t1); }
 .dp a.dp-sb-nav, .dp a.dp-ibtn { color: var(--dp-t2); }
 .dp a.dp-sb-nav.dp-on, .dp a.dp-sb-nav:hover, .dp a.dp-ibtn:hover, .dp a.dp-ibtn.dp-on { color: var(--dp-t1); }

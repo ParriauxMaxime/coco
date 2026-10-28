@@ -13,6 +13,7 @@ import JobsStatus from './JobsStatus.tsx';
 import ServerStatus from './ServerStatus.tsx';
 import WorkMenu from './WorkMenu.tsx';
 import { desktop } from '../desktop.ts';
+import cocoMark from '../coco-mark.svg';
 import './preview.css';
 
 export type Command = { id: string; label: string; hint?: string; icon: IconName; run: () => void };
@@ -235,7 +236,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
       <div className="dp-app">
         <header className="dp-titlebar">
           <button type="button" className={`dp-ibtn dp-lg dp-menu${menu ? ' dp-on' : ''}`} title="Pages and works" onClick={() => setMenu((m) => !m)}><Icon name="list" /></button>
-          <a className="dp-brandmark" href="#/" title="Dashboard">c</a>
+          <a className="dp-brandmark" href="#/" title="Dashboard"><img src={cocoMark} alt="coco" /></a>
           <div className="dp-crumbs">
             {crumbs.map((c, i) => (
               <React.Fragment key={`${c.label}-${i}`}>
