@@ -813,11 +813,16 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       return { group, out };
     });
     if (!found) return 0;
+    // seen has moved past it: a commit its thread could not take waits to be linked instead of being lost
+    const strand = (f: Found) => {
+      updateCommits(slug, groupId, (b) => ({ ...b, unlinked: [...(b.unlinked ?? []).filter((u) => u.commit !== f.commit), { commit: f.commit, subject: f.subject, files: f.files, at: f.at }] }));
+      for (const k of found.group.items) notify(slug, k, { type: 'thread' });
+    };
     let mine = 0;
     const later: Promise<unknown>[] = [];
     for (const { key, found: f } of found.out) {
       if (held?.key === key) {
-        const start = await addCommit(slug, key, held.thread, found.group, f);
+        const start = await addCommit(slug, key, held.thread, found.group, f).catch(() => (strand(f), null));
         if (start) {
           mine++;
           start();
@@ -830,7 +835,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         if (!start) return;
         write(slug, thread);
         start();
-      }).catch(() => {}));
+      }).catch(() => strand(f)));
     }
     if (!held) await Promise.all(later);
     return mine;
@@ -1274,7 +1279,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // the item is settled (finding accepted or dismissed): it leaves its group, and the group's agent and worktree go once no item is left;
-  // kept while the agent is answering or a suggested commit is not applied yet, since closing deletes its branch
+  // kept while the agent is answering, a suggested commit is not applied yet or a commit waits to be linked, since closing deletes its branch
   function release(slug: string, key: string): Promise<{ key: string; outcome: string; reason?: string; group?: string; others?: number }> {
     check(slug, key);
     return withLock(`${slug}:${key}`, async () => {
@@ -1288,6 +1293,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         writeGroup(slug, { ...g, items });
         return { key, outcome: 'left', group: g.id, others: items.length };
       }
+      if (g.kind === 'code' && readCommits(slug, g.id).unlinked?.length) return { key, outcome: 'kept', reason: 'a commit of its agent waits to be linked or dropped' };
       await closeGroup(slug, g.id);
       return { key, outcome: 'pruned', group: g.id };
     });

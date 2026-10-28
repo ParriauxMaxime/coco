@@ -867,8 +867,10 @@ orchestration layer (`server/threads.ts`):
   no item takes (its `Cc-Comment` names no item of the group) stays on the
   group: each thread of the group shows "commit abc1234 not linked to a
   comment" with **Link to…** (an item of the group, which gets it as its
-  suggestion, or "Drop it"). The agent's brief says each commit shows by
-  itself, so it never re-commits to make Approve appear.
+  suggestion, or "Drop it"). A commit its thread could not record goes
+  there too, and a group with such a commit is not closed when its last
+  item settles (closing deletes the branch). The agent's brief says each
+  commit shows by itself, so it never re-commits to make Approve appear.
 - Ready commit. When the group agent's branch holds a commit with the
   thread's `Cc-Comment` trailer that is not on the PR branch yet (neither the
   same trailer nor the same patch-id there), the thread payload carries `ready`
