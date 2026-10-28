@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cleanBrief, createBriefWriter, parseLessons, readLessons } from './brief-writer.ts';
+import { createJudge } from './judge.ts';
 import type { AgentHistory } from './paseo-agent.ts';
 
 const AGENT = '12345678-1234-1234-1234-123456789abc';
@@ -20,18 +21,21 @@ function setup({ answers = [] as ({ status: string; finalText: string; error?: s
   }
   const runs: Run[] = [];
   const state = { history, now: Date.parse('2026-10-26T12:00:00Z') };
+  const config = { models: { default: 'claude/opus', fast: 'claude/sonnet' } };
+  const agents = {
+    run: async (opts: Run) => {
+      runs.push(opts);
+      const next = answers.shift() || { status: 'done', finalText: '[]' };
+      return next === 'hang' ? new Promise<never>(() => {}) : next;
+    },
+    history: async () => state.history,
+  };
   const writer = createBriefWriter({
     DATA,
-    config: { models: { default: 'claude/opus', fast: 'claude/sonnet' } },
+    config,
     place: async (slug) => ({ workspaceId: `wks_plan_${slug}`, cwd: '/tmp/plan' }),
-    agents: {
-      run: async (opts) => {
-        runs.push(opts);
-        const next = answers.shift() || { status: 'done', finalText: '[]' };
-        return next === 'hang' ? new Promise(() => {}) : next;
-      },
-      history: async () => state.history,
-    },
+    agents,
+    judge: createJudge({ DATA, config, agents }),
     now: () => state.now,
     writerMs: 50,
   });
@@ -127,7 +131,8 @@ test('lessons read from strings or objects, and answers parse leniently', () => 
   const { DATA } = setup({ lessons: ['plain', { text: 'object', at: '2026-10-01' }, { text: '' }, 7] });
   assert.deepEqual(readLessons(DATA, 'widgets').map((l) => l.text), ['plain', 'object']);
   assert.deepEqual(readLessons(DATA, '../x'), []);
-  assert.deepEqual(parseLessons('none'), []);
+  assert.equal(parseLessons('none'), null);
+  assert.equal(parseLessons('[oops]'), null);
   assert.deepEqual(parseLessons('Here: ["a", 3, " b "]'), ['a', 'b']);
   assert.equal(cleanBrief('  plain  '), 'plain');
 });

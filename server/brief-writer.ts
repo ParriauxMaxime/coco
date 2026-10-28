@@ -1,9 +1,10 @@
 // The brief writer: a short fast-model run through Paseo, in the work's Plan workspace, writes each dispatch's brief from the template facts, the dispatch and the repo's brief lessons.
-// Once a dispatched run ends, the user's follow-ups to it that supplied context its brief lacked become lessons of the repo (data/repos/<id>/brief-lessons.json).
+// Once a dispatched run ends, the judge picks the user's follow-ups to it that supplied context its brief lacked: they become lessons of the repo (data/repos/<id>/brief-lessons.json).
 import fs from 'node:fs';
 import path from 'node:path';
 import { errorMessage } from './core-types.ts';
 import type { Config } from './config.ts';
+import type { Judge } from './judge.ts';
 import type { AgentHistory } from './paseo-agent.ts';
 
 export type Lesson = { text: string; at?: string; work?: string; agentId?: string };
@@ -16,6 +17,7 @@ type Deps = {
   DATA: string;
   config: Pick<Config, 'models'>;
   agents: { run(opts: RunOpts): Promise<{ status: string; error?: string | null; finalText: string }>; history(agentId: string): Promise<AgentHistory | null> };
+  judge: Judge;
   place: (slug: string) => Promise<Placed>;
   now?: () => number;
   writerMs?: number;
@@ -95,14 +97,15 @@ export function cleanBrief(text: string) {
   return (fenced ? fenced[1].trim() : t).slice(0, BRIEF_MAX);
 }
 
-export function parseLessons(text: string): string[] {
+// the lessons in an answer, or null when it holds no JSON array
+export function parseLessons(text: string): string[] | null {
   const m = String(text || '').match(/\[[\s\S]*\]/);
-  if (!m) return [];
+  if (!m) return null;
   try {
     const raw: unknown = JSON.parse(m[0]);
-    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, LESSON_MAX)).filter(Boolean) : [];
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, LESSON_MAX)).filter(Boolean) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -113,7 +116,7 @@ const deadline = <T>(p: Promise<T>, ms: number) => {
   return Promise.race([p, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`no brief within ${Math.round(ms / 1000)}s`)), ms)))]).finally(() => clearTimeout(timer));
 };
 
-export function createBriefWriter({ DATA, config, agents, place, now = Date.now, writerMs = WRITER_MS, idleMs = IDLE_MS }: Deps) {
+export function createBriefWriter({ DATA, config, agents, judge, place, now = Date.now, writerMs = WRITER_MS, idleMs = IDLE_MS }: Deps) {
   const provider = config.models.fast || config.models.default;
   const runsFile = path.join(DATA, 'brief-runs.json');
   const readRuns = (): Tracked[] => {
@@ -169,11 +172,9 @@ export function createBriefWriter({ DATA, config, agents, place, now = Date.now,
     writeRuns([...readRuns().filter((r) => r.agentId !== run.agentId), { agentId: run.agentId, slug: run.slug, repoId: run.repoId, title: run.title, message: run.message, at: new Date(now()).toISOString(), reviewed: 0, tries: 0 }]);
   }
 
-  async function judge(run: Tracked, followUps: string[]) {
+  async function judgeLessons(run: Tracked, followUps: string[]) {
     const where = await place(run.slug);
-    const out = await agents.run({ title: `Brief lessons · ${run.title}`, prompt: lessonPrompt(run.message, followUps, lessons(run.repoId)), provider, labels: { source: 'cocopilot', kind: 'brief-lessons', work: run.slug }, ...where, timeoutMs: JUDGE_MS });
-    if (out.status !== 'done') throw new Error(out.error || `the lesson review ended ${out.status}`);
-    return parseLessons(out.finalText);
+    return judge.decide({ kind: 'brief-lessons', parse: parseLessons, title: `Brief lessons · ${run.title}`, prompt: lessonPrompt(run.message, followUps, lessons(run.repoId)), labels: { source: 'cocopilot', kind: 'brief-lessons', work: run.slug }, ...where, timeoutMs: JUDGE_MS });
   }
 
   // once the run ended (archived, or idle for an hour), its new follow-ups are judged; an archived run is then forgotten
@@ -189,7 +190,7 @@ export function createBriefWriter({ DATA, config, agents, place, now = Date.now,
     let kept: string[] = [];
     if (fresh.length) {
       try {
-        kept = addLessons(run.repoId, await judge(run, fresh), { work: run.slug, agentId: run.agentId });
+        kept = addLessons(run.repoId, await judgeLessons(run, fresh), { work: run.slug, agentId: run.agentId });
       } catch (e) {
         const tries = run.tries + 1;
         updateRun(run.agentId, tries >= MAX_TRIES ? null : { tries });

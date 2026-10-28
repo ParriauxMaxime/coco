@@ -76,6 +76,7 @@ The server port and bind address are command-line arguments, not config:
 | --- | --- | --- |
 | `models.default` | `"claude/claude-opus-5-5"` | Paseo provider/model for review plans, PR agents, gates and deep thread work. |
 | `models.fast` | `"claude/claude-sonnet-5-5"` | Paseo provider/model for small scoped thread agents. |
+| `models.judge` | `models.fast` | Paseo provider/model for small no-tool decisions (today: which follow-ups become brief lessons). A failed or unparseable answer falls back to `models.fast`. Each answer is logged to `data/judge-log.jsonl`, so a smaller or local model (e.g. Ollama through Paseo's `opencode` or `pi` provider) can be tried here first. |
 | `importRoots` | `["/tmp", "/private/tmp", "~/.paseo/worktrees"]` | Folders files may be imported from as work artifacts. Add your repo or another scratch folder if agents write kit files there. |
 | `agentWorktree` | `null` | How coco readies the worktree of a code-writing agent and checks its commits; per repo too (`repos[].settings`). See [Agent worktrees](#agent-worktrees). |
 | `preflight` | `null` | Checks shown on a kit-video dispatch and injected in its brief; per repo too. See [Preflight](#preflight). |
