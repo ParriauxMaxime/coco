@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DevServersConfig } from "./config.ts";
+import { httpGet } from "./http-get.ts";
 
 export type StackRow = { key: string | number; branch: string | null };
 export type StackOrder = (branch: string) => Promise<StackRow[] | null>;
@@ -14,9 +15,9 @@ export function cocoStackOrder({ url, timeoutMs }: DevServersConfig["coco"]): St
   if (!url) return undefined;
   return async (branch) => {
     try {
-      const response = await fetch(new URL(`/api/paseo-link/stack?branch=${encodeURIComponent(branch)}`, url), { signal: AbortSignal.timeout(timeoutMs) });
-      if (!response.ok) return null;
-      const reply = stackReplySchema.safeParse(await response.json());
+      const response = await httpGet(new URL(`/api/paseo-link/stack?branch=${encodeURIComponent(branch)}`, url), timeoutMs);
+      if (response.status < 200 || response.status >= 300) return null;
+      const reply = stackReplySchema.safeParse(JSON.parse(response.body));
       if (!reply.success) return null;
       return reply.data.work ? reply.data.rows : [];
     } catch {

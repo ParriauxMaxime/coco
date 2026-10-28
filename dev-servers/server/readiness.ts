@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import type { ServerState } from "../shared/states.ts";
 import type { ProjectConfig } from "./config.ts";
+import { httpGet } from "./http-get.ts";
 
 export type LogPatterns = { progress?: RegExp; ready?: RegExp; crash?: RegExp; rebuild?: RegExp };
 export type LineKind = "crash" | "rebuild" | "ready" | "progress";
@@ -155,9 +156,8 @@ export type HttpProbe = { path: string; bodyIncludes?: string };
 
 export async function probeHttp(origin: string, { path, bodyIncludes }: HttpProbe, timeoutMs = 2000): Promise<boolean> {
   try {
-    const response = await fetch(new URL(path, origin), { signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
-    const body = await response.text();
-    return response.status < 400 && (bodyIncludes === undefined || body.includes(bodyIncludes));
+    const { status, body } = await httpGet(new URL(path, origin), timeoutMs);
+    return status < 400 && (bodyIncludes === undefined || body.includes(bodyIncludes));
   } catch {
     return false;
   }
