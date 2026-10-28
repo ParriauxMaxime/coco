@@ -1352,7 +1352,10 @@ wait for and crop to, `eval` JS run first (click a tab) and `colorScheme`
 light or dark. Other hosts are refused unless listed in `screenshot.hosts`.
 The same capture is `GET /api/screenshot?url=%23%2Fagents&w=1200&h=800`
 (image/png, `X-Console-Errors` the error count; `&json=1` for
-`{ png: base64, errors, … }`), handy from a script or the browser. coco keeps
+`{ png: base64, errors, … }`), handy from a script or the browser; `selector`
+and `eval` go only by `POST /api/screenshot` with a JSON body (the tool's
+way), and a request another site's page sends (`Sec-Fetch-Site` other than
+same-origin or none) is refused, so no web page can run JS on coco. coco keeps
 one Chrome for all captures (a fresh tab each), started on the first one and
 closed after 5 idle minutes or when the server stops; set `screenshot.chrome`
 when Chrome is not at the macOS default path.

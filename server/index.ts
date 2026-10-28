@@ -508,7 +508,7 @@ async function api(req: Req, res: Res, url: URL) {
       console.error('client error', line);
       return send(res, 204, '');
     }
-    if (root === 'screenshot' && req.method === 'GET') return screenshots.handle(res, url, send);
+    if (root === 'screenshot' && (req.method === 'GET' || req.method === 'POST')) return screenshots.handle(req, res, url, readBody, send);
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo' && a) return paseoHealth.handle(req, res, parts, readBody, send);

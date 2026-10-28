@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
-import type { Res, Send } from './core-types.ts';
+import type { ReadBody, Req, Res, Send } from './core-types.ts';
 
 const IDLE_MS = 5 * 60 * 1000;
 const CMD_MS = 30_000;
@@ -35,6 +35,12 @@ export function resolveTarget(target: string, origin: string, hosts: string[] = 
   const host = u.hostname.toLowerCase();
   const allowed = LOOPBACK.has(host) || host.endsWith('.localhost') || u.host === new URL(origin).host || hosts.some((h) => h.toLowerCase() === host || h.toLowerCase() === u.host);
   return allowed ? { url: u.href } : { error: `host not allowed: ${u.host} (coco, localhost dev servers and screenshot.hosts only)` };
+}
+
+// a browser says where a request comes from: only coco's own pages (same-origin) or the owner typing the URL (none) may drive the headless Chrome
+export function crossSite(req: { headers: Record<string, string | string[] | undefined> }): string | null {
+  const site = req.headers['sec-fetch-site'];
+  return site === undefined || site === 'same-origin' || site === 'none' ? null : `screenshots are refused from another site (Sec-Fetch-Site: ${site})`;
 }
 
 async function launch(chromePath: string): Promise<Browser> {
@@ -207,13 +213,25 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
     }
   }
 
-  // GET /api/screenshot?url=&w=&h=&waitMs=&selector=&eval=&colorScheme=  → image/png (X-Console-Errors: count); &json=1 → { png: base64, errors, … }
-  async function handle(res: Res, url: URL, send: Send) {
-    const q = url.searchParams;
-    const scheme = q.get('colorScheme');
+  // GET /api/screenshot?url=&w=&h=&waitMs=&colorScheme=  → image/png (X-Console-Errors: count); &json=1 → { png: base64, errors, … }
+  // POST /api/screenshot {url, w, h, waitMs, colorScheme, selector, eval, json}: selector and eval only here, so a link or an <img> cannot run JS on coco
+  async function handle(req: Req, res: Res, url: URL, readBody: ReadBody, send: Send) {
     try {
-      const shot = await capture({ url: q.get('url') || '', width: Number(q.get('w') || q.get('width')) || undefined, height: Number(q.get('h') || q.get('height')) || undefined, waitMs: q.has('waitMs') ? Number(q.get('waitMs')) : undefined, selector: q.get('selector') || undefined, eval: q.get('eval') || undefined, colorScheme: scheme === 'dark' || scheme === 'light' ? scheme : undefined });
-      if (q.has('json')) return send(res, 200, { ...shot, png: shot.png.toString('base64') });
+      const refused = crossSite(req);
+      if (refused) throw new HttpError(403, refused);
+      let q: Record<string, unknown> = Object.fromEntries(url.searchParams);
+      if (req.method === 'POST') {
+        try {
+          q = JSON.parse((await readBody(req)) || '{}') || {};
+        } catch {
+          throw new HttpError(400, 'the body is not JSON');
+        }
+      } else if (q.eval !== undefined || q.selector !== undefined) throw new HttpError(405, 'selector and eval go by POST /api/screenshot with a JSON body');
+      const num = (v: unknown) => (v === undefined || v === '' ? undefined : Number(v));
+      const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+      const scheme = q.colorScheme;
+      const shot = await capture({ url: String(q.url ?? ''), width: num(q.w ?? q.width) || undefined, height: num(q.h ?? q.height) || undefined, waitMs: num(q.waitMs), selector: str(q.selector), eval: str(q.eval), colorScheme: scheme === 'dark' || scheme === 'light' ? scheme : undefined });
+      if (q.json !== undefined && q.json !== false) return send(res, 200, { ...shot, png: shot.png.toString('base64') });
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'X-Console-Errors': String(shot.errors.length) });
       return res.end(shot.png);
     } catch (e) {

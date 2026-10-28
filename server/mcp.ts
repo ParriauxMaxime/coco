@@ -505,9 +505,7 @@ server.tool('screenshot', `See a page as ${OWNER} would: coco renders it in a he
   colorScheme: z.enum(['light', 'dark']).optional(),
   out: z.string().optional().describe('absolute path to also save the PNG to (for attach_media)'),
 }, async ({ url, width, height, waitMs, selector, eval: js, colorScheme, out }) => {
-  const q = new URLSearchParams({ url, json: '1' });
-  for (const [k, v] of Object.entries({ w: width, h: height, waitMs, selector, eval: js, colorScheme })) if (v !== undefined) q.set(k, String(v));
-  const r = await coco('GET', `/api/screenshot?${q}`);
+  const r = await coco('POST', '/api/screenshot', { url, json: true, w: width, h: height, waitMs, selector, eval: js, colorScheme });
   if (!r.ok) return refused(`screenshot failed: ${r.error}`);
   const { png, ...facts } = r.data;
   if (out) {
