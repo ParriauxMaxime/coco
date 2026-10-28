@@ -1372,13 +1372,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       }
       if (req.method === 'POST') return send(res, 200, await post(slug, key, await body()));
       if (req.method === 'PUT') return send(res, 200, await regroup(slug, key, (await body()).groupId));
-      let thread = await ingest(slug, key);
+      const thread = await ingest(slug, key);
       follow(slug, key).catch(() => {});
       const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
-      if (group?.kind === 'code' && group.status === 'active') {
-        await sweep(slug, group.id).catch(() => 0);
-        thread = read(slug, key);
-      }
+      // in the background: its writes wait on the thread locks, and each thread it adds a commit to (or the unlinked list) notifies the open pages
+      if (group?.kind === 'code' && group.status === 'active') void sweep(slug, group.id).catch(() => 0);
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
       const { work, ref } = check(slug, key);
       const deps = group?.kind === 'code' && group.worktree && worktrees?.installing?.(group.worktree) ? 'installing' : null;
