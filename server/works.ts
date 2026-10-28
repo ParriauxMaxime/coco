@@ -204,7 +204,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
   const prNode = (number: number, fresh = false) => prCache(String(number), () => fetchPrs(number), fresh);
 
   async function prInfo(number: number | null | undefined, fresh = false): Promise<PrInfo> {
-    if (!number) return { number: null, state: 'PLANNED', isDraft: false, ci: 'none', checks: [], reviewers: [], additions: 0, deletions: 0, changedFiles: 0 };
+    // no PR: no diff numbers, rather than a "0 files" that reads as an empty branch
+    if (!number) return { number: null, state: 'PLANNED', isDraft: false, ci: 'none', checks: [], reviewers: [] };
     return prNode(number, fresh).then((n) => n.info, (e: Error) => ({ number, error: e.message }));
   }
   function toPrInfo(d: GhPr): PrInfo {
