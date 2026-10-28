@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
+import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import { workHref } from '../prefs.ts';
 import { reloadOverview } from '../overview.ts';
@@ -12,7 +13,9 @@ type Form = { slug: string; title: string; stackText: string; notionProduct: str
 const stackOf = (text: string) => text.split(/[\s,→>-]+/).filter(Boolean).map((n) => Number(n.replace('#', ''))).filter(Boolean);
 
 export default function NewWorkPage({ projectId, projectName }: { projectId: string; projectName: string }) {
-  const [form, setForm] = useState<Form>({ slug: projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), title: projectName, stackText: '', notionProduct: '', notionDecisions: '' });
+  const [blank] = useState<Form>(() => ({ slug: projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-'), title: projectName, stackText: '', notionProduct: '', notionDecisions: '' }));
+  const [form, setForm] = useState(blank);
+  useUnsaved(JSON.stringify(form) !== JSON.stringify(blank));
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });

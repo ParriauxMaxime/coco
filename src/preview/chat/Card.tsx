@@ -4,6 +4,7 @@ import { api, errorMessage } from '../../api.ts';
 import Blocks, { Inline } from '../../components/Blocks.tsx';
 import { pendingClass } from '../../components/action.ts';
 import ErrorBoundary from '../../ErrorBoundary.tsx';
+import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
 import OptionPicker, { Diagram, Rec } from './OptionPicker.tsx';
@@ -280,6 +281,7 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
     root.current?.querySelector<HTMLElement>('.dp-cd-b input:not([disabled]), .dp-cd-b textarea:not([disabled]), .dp-cd-b select:not([disabled])')?.focus({ preventScroll: true });
   }, []);
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
+  useUnsaved(open && JSON.stringify(d) !== JSON.stringify(draftOf(c)));
   const ok = isValid(c, d);
   const answer = (key: string, body: CardAnswerBody) => run(key, () => api.answerCard(c.id, body));
   const submit = () => {

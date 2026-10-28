@@ -48,9 +48,13 @@ taken exits quietly.
   or a lazy chunk of its old build is gone (`vite:preloadError`, "Failed to
   fetch dynamically imported module"; a missing `/assets/` file answers 404),
   it reloads once the server answers, keeping its hash and layout.
-- It never reloads while a text box holds unsent text, a focused field has
-  text or an in-app dialog is open: the status bar shows "coco updated ·
-  Reload" and the reload happens once the box is empty. A second automatic
+- It never reloads while something is unsent or unsaved: a composer with text
+  or files, a card whose choice, fields or Other text you changed, the New
+  work and New agent forms, unsaved notes, a decision rationale, the rules,
+  handoff and feedback boxes, a file editor with changes, or an in-app dialog
+  open (each registers through `useUnsaved` in `src/updates.ts`); saved text
+  in a box does not count. The status bar then shows "coco updated · Reload"
+  and the reload happens once nothing is left. A second automatic
   reload within 20 s waits for the click instead.
 - Composers (agent and Ask chats, threads, findings, commit review, dispatch)
   keep their unsent text per tab in sessionStorage (`coco.draft.<key>`), so a

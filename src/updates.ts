@@ -1,6 +1,7 @@
 // A restart or a rebuild of coco under an open page: the page reloads onto the new build (its layout and hash kept) once the server
 // answers again, found on reconnect, on focus, on the status bar's poll of /api/server, or when a chunk of the old build is gone.
-// Never while words wait unsent in a box: the status bar then offers the reload, and it happens once the box is empty.
+// Never while words or choices wait unsent or unsaved: the status bar then offers the reload, and it happens once they are gone.
+import { useEffect } from 'react';
 import { create } from 'zustand';
 import { api } from './api.ts';
 import { connected, onConnection } from './live.ts';
@@ -19,14 +20,25 @@ export const useUpdates = create<{ offline: boolean; stale: boolean }>(() => ({ 
 
 export const chunkGone = (e: unknown) => CHUNK.test(e instanceof Error ? e.message : String(e));
 
+// what the owner has not sent or saved yet: each box, card, form or dialog that holds some registers while it does
+const unsaved = new Set<object>();
+export function useUnsaved(dirty: boolean) {
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const mark = {};
+    unsaved.add(mark);
+    return () => void unsaved.delete(mark);
+  }, [dirty]);
+}
+
 const TEXT_INPUTS = new Set(['text', 'search', 'url', 'email', '']);
-// unsent words: a text box that holds some (Monaco's own aside), a focused field with text, or an in-app dialog open
+// unsaved words: a registered box, card, form or dialog, or a focused field not held by React whose text was changed (Monaco's own aside)
 function typing() {
-  if (document.querySelector('[data-coco-dialog]')) return true;
+  if (unsaved.size) return true;
   const el = document.activeElement;
-  if (el instanceof HTMLInputElement && TEXT_INPUTS.has(el.type) && el.value.trim()) return true;
-  if (el instanceof HTMLElement && el.isContentEditable && el.textContent?.trim() && !el.closest('.monaco-editor')) return true;
-  return [...document.querySelectorAll('textarea')].some((t) => !t.disabled && !t.readOnly && t.value.trim() && !t.closest('.monaco-editor'));
+  if (!(el instanceof HTMLElement) || el.closest('.monaco-editor')) return false;
+  if (el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && TEXT_INPUTS.has(el.type))) return Boolean(el.value.trim()) && el.value !== el.defaultValue;
+  return el.isContentEditable && Boolean(el.textContent?.trim());
 }
 
 const recent = () => {

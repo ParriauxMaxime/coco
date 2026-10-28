@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
+import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import { Header } from '../AgentTab.tsx';
 import { Composer, Log } from '../chat/Composer.tsx';
@@ -67,6 +68,7 @@ export default function NewAgentPage({ place: asked }: { place?: string | null }
     if (d != null) setText(noted(d));
   }, [seq]);
   useEffect(() => setText(noted), [isApp, note]);
+  useUnsaved(Boolean((note ? text.replace(note, '') : text).trim()));
 
   const model = useModelChoice('new-agent');
   const { catalog } = useModelCatalog();

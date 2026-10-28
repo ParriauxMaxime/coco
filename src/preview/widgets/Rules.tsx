@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
+import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import { ErrorNote, Loading } from '../pages/Page.tsx';
 import CardView from '../chat/Card.tsx';
@@ -47,6 +48,7 @@ export default function RulesLedger({ slug = null }: { slug?: string | null }) {
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [excerpt, setExcerpt] = useState('');
+  useUnsaved(Boolean(text.trim() || excerpt.trim()));
   const [target, setTarget] = useState(slug ? 'work' : 'global');
   const [showRetired, setShowRetired] = useState(false);
   const load = () => api.rules(slug).then(setData, (e) => setError(errorMessage(e)));

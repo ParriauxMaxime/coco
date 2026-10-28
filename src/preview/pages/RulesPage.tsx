@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
+import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import { ProposedRules, RuleRow } from '../widgets/Rules.tsx';
 import type { Patch } from '../widgets/Rules.tsx';
@@ -15,6 +16,7 @@ export default function RulesPage() {
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [excerpt, setExcerpt] = useState('');
+  useUnsaved(Boolean(text.trim() || excerpt.trim()));
   const [showRetired, setShowRetired] = useState(false);
   const load = () => api.rules(null).then(setData, (e) => setError(errorMessage(e)));
   useEffect(() => { load(); }, []);

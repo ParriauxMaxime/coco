@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
+import { useUnsaved } from '../updates.ts';
 import { WorkContext } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import Icon from './Icon.tsx';
@@ -90,6 +91,7 @@ type DialogProps = { agentId: string; handoff: Handoff | null; onClose: () => vo
 function HandoffDialog({ agentId, handoff, onClose, onStarted }: DialogProps) {
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [note, setNote] = useState('');
+  useUnsaved(Boolean(note.trim()));
   const [mode, setMode] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');

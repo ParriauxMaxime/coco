@@ -7,6 +7,7 @@ import { CodeRefScope } from '../components/CodeRefs.tsx';
 import { pendingClass, useAction } from '../components/action.ts';
 import { decisionBullet, decisionSummary, isLive, validChoice } from '../../server/decisions.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
+import { useUnsaved } from '../updates.ts';
 import OptionPicker, { MoreButton, Sure } from './chat/OptionPicker.tsx';
 import RowsPicker from './chat/RowsPicker.tsx';
 import Icon from './Icon.tsx';
@@ -91,6 +92,7 @@ type DetailProps = { d: DecisionView; slug: string; pr?: WorkPr; onOpenPr?: (key
 export function DecisionDetail({ d, slug, pr, onOpenPr, onDecide, onReload, talk, keys }: DetailProps) {
   const [choice, setChoice] = useState<DecisionChoice>(() => initialChoice(d));
   const [rationale, setRationale] = useState(d.rationale || '');
+  useUnsaved(rationale.trim() !== (d.rationale || '').trim());
   const { pending, busy, run } = useAction();
   const key = threadKey.decision(d.id);
   const summary = useThreadSummary(slug, key);

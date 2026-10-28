@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../components/Markdown.tsx';
 import { pendingClass, useAction } from '../components/action.ts';
+import { useUnsaved } from '../updates.ts';
 import type { StackRow } from '../types.ts';
 import Icon from './Icon.tsx';
 import { Section } from './pages/Page.tsx';
@@ -12,7 +13,9 @@ const TITLE_MAX = 100;
 
 function useDraft(base: string) {
   const [draft, setDraft] = useState<string | null>(null);
-  return { value: draft ?? base, set: setDraft, dirty: draft !== null && draft !== base, reset: () => setDraft(null) };
+  const dirty = draft !== null && draft !== base;
+  useUnsaved(dirty);
+  return { value: draft ?? base, set: setDraft, dirty, reset: () => setDraft(null) };
 }
 
 function Actions({ dirty, busy, pending, onRevert, onSave }: { dirty: boolean; busy: boolean; pending: boolean; onRevert: () => void; onSave: () => void }) {

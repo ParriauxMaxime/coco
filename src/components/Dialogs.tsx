@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Modal from '../preview/Modal.tsx';
+import { useUnsaved } from '../updates.ts';
 
 // In-app stand-ins for window.prompt / confirm, which the desktop app (Electron) does not show: each returns a promise.
 // ask({ title, fields }) → the values or null · confirmDialog({ title }) → true or false · choose({ title, choices }) → a choice's value or null
@@ -61,6 +62,7 @@ function Dialog({ req }: { req: Request }) {
 // beside <Toasts />: the oldest open request on top of the page
 export default function Dialogs() {
   const req = useDialogs((s) => s.list[0]);
+  useUnsaved(Boolean(req));
   if (!req) return null;
-  return <div className="dp dp-float" data-coco-dialog><Dialog key={req.id} req={req} /></div>;
+  return <div className="dp dp-float"><Dialog key={req.id} req={req} /></div>;
 }

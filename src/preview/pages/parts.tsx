@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
+import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import './parts.css';
 
@@ -25,6 +26,7 @@ export function FeedbackForm({ node, title, verdicts = ['accurate', 'partly', 'w
   const [verdict, setVerdict] = useState('');
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
+  useUnsaved(Boolean(text.trim()));
   const send = async () => {
     setStatus('Sending…');
     try {
@@ -67,6 +69,7 @@ export function FileEditor({ load, save, label }: { load: () => Promise<string>;
     return () => { alive = false; };
   }, [load]);
   const dirty = text !== initial;
+  useUnsaved(dirty);
   const onSave = async () => {
     setStatus('Saving…');
     try {

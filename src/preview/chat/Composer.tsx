@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import Icon from '../Icon.tsx';
 import { pendingClass } from '../../components/action.ts';
+import { useUnsaved } from '../../updates.ts';
 import { FILES_ONLY, MAX_ATTACHMENTS, fileProblem, isImage, sizeOf } from './Attachments.tsx';
 import type { UploadRef } from '../../types.ts';
 
@@ -148,6 +149,8 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
     setFiles((prev) => prev.filter((x) => x.key !== key));
   };
 
+  // a text held by the caller is the caller's to count
+  useUnsaved((!controlled && text.trim() !== initial.trim()) || files.length > 0);
   const uploading = files.some((f) => !f.ref);
   const empty = withText && !allowEmpty && !text.trim() && !files.length;
   const send = async () => {
