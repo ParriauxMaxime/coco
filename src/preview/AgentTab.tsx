@@ -17,6 +17,7 @@ import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } f
 import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
 import { ContextRing } from './Ring.tsx';
+import { HandoffControls } from './Handoff.tsx';
 import Thread, { threadLabel, useThreadsOf } from '../components/Thread.tsx';
 import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadSummary, UploadRef } from '../types.ts';
 import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
@@ -28,9 +29,9 @@ import { SubagentParent } from './subagents.ts';
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
 
-// serverId: given outside a work, where no work agent list carries it
-type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; serverId?: string | null };
-export function Header({ title, kind, pr, state, agentId, metrics, chips, serverId }: HeaderProps) {
+// serverId: given outside a work, where no work agent list carries it; handoff: its Hand off button and where it was handed from or to
+type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; serverId?: string | null; handoff?: boolean };
+export function Header({ title, kind, pr, state, agentId, metrics, chips, serverId, handoff = false }: HeaderProps) {
   const listedServer = useServerId(useContext(WorkContext)?.slug ?? '');
   const href = paseoLink(serverId ?? listedServer, agentId);
   const usage = metrics ? usageLine(metrics) : '';
@@ -45,6 +46,7 @@ export function Header({ title, kind, pr, state, agentId, metrics, chips, server
       <span className="dp-sp" />
       {usage && metrics && <span className="dp-xs dp-t3 dp-ag-usage" title={usageTitle(metrics)}>{usage}</span>}
       <span className="dp-xs dp-t3"><ContextRing used={metrics?.contextTokens} max={metrics?.contextMax} label /></span>
+      {handoff && agentId && <HandoffControls agentId={agentId} metrics={metrics} archived={state === 'archived'} />}
       {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} /><span className="dp-ag-paseo">Open in Paseo</span></a>}
     </div>
   );
@@ -213,7 +215,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   );
   return (
     <div className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={toggle} />
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={toggle} handoff />
       {keys.length && !raw ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
     </div>
   );

@@ -590,7 +590,12 @@ export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
 // any Paseo agent, in a work or not (GET /api/agent-chat/<agentId>)
-export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; provider: string | null; thinking: string | null; serverId: string | null; openCards: number } & AgentMetrics;
+export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; provider: string | null; thinking: string | null; mode?: string | null; serverId: string | null; openCards: number } & AgentMetrics;
+// an agent handed to a fresh one (server/handoff.ts): step summary (the old one writes its briefing), starting, done or failed
+export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: 'summary' | 'starting' | 'done' | 'failed'; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null };
+// GET /api/agent-chat/<agentId>/handoff: to, its hand-off to a new agent; from, the one it took over from
+export type AgentHandoffs = { to: Handoff | null; from: Handoff | null };
+export type HandoffBody = { note?: string; mode?: string } & ModelChoice;
 // estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them; the context window at the last turn
 export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens?: number | null; contextMax?: number | null };
 export type UsageWindow = { id: string; label: string; shortLabel?: string; summary?: boolean; usedPct?: number | null; resetsAt?: string | null; tone?: 'default' | 'ok' | 'warning' | 'danger' };

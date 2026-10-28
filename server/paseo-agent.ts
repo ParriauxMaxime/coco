@@ -53,7 +53,7 @@ export type DaemonAgent = {
   timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string } & AgentInput): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; lastUsage?: PaseoUsage | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; currentModeId?: string | null; cwd?: string | null; workspaceId?: string | null; lastUsage?: PaseoUsage | null } | null } | null>;
   archive(): Promise<unknown>;
 } & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };

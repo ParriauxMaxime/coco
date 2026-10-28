@@ -26,6 +26,7 @@ import { createRules } from './rules.ts';
 import { createGates, runSkill } from './gates.ts';
 import { createDispatch } from './dispatch.ts';
 import { createNewAgent } from './new-agent.ts';
+import { createHandoff } from './handoff.ts';
 import { createPreflight, isVideoEntry } from './preflight.ts';
 import { parseKey } from './stack.ts';
 import { createBriefWriter } from './brief-writer.ts';
@@ -209,6 +210,7 @@ permissions.onAgent((a, removed) => {
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), models, subagents });
+const handoff = createHandoff({ DATA, owner: config.owner.name, defaultModel: config.models.default, client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, models, link: paseoLink });
 const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, permissions, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
 for (const on of [cards.onChange, threads.onChange, ask.onChange, permissions.onChange]) on(() => waiting.touch());
 const events = createHub();
@@ -534,6 +536,7 @@ async function api(req: Req, res: Res, url: URL) {
       }
     }
     if (root === 'agent-chat' && b === 'subagents') return subagents.handle(req, res, parts, send);
+    if (root === 'agent-chat' && a && b === 'handoff') return handoff.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'agents') || root === 'agent-chat') return workAgents.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'preflight' && req.method === 'GET') {

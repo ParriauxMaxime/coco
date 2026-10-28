@@ -1369,6 +1369,38 @@ open PRs); `POST /api/new-agent` takes `place` (`{kind: 'repo'|'fresh', repoId}`
 an unknown model or a mode Paseo does not list, and answers `{agentId,
 workspaceId, cwd, title}`.
 
+## Hand off (a fresh agent takes over)
+
+When an agent's context fills up, **Hand off** in its header (a work's `ag-`
+tab or `#/agents/<agentId>`) passes its task to a new agent without the Paseo
+app. The button is always there on a live agent, amber once its context ring
+is amber (70%), red from 90%. Its dialog takes an optional note for the new
+agent and the model, thinking and mode (the old agent's by default).
+
+1. **Briefing**: coco sends the old agent a `[coco hand-off]` message asking
+   for the paseo-handoff skill's briefing (Task, Context, Relevant files,
+   Current state, What was tried, Decisions, Next steps, Open questions,
+   Constraints) between `<handoff>` tags as its whole reply, your note
+   included. If no such reply comes within 5 minutes (or the agent is
+   archived), coco writes the briefing itself from the last 16 owner and
+   agent messages of its transcript, so the hand-off still happens. The
+   briefing is saved as `data/handoffs/<old agent>.md`.
+2. **New agent**: starts in the same workspace and directory, with the same
+   labels (work, PR, kind; an Ask conversation's agent becomes a plain agent
+   of its work), linked to the same PR row when the old one was, with the
+   briefing and your note as its first message.
+3. **Done**: the old agent is archived once idle (forced after a minute), and
+   the page moves to the new agent.
+
+The dialog shows these steps while they run; it can be closed, and the header
+then shows **Handing off…**. Afterwards the old agent's header links
+**Handed off to <title>** and the new one's **from <title>**. One hand-off per
+agent; a failed one (shown as **Hand-off failed**, its error on hover) can be
+tried again. Routes: `POST /api/agent-chat/<agentId>/handoff` (`note`,
+`provider`, `thinking`, `mode`) starts it and answers at once;
+`GET /api/agent-chat/<agentId>/handoff` → `{ to, from }`, kept in
+`data/handoffs.json` (`server/handoff.ts`).
+
 ## Subagents (what an agent starts itself)
 
 An agent can start its own subagents (Claude's `Agent` or `Task` tool, in the

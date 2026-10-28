@@ -1,0 +1,15 @@
+.dp-ho-link { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; text-decoration: none; max-width: 220px; white-space: nowrap; font: inherit; font-size: 11px; }
+.dp-ho-link > svg { flex: none; }
+.dp-ho-btn { gap: 4px; }
+.dp-ho-btn.dp-ho-warn { color: var(--dp-warn); border-color: color-mix(in srgb, var(--dp-warn) 45%, transparent); background: color-mix(in srgb, var(--dp-warn) 10%, transparent); }
+.dp-ho-btn.dp-ho-bad { color: var(--dp-on-accent); border-color: var(--dp-bad); background: var(--dp-bad); }
+@container ag-tab (max-width: 760px) { .dp-ho-quiet { display: none; } }
+.dp-ho-what { margin: 0; }
+.dp-ho-model { display: flex; align-items: center; gap: 8px; }
+.dp-ho-err { margin: 0; color: var(--dp-bad); }
+.dp-ho-steps { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.dp-ho-steps li { display: flex; align-items: center; gap: 8px; color: var(--dp-t3); }
+.dp-ho-steps li.dp-ho-past { color: var(--dp-t2); }
+.dp-ho-steps li.dp-ho-past svg { color: var(--dp-ok); }
+.dp-ho-steps li.dp-ho-now { color: var(--dp-t1); font-weight: 500; }
+.dp-ho-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--dp-line); flex: none; box-sizing: border-box; }

@@ -9,6 +9,7 @@ import type {
 import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { AgentInfo, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
+import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
 
 export type * from './types.ts';
 
@@ -142,6 +143,8 @@ export const api = {
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
   agentInfo: (agentId: string) => get<AgentInfo>(`/api/agent-chat/${encodeURIComponent(agentId)}`),
+  handoffs: (agentId: string) => get<AgentHandoffs>(`/api/agent-chat/${encodeURIComponent(agentId)}/handoff`),
+  handOff: (agentId: string, body: HandoffBody) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/handoff`, body).then(jsonOrError<{ handoff: Handoff }>),
   newAgentPlaces: (work?: string | null) => get<NewAgentPlaces>(`/api/new-agent${work ? `?work=${encodeURIComponent(work)}` : ''}`),
   newAgent: (body: NewAgentBody) => post<NewAgentStarted>('/api/new-agent', body),
   agentStop: (agentId: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/stop`).then(jsonOrError<{ ok: boolean }>),
