@@ -1,0 +1,25 @@
+{
+  "name": "coco-desktop",
+  "productName": "coco",
+  "version": "0.1.0",
+  "private": true,
+  "description": "cocopilot in its own window: starts the coco server when none answers, a menu bar icon, a dock badge and a global shortcut",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "icons": "swift scripts/icon.swift build/icon.png 512 && swift scripts/icon.swift build/trayTemplate.png 9 t && swift scripts/icon.swift build/trayTemplate@2x.png 18 t",
+    "pack": "node scripts/app-dir.mjs && electron-builder --mac --dir",
+    "install-app": "npm run pack && rm -rf /Applications/coco.app && cp -R dist/mac-arm64/coco.app /Applications/"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.parriauxmaxime.coco",
+    "productName": "coco",
+    "files": ["main.mjs", "preload.cjs", "app-dir.json", "build/trayTemplate*.png"],
+    "mac": { "icon": "build/icon.png", "category": "public.app-category.developer-tools", "target": "dir", "identity": null }
+  }
+}

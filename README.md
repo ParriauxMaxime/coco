@@ -36,6 +36,18 @@ Open <http://127.0.0.1:8777>. Until everything is set, the Dashboard shows
 a checklist: each missing step with its command, and a button that starts
 an agent to finish the setup. To go further, see [Configure](#configure).
 
+### Desktop app (macOS)
+
+```bash
+cd desktop && npm ci && npm run install-app
+```
+
+Builds an unsigned `coco.app` into `/Applications`. It opens coco in its own
+window and starts the server when none answers. Quitting leaves the server
+running for the agents. A menu bar parrot carries the "waiting on you" count,
+the dock badge shows it too, and ⌥⌘C brings coco forward from anywhere. Jobs
+that end while the window is in the background raise a notification.
+
 ![cocopilot on a demo stack: plan and a decision, code review, findings board, checklist gates](docs/media/overview.gif)
 
 *A demo stack: plan and a decision, code review, findings board, checklist

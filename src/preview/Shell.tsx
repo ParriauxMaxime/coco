@@ -11,6 +11,7 @@ import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './p
 import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
 import ServerStatus from './ServerStatus.tsx';
+import { desktop } from '../desktop.ts';
 import './preview.css';
 
 export type Command = { id: string; label: string; hint?: string; icon: IconName; run: () => void };
@@ -179,6 +180,8 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const { open: controls, toggle: toggleControls } = useBetaPanel();
   const { pending } = usePendingPermissions();
   const queue = useWaiting();
+  const owed = (queue?.count || 0) + pending.length;
+  useEffect(() => desktop?.setWaiting(owed), [owed]);
   const hasRituals = useConfig((s) => s.rituals.length > 0);
   const [palette, setPalette] = useState(false);
   const [waitOpen, setWaitOpen] = useState(false);

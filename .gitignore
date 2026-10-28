@@ -7,3 +7,4 @@ server/mcp-config.json
 coco.config.json
 .claude/
 paseo-plugin/node_modules
+desktop/app-dir.json

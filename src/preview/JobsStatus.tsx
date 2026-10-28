@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
 import { isLive, useJobs } from '../jobs.ts';
 import { toast } from '../components/Toast.tsx';
+import { notifyAway } from '../desktop.ts';
 import Icon from './Icon.tsx';
 import { ago } from './format.ts';
 import type { Job } from '../types.ts';
@@ -22,6 +23,7 @@ function useEndToasts(jobs: Job[]) {
       if (j.state === 'done') toast.success(`${j.label}: done`);
       else if (j.state === 'failed' || j.state === 'lost') toast.error(`${j.label}: ${j.error || j.state}`);
       else if (j.state === 'needs-you') toast.success(`${j.label} needs you: its agent waits on a permission`);
+      if (j.state !== 'running') notifyAway(j.label, j.state === 'needs-you' ? 'Its agent waits on a permission' : j.state === 'done' ? 'Done' : j.error || j.state);
     }
   }, [jobs]);
 }
