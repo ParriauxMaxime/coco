@@ -123,7 +123,7 @@ const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, mod
 
   const byId = new Map(comments.map((c) => [c.id, c]));
   return (
-    <div className="cc-editor-wrap">
+    <div className={`cc-editor-wrap${!original && modified ? ' cc-diff-new' : ''}`}>
       <div ref={hostRef} className="cc-editor" />
       {!mod && <div className="cc-editor-status">{error ? `Editor failed to load: ${error.message}` : 'Loading editor…'}</div>}
       {renderZone && zones.map((z) => {

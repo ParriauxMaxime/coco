@@ -3,6 +3,9 @@
 .cc-editor { flex: 1; min-height: 240px; width: 100%; }
 /* Monaco's diff editor reads className as a string on mouseup: an icon's svg there threw, so the click goes to the button around it */
 .cc-editor svg { pointer-events: none; }
+/* a new file: Monaco diffs its empty base as one removed empty line ("1 −"); hide that line, there is no base
+   (important: Monaco sets the original editor's visibility inline) */
+.cc-diff-new .editor.original, .cc-diff-new .diffOverview .original, .cc-diff-new .inline-deleted-margin-view-zone, .cc-diff-new .view-zones .line-delete { visibility: hidden !important; }
 .cc-editor-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dp-t3); font-size: 13px; pointer-events: none; }
 
 /* status of a comment: line tint in the editor, stripe on its card */
