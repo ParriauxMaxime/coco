@@ -76,6 +76,8 @@ export type CheckoutApi = Pick<RawDaemon, 'getCheckoutStatus' | 'getCheckoutDiff
 export type FilesApi = Pick<RawDaemon, 'listDirectory' | 'readFile' | 'writeFile' | 'subscribeFile'>;
 // the daemon's terminal and workspace script calls, as the Paseo app's terminal panel makes them (server/workspace-terminals.ts)
 export type TerminalApi = Pick<RawDaemon, 'listTerminals' | 'observeTerminals' | 'createTerminal' | 'observeTerminal' | 'sendTerminalInput' | 'killTerminal' | 'listWorkspaceScripts' | 'startWorkspaceScriptWithStatus' | 'stopWorkspaceScript'>;
+// the daemon's schedule calls, as `paseo schedule` makes them, and its projects to name a schedule's folder (server/schedules.ts)
+export type ScheduleApi = Pick<RawDaemon, 'scheduleList' | 'scheduleInspect' | 'scheduleLogs' | 'schedulePause' | 'scheduleResume' | 'scheduleRunOnce' | 'scheduleDelete' | 'scheduleCreate' | 'scheduleUpdate' | 'listProjects'>;
 export type DaemonClient = {
   workspaces: {
     list(opts: { page: { limit: number; cursor?: string } }): Promise<{ entries: WorkspaceEntry[]; pageInfo?: { nextCursor?: string } }>;
@@ -95,6 +97,7 @@ export type DaemonClient = {
   checkout?: CheckoutApi;
   files?: FilesApi;
   terminalApi?: TerminalApi;
+  scheduleApi?: ScheduleApi;
 } & SubagentApi;
 type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
 
@@ -151,7 +154,7 @@ export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}
   const client = { ...api, close, connection, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
   Object.assign(client, { setAgentMode: (id: string, m: string) => raw.setAgentMode(id, m), updateAgent: (id: string, u: { name?: string }) => raw.updateAgent(id, u), listAgentTimelinePrompts: (id: string) => raw.listAgentTimelinePrompts(id) });
   Object.assign(client, { listProviderSubagents:(id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts), checkout: raw, files: raw });
-  Object.assign(client, { terminalApi: raw });
+  Object.assign(client, { terminalApi: raw, scheduleApi: raw });
   // with reconnect on, the SDK's first connect waits for the daemon forever: past the deadline coco reports it unreachable and tries again later
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

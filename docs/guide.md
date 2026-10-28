@@ -1596,6 +1596,50 @@ open PRs); `POST /api/new-agent` takes `place` (`{kind: 'repo'|'fresh', repoId}`
 an unknown model or a mode Paseo does not list, and answers `{agentId,
 workspaceId, cwd, title}`.
 
+## Schedules (Paseo's recurring runs)
+
+`#/schedules` (sidebar, activity bar, ⌘K **Schedules** and **New
+schedule…**) manages the schedules the Paseo app lists: kept by Paseo's
+daemon, they run with coco closed, each tick starting a new agent with the
+prompt (or, for a schedule made from an agent, sending it to that agent). A
+row shows the name, the cadence in words (`every day at 07:00
+(Europe/Paris)`, `on weekdays at 09:30`, `every 15 minutes`, `once, on 21 Oct
+at 20:10` for a one-run timer, else the cron itself), the next run or since
+when it is paused, the provider and model, the Paseo project its folder
+belongs to, a worktree chip when each run gets its own worktree, and the last
+run's result with **Agent** (`#/agents/<id>`). A click on the row opens its
+prompt and runs, newest first, each with its output, error, duration and
+agent.
+
+- **Pause** / **Resume**; **Run once** (after an in-app confirm) runs it now
+  without touching its cadence; **Delete** (in-app confirm, danger) drops the
+  schedule and its logs, never the agents its runs started.
+- **New schedule** and the pencil (`#/schedules/new`, `#/schedules/<id>/edit`)
+  share one form: name, prompt, cadence (**At a time**: a time on every day,
+  weekdays, weekends or one week day; **Every** n minutes, hours or days;
+  **Cron**: five fields, 0 is Sunday; a time zone for the first and last,
+  the browser's by default), the agent's model, thinking and mode from the
+  model picker (every Paseo provider, `claude-perso` included), the Paseo
+  project or another folder it runs in, and a new worktree per run. A
+  schedule made from an agent only changes its name, prompt and cadence.
+  Nothing runs on create: the first run comes at the next tick.
+- Rituals stay coco's own one-off launches. A ritual's **Schedule…** button
+  (or **Start from a ritual** in the form) opens a new schedule with that
+  ritual's prompt and title, `{briefsDir}`, `{owner}` and the fields filled
+  on the Rituals page filled in; a placeholder left over is flagged, since a
+  run fills nothing in.
+
+Routes (server/schedules.ts, through the Paseo client): `GET /api/schedules`
+(`schedules` with each one's last run, `projects`, `rituals`), `GET
+/api/schedules/<id>/logs`, `POST /api/schedules`, `PUT /api/schedules/<id>`,
+`POST /api/schedules/<id>/pause|resume|run-once`, `DELETE
+/api/schedules/<id>`. A body is checked first: a prompt up to 50 000
+characters, a one-line name, a cron Paseo parses with a time zone the system
+knows, an interval from a minute to a year (sent as cron when it maps
+exactly, as `paseo schedule --every` does), a `<provider>/<model>` the model
+picker offers with its thinking level and mode, an existing absolute folder;
+an unknown id is a 404, a refusal from Paseo a 409, Paseo away a 503.
+
 ## Hand off (a fresh agent takes over)
 
 When an agent's context fills up, **Hand off** in its header (a work's `ag-`
@@ -1837,7 +1881,9 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
   no work. `GET /api/agent-chat/<agentId>` gives its title, kind, work, PR,
   status, model, thinking, open cards and usage; the page polls it every 5 s.
 - Rituals: one form per entry of `rituals` in the config; a launched one's
-  history row has Chat.
+  history row has Chat; **Schedule…** turns the ritual into a Paseo schedule.
+- Schedules (`#/schedules`): Paseo's recurring runs, see
+  [Schedules](#schedules-paseos-recurring-runs).
 
 ## Personas
 

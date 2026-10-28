@@ -44,7 +44,7 @@ export default function RitualsPage({ preset }: { preset?: string }) {
       <PageHead
         icon="sparkles"
         title="Rituals"
-        sub={<>Each ritual starts a fresh Paseo agent in your repo (<span className="dp-t1">{model || 'default model'}</span>, auto mode) with its prompt or skill. You press the button; agents never push, post or send.</>}
+        sub={<>Each ritual starts a fresh Paseo agent in your repo (<span className="dp-t1">{model || 'default model'}</span>, auto mode) with its prompt or skill. You press the button; agents never push, post or send. To run one on a cadence, <a href="#/schedules">schedule</a> it.</>}
       />
       {!loaded ? <Section title="Launch"><Loading what="Loading rituals…" /></Section> : !spec ? (
         <Section title="Launch">
@@ -89,6 +89,7 @@ export default function RitualsPage({ preset }: { preset?: string }) {
               </div>
               <div className="dp-rit-ff">
                 <button className="dp-btn dp-primary" type="submit" disabled={!ready || busy}><Icon name="play" size={14} />Launch</button>
+                <a className="dp-btn" href={`#/schedules/new?${new URLSearchParams({ ritual: kind, ...Object.fromEntries(fields.filter((f) => form[f]?.trim()).map((f) => [f, form[f].trim()])) })}`} title="A Paseo schedule that runs this ritual's prompt on a cadence, with the fields filled here"><Icon name="calendar" size={14} />Schedule…</a>
                 {status && status.tone !== 'bad' && <span className={`dp-row dp-g6 dp-sm dp-ell ${status.tone === 'ok' ? 'dp-rit-ok' : 'dp-t3'}`}>{status.tone === 'busy' ? <span className="dp-ag-dot dp-ag-running" /> : <Icon name="check" size={12} />}<span className="dp-ell">{status.text}</span></span>}
               </div>
               {status?.tone === 'bad' && <div className="dp-rit-err"><ErrorNote>{status.text}</ErrorNote></div>}

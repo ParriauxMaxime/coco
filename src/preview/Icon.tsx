@@ -59,7 +59,9 @@ export type IconName =
   | 'activity'
   | 'wrench'
   | 'brain'
-  | 'git-fork';
+  | 'git-fork'
+  | 'calendar'
+  | 'pause';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   archive: (
@@ -230,6 +232,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   settings: <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
   play: <path d="M6 4l14 8-14 8z" />,
+  pause: <path d="M7 4h3v16H7zM14 4h3v16h-3z" />,
+  calendar: (
+    <>
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M16 2v4M8 2v4M3 10h18M12 14v3l2 1" />
+    </>
+  ),
   'external-link': (
     <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
   ),

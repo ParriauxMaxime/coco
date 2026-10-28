@@ -16,6 +16,7 @@ import NewWorkPage from './pages/NewWorkPage.tsx';
 import PersonaPage from './pages/PersonaPage.tsx';
 import SkillPage from './pages/SkillPage.tsx';
 import RitualsPage from './pages/RitualsPage.tsx';
+import SchedulesPage from './pages/SchedulesPage.tsx';
 import RulesPage from './pages/RulesPage.tsx';
 import AskPage from './pages/AskPage.tsx';
 import PurgePage from './pages/PurgePage.tsx';
@@ -40,6 +41,11 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (root === 'agents') return { crumbs: [page('Agents')], node: <AgentsPage /> };
   if (root === 'projects') return { crumbs: [page('Projects')], node: <ProjectsPage /> };
   if (root === 'rules') return { crumbs: [page('Rules')], node: <RulesPage /> };
+  if (root === 'schedules') {
+    const [sid, q] = (a ?? '').split('?');
+    const label = !sid ? null : sid === 'new' ? 'New schedule' : b === 'edit' ? 'Edit' : dec(sid)!;
+    return { crumbs: [page('Schedules', label ? '#/schedules' : undefined), ...(label ? [page(label)] : [])], node: <SchedulesPage id={dec(sid) || undefined} edit={b === 'edit'} query={q || ''} /> };
+  }
   if (root === 'rituals') return { crumbs: [page('Rituals')], node: <RitualsPage key={id} preset={a} /> };
   if (root === 'ask') return { crumbs: [page('Ask coco', a ? '#/ask' : undefined), ...(a ? [page(id.slice(0, 8))] : [])], node: <AskPage key={id} convId={a} /> };
   if (root === 'repos' && a === 'new') return { crumbs: [page('Projects', '#/projects'), page('New repo')], node: <NewRepoPage /> };

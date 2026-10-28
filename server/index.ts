@@ -44,6 +44,8 @@ import { createWorktrees } from './worktrees.ts';
 import { createWorkspaceGit } from './workspace-git.ts';
 import { createWorkspaceFiles } from './workspace-files.ts';
 import { createWorkspaceTerminals } from './workspace-terminals.ts';
+import { createSchedules } from './schedules.ts';
+import { fillTemplate } from './schedule-view.ts';
 import { createPurge } from './purge.ts';
 import { SWEEP_AGE, createUploads, servePaseoAttachment } from './uploads.ts';
 import { loadConfig, personaLogins } from './config.ts';
@@ -201,6 +203,15 @@ const workspaceTerminals = createWorkspaceTerminals({
     const c = await paseoAgents.client();
     return c.connection?.state().status === 'connected' ? (c.terminalApi ?? null) : null;
   },
+});
+const ritualVars = () => ({ briefsDir: BRIEFS, owner: config.owner.name });
+const schedules = createSchedules({
+  daemon: async () => {
+    const c = await paseoAgents.client();
+    return c.connection?.state().status === 'connected' ? (c.scheduleApi ?? null) : null;
+  },
+  models,
+  rituals: () => ({ list: config.rituals, vars: ritualVars() }),
 });
 const subdirs = (dir: string) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(dir, d.name)) : []);
 const purge = createPurge({
@@ -439,11 +450,7 @@ function listReviews() {
 }
 
 // {field} or {a|b} (first non-empty) from the launch body, plus {briefsDir} and {owner}
-const fillRitual = (template: string | undefined, body: Record<string, unknown>) =>
-  String(template || '').replace(/\{([\w|]+)\}/g, (_, keys: string) => {
-    const vars: Record<string, unknown> = { ...body, briefsDir: BRIEFS, owner: config.owner.name };
-    return keys.split('|').map((k) => String(vars[k] ?? '').trim()).find(Boolean) || '';
-  });
+const fillRitual = (template: string | undefined, body: Record<string, unknown>) => fillTemplate(String(template || ''), { ...body, ...ritualVars() });
 
 // sidebar progress from the last GitHub snapshot, no gh call per overview poll
 function workProgress(w: Work) {
@@ -596,6 +603,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'workspaces' && b === 'git') return workspaceGit.handle(req, res, parts, readBody, send);
     if (root === 'workspaces' && b === 'files') return workspaceFiles.handle(req, res, parts, readBody, send);
     if (root === 'workspaces' && (b === 'terminals' || b === 'scripts')) return workspaceTerminals.handle(req, res, parts, readBody, send);
+    if (root === 'schedules') return schedules.handle(req, res, parts, readBody, send);
     // the work's Plan workspace (made on first use, as a read-only dispatch does), for its terminal
     if (root === 'works' && b === 'plan-workspace' && !c && req.method === 'POST') {
       if (!works.get(a)) return send(res, 404, { error: `no work ${a}` });

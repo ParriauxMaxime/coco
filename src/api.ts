@@ -12,6 +12,7 @@ import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, Mo
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
 import type { FsEntry, FsFile, GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
 import type { BrowserTab, WorkspaceScript, WorkspaceTerminal } from './types.ts';
+import type { ScheduleInput, ScheduleRun, ScheduleView, SchedulesResponse } from '../server/schedule-view.ts';
 
 export type * from './types.ts';
 
@@ -100,6 +101,17 @@ export const termApi = {
   kill: (wsId: string, id: string) => termPost(`${wsBase(wsId)}/terminals/${encodeURIComponent(id)}/kill`),
   script: (wsId: string, name: string, action: 'start' | 'stop') => termPost<{ script: WorkspaceScript | null }>(`${wsBase(wsId)}/scripts/${encodeURIComponent(name)}/${action}`),
   planWorkspace: (slug: string) => termPost<{ workspaceId: string; cwd: string }>(`${works(encodeURIComponent(slug))}/plan-workspace`),
+};
+// Paseo's schedules (server/schedules.ts)
+const schedUrl = (id?: string, action?: string) => `/api/schedules${id ? `/${encodeURIComponent(id)}` : ''}${action ? `/${action}` : ''}`;
+type Sched = { schedule: ScheduleView };
+export const scheduleApi = {
+  list: () => getOrError<SchedulesResponse>(schedUrl()),
+  logs: (id: string) => getOrError<{ runs: ScheduleRun[] }>(schedUrl(id, 'logs')),
+  create: (input: ScheduleInput) => postJson(schedUrl(), input).then(jsonOrError<Sched>),
+  update: (id: string, input: ScheduleInput) => fetch(schedUrl(id), { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(input) }).then(jsonOrError<Sched>),
+  act: (id: string, action: 'pause' | 'resume' | 'run-once') => postJson(schedUrl(id, action)).then(jsonOrError<Sched>),
+  remove: (id: string) => fetch(schedUrl(id), { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
 };
 // a worktree with no Paseo workspace, by its path
 export const pathWsId = (dir: string) => `p.${btoa(String.fromCharCode(...new TextEncoder().encode(dir))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
