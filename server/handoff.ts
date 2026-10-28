@@ -5,14 +5,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
-import { TITLE_PREFIX, timelineOf } from './paseo-agent.ts';
+import { TITLE_PREFIX, cocoTitle, timelineOf } from './paseo-agent.ts';
 import type { DaemonAgent, DaemonClient } from './paseo-agent.ts';
 import type { Models } from './models.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
 
 export type HandoffStep = 'summary' | 'starting' | 'done' | 'failed';
 // source: who wrote the briefing, the old agent or coco from its transcript
-export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: HandoffStep; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null };
+// labels: the new agent's, saved before it starts
+export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: HandoffStep; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null; labels?: Record<string, string> };
 export type HandoffInput = { note?: unknown; provider?: unknown; thinking?: unknown; mode?: unknown };
 
 type Snapshot = NonNullable<NonNullable<Awaited<ReturnType<DaemonAgent['refresh']>>>['agent']>;
@@ -43,6 +44,7 @@ const TURN_MAX = 2500;
 export const MARK = '[coco hand-off]';
 const BLOCK = /<handoff>([\s\S]*?)(?:<\/handoff>|$)/i;
 const BUSY: HandoffStep[] = ['summary', 'starting'];
+const RESTARTED = 'coco restarted during the hand-off';
 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim() || id.slice(0, 8);
 
@@ -105,8 +107,8 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
   const load = (): Handoff[] => {
     try {
       const list: Handoff[] = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-      // a hand-off cut short by a restart cannot resume
-      return list.map((h) => (BUSY.includes(h.step) ? { ...h, step: 'failed', error: 'coco restarted during the hand-off' } : h));
+      // a hand-off cut short by a restart cannot resume; one cut while starting its new agent is looked up in Paseo first (recover)
+      return list.map((h) => (h.step === 'summary' ? { ...h, step: 'failed', error: RESTARTED } : h));
     } catch {
       return [];
     }
@@ -125,6 +127,27 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
   const of = (agentId: string) => ({ to: list.findLast((h) => h.from === agentId) ?? null, from: list.findLast((h) => h.to === agentId) ?? null });
   // agents whose hand-off is being set up, before its record is listed
   const opening = new Set<string>();
+  const cut = new Set(list.filter((h) => h.step === 'starting'));
+
+  // a hand-off cut while starting its new agent: an agent created since with its title and labels is the one it started; none, it failed.
+  // Paseo unreachable leaves it starting (no second start), tried again on the next hand-off of that agent
+  let recovering: Promise<void> | null = null;
+  function recover() {
+    recovering ||= (async () => {
+      const c = await client();
+      if (!c.agents.list) throw new Error('this Paseo client cannot list agents');
+      for (const h of [...cut]) {
+        const labels = Object.entries(h.labels ?? {}).filter(([, v]) => v !== '');
+        const page = await c.agents.list({ includeBackground: true, filter: { labels: Object.fromEntries(labels), includeArchived: true, includeBackground: true }, sort: [{ key: 'updated_at', direction: 'desc' }], page: { limit: 50 } });
+        const found = page.entries.map((e) => e.agent).find((a) => a.id !== h.from && a.title === cocoTitle(h.fromTitle) && (a.createdAt ?? '') >= h.at && labels.every(([k, v]) => a.labels?.[k] === v));
+        cut.delete(h);
+        if (found) await settle(h, found.id, found.workspaceId ?? null, found.cwd ?? null).catch(() => {});
+        else update(h, { step: 'failed', error: RESTARTED });
+      }
+    })().finally(() => (recovering = null));
+    return recovering;
+  }
+  if (cut.size) recover().catch(() => {});
 
   // the model, thinking and mode picked, else the old agent's own
   async function setupOf(found: Snapshot, input: HandoffInput) {
@@ -171,42 +194,53 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
       fs.mkdirSync(DIR, { recursive: true });
       const file = path.join(DIR, `${h.from}.md`);
       fs.writeFileSync(file, `# Hand-off from ${h.fromTitle} (${h.from})\n\n${briefing}\n${h.note ? `\n## ${owner}'s note\n\n${h.note}\n` : ''}`);
-      update(h, { step: 'starting', source, file });
       // an Ask conversation's agent goes on as a plain agent of its work
       const labels = Object.fromEntries(Object.entries(found.labels ?? {}).filter(([k]) => k !== 'ask'));
       const cwd = found.cwd ?? agent.cwd ?? null;
       const workspaceId = found.workspaceId ?? agent.workspaceId ?? null;
       const prompt = firstMessage({ owner, fromTitle: h.fromTitle, from: h.from, source, briefing, note: h.note, file });
+      // saved before the start, so a restart cut here finds the new agent by its title and labels
+      update(h, { step: 'starting', source, file, labels });
       const started = await start({ title: h.fromTitle, ...setup, prompt, labels, workspaceId, cwd });
-      update(h, { step: 'done', to: started.agentId, toTitle: h.fromTitle, doneAt: new Date().toISOString() });
-      if (link?.linked().some((l) => l.agentId === h.from)) {
-        await link.linkAgent({ agentId: started.agentId, workspaceId, cwd, title: h.fromTitle }).catch(() => null);
-        link.briefed(started.agentId);
-      }
-      const archived = await archiveWhenDone(h.from, { timeoutMs: ARCHIVE_WAIT_MS }).catch(() => false) || (await archive(h.from).catch(() => false));
-      update(h, { archived });
-      if (archived) handedOff(h.from);
+      await settle(h, started.agentId, workspaceId, cwd);
     } catch (e) {
       update(h, { step: 'failed', error: errorMessage(e) });
     }
   }
 
+  // the new agent runs: it takes the old one's PR link, then the old one is archived and its plain questions close
+  async function settle(h: Handoff, to: string, workspaceId: string | null, cwd: string | null) {
+    update(h, { step: 'done', to, toTitle: h.fromTitle, doneAt: new Date().toISOString() });
+    if (link?.linked().some((l) => l.agentId === h.from)) {
+      await link.linkAgent({ agentId: to, workspaceId, cwd, title: h.fromTitle }).catch(() => null);
+      link.briefed(to);
+    }
+    const archived = await archiveWhenDone(h.from, { timeoutMs: ARCHIVE_WAIT_MS }).catch(() => false) || (await archive(h.from).catch(() => false));
+    update(h, { archived });
+    if (archived) handedOff(h.from);
+  }
+
   // starts the hand-off and returns at once; done() resolves when it ends (tests)
   async function begin(from: string, input: HandoffInput) {
-    const prior = of(from).to;
-    if (opening.has(from) || (prior && BUSY.includes(prior.step))) throw new HttpError(409, 'this agent is already handing off');
-    if (prior?.step === 'done') throw new HttpError(409, `this agent was already handed off to ${prior.toTitle ?? prior.to}`);
+    if (opening.has(from)) throw new HttpError(409, 'this agent is already handing off');
     // held from here until the record is listed, so a second click during the awaits below cannot start a second agent
     opening.add(from);
     try {
+      const cutShort = of(from).to;
+      if (cutShort && cut.has(cutShort)) {
+        await recover().catch(() => {});
+        if (cut.has(cutShort)) throw new HttpError(409, 'coco restarted while this hand-off was starting its new agent, and Paseo cannot tell yet whether it did: try again once Paseo answers');
+      }
+      const prior = of(from).to;
+      if (prior && BUSY.includes(prior.step)) throw new HttpError(409, 'this agent is already handing off');
+      if (prior?.step === 'done') throw new HttpError(409, `this agent was already handed off to ${prior.toTitle ?? prior.to}`);
       const agent = (await client()).agents.ref(from);
       const found = (await agent.refresh())?.agent as Snapshot | undefined;
       if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
       const note = typeof input.note === 'string' ? input.note.trim().slice(0, NOTE_MAX) : '';
       const setup = await setupOf(found, input);
       const h: Handoff = { from, fromTitle: titleOf(found.title, from), to: null, toTitle: null, step: 'summary', source: null, note, file: null, error: null, archived: false, at: new Date().toISOString(), doneAt: null };
-      const was = of(from).to;
-      if (was) list.splice(list.indexOf(was), 1);
+      if (prior) list.splice(list.indexOf(prior), 1);
       list.push(h);
       save();
       const done = run(h, agent, found, setup);

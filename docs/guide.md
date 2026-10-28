@@ -1459,7 +1459,11 @@ The dialog shows these steps while they run; it can be closed, and the header
 then shows **Handing off…**. Afterwards the old agent's header links
 **Handed off to <title>** and the new one's **from <title>**. One hand-off per
 agent; a failed one (shown as **Hand-off failed**, its error on hover) can be
-tried again. Routes: `POST /api/agent-chat/<agentId>/handoff` (`note`,
+tried again. A coco restart during the briefing fails the hand-off; one
+during the new agent's start looks that agent up in Paseo (its title and
+labels, created since): found, the hand-off is done; none, failed; Paseo
+unreachable, it stays starting and a retry is refused until Paseo answers,
+so no second agent starts. Routes: `POST /api/agent-chat/<agentId>/handoff` (`note`,
 `provider`, `thinking`, `mode`) starts it and answers at once;
 `GET /api/agent-chat/<agentId>/handoff` → `{ to, from }`, kept in
 `data/handoffs.json` (`server/handoff.ts`).

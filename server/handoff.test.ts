@@ -137,6 +137,42 @@ test('a hand-off cut short by a restart reads as failed', async () => {
   assert.equal(again.of(OLD).to?.step, 'failed');
 });
 
+test('a hand-off cut by a restart while starting its new agent finds that agent in Paseo, else fails; Paseo unreachable never starts a second one', async () => {
+  const labels = { source: 'cocopilot', kind: 'agent', work: 'csv', pr: '101' };
+  const record = { from: OLD, fromTitle: 'CSV streaming', to: null, toTitle: null, step: 'starting', source: 'agent', note: '', file: null, error: null, archived: false, at: '2026-10-01T10:00:00.000Z', doneAt: null, labels };
+  const agents = [
+    { id: OLD, title: 'coco · CSV streaming', labels, createdAt: '2026-09-30T10:00:00.000Z' },
+    { id: 'older-same-title', title: 'coco · CSV streaming', labels, createdAt: '2026-09-01T10:00:00.000Z' },
+    { id: NEW, title: 'coco · CSV streaming', labels, createdAt: '2026-10-01T10:00:05.000Z' },
+  ];
+  const boot = (list: () => Promise<unknown>) => {
+    const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-handoff-'));
+    fs.writeFileSync(path.join(DATA, 'handoffs.json'), JSON.stringify([record]));
+    const started: unknown[] = [];
+    const archived: string[] = [];
+    const client = async () => ({ agents: { list, ref: () => ({ refresh: async () => ({ agent: { title: 'coco · CSV streaming', labels } }), waitForFinish: async () => ({ status: 'idle' }), timeline: { refetch: async () => ({ entries: [], hasOlder: false }) } }) } }) as unknown as Pick<DaemonClient, 'agents'>;
+    const handoff = createHandoff({ DATA, owner: 'Max', defaultModel: 'claude/sonnet', client, say: async () => {}, start: async () => (started.push(1), { agentId: 'another' }), archiveWhenDone: async (id) => (archived.push(id), true), archive: async () => false, waitMs: 10, pollMs: 5 });
+    return { handoff, started, archived };
+  };
+  const found = boot(async () => ({ entries: agents.map((agent) => ({ agent })) }));
+  await assert.rejects(found.handoff.begin(OLD, {}), /already handed off/);
+  assert.deepEqual([found.handoff.of(OLD).to?.step, found.handoff.of(OLD).to?.to], ['done', NEW]);
+  assert.deepEqual(found.archived, [OLD]);
+  const none = boot(async () => ({ entries: agents.slice(0, 2).map((agent) => ({ agent })) }));
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(none.handoff.of(OLD).to?.step, 'failed');
+  let down = true;
+  const unreachable = boot(async () => {
+    if (down) throw new Error('cannot reach the Paseo daemon');
+    return { entries: [] };
+  });
+  await assert.rejects(unreachable.handoff.begin(OLD, {}), /cannot tell yet/);
+  assert.equal(unreachable.handoff.of(OLD).to?.step, 'starting');
+  down = false;
+  await (await unreachable.handoff.begin(OLD, {})).done;
+  assert.deepEqual(unreachable.started, [1]);
+});
+
 test('briefingOf reads only the reply after the hand-off request; transcriptOf keeps the last turns', () => {
   const entries = [
     { item: { type: 'assistant_message', text: '<handoff>an old block, long enough to count as one</handoff>' } },
