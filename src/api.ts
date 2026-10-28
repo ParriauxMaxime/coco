@@ -11,6 +11,7 @@ import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
 import type { FsEntry, FsFile, GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
+import type { WorkspaceScript, WorkspaceTerminal } from './types.ts';
 
 export type * from './types.ts';
 
@@ -88,6 +89,17 @@ export const filesApi = {
     if (!res.ok) throw new Error(out?.error || `${res.status} ${res.statusText}`);
     return out as { ok: boolean; modifiedAt: string; size: number; revision?: string };
   },
+};
+// a workspace's terminals and scripts (server/workspace-terminals.ts), live through the topics workspace-terminals and terminal
+const wsBase = (wsId: string) => `/api/workspaces/${encodeURIComponent(wsId)}`;
+const termPost = <T = { ok: boolean }>(url: string, body?: unknown) => postJson(url, body).then(jsonOrError<T>);
+export const termApi = {
+  create: (wsId: string, size?: { rows: number; cols: number }) => termPost<{ terminal: WorkspaceTerminal }>(`${wsBase(wsId)}/terminals`, size),
+  input: (wsId: string, id: string, data: string) => termPost(`${wsBase(wsId)}/terminals/${encodeURIComponent(id)}/input`, { data }),
+  resize: (wsId: string, id: string, rows: number, cols: number) => termPost(`${wsBase(wsId)}/terminals/${encodeURIComponent(id)}/resize`, { rows, cols }),
+  kill: (wsId: string, id: string) => termPost(`${wsBase(wsId)}/terminals/${encodeURIComponent(id)}/kill`),
+  script: (wsId: string, name: string, action: 'start' | 'stop') => termPost<{ script: WorkspaceScript | null }>(`${wsBase(wsId)}/scripts/${encodeURIComponent(name)}/${action}`),
+  planWorkspace: (slug: string) => termPost<{ workspaceId: string; cwd: string }>(`${works(encodeURIComponent(slug))}/plan-workspace`),
 };
 // a worktree with no Paseo workspace, by its path
 export const pathWsId = (dir: string) => `p.${btoa(String.fromCharCode(...new TextEncoder().encode(dir))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;

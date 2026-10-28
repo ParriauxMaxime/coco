@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { WorkbenchView } from '../workbench/Workbench.tsx';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { WorkContext } from '../workbench/use-work.ts';
-import { api } from '../api.ts';
+import { api, errorMessage, termApi } from '../api.ts';
+import { toast } from '../components/Toast.tsx';
+import { terminalTabId } from '../workbench/code/ids.ts';
 import Icon from './Icon.tsx';
 import Inspector, { inspectorFor } from './Inspector.tsx';
 import { useInspector } from './inspector-state.ts';
@@ -67,6 +69,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const commands: Command[] = [
     ...VIEWS.map((v) => ({ id: `v-${v.id}`, label: v.label, hint: 'view', icon: v.icon, run: () => open(v.id) })),
     { id: 'new-agent', label: 'Ask coco', hint: 'agents', icon: 'bot', run: () => open('ask') },
+    { id: 'terminals', label: 'Terminals', hint: 'Plan workspace', icon: 'terminal', run: () => void termApi.planWorkspace(slug).then((p) => open(terminalTabId(p.workspaceId)), (e) => toast.error(errorMessage(e))) },
     ...d.prs.map((p) => ({ id: `new-agent-${prKey(p)}`, label: `Ask coco on ${p.number ? `#${p.number}` : prLabel(prKey(p))} ${prTitle(p)}`, hint: 'agents', icon: 'bot' as const, run: () => open(`ask-new-${prKey(p)}`) })),
     ...agents.map((a) => ({ id: `agent-${a.id}`, label: `Agent: ${a.title}`, hint: a.status, icon: 'bot' as const, run: () => open(a.id) })),
     ...layouts.list.map((l, i) => ({ id: `l-${l.id}`, label: `Layout: ${l.name}`, hint: i < 9 ? `⌥${i + 1}` : 'layout', icon: 'columns' as const, run: () => applyLayout(l) })),

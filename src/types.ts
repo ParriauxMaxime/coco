@@ -563,6 +563,9 @@ export type GitTexts = { path: string; original: string; modified: string; binar
 // a workspace's files (server/workspace-files.ts)
 export type FsEntry = { name: string; path: string; kind: 'dir' | 'file'; size: number; modifiedAt: string; link?: boolean };
 export type FsFile = { path: string; size: number; modifiedAt: string; revision?: string; kind: 'text' | 'image' | 'binary' | 'large'; content?: string; mime?: string; dataUrl?: string };
+// a workspace's Paseo terminals and scripts (server/workspace-terminals.ts)
+export type WorkspaceTerminal = { id: string; name: string; title: string | null; busy: boolean };
+export type WorkspaceScript = { name: string; type: string; running: boolean; health: string | null; port: number | null; url: string | null; exitCode: number | null; terminalId: string | null };
 export type AskRun = {
   id: string;
   prompt: string;

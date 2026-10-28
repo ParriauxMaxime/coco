@@ -1114,6 +1114,45 @@ on an agent's page (`#/agents/<id>`). `server/workspace-files.ts`,
   (409 `{conflict, modifiedAt}` when the disk moved on). Writes are your
   click only: no MCP tool reaches these routes.
 
+### Terminal (a workspace's terminals and scripts)
+
+What the Paseo app's terminal panel shows, for any agent's workspace: the
+**Terminal** toggle after Changes and Files in an agent tab and on an agent's page,
+and **Terminals** in ⌘K inside a work, which opens the work's Plan
+workspace's terminals as a `term-<workspace>` tab (the Plan workspace is made
+on first use, as a read-only dispatch makes it). `server/workspace-terminals.ts`,
+`src/preview/TerminalPanel.tsx`, `src/preview/Xterm.tsx`.
+
+- Sub-tabs: the workspace's Paseo terminals, each named by the title its
+  shell set (a dot while busy), kept live from Paseo (`observeTerminals`).
+  **New terminal** opens a shell in the workspace's directory; **Kill** asks
+  first, then kills the shown one.
+- The shown terminal is xterm.js, loaded on demand in its own chunk: it opens
+  on the terminal's screen and scrollback as Paseo keeps them, then follows
+  its output; keys go back in order (what is typed during a request goes in
+  the next one), and its size follows the panel (Paseo resizes the shell, so
+  the Paseo app sees the same size).
+- Scripts (side): the workspace's Paseo scripts with their status (green
+  running, amber unhealthy, hollow stopped, exit code on hover), a link to the
+  port while running, **Start** / **Stop**, and the terminal icon opening the
+  script's output as one more sub-tab (closing it leaves the script running).
+  A `p.<path>` worktree has no scripts, and Paseo opens no new terminal there.
+- Every action is your click: no MCP tool reaches these routes.
+- Live: topic `workspace-terminals:<id>` sends `terminals` on every change and
+  `scripts` when their status moves (polled every 4 s while watched); topic
+  `terminal:<id>:<terminalId>` sends `reset` (the screen so far) then
+  `output`, base64, and `exit` once Paseo stops streaming it. Both ride the
+  page's one event stream: there is no WebSocket upgrade on coco's server.
+- Routes: `GET /api/workspaces/<id>/terminals|scripts`,
+  `POST …/terminals {name?, rows?, cols?}`, `POST …/terminals/<tid>/input {data}|resize {rows, cols}|kill`,
+  `POST …/scripts/<name>/start|stop`, `POST /api/works/<slug>/plan-workspace`.
+  A terminal id must be one of the workspace's terminals or a script's
+  output, a script name one the workspace lists; input is capped at 64 KB a
+  request. With Paseo disconnected the routes answer 503.
+- Guard: besides the Host check of every route, these routes and
+  `/api/events` (which carries a terminal's output) refuse a foreign
+  `Origin` on reads too, not only on writes.
+
 ### Preflight (kit-video dispatches)
 
 A `gate:kit-video:*` dispatch first runs cheap checks (`server/preflight.ts`):

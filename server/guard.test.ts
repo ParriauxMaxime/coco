@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedHosts, guard } from './guard.ts';
+import { allowedHosts, guard, guarded } from './guard.ts';
 
 const hosts = allowedHosts(8777, 'http://coco.tail.ts.net:8777');
 const g = (method: string, headers: { host?: string; origin?: string }) => guard(hosts, { method, headers });
@@ -23,6 +23,19 @@ test('foreign origin on a write is refused, a GET is not checked for origin', ()
 test('own origin and no origin pass on a write', () => {
   assert.equal(g('POST', { host: '127.0.0.1:8777', origin: 'http://localhost:8778' }), null);
   assert.equal(g('POST', { host: '127.0.0.1:8777' }), null);
+});
+test('a shell (terminals, scripts, the event stream carrying them) refuses a foreign origin on a read too', () => {
+  const read = (url: string, origin?: string) => guard(hosts, { method: 'GET', url, headers: { host: '127.0.0.1:8777', ...(origin ? { origin } : {}) } });
+  for (const url of ['/api/workspaces/wks_a/terminals', '/api/workspaces/p.L3RtcA/scripts', '/api/events?sub=terminal:wks_a:t1', '/api/events']) {
+    assert.ok(read(url, 'http://evil.com'), url);
+    assert.equal(read(url, 'http://localhost:8778'), null, url);
+    assert.equal(read(url), null, url);
+  }
+  assert.equal(read('/api/workspaces/wks_a/git/status', 'http://evil.com'), null, 'other reads keep the plain rule');
+  assert.ok(guard(hosts, { method: 'POST', url: '/api/workspaces/wks_a/terminals/t1/input', headers: { host: '127.0.0.1:8777', origin: 'http://evil.com' } }));
+  assert.ok(guard(hosts, { method: 'GET', url: '/api/workspaces/wks_a/terminals', headers: { host: 'evil.com:8777' } }), 'DNS rebinding');
+  for (const p of ['/api/workspaces/wks_a/terminals/t1/input', '/api/events', '/works/x/a.png']) assert.ok(guarded(p), p);
+  assert.equal(guarded('/assets/index.js'), false);
 });
 test('a reverse proxy host from the config passes, with its https origin on a write', () => {
   const proxied = allowedHosts(8777, 'http://127.0.0.1:8777', ['Coco.local']);

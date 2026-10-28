@@ -43,6 +43,7 @@ import { createDevServers } from './dev-servers.ts';
 import { createWorktrees } from './worktrees.ts';
 import { createWorkspaceGit } from './workspace-git.ts';
 import { createWorkspaceFiles } from './workspace-files.ts';
+import { createWorkspaceTerminals } from './workspace-terminals.ts';
 import { createPurge } from './purge.ts';
 import { SWEEP_AGE, createUploads, servePaseoAttachment } from './uploads.ts';
 import { loadConfig, personaLogins } from './config.ts';
@@ -67,7 +68,7 @@ import { createAgentWorktrees } from './agent-worktree.ts';
 import { createSpares } from './spares.ts';
 import { createScreenshots } from './screenshot.ts';
 import { createAgentChecks } from './agent-checks.ts';
-import { allowedHosts, guard } from './guard.ts';
+import { allowedHosts, guard, guarded } from './guard.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
@@ -192,6 +193,13 @@ const workspaceFiles = createWorkspaceFiles({
     return c.connection?.state().status === 'connected' ? (c.files ?? null) : null;
   },
 });
+const workspaceTerminals = createWorkspaceTerminals({
+  dirOf: workspaceGit.dirOf,
+  daemon: async () => {
+    const c = await paseoAgents.client();
+    return c.connection?.state().status === 'connected' ? (c.terminalApi ?? null) : null;
+  },
+});
 const subdirs = (dir: string) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(dir, d.name)) : []);
 const purge = createPurge({
   APP,
@@ -260,6 +268,8 @@ events.topic('thread', threads.watch);
 events.topic('paseo', paseoHealth.watch);
 events.topic('workspace-git', workspaceGit.watch);
 events.topic('workspace-file', workspaceFiles.watch);
+events.topic('workspace-terminals', workspaceTerminals.watchList);
+events.topic('terminal', workspaceTerminals.watchTerminal);
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 void paseoHealth.boot().then(sweepArchivedCards);
@@ -582,6 +592,12 @@ async function api(req: Req, res: Res, url: URL) {
     if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);
     if (root === 'workspaces' && b === 'git') return workspaceGit.handle(req, res, parts, readBody, send);
     if (root === 'workspaces' && b === 'files') return workspaceFiles.handle(req, res, parts, readBody, send);
+    if (root === 'workspaces' && (b === 'terminals' || b === 'scripts')) return workspaceTerminals.handle(req, res, parts, readBody, send);
+    // the work's Plan workspace (made on first use, as a read-only dispatch does), for its terminal
+    if (root === 'works' && b === 'plan-workspace' && !c && req.method === 'POST') {
+      if (!works.get(a)) return send(res, 404, { error: `no work ${a}` });
+      return send(res, 200, await placement.place({ kind: 'work', slug: a }));
+    }
     if (root === 'purge') return purge.handle(req, res, parts, readBody, send);
     if (root === 'jobs') return jobs.handle(req, res, parts, readBody, send);
     if (root === 'agent-worktree' && a === 'own-deps' && req.method === 'POST') {
@@ -713,7 +729,7 @@ function serveStatic(res: Res, url: URL) {
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/works/')) {
+    if (guarded(url.pathname)) {
       const denied = guard(HOSTS, req);
       if (denied) return send(res, 403, { error: denied });
     }

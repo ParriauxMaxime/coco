@@ -50,6 +50,9 @@ export const parseWsFileTab = (id: string | null | undefined) => {
   const m = /^wsfile-([\w.-]+)~(.+)$/.exec(id || '');
   return m ? { wsId: m[1], path: m[2] } : null;
 };
+// a workspace's terminals and scripts: `term-<workspace id>`
+export const terminalTabId = (wsId: string) => `term-${wsId}`;
+export const parseTerminalTab = (id: string | null | undefined) => /^term-([\w.-]+)$/.exec(id || '')?.[1] ?? null;
 
 export const codeTabId =(n: PrKey, path: string, files: Pick<RefFile, 'filename'>[] = []) => `${files.some((f) => f.filename === path) ? 'diff' : 'file'}-${n}~${path}`;
 

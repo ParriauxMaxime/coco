@@ -28,6 +28,7 @@ import { SubagentBar } from './Subagents.tsx';
 import { SubagentParent } from './subagents.ts';
 import { GitPanel, openWorkspaceCommit, useAgentWorkspace } from './GitPanel.tsx';
 import { FilesPanel, openWorkspaceFile } from './FilesPanel.tsx';
+import { TerminalPanel } from './TerminalPanel.tsx';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -217,28 +218,30 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const keys = group ? Object.keys(summaries).filter((k) => summaries[k].groupId === group.id).sort((a, b) => (summaries[b].lastTs ?? '').localeCompare(summaries[a].lastTs ?? '')) : [];
   const wsId = useAgentWorkspace(agentId);
   const [picked, setPicked] = useState<AgentView>(null);
-  const shown = picked && ((picked !== 'changes' && picked !== 'files') || wsId) && (picked !== 'thread' || keys.length);
+  const shown = picked && ((picked !== 'changes' && picked !== 'files' && picked !== 'terminal') || wsId) && (picked !== 'thread' || keys.length);
   const view: AgentView = shown ? picked : keys.length ? 'thread' : 'transcript';
   const views: ViewDef[] = [
     ...(keys.length ? [{ id: 'thread' as const, label: keys.length > 1 ? <>Threads<span className="dp-t3">{keys.length}</span></> : 'Thread', title: 'Each item this agent works on, as its thread: blocks, suggestions, Approve' }] : []),
     { id: 'transcript', label: 'Transcript', title: "The agent's raw Paseo transcript: coco's prompts, thinking, tool calls" },
-    ...(wsId ? [CHANGES, FILES] : []),
+    ...(wsId ? [CHANGES, FILES, TERMINAL] : []),
   ];
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
       <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} handoff />
       {view === 'changes' && wsId ? <GitPanel wsId={wsId} onOpenCommit={openWorkspaceCommit(wsId)} />
         : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} onOpenTab={openWorkspaceFile(wsId)} />
+        : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} />
         : view === 'thread' ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
     </div>
   );
 }
 
 // the views of an agent under its header: its threads, its transcript, its workspace's Changes
-export type AgentView = 'thread' | 'transcript' | 'changes' | 'files' | null;
+export type AgentView = 'thread' | 'transcript' | 'changes' | 'files' | 'terminal' | null;
 type ViewDef = { id: Exclude<AgentView, null>; label: React.ReactNode; title: string };
 export const CHANGES: ViewDef = { id: 'changes', label: 'Changes', title: "Its workspace's git: uncommitted changes, unpushed commits; commit, pull, push, create a PR" };
 export const FILES: ViewDef = { id: 'files', label: 'Files', title: "Its workspace's files: browse, read, edit and save; ⌘P goes to a file" };
+export const TERMINAL: ViewDef = { id: 'terminal', label: 'Terminal', title: "Its workspace's terminals and scripts, live: a new shell, Kill, Start / Stop" };
 export function ViewSeg({ views, value, onPick }: { views: ViewDef[]; value: AgentView; onPick: (v: AgentView) => void }) {
   if (views.length < 2) return null;
   return (

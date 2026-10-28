@@ -28,6 +28,7 @@ import StackRunView from './StackRunView.tsx';
 import { SubagentTab } from './Subagents.tsx';
 import { ChangesTab } from './GitPanel.tsx';
 import { WorkspaceFileTab } from './FilesPanel.tsx';
+import { TerminalTab } from './TerminalPanel.tsx';
 import { parseSubTab, subagentTitle } from './subagents.ts';
 import { baseName, findingsKeyOfTab, keyLabel, parseWsFileTab } from '../workbench/code/ids.ts';
 import type { PreviewData } from './data.ts';
@@ -150,6 +151,7 @@ const runDef = (id: string): TabDef | null => {
   if (id.startsWith('git-')) return { title: () => 'Changes', tip: () => 'A worktree: uncommitted changes, unpushed commits, commit, push, PR', Component: ChangesTab, flush: true };
   const wsFile = parseWsFileTab(id);
   if (wsFile) return { title: () => baseName(wsFile.path), tip: () => `${wsFile.path} (an agent workspace's file)`, Component: WorkspaceFileTab, flush: true };
+  if (id.startsWith('term-')) return { title: () => 'Terminal', tip: () => "A workspace's terminals and scripts", Component: TerminalTab, flush: true };
   const sub = parseSubTab(id);
   if (sub) return { title: () => subagentTitle(sub.parent, sub.sub), tip: () => 'Subagent', Component: SubagentTab, flush: true };
   return null;
@@ -158,7 +160,7 @@ const runDef = (id: string): TabDef | null => {
 const ICONS: [RegExp, IconName][] = [
   [/^plan$/, 'home'], [/^stack$/, 'list'], [/^findings/, 'flag'], [/^waiting$/, 'inbox'], [/^pr-/, 'git-pull-request'],
   [/^ask(-new-.*)?$/, 'bot'], [/^decisions$/, 'scale'], [/^timeline$/, 'history'], [/^notes$/, 'notebook'], [/^artifacts$/, 'folder'],
-  [/^rules$/, 'scale'], [/^review-/, 'eye'], [/^(diff|file|artifact)-/, 'file'], [/^(brief|agent)-/, 'bot'], [/^stack-/, 'git-branch'], [/^sub-/, 'git-fork'], [/^git(commit)?-/, 'git-branch'], [/^wsfile-/, 'file'],
+  [/^rules$/, 'scale'], [/^review-/, 'eye'], [/^(diff|file|artifact)-/, 'file'], [/^(brief|agent)-/, 'bot'], [/^stack-/, 'git-branch'], [/^sub-/, 'git-fork'], [/^git(commit)?-/, 'git-branch'], [/^wsfile-/, 'file'], [/^term-/, 'terminal'],
 ];
 
 export function previewTabDef(id: string): TabDef {
