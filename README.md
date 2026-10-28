@@ -74,8 +74,9 @@ gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
   feature-flag provider as a zip for teammates; importing previews every
   file, backs up what it overwrites and keeps your personal keys.
 
-Nothing in cocopilot pushes, posts or sends. Agents commit locally; you
-push.
+Agents commit locally and may edit a PR's body or title (`gh pr edit`), the
+one GitHub write they get. A push runs only when you click Push; nothing
+posts or sends.
 
 | | |
 | --- | --- |

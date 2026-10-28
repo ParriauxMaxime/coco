@@ -81,7 +81,7 @@ export const sharedRules = (config: { repo: { rules?: string[]; commitConvention
   const rules = listText((config.repo.rules || []).map((r) => `\`${r}\``));
   const commits = commitConventionText(config.repo.commitConvention);
   return [
-    '- Commit locally. NEVER `git push`, NEVER `gh pr comment`, `gh pr review` or `gh pr edit`, NEVER post or send anything anywhere (Slack, Notion, GitHub, email). A reply a comment calls for (a reviewer, a bot like Sentry) is drafted with cocopilot propose_pr_reply: the user posts it from the card.',
+    '- Commit locally. NEVER `git push`, NEVER `gh pr comment` or `gh pr review`. The PR body and title are the one GitHub write allowed, when the task calls for it: `gh pr edit <n> --body-file <file>` or `--title`. NEVER post or send anything else anywhere (Slack, Notion, GitHub, email). A reply a comment calls for (a reviewer, a bot like Sentry) is drafted with cocopilot propose_pr_reply: the user posts it from the card.',
     `- ${rules ? `Read ${rules}, then follow the rules that match the files you touch` : 'Follow the repo conventions for the files you touch'}${commits ? `; commit messages follow ${commits}` : ''}.`,
     '- Before the last commit, run the lint, format and type checks the repo rules name. Fix what they report, never suppress it.',
     '- Touch only what a comment asks for. A comment you disagree with or cannot satisfy is declined with a one-line reason, not worked around.',

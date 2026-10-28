@@ -104,7 +104,7 @@ test('the brief carries the triage: board note, owner messages, last agent reply
   assert.doesNotMatch(brief, /noise|old twin|keep the name/);
   assert.match(brief, /Note: draft the line only/);
   assert.match(brief, /follow it over the comment's own recommendation/);
-  assert.match(brief, /needs a GitHub write .* is declined: put the drafted text in the note/);
+  assert.match(brief, /A comment on the PR body or title is fixed with `gh pr edit <n> --body-file <file>`/);
 });
 
 test('an agent running in a row worktree blocks the run unless it requested it', async () => {

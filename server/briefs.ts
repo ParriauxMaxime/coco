@@ -172,7 +172,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   section('Owner personas', (row.personas || []).map((p) => `- \`${p}\`: read \`${path.join(config.personasDir, `${p}.md`)}\`, "What they check".`));
   section('Feature flags to test', betas.map((f) => `- \`${f.code}\`${f.name ? ` (${f.name})` : ''}${f.why ? `: ${f.why}` : ''}. ${f.enable}.`));
   section('Kit expected', [...kitOf(work, row, config), ...(betas.length ? [`"How to test" opens on the feature flags to switch on: ${betas.map((f) => `\`${f.code}\``).join(', ')}, with how.`] : [])].map((k) => `- [ ] ${k}`));
-  section('Constraints', ['Commit locally. Push, PR opening, undrafting and pinging belong to the orchestrator and the user. Reply in English, concise, low token use.']);
+  section('Constraints', [`Commit locally. Push, PR opening, undrafting and pinging belong to the orchestrator and the user. The PR body and title are yours to edit when the task calls for it (\`gh pr edit ${row.number || '<n>'} --body-file <file>\`, \`--title\`), e.g. a kit skill updating the body or attaching its video. Reply in English, concise, low token use.`]);
   section('Report back (short)', [
     '- Commits: sha + one line each.',
     `- \`git diff --shortstat ${pr.base === config.repo.defaultBranch ? `origin/${pr.base}` : pr.base}\`.`,
