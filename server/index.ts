@@ -48,6 +48,7 @@ import { createWorkAgents } from './work-agents.ts';
 import { createSubagents } from './subagents.ts';
 import { createModels } from './models.ts';
 import { createHub } from './events.ts';
+import { createJobs } from './jobs.ts';
 import { SKIPPED, createCards } from './cards.ts';
 import { createStackEdit } from './stack-edit.ts';
 import { createStackSplit } from './stack-split.ts';
@@ -87,6 +88,7 @@ const paseoAgents = createPaseoAgents({ APP, usage: agentUsage });
 const subagents = createSubagents({ client: paseoAgents.client });
 const models = createModels({ client: paseoAgents.client, config });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents });
+const jobs = createJobs({ DATA });
 const repos = createRepos({ DATA, repos: config.repos });
 const placement = createPlacement({ repos: config.repos, APP, DATA, listWorkspaces: paseoAgents.listWorkspaces, works });
 const logRenames = (renames: Awaited<ReturnType<typeof placement.syncProjectNames>>) => renames.forEach((r) => console.log(`Paseo project ${r.from} → ${r.to}${r.skipped ? ` skipped: ${r.skipped}` : ''}`));
@@ -97,7 +99,7 @@ repos
   .then(logRenames, () => {});
 works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
-const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.start(slug, input), preflight: async (slug, entry, key) => (isVideoEntry(entry) ? preflight.run(slug, key) : null), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });
+const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.enqueue(slug, input).done, preflight: async (slug, entry, key) => (isVideoEntry(entry) ? preflight.run(slug, key) : null), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
 const code = createCode({ REPO, config, works });
@@ -128,17 +130,17 @@ const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
-const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents });
+const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents, jobs });
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
-const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight });
+const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
 // the directory of the workspace remembered for a row, which its agents run in
 const rowDir = async (slug: string, key: RowKey) => {
   const id = works.get(slug)?.stack?.find((s) => rowKey(s) === key)?.workspaceId;
   return id ? (await paseoAgents.listWorkspaces()).find((w) => w.id === id && !w.archivingAt)?.workspaceDirectory || null : null;
 };
-const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir });
+const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir, jobs });
 works.hooks.drift = (slug) => drift.view(slug).catch(() => null);
 // first listener: a page told of a change reads the drift recomputed, not the cached one
 works.onChange((slug) => drift.drop(slug));
@@ -165,6 +167,7 @@ const permissions = createPermissions({
   client: paseoAgents.client,
   locate: (agent) => whereOf(agent, { askOf: ask.byAgent, groupKind: threads.groupKind, workTitle: (slug) => works.get(slug)?.title || null, repoName: (id) => repos.byId(id)?.name || null }),
 });
+permissions.onAgent(jobs.onAgent);
 permissions.onAgent((a) => {
   if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
 });
@@ -187,6 +190,7 @@ events.topic('waiting', waiting.watch);
 events.topic('permissions', permissions.watch);
 events.topic('works', works.watch);
 events.topic('work', works.watchWork);
+events.topic('jobs', jobs.watch);
 events.topic('work-agents', workAgents.watchList);
 events.topic('agent-chat', workAgents.watchChat);
 events.topic('subagents', subagents.watchList);
@@ -496,6 +500,7 @@ async function api(req: Req, res: Res, url: URL) {
     }
     if ((root === 'works' && b === 'worktrees') || root === 'notices') return worktrees.handle(req, res, parts, readBody, send);
     if (root === 'purge') return purge.handle(req, res, parts, readBody, send);
+    if (root === 'jobs') return jobs.handle(req, res, parts, readBody, send);
     if (root === 'agent-worktree' && a === 'own-deps' && req.method === 'POST') {
       const { cwd, agentId, paths } = JSON.parse((await readBody(req)) || '{}');
       if (typeof cwd !== 'string' || !cwd) return send(res, 400, { error: 'cwd required' });

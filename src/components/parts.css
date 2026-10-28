@@ -56,6 +56,11 @@
 .dp-gt { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .dp-gt-rail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dp-gt-sep { color: var(--dp-t4); font-size: 12px; }
+.dp-job { --dp-st: var(--dp-accent); color: var(--dp-st); background: color-mix(in srgb, var(--dp-st) 10%, transparent); border-color: color-mix(in srgb, var(--dp-st) 30%, transparent); box-shadow: none; }
+.dp-job.dp-job-wait { --dp-st: var(--dp-warn); }
+.dp-job.dp-job-ok { --dp-st: var(--dp-ok); }
+.dp-job.dp-job-bad { --dp-st: var(--dp-bad); }
+.dp-job-fail { display: inline-flex; align-items: center; gap: 4px; }
 .dp-split-wrap { position: relative; display: inline-flex; }
 .dp-split-wrap .dp-split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .dp-split-wrap .dp-split-more { padding: 0 6px; margin-left: 1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }

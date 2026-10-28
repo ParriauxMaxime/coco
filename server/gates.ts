@@ -7,6 +7,8 @@ import { skillFor } from './config.ts';
 import { sameSha } from './kit.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
+import { conflictBody } from './jobs.ts';
+import type { Jobs } from './jobs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { Comment, GateRecord, PrInfo, ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, StackRow, Work } from './core-types.ts';
 
@@ -67,6 +69,7 @@ type Deps = {
   comments: { list(slug: string, key: RowKey): { comments?: Pick<Comment, 'author' | 'sha'>[] } };
   findings: { snapshot(slug: string, only: RowKey | null): { rows: { n: RowKey | null; status?: string }[] } | null };
   agents?: { archiveWhenDone(agentId: string): Promise<boolean> };
+  jobs?: Pick<Jobs, 'start'>;
 };
 
 // a gate skill is a skill name, or { name, ask } when the client asks for its argument
@@ -125,7 +128,7 @@ export function gateState(stored: Partial<GateRecord> | null | undefined, derive
   return derived ? 'done' : 'todo';
 }
 
-export function createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents }: Deps) {
+export function createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents, jobs }: Deps) {
   const GATES = gatesFor(config);
   const GH = config.repo.github || '';
   const remotes = swrCache<string | null>(REMOTE_TTL_MS, cacheFile(DATA, 'remote-heads'));
@@ -247,22 +250,33 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
     if (action === 'run') {
       const names = (gate.skills || []).map(skillName);
       if (!skill || !names.includes(skill)) throw new HttpError(400, `${id} runs ${names.join(', ') || 'no skill'}`);
-      const pr = await reviewAgent.rowPr(work, index);
-      const runner = await reviewAgent.pickRunner(pr);
-      const busy = runner.mode === 'send' && (await reviewAgent.agentsList()).find((a) => a.id === runner.agentId)?.status === 'running';
-      if (busy) throw new HttpError(409, `agent ${String(runner.agentId).slice(0, 8)} is mid-turn in the PR worktree; wait for it`);
-      const prompt = `/${skill} ${String(args).trim() || (isLocal(n) ? '' : n)}`.trim();
-      const agentId = await reviewAgent.launch(runner, { title: `${RUN_LABEL[id] || gate.label} ${keyLabel(n)}`, provider: config.models.default, prompt, labels: { kind: 'gate', gate: id, work: slug, pr: fileKey(n) }, n, branch: pr.head });
-      saveGate(slug, index, id, { state: 'running', at, skill, agentId });
-      if (agentId && runner.mode !== 'send') agents?.archiveWhenDone(agentId).catch(() => {});
-      reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ${id}: started ${prompt} in ${runner.mode} agent ${String(agentId || '').slice(0, 8)}`);
+      const title = `${RUN_LABEL[id] || gate.label}: /${skill} ${keyLabel(n)}`;
+      const launch = async () => {
+        const pr = await reviewAgent.rowPr(work, index);
+        const runner = await reviewAgent.pickRunner(pr);
+        const busy = runner.mode === 'send' && (await reviewAgent.agentsList()).find((a) => a.id === runner.agentId)?.status === 'running';
+        if (busy) throw new HttpError(409, `agent ${String(runner.agentId).slice(0, 8)} is mid-turn in the PR worktree; wait for it`);
+        const prompt = `/${skill} ${String(args).trim() || (isLocal(n) ? '' : n)}`.trim();
+        const agentId = await reviewAgent.launch(runner, { title, provider: config.models.default, prompt, labels: { kind: 'gate', gate: id, work: slug, pr: fileKey(n) }, n, branch: pr.head });
+        saveGate(slug, index, id, { state: 'running', at, skill, agentId });
+        if (agentId && runner.mode !== 'send') agents?.archiveWhenDone(agentId).catch(() => {});
+        reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ${id}: started ${prompt} in ${runner.mode} agent ${String(agentId || '').slice(0, 8)}`);
+        return { agentId };
+      };
+      if (!jobs) await launch();
+      else jobs.start({ work: slug, pr: n, action: `gate:${id}:${skill}`, label: title, kind: 'agent' }, launch);
     } else if (action === 'ready') {
       if (id !== 'ready') throw new HttpError(400, 'only the ready milestone flips a draft');
       if (!(await view(slug, raw)).gates.find((g) => g.id === 'ready')?.canRun) throw new HttpError(409, 'ready needs an open draft with self-reviewed, kit and pushed done or skipped');
-      const r = await reviewAgent.exec('gh', ['pr', 'ready', String(n), ...(GH ? ['--repo', GH] : [])]);
-      if (!r.ok) throw new HttpError(502, (r.stderr || r.stdout).trim().slice(-400) || 'gh pr ready failed');
-      works.dropPr?.(n as number);
-      reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ready: marked ready for review on GitHub`);
+      const flip = async () => {
+        const r = await reviewAgent.exec('gh', ['pr', 'ready', String(n), ...(GH ? ['--repo', GH] : [])]);
+        if (!r.ok) throw new HttpError(502, (r.stderr || r.stdout).trim().slice(-400) || 'gh pr ready failed');
+        works.dropPr?.(n as number);
+        reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ready: marked ready for review on GitHub`);
+        return { output: r.stdout };
+      };
+      if (!jobs) await flip();
+      else jobs.start({ work: slug, pr: n, action: 'ready', label: `Mark ${keyLabel(n)} ready`, kind: 'command' }, flip);
     } else if (action && ['done', 'skipped', 'todo'].includes(action)) {
       if (action === 'skipped' && !reason.trim()) throw new HttpError(400, 'a skip needs a reason');
       saveGate(slug, index, id, action === 'todo' ? null : { state: action, at, reason: reason.trim() });
@@ -280,7 +294,7 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
       if (req.method === 'POST' && id) return send(res, 200, await act(slug, decodeURIComponent(raw), id, JSON.parse((await readBody(req)) || '{}')));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, httpStatus(e), { error: errorMessage(e) });
+      return send(res, httpStatus(e), conflictBody(e) ?? { error: errorMessage(e) });
     }
   }
 

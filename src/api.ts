@@ -1,12 +1,12 @@
 import type {
   AddRepoResult, AgentLog, AgentsResponse, AskRun, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
-  DevServersResponse, DispatchBody, DispatchEntry, DispatchResult, PreflightResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
+  DevServersResponse, DispatchBody, DispatchEntry, PreflightResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
   KitResponse, KitScope, LinkedAgent, RowMilestone, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
-import type { Card, CardAnswerBody, DriftResponse, DriftRunResult } from './types.ts';
+import type { Card, CardAnswerBody, DriftResponse, Job } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { ModelCatalog, ModelChoice } from './types.ts';
 
@@ -107,12 +107,14 @@ export const api = {
   gateAction: (slug: string, n: string | number, id: string, body: GateActionBody) => post<GatesResponse>(`${works(slug)}/gates/${encodeURIComponent(n)}/${id}`, body),
   dispatchCatalog: (slug: string) => get<{ catalog: DispatchEntry[] }>(`${works(slug)}/dispatch`),
   preflight: (slug: string, entry: string, key: string | number, fresh = false) => get<PreflightResult>(`${works(slug)}/preflight?entry=${encodeURIComponent(entry)}&key=${encodeURIComponent(String(key))}${fresh ? '&fresh=1' : ''}`),
-  dispatch: (slug: string, body: DispatchBody) => postJson(`${works(slug)}/dispatch`, body).then(jsonOrError<DispatchResult>),
+  dispatch: (slug: string, body: DispatchBody) => postJson(`${works(slug)}/dispatch`, body).then(jsonOrError<{ job: Job }>),
+  jobs: (work?: string) => get<{ jobs: Job[] }>(`/api/jobs${work ? `?work=${encodeURIComponent(work)}` : ''}`),
+  dismissJob: (id: string) => post<Job>(`/api/jobs/${encodeURIComponent(id)}/dismiss`, {}),
   stackKeeper: (slug: string) => get<KeepPlan>(`${works(slug)}/stack-keeper`),
   stackKeeperAction: (slug: string, action: string) => postEmpty<KeepApplied & KeepPlan>(`${works(slug)}/stack-keeper/${action}`),
   inbox: (body: { url: string; note: string }) => post<{ id: string; kind: string }>('/api/inbox', body),
   drift: (slug: string, fresh = false) => get<DriftResponse>(`${works(slug)}/drift${fresh ? '?fresh=1' : ''}`),
-  driftRun: (slug: string, id: string, command: string) => postJson(`${works(slug)}/drift/run`, { id, command }).then((r) => jsonOrError<DriftRunResult>(r)),
+  driftRun: (slug: string, id: string, command: string) => postJson(`${works(slug)}/drift/run`, { id, command }).then((r) => jsonOrError<{ job: Job }>(r)),
   kit: (slug: string, n: string | number) => get<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`),
   kitScope: (slug: string, n: string | number, pieces: Record<string, boolean>) => post<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`, { pieces, by: 'owner' } satisfies { pieces: Record<string, boolean>; by: KitScope['by'] }),
   decide: (slug: string, body: Record<string, unknown>) => post<Work['decisions']>(`${works(slug)}/decisions`, body),

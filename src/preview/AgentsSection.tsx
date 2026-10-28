@@ -7,6 +7,8 @@ import { SidebarSubagents, SubagentCount } from './Subagents.tsx';
 import { STATE_LABEL, groupAgents, reloadWorkAgents, useWorkAgents } from './agents.ts';
 import type { AgentGroup, AgentState, ListedAgent } from './agents.ts';
 import type { WorkPr } from '../workbench/types.ts';
+import { useWorkbench } from '../workbench/workbench-store.ts';
+import { isLive, useJobs } from '../jobs.ts';
 
 export const AgentDot = ({ state }: { state: AgentState }) => <span className={`dp-ag-dot dp-ag-${state}`} title={STATE_LABEL[state]} />;
 
@@ -80,7 +82,10 @@ function Group({ g, onOpen, onNew, arc }: { g: AgentGroup; onOpen: (id: string) 
   return (
     <div className="dp-ag-group">
       <div className="dp-ag-gh" title={g.title || undefined}>
-        <span className="dp-ell dp-grow">{g.label}{g.title && <span className="dp-t3"> {g.title}</span>}</span>
+        <span className="dp-ell dp-grow">
+          {g.pr === null ? g.label : <button type="button" className="dp-ag-pr" title={`Open ${g.label} in coco`} onClick={() => useWorkbench.getState().open(`pr-${g.pr}`)}>{g.label}</button>}
+          {g.title && <span className="dp-t3"> {g.title}</span>}
+        </span>
         {done.length > 0 && <ArchiveButton id={`group:${g.pr ?? ''}`} ids={done.map((a) => a.id)} arc={arc} title={`Archive the ${done.length} idle agent${done.length === 1 ? '' : 's'} here`} armedTitle={`Click again to archive ${done.length}; working ones stay`} />}
         <button type="button" className="dp-ibtn dp-ag-add" title={g.pr === null ? 'New agent on the work' : `New agent on ${g.label}`} onClick={() => onNew(g.pr)}><Icon name="plus" size={12} /></button>
       </div>
@@ -110,6 +115,8 @@ export default function AgentsSection({ slug, live, prs, onOpen }: { slug: strin
   const running = all.filter((a) => a.state === 'running').length;
   const done = settled(all);
   const onNew = (pr: string | null) => onOpen(pr === null ? 'ask' : `ask-new-${pr}`);
+  // agents already list themselves; commands, syncs and setup steps show here while they run or after they failed
+  const commands = useJobs(slug).filter((j) => j.kind !== 'agent' && (isLive(j) || j.state === 'failed' || j.state === 'lost'));
   return (
     <div className="dp-agents">
       <div className="dp-view dp-ag-head" onClick={() => setOpen((o) => !o)}>
@@ -124,6 +131,18 @@ export default function AgentsSection({ slug, live, prs, onOpen }: { slug: strin
         <div className="dp-ag-list">
           {data?.error && !groups.length && <div className="dp-ag-note">{data.error}</div>}
           {data && !data.error && !groups.length && <div className="dp-ag-note">No agent yet: + starts one.</div>}
+          {commands.length > 0 && (
+            <div className="dp-ag-group">
+              <div className="dp-ag-gh"><span className="dp-grow">Jobs</span></div>
+              {commands.map((j) => (
+                <div key={j.id} className="dp-view dp-ag" title={[j.label, j.error].filter(Boolean).join(' · ')}>
+                  {isLive(j) ? <span className="dp-ag-dot dp-ag-running" /> : <span className="dp-ag-dot dp-ag-failed" />}
+                  <span className="dp-ell dp-grow">{j.label}</span>
+                  <span className="dp-ag-ago">{isLive(j) ? ago(j.startedAt) : j.state}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {groups.map((g) => <Group key={g.pr ?? ''} g={g} onOpen={onOpen} onNew={onNew} arc={arc} />)}
         </div>
       </div>

@@ -4,6 +4,9 @@ import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import Checks from '../../components/Checks.tsx';
 import { KitRedo } from './DriftPanel.tsx';
+import { JobButton } from '../../components/JobButton.tsx';
+import { isLive, jobOf, useJobs } from '../../jobs.ts';
+import type { Job } from '../../types.ts';
 import Icon from '../../preview/Icon.tsx';
 import '../../components/parts.css';
 import type { PrKey } from '../types.ts';
@@ -41,19 +44,28 @@ export function useGates(slug: string, n: PrKey | null) {
 
 export type Gates = ReturnType<typeof useGates>;
 
-// the review skills of the self-reviewed milestone, behind the chevron of a split button
-export function ReviewSplit({ gates, onReview }: { gates: Gates; onReview: () => void }) {
+// the milestone a job moves forward
+export const stepOf = (action: string): string | null => (/^gate:(self-review|review-pr):/.test(action) ? 'self-review' : /^gate:kit-/.test(action) ? 'kit' : /^drift:.*:unpushed$/.test(action) ? 'pushed' : action === 'ready' ? 'ready' : null);
+
+// the review skills of the self-reviewed milestone, behind the chevron of a split button; a running one shows beside it
+export function ReviewSplit({ slug, n, gates, onReview }: { slug: string; n: PrKey; gates: Gates; onReview: () => void }) {
   const [open, setOpen] = useState(false);
   const skills = gates.data?.gates.find((g) => g.id === 'self-review')?.skills || [];
+  const jobs = useJobs(slug);
+  const running = skills.map((s) => jobOf(jobs, n, `gate:self-review:${skillSpec(s).name}`)).filter((j): j is Job => Boolean(j && isLive(j)));
   return (
     <span className="dp-split-wrap">
       <button type="button" className="dp-btn dp-sm dp-primary dp-split-main" onClick={onReview}><Icon name="file" size={14} />Review code</button>
       {skills.length > 0 && <button type="button" className="dp-btn dp-sm dp-primary dp-split-more" aria-label="Run a review skill" aria-expanded={open} onClick={() => setOpen(!open)}><Icon name="chevron-down" size={12} /></button>}
       {open && (
         <div className="dp-pop dp-on dp-split-pop">
-          {skills.map((s) => <button key={skillSpec(s).name} type="button" className="dp-mi" disabled={gates.busy} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => { setOpen(false); gates.run('self-review', s); }}>/{skillSpec(s).name}</button>)}
+          {skills.map((s) => {
+            const live = running.some((j) => j.action === `gate:self-review:${skillSpec(s).name}`);
+            return <button key={skillSpec(s).name} type="button" className="dp-mi" disabled={gates.busy || live} title={live ? 'Already running' : 'Starts the skill in the PR agent (or a new agent in the PR worktree)'} onClick={() => { setOpen(false); gates.run('self-review', s); }}>/{skillSpec(s).name}{live ? ' · running' : ''}</button>;
+          })}
         </div>
       )}
+      {running.map((j) => <JobButton key={j.id} job={j} label={j.label.split(':')[1]?.trim().split(' ')[0] || j.label} onRun={() => {}} />)}
     </span>
   );
 }
@@ -62,6 +74,8 @@ export function ReviewSplit({ gates, onReview }: { gates: Gates; onReview: () =>
 export default function GateRail({ slug, gates, n, onOpen }: { slug: string; gates: Gates; n: PrKey; onOpen: (tab: string) => void }) {
   const { data, error, pending, busy, act, run } = gates;
   const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  const jobs = useJobs(slug);
+  const busySteps = new Set(jobs.filter((j) => isLive(j) && j.pr === String(n)).map((j) => stepOf(j.action)));
   const spin = (id: string, action: string) => pendingClass(pending === `${id}:${action}`);
   const skip = (id: string) => {
     const reason = prompt('Skip: one-line reason');
@@ -84,7 +98,7 @@ export default function GateRail({ slug, gates, n, onOpen }: { slug: string; gat
           <Fragment key={g.id}>
             {i > 0 && <span className="dp-gt-sep" aria-hidden>›</span>}
             <button type="button" className={`dp-gt-p dp-gt-${g.state}${shown === g.id ? ' dp-on' : ''}${data.current === g.id ? ' dp-gt-next' : ''}`} aria-expanded={shown === g.id} title={[`${g.label}: ${g.state}`, g.reason && `(${g.reason})`, g.detail].filter(Boolean).join(' · ')} onClick={() => setPicked(shown === g.id ? null : g.id)}>
-              {g.state === 'running' ? <span className="dp-ag-dot dp-ag-running dp-gt-spin" aria-hidden /> : MARK[g.state]} {g.label}
+              {g.state === 'running' || busySteps.has(g.id) ? <span className="dp-ag-dot dp-ag-running dp-gt-spin" aria-hidden /> : MARK[g.state]} {g.label}
             </button>
           </Fragment>
         ))}
@@ -105,9 +119,9 @@ export default function GateRail({ slug, gates, n, onOpen }: { slug: string; gat
             <span>{[gate.state + (gate.reason ? `: ${gate.reason}` : ''), gate.detail, gate.at?.slice(0, 16).replace('T', ' ')].filter(Boolean).join(' · ')}</span>
           </div>
           <div className="dp-gt-f">
-            {gate.skills.map((s) => <button key={skillSpec(s).name} type="button" className={`dp-btn dp-sm dp-primary${spin(gate.id, 'run')}`} disabled={busy || gate.state === 'running'} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onClick={() => run(gate.id, s)}>/{skillSpec(s).name}</button>)}
+            {gate.skills.map((s) => <JobButton key={skillSpec(s).name} job={jobOf(jobs, n, `gate:${gate.id}:${skillSpec(s).name}`)} label={`/${skillSpec(s).name}`} primary disabled={busy} title="Starts the skill in the PR agent (or a new agent in the PR worktree)" onRun={() => run(gate.id, s)} />)}
             {gate.id === 'kit' && gate.state !== 'done' && <KitRedo slug={slug} prKey={String(n)} />}
-            {gate.canRun && <button type="button" className={`dp-btn dp-sm dp-primary${spin(gate.id, 'ready')}`} disabled={busy} title={`gh pr ready ${n}`} onClick={() => act(gate.id, { action: 'ready' })}>Mark ready for review</button>}
+            {gate.canRun && <JobButton job={jobOf(jobs, n, 'ready')} label="Mark ready for review" primary disabled={busy} title={`gh pr ready ${n}`} onRun={() => act(gate.id, { action: 'ready' })} />}
             {gate.tab && /^\d+$/.test(String(n)) && <button type="button" className="dp-btn dp-sm" onClick={() => onOpen(`${gate.tab}-${n}`)}>Open {gate.tab}<Icon name="chevron-right" size={12} /></button>}
             {gate.state !== 'done' && <button type="button" className={`dp-btn dp-sm${spin(gate.id, 'done')}`} disabled={busy} onClick={() => act(gate.id, { action: 'done' })}><Icon name="check" size={12} />Done</button>}
             {gate.state !== 'skipped' && <button type="button" className={`dp-btn dp-sm dp-ghost${spin(gate.id, 'skipped')}`} disabled={busy} onClick={() => skip(gate.id)}>Skip…</button>}

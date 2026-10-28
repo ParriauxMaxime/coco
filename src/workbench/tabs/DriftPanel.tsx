@@ -1,22 +1,25 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../api.ts';
+import { api, errorMessage } from '../../api.ts';
 import { subscribe, topic } from '../../live.ts';
+import { isLive, jobOf, useJobs } from '../../jobs.ts';
 import type { DriftAction, DriftHead, DriftItem, DriftResponse } from '../../types.ts';
 import Icon from '../../preview/Icon.tsx';
 import type { IconName } from '../../preview/Icon.tsx';
-import { useAction, pendingClass } from '../../components/action.ts';
+import { JobButton } from '../../components/JobButton.tsx';
 import { toast } from '../../components/Toast.tsx';
 import { useWorkbench } from '../workbench-store.ts';
 import '../../components/parts.css';
 
 const POLL_MS = 60000;
 const label = (key: DriftItem['key']) => (key == null ? '' : /^b:/.test(String(key)) ? String(key).slice(2) : `#${key}`);
-const tail = (s: string) => s.trim().split('\n').slice(-20).join('\n');
+
+// the job an item's action starts, as the server keys it
+const actionOf = (it: DriftItem, a: DriftAction) => (a.type === 'run' ? `drift:${it.id}` : a.type === 'dispatch' ? (a.persona ? `${a.entry}:${a.persona}` : a.entry) : null);
 
 function useDrift(slug: string) {
   const [data, setData] = useState<DriftResponse | null>(null);
-  const [failed, setFailed] = useState<Record<string, string>>({});
-  const { pending, busy, run } = useAction();
+  const jobs = useJobs(slug);
+  const ended = jobs.filter((j) => !isLive(j)).length;
   useEffect(() => {
     const load = () => api.drift(slug).then(setData, () => {});
     load();
@@ -25,25 +28,24 @@ function useDrift(slug: string) {
     const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(load, 50); } });
     return () => { clearInterval(t); clearTimeout(soon); off(); };
   }, [slug]);
+  // a job that ended may have fixed an item
+  useEffect(() => { if (ended) api.drift(slug, true).then(setData, () => {}); }, [slug, ended]);
 
   const go = (it: DriftItem, a: DriftAction) => {
     if (a.type === 'copy') return void navigator.clipboard?.writeText(a.command).then(() => toast.success(`Copied: ${a.command}`));
     if (a.type === 'tab') return useWorkbench.getState().open(a.tab);
-    if (a.type === 'run') {
-      return void run(it.id, async () => {
-        const r = await api.driftRun(slug, it.id, a.command);
-        setFailed((f) => ({ ...f, [it.id]: r.ok ? '' : tail(r.stderr || r.stdout) }));
-        if (r.ok) toast.success(`${a.label} done`);
-        api.drift(slug, true).then(setData, () => {});
-      });
-    }
-    return void run(it.id, async () => {
-      const r = await api.dispatch(slug, { entry: a.entry, key: it.key, ...(a.persona ? { persona: a.persona } : {}) });
-      toast.success(`Started ${r.title}`);
-      api.drift(slug, true).then(setData, () => {});
-    });
+    const started = a.type === 'run' ? api.driftRun(slug, it.id, a.command) : api.dispatch(slug, { entry: a.entry, key: it.key, ...(a.persona ? { persona: a.persona } : {}) });
+    return void started.catch((e) => toast.error(errorMessage(e)));
   };
-  return { data, failed, pending, busy, go };
+  // a copy or tab action is a plain button; a run or dispatch stands for its job
+  const button = (it: DriftItem, a: DriftAction | null | undefined, primary: boolean) => {
+    if (!a) return null;
+    const action = actionOf(it, a);
+    const title = a.type === 'run' || a.type === 'copy' ? a.command : it.text;
+    if (!action) return <button key={a.label} type="button" className={`dp-btn dp-sm${primary ? ' dp-primary' : ''}`} title={title} onClick={() => go(it, a)}>{a.label}</button>;
+    return <JobButton key={a.label} job={jobOf(jobs, it.key, action)} label={a.label} primary={primary} title={title} onRun={() => go(it, a)} />;
+  };
+  return { data, button };
 }
 
 const plural = (n = 0) => `${n} commit${n === 1 ? '' : 's'}`;
@@ -60,13 +62,12 @@ const commitsTone = (n: number) => (n >= TIDY_RED ? 'dp-bad' : n > 5 ? 'dp-warn'
 
 // the PR's local head against GitHub with the push one click away, and its own commits with a tidy once there are too many
 export function HeadBadges({ slug, prKey }: { slug: string; prKey: string }) {
-  const { data, failed, pending, busy, go } = useDrift(slug);
+  const { data, button } = useDrift(slug);
   const head = data?.heads?.find((h) => String(h.key) === prKey);
   if (!head) return null;
   const badge = HEAD_BADGE[head.state];
   const push = data?.drift.find((i) => i.id === `${prKey}:unpushed`);
   const tidy = data?.drift.find((i) => i.id === `${prKey}:history`);
-  const button = (it: DriftItem, a: DriftAction | null | undefined, primary: boolean) => a && <button type="button" className={`dp-btn dp-sm${primary ? ' dp-primary' : ''}${pendingClass(primary && pending === it.id)}`} disabled={busy} title={a.type === 'run' || a.type === 'copy' ? a.command : undefined} onClick={() => go(it, a)}>{a.label}</button>;
   return (
     <div className="dp-push-strip">
       <div className={`dp-push ${badge.tone}`}>
@@ -76,7 +77,6 @@ export function HeadBadges({ slug, prKey }: { slug: string; prKey: string }) {
           {push && button(push, push.also, false)}
           {push?.action?.type === 'run' && button(push, push.action, true)}
         </div>
-        {push && failed[push.id] && <pre className="dp-cmdline">{failed[push.id]}</pre>}
       </div>
       {head.commits !== undefined && (
         <div className={`dp-push dp-push-commits ${commitsTone(head.commits)}`} title="Commits of this PR on top of its base">
@@ -93,29 +93,22 @@ export function HeadBadges({ slug, prKey }: { slug: string; prKey: string }) {
 
 // the kit step's actions: redo a stale piece, make a missing one in scope
 export function KitRedo({ slug, prKey }: { slug: string; prKey: string }) {
-  const { data, pending, busy, go } = useDrift(slug);
+  const { data, button } = useDrift(slug);
   const items = [...(data?.drift || []), ...(data?.next || [])].filter((i) => String(i.key) === prKey && i.kind.startsWith('kit-') && i.action);
-  return (
-    <>
-      {items.map((it) => <button key={`${it.id}:${it.action?.label}`} type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === it.id)}`} disabled={busy} title={it.text} onClick={() => go(it, it.action as DriftAction)}>{it.action?.label}</button>)}
-    </>
-  );
+  return <>{items.map((it) => button(it, it.action, true))}</>;
 }
 
 // what drifted on the work's PRs and the next steps that follow; every button is a click of yours, nothing runs by itself
 export default function DriftPanel({ slug }: { slug: string }) {
-  const { data, failed, pending, busy, go } = useDrift(slug);
+  const { data, button } = useDrift(slug);
   const rows = [...(data?.drift || []), ...(data?.next || [])];
   if (!rows.length) return null;
   const line = (it: DriftItem) => (
-    <div key={it.id}>
-      <div className="dp-kl">
-        {it.key != null && <span className="dp-chip">{label(it.key)}</span>}
-        <span className="dp-grow">{it.text}</span>
-        {it.also && <button type="button" className="dp-btn dp-sm" disabled={busy} title={it.also.type === 'copy' ? it.also.command : undefined} onClick={() => go(it, it.also as DriftAction)}>{it.also.label}</button>}
-        {it.action && <button type="button" className={`dp-btn dp-sm${it.action.type === 'run' ? ' dp-primary' : ''}${pendingClass(pending === it.id)}`} disabled={busy} title={it.action.type === 'run' ? it.action.command : undefined} onClick={() => go(it, it.action as DriftAction)}>{it.action.label}</button>}
-      </div>
-      {failed[it.id] && <pre className="dp-cmdline">{failed[it.id]}</pre>}
+    <div key={it.id} className="dp-kl">
+      {it.key != null && <span className="dp-chip">{label(it.key)}</span>}
+      <span className="dp-grow">{it.text}</span>
+      {button(it, it.also, false)}
+      {button(it, it.action, it.action?.type === 'run')}
     </div>
   );
   return (

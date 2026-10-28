@@ -4,7 +4,9 @@
 import { cacheFile, swrCache } from './swr.ts';
 import { sameSha } from './kit.ts';
 import { runSkill } from './gates.ts';
-import { keyLabel, rowKey } from './stack.ts';
+import { keyLabel, parseKey, rowKey } from './stack.ts';
+import { conflictBody } from './jobs.ts';
+import type { Jobs } from './jobs.ts';
 import { gitWorktrees } from './worktrees.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { Config } from './config.ts';
@@ -37,11 +39,12 @@ type Deps = {
   comments: { list(slug: string, key: RowKey): { comments?: Pick<Comment, 'author' | 'sha'>[] } };
   reviewPlan: { planOf(slug: string, n: RowKey): { headSha?: string | null } | null | undefined };
   rowDir?(slug: string, key: RowKey): Promise<string | null>;  // the directory of the workspace remembered for a row
+  jobs?: Pick<Jobs, 'start'>;
 };
 
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 
-export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir }: Deps) {
+export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir, jobs }: Deps) {
   const DEFAULT = config.repo.defaultBranch || 'main';
   const GH = config.repo.github || '';
   const cached = swrCache<Drift>(TTL_MS, cacheFile(DATA, 'drift'));
@@ -209,13 +212,27 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
         } catch {
           throw new HttpError(400, 'the body is not JSON');
         }
-        return send(res, 200, await runItem(parts[1], body?.id, body?.command));
+        if (!jobs) return send(res, 200, await runItem(parts[1], body?.id, body?.command));
+        return send(res, 200, { job: await enqueue(parts[1], body?.id, body?.command) });
       }
       const fresh = new URL(req.url ?? '', 'http://x').searchParams.get('fresh') === '1';
       return send(res, 200, await view(parts[1], fresh));
     } catch (e) {
-      return send(res, httpStatus(e), { error: errorMessage(e) });
+      return send(res, httpStatus(e), conflictBody(e) ?? { error: errorMessage(e) });
     }
+  }
+
+  // a run as a command job: registered now, its output on the job; a failed command fails the job with its output tail
+  async function enqueue(slug: string, id: unknown, command: unknown) {
+    if (typeof id !== 'string' || !jobs) throw new HttpError(400, 'id required');
+    const item = (await view(slug)).drift.find((i) => i.id === id);
+    const pr = id.slice(0, id.lastIndexOf(':'));
+    const label = `${item?.action?.label || 'Run'} ${pr === 'work' ? '' : keyLabel(parseKey(pr) ?? pr)}`.trim();
+    return jobs.start({ work: slug, pr: pr === 'work' ? null : pr, action: `drift:${id}`, label, kind: 'command' }, async () => {
+      const r = await runItem(slug, id, command);
+      if (!r.ok) throw Object.assign(new Error((r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n') || `${label} failed`), { output: `${r.stdout}\n${r.stderr}` });
+      return { output: r.stdout };
+    }).job;
   }
 
   return { handle, view, runItem, drop: (slug: string) => cached.drop(slug) };

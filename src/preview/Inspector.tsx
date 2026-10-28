@@ -88,7 +88,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
         {branch && <div className="dp-row dp-g4 dp-xs dp-t3"><Icon name="git-branch" size={12} /><span className="dp-ell dp-mono">{branch}</span>{pr.base && <span>→ {pr.base}</span>}</div>}
         {numbered && (
           <div className="dp-row dp-g4" style={{ marginTop: 8 }}>
-            <ReviewSplit gates={gates} onReview={() => openTab(`review-${pr.number}`)} />
+            <ReviewSplit slug={d.slug} n={key} gates={gates} onReview={() => openTab(`review-${pr.number}`)} />
             <button type="button" className="dp-btn dp-sm" onClick={() => openTab(`findings-${pr.number}`)}><Icon name="flag" size={14} />Findings</button>
             {!asTab && <button type="button" className="dp-btn dp-sm dp-ghost" title="Open as a tab  ⌘↵" onClick={() => openTab(`pr-${key}`)}>Open as tab</button>}
           </div>

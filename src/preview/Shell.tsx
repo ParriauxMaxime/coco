@@ -9,6 +9,7 @@ import { useWaiting } from './waiting.ts';
 import AgentsSection from './AgentsSection.tsx';
 import { CHOICES, useBetaPanel, usePrefs, workHref } from './prefs.ts';
 import type { Overview, WorkSummary } from '../types.ts';
+import JobsStatus from './JobsStatus.tsx';
 import './preview.css';
 
 export type Command = { id: string; label: string; hint?: string; icon: IconName; run: () => void };
@@ -338,6 +339,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
         <footer className="dp-statusbar">
           {status}
           {!slug && running > 0 && <a className="dp-sbi" href="#/agents"><span className="dp-dot dp-live" />{running} agent{running > 1 ? 's' : ''} running</a>}
+          <JobsStatus onOpenAgent={(j) => { location.hash = j.work ? `#/work/${encodeURIComponent(j.work)}/ag-${j.agentId}` : '#/agents'; }} />
           <span className="dp-sp" />
           {waiting.length > 0 && <span className="dp-sbi dp-wait" onClick={() => (prefs.questions === 'tab' && onWaitingTab ? onWaitingTab() : setWaitOpen((w) => !w))}><Icon name="message-square" />{waiting.length} waiting on you</span>}
           {statusRight}

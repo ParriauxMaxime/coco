@@ -13,6 +13,9 @@ import type { ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 import type { Models } from './models.ts';
 import { isVideoEntry } from './preflight.ts';
 import type { Preflight } from './preflight.ts';
+import { conflictBody } from './jobs.ts';
+import type { Jobs } from './jobs.ts';
+import { randomUUID } from 'node:crypto';
 
 export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'gate' | 'prompt';
 export type CatalogEntry = { id: string; kind: DispatchKind; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
@@ -36,6 +39,7 @@ type Deps = {
   models?: Pick<Models, 'check'>;
   // a kit-video run's known blockers go in its first message (server/preflight.ts)
   preflight?: Pick<Preflight, 'run' | 'briefLines'>;
+  jobs?: Pick<Jobs, 'start'>;
 };
 
 const PROMPT_MAX = 8000;
@@ -72,7 +76,7 @@ export function firstMessage({ title, task, edits, brief, read }: { title: strin
   return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
-export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models, preflight }: Deps) {
+export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models, preflight, jobs }: Deps) {
   const repoFor = (work: Work) => repoOf?.(work) || null;
   const repoIdOf = (work: Work) => repoFor(work)?.id || work.repo || null;
   const entriesFor = (work: Work) => catalog(config, repoFor(work));
@@ -194,13 +198,22 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
         } catch {
           throw new HttpError(400, 'invalid JSON body');
         }
-        return send(res, 200, await start(slug, body));
+        return send(res, 200, { job: enqueue(slug, body).job });
       }
       return send(res, 404, { error: 'no route' });
     } catch (e) {
-      return send(res, httpStatus(e), { error: errorMessage(e) });
+      return send(res, httpStatus(e), conflictBody(e) ?? { error: errorMessage(e) });
     }
   }
 
-  return { catalog: entriesFor, start, handle };
+  // the dispatch as a job: checked and registered now, started in the background; a free ask or prompt is never a duplicate
+  function enqueue(slug: string, input: DispatchInput) {
+    const { entry, key, prompt, persona, edits } = resolve(slug, input);
+    const action = entry.kind === 'ask' || entry.kind === 'prompt' ? `${entry.id}:${randomUUID()}` : entry.kind === 'persona-review' ? `${entry.id}:${persona}` : entry.id;
+    const label = titleOf(entry, key, true, { prompt, persona });
+    if (!jobs) return { job: null, done: start(slug, input) };
+    return jobs.start({ work: slug, pr: key, action, label, kind: 'agent' }, () => start(slug, input));
+  }
+
+  return { catalog: entriesFor, start, enqueue, handle };
 }

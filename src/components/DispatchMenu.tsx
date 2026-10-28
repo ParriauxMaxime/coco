@@ -5,7 +5,7 @@ import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { loadPersonas } from '../preview/parts.tsx';
-import type { DispatchEntry, DispatchResult, PreflightResult } from '../types.ts';
+import type { DispatchEntry, PreflightResult } from '../types.ts';
 import './parts.css';
 
 type Key = string | number;
@@ -19,7 +19,6 @@ type Props = {
   // picked findings of a PR, for fix findings; none = every open one
   commentIdsFor?: (key: Key) => string[];
   onClose: () => void;
-  onStarted?: (r: DispatchResult) => void;
 };
 
 const catalogs = new Map<string, Promise<DispatchEntry[]>>();
@@ -31,7 +30,7 @@ const catalogOf = (slug: string) => {
 };
 
 // pick a catalog agent (or a free prompt) and dispatch it; coco places it: read-only in the Plan workspace, the rest in the PR's own
-export default function DispatchMenu({ slug, prKey = null, rows = [], personas = [], initial, commentIdsFor, onClose, onStarted }: Props) {
+export default function DispatchMenu({ slug, prKey = null, rows = [], personas = [], initial, commentIdsFor, onClose }: Props) {
   const [entries, setEntries] = useState<DispatchEntry[] | null>(null);
   const [known, setKnown] = useState<string[]>([]);
   const [id, setId] = useState(initial || 'ask');
@@ -61,8 +60,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const missing = (entry.needsPr && !onPr) || (entry.needsPersona && !persona.trim()) || Boolean(entry.ask && !answer.trim());
   const go = (prompt: string) => run('dispatch', async () => {
     const r = await api.dispatch(slug, { entry: entry.id, key: onPr ? key : null, prompt: noText ? '' : prompt, persona, edits, ...(entry.ask ? { args: `${answer.trim()} ${key}` } : {}), ...(picked.length ? { commentIds: picked } : {}), ...model.body() });
-    toast.success(`Started ${r.title} in the ${r.edits ? 'PR' : 'Plan'} workspace${r.brief === 'template' ? ', with the template brief: the brief writer failed' : ''}`);
-    onStarted?.(r);
+    toast.success(`Starting ${r.job.label}: it shows in the status bar until it is done`);
     onClose();
     return r;
   });

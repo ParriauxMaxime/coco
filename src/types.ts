@@ -466,7 +466,6 @@ export type KitScope = { by: 'agent' | 'owner'; why?: string; at: string };
 export type KitBetaFlag = { code: string; name?: string; why?: string; enable?: string; inBody?: boolean; mode?: string };
 export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'run'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
 export type DriftItem = { id: string; key: string | number | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction };
-export type DriftRunResult = { ok: boolean; id: string; command: string; stdout: string; stderr: string };
 export type DriftHead = { key: string | number; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number; commits?: number };
 // heads is missing from a drift cached on disk before it existed
 export type DriftResponse = { drift: DriftItem[]; next: DriftItem[]; heads?: DriftHead[]; at: string };
@@ -516,7 +515,8 @@ export type AskScope = { kind: 'global' } | { kind: 'repo'; repoId: string } | {
 export type DispatchEntry = { id: string; kind: string; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
 export type PreflightResult = { checks: { name: string; ok: boolean; detail: string; fix: string }[]; at?: string };
 export type DispatchBody ={ entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] } & ModelChoice;
-export type DispatchResult = { kind: string; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
+export type JobState = 'running' | 'needs-you' | 'done' | 'failed' | 'lost';
+export type Job = { id: string; work: string | null; pr: string | null; action: string; label: string; kind: 'agent' | 'command' | 'sync' | 'setup'; state: JobState; agentId: string | null; startedAt: string; endedAt: string | null; output: string; error: string };
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };
 export type WorktreesRemoved = { removed: string[]; kept: { path: string; why: string }[]; unarchived: { workspaceId: string; why: string }[] };

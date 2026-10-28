@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react';
 import DispatchMenu from '../components/DispatchMenu.tsx';
 import { api } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
+import { isLive, useJobs } from '../jobs.ts';
 import type { WorkPr } from '../workbench/types.ts';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
@@ -65,7 +66,7 @@ function useMilestones(slug: string) {
   return steps;
 }
 
-function Row({ d, pr, index, step, selected, narrow, dispatching, onSelect, onOpen, onDispatch, onClose }: { d: PreviewData; pr: WorkPr; index: number; step: string | null; selected: boolean; narrow: boolean; dispatching: boolean; onSelect: () => void; onOpen: () => void; onDispatch: () => void; onClose: () => void }) {
+function Row({ d, pr, index, step, working, selected, narrow, dispatching, onSelect, onOpen, onDispatch, onClose }: { d: PreviewData; pr: WorkPr; index: number; step: string | null; working: boolean; selected: boolean; narrow: boolean; dispatching: boolean; onSelect: () => void; onOpen: () => void; onDispatch: () => void; onClose: () => void }) {
   const state = prState(pr);
   const key = prKey(pr);
   const findings = findingsOf(d, pr).length;
@@ -82,7 +83,7 @@ function Row({ d, pr, index, step, selected, narrow, dispatching, onSelect, onOp
       <span className="dp-ix">{index + 1}</span>
       <span className={`dp-dot${state === 'planned' ? ' dp-hollow' : ''}`} />
       <span><PrChip pr={pr} /></span>
-      <span className="dp-ttl" title={prTitle(pr)}>{step && <span className={`dp-ms-chip dp-ms-${step}`} title={`Current milestone: ${step}`}>{step}</span>}{prTitle(pr)}</span>
+      <span className="dp-ttl" title={prTitle(pr)}>{working && <span className="dp-ag-dot dp-ag-running dp-thr-spin dp-row-job" title="A job runs on this PR" />}{step &&<span className={`dp-ms-chip dp-ms-${step}`} title={`Current milestone: ${step}`}>{step}</span>}{prTitle(pr)}</span>
       {!narrow && <span className="dp-c-diff" title={diffText(pr)}>{pr.additions === undefined || !pr.number ? <span className="dp-t4">–</span> : <><span className="dp-add">+{num(pr.additions)}</span> <span className="dp-del">−{num(pr.deletions || 0)}</span></>}</span>}
       <span className="dp-c-ci"><CiCell pr={pr} /></span>
       <span className={`dp-c-th${threads ? ' dp-has' : ''}`} title="Unresolved threads">{pr.number && !isDone(state) ? (threads ? <><Icon name="message-square" size={12} />{threads}</> : <span className="dp-t4">–</span>) : null}</span>
@@ -119,6 +120,8 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
   }, []);
   const narrow = narrowPref === 'drop' && width > 0 && width < NARROW_PX;
   const steps = useMilestones(d.slug);
+  const jobs = useJobs(d.slug);
+  const working = new Set(jobs.filter(isLive).map((j) => j.pr));
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -196,7 +199,7 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
         if (item.kind === 'fold') return <div key="fold" className="dp-srow dp-more" onClick={() => setExpanded(false)}><span className="dp-ix"><Icon name="chevron-down" size={12} /></span><span>Fold planned</span></div>;
         if (item.kind === 'more') return <div key="more" className="dp-srow dp-more" onClick={() => setExpanded(true)}><span className="dp-ix"><Icon name="chevron-right" size={12} /></span><span className="dp-ell">+{item.hidden.length} planned <span className="dp-t4">· {item.hidden.slice(0, 3).map(prTitle).join(', ')}{item.hidden.length > 3 ? ', …' : ''}</span></span></div>;
         const key = prKey(item.pr);
-        return <Row key={`${key}-${item.index}`} d={d} pr={item.pr} index={item.index} step={steps[key] ?? null} selected={key === selected} narrow={narrow} dispatching={dispatching === key} onSelect={() => onSelect(key)} onOpen={() => onOpen(key)} onDispatch={() => setDispatching(dispatching === key ? null : key)} onClose={() => setDispatching(null)} />;
+        return <Row key={`${key}-${item.index}`} d={d} pr={item.pr} index={item.index} step={steps[key] ?? null} working={working.has(key)} selected={key === selected} narrow={narrow} dispatching={dispatching === key} onSelect={() => onSelect(key)} onOpen={() => onOpen(key)} onDispatch={() => setDispatching(dispatching === key ? null : key)} onClose={() => setDispatching(null)} />;
       })}
       {items.length === 0 && <div className="dp-sdiv">{d.work.w ? 'Nothing here' : 'Loading…'}</div>}
     </div>
