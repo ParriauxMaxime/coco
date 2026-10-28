@@ -329,8 +329,8 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
           <Quota />
           <PaseoStatus />
           <ServerStatus />
-          <span className="dp-sbi" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
-          <span className="dp-sbi" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>
+          <span className="dp-sbi dp-sb-hint" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
+          <span className="dp-sbi dp-sb-hint" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>
         </footer>
 
         {waitOpen && (

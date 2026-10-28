@@ -72,16 +72,16 @@ export function AskPanel({ convo, start, placeholder, examples = [], draft }: { 
 }
 
 const SAFE = 'Follow up as long as you like, even while it works. It reads and proposes; you apply. Nothing is pushed, posted or sent.';
-const REPO_EXAMPLES = [
-  'Scaffold a work for adding CSV export to the invoices page, mirroring the PDF export stack. Who reviews each PR?',
-  'Which open PRs touch alice\'s surfaces this week and have no persona self-review yet?',
-  'From Notion page https://www.notion.so/acme/Spec-00000000000000000000000000000000, list what is not built yet and propose a work for the next piece.',
-  'Summarise the csv-export work: what is blocked, what is next.',
+// generic asks, then one about each of the repo's latest works
+const repoExamples = (works: string[]) => [
+  'Scaffold a work from a Notion spec: paste its link, I list what is not built yet and propose the stack.',
+  'Which open PRs have no persona self-review at their head yet?',
+  ...works.slice(0, 2).map((t) => `Summarise ${t}: what is blocked, what is next.`),
 ];
 const stamp = (iso: string) => iso.slice(0, 16).replace('T', ' ');
 
 // a repo's coco: scaffolds new works in it and answers about its code and PRs; earlier conversations below
-export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: string }) {
+export function RepoAsk({ repoId, repoName, works = [] }: { repoId: string; repoName?: string; works?: string[] }) {
   const convo = useAskConversation('ask', { kind: 'repo', repoId });
   const { run, history, open } = convo;
   const repo = repoName || repoId;
@@ -92,7 +92,7 @@ export function RepoAsk({ repoId, repoName }: { repoId: string; repoName?: strin
         convo={convo}
         draft={`repo:${repoId}`}
         start={(prompt, nonce, files, pick) => api.ask({ prompt, repoId, nonce, attachments: files.map((f) => f.id), ...pick })}
-        examples={REPO_EXAMPLES}
+        examples={repoExamples(works)}
         placeholder={run ? 'Follow up, correct or narrow it down (markdown, ↵)' : `Scaffold a work in ${repo} for … / Who reviews … (↵)`}
       />
       {history.length > 0 && (

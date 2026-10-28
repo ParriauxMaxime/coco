@@ -132,8 +132,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         )}
         statusRight={(
           <>
-            <span className="dp-sbi">Layout: {layouts.current?.name || 'unsaved'}</span>
-            <span className="dp-sbi" onClick={split}><kbd>⌘</kbd><kbd>\</kbd>Other pane</span>
+            <span className="dp-sbi dp-sb-hint">Layout: {layouts.current?.name || 'unsaved'}</span>
+            <span className="dp-sbi dp-sb-hint" onClick={split}><kbd>⌘</kbd><kbd>\</kbd>Other pane</span>
           </>
         )}
         commands={commands}

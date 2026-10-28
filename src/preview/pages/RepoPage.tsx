@@ -201,7 +201,7 @@ export default function RepoPage({ id, section }: { id: string; section?: string
       </Section>
 
       <Section title="Ask coco">
-        <RepoAsk key={data.id} repoId={data.id} repoName={data.name} />
+        <RepoAsk key={data.id} repoId={data.id} repoName={data.name} works={data.works.map((w) => w.title)} />
       </Section>
 
       <Section title="Loose PRs" count={data.loose.prs.length} action={<button type="button" className="dp-btn dp-sm" onClick={refresh} disabled={refreshing} title="Ask GitHub again"><Icon name="refresh" size={12} className={refreshing ? 'dp-spin' : undefined} />{refreshing ? 'Asking GitHub…' : 'Refresh'}</button>}>

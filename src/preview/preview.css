@@ -300,7 +300,9 @@ html[data-theme="dark"] .dp .dp-av { color: hsl(var(--dp-h) 60% 80%); background
 .dp-agent { display: flex; align-items: center; gap: 8px; height: 28px; font-size: 12.5px; }
 .dp-agent .dp-when { margin-left: auto; color: var(--dp-t3); font-size: 11.5px; }
 
-.dp-statusbar { display: flex; align-items: stretch; gap: 0; border-top: 1px solid var(--dp-line); background: var(--dp-bg); font-size: 11.5px; color: var(--dp-t2); padding: 0 4px; }
+.dp-statusbar { display: flex; align-items: stretch; gap: 0; border-top: 1px solid var(--dp-line); background: var(--dp-bg); font-size: 11.5px; color: var(--dp-t2); padding: 0 4px; overflow: hidden; }
+/* shortcut hints give way first: their keys work without them */
+@media (max-width: 1500px) { .dp-statusbar .dp-sb-hint { display: none; } }
 .dp-sbi { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; cursor: pointer; white-space: nowrap; }
 .dp-sbi:hover { background: var(--dp-hover); color: var(--dp-t1); }
 .dp-sbi svg.dp-i { width: 13px; height: 13px; }
