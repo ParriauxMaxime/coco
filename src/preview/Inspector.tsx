@@ -208,7 +208,7 @@ function ReviewBody({ d, n, host }: { d: PreviewData; n: PrKey; host?: string })
   return (
     <CodeRefRoot n={n} openAt={openAt} slug={d.slug} prs={stacked}>
       <PrLine d={d} n={n} />
-      <div className="dp-ins-rv"><ReviewActivity slug={d.slug} n={n} rv={rv} onJump={(c) => requestJump(n, c)} /></div>
+      <div className="dp-ins-rv"><ReviewActivity slug={d.slug} n={n} rv={rv} onJump={(c) => requestJump(n, c)} compact /></div>
     </CodeRefRoot>
   );
 }

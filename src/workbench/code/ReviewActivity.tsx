@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
-import Thread, { ThreadToggle, threadKey, useThreadsOf } from '../../components/Thread.tsx';
+import Thread, { ThreadToggle, threadKey, threadLabel, useThreadSummary, useThreadsOf } from '../../components/Thread.tsx';
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { useLocal } from '../tabs/Code.tsx';
@@ -93,6 +93,25 @@ function CommentRow({ c, rv, slug, open, onToggle, onJump, ts }: { c: ReviewComm
   );
 }
 
+// one line per remark: where, what, and the state of its agent; a click opens it in the review code
+function CompactRow({ c, slug, n, ts, coco, onJump }: { c: ReviewComment; slug: string; n: PrKey; ts: string; coco?: boolean; onJump: Jump }) {
+  const s = useThreadSummary(slug, threadKey.comment(n, c.id));
+  const agent = coco ? '' : threadLabel(s, '');
+  return (
+    <button type="button" className={`rv-item rv-compact${coco ? ' rv-wp' : ` rv-cm cc-st-${c.status}`}`} title={`${c.path}:${c.startLine} · open in the review code`} onClick={() => onJump(c)}>
+      <span className="rv-act-h">
+        {coco ? <span className="dp-chip dp-tone dp-st-merged"><Icon name="bot" size={12} />coco suggests</span> : <span className={`dp-chip ${TONE[c.status] ?? ''}`}>{c.status}</span>}
+        <SevChip value={c.severity} />
+        <span className="dp-ell rv-compact-loc"><b>{c.path.split('/').pop()}</b> <span className="rv-lines">{lineSpan(c)}</span></span>
+        <span className="dp-sp" />
+        {ts && <span className="rv-when">{since(ts)}</span>}
+      </span>
+      <span className="rv-compact-t dp-ell">{(c.body || '').replace(/[#*`>_]/g, '').split('\n').find((l) => l.trim()) || ''}</span>
+      {agent && <span className={`rv-compact-ag${s?.asks || s?.open ? ' dp-hot' : ''}`}>{s?.waiting ? <span className="dp-ag-dot dp-ag-running dp-thr-spin" aria-hidden /> : <Icon name="message-square" size={12} />}{agent}</span>}
+    </button>
+  );
+}
+
 type DecisionRowProps = { d: Decision; slug: string; open: boolean; onToggle: () => void; ts: string; onDecide: (body: Record<string, unknown>) => Promise<void>; onReply: () => unknown };
 
 function DecisionRow({ d, slug, open, onToggle, ts, onDecide, onReply }: DecisionRowProps) {
@@ -136,7 +155,8 @@ function RunRow({ run, slug, n, onPushed }: { run: ReviewRun; slug: string; n: P
 }
 
 // right pane of the Review tab: coco's plan, then watch points, comments and the work's decisions, latest activity first
-export default function ReviewActivity({ slug, n, rv, onJump }: { slug: string; n: PrKey; rv: ReviewHandle; onJump: Jump }) {
+// compact: remarks stay one-line cards that open in the review code (the inspector beside another tab)
+export default function ReviewActivity({ slug, n, rv, onJump, compact }: { slug: string; n: PrKey; rv: ReviewHandle; onJump: Jump; compact?: boolean }) {
   const { w, decide, load } = useWork();
   const { summaries } = useThreadsOf(slug);
   const [filter, setFilter] = useLocal('cc.act.filter', 'all');
@@ -176,7 +196,9 @@ export default function ReviewActivity({ slug, n, rv, onJump }: { slug: string; 
       <div className="rv-act-feed">
         {!items.length && <div className="rv-empty">{filter === 'all' ? 'Nothing yet. Drag in the line numbers of a diff, or select lines and press c, to comment.' : `Nothing ${filter}.`}</div>}
         {items.map((x) =>
-          x.kind === 'watch' ? <WatchRow key={x.id} wp={x.wp} rv={rv} onJump={onJump} onDispatch={setOpenKey} />
+          compact && x.kind === 'watch' ? <CompactRow key={x.id} c={x.wp} slug={slug} n={n} ts="" coco onJump={onJump} />
+            : compact && x.kind === 'comment' ? <CompactRow key={x.id} c={x.c} slug={slug} n={n} ts={x.ts} onJump={onJump} />
+            : x.kind === 'watch' ? <WatchRow key={x.id} wp={x.wp} rv={rv} onJump={onJump} onDispatch={setOpenKey} />
             : x.kind === 'comment' ? <CommentRow key={x.id} c={x.c} rv={rv} slug={slug} ts={x.ts} open={openKey === x.id} onToggle={() => toggle(x.id)} onJump={onJump} />
               : <DecisionRow key={x.id} d={x.d} slug={slug} ts={x.ts} open={openKey === x.id} onToggle={() => toggle(x.id)} onDecide={decide} onReply={load} />)}
         {rv.runs.length > 0 && (

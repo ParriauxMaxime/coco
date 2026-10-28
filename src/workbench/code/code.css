@@ -206,6 +206,15 @@
 .rv-when { color: var(--dp-t4); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rv-item { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 8px 12px; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-panel); }
 .rv-item::before { content: ''; position: absolute; left: -1px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--cc-st, var(--dp-line-2)); }
+.rv-compact { all: unset; position: relative; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 7px 10px 7px 12px; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-panel); cursor: pointer; min-width: 0; }
+.rv-compact:hover { background: var(--dp-hover); }
+.rv-compact:focus-visible { box-shadow: 0 0 0 2px var(--dp-focus); }
+.rv-compact .rv-act-h { flex-wrap: nowrap; }
+.rv-compact-loc { display: flex; align-items: baseline; gap: 4px; min-width: 0; font-size: 12px; }
+.rv-compact-loc b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-compact-t { font-size: 12.5px; color: var(--dp-t2); }
+.rv-compact-ag { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--dp-t3); }
+.rv-compact-ag.dp-hot { color: var(--dp-accent); }
 .rv-wp { --cc-st: var(--dp-merged); border-style: dashed; border-color: color-mix(in srgb, var(--dp-merged) 40%, var(--dp-line)); }
 .rv-cm.cc-st-outdated { opacity: .7; }
 .rv-dc { --cc-st: var(--dp-warn); }

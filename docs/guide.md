@@ -1269,7 +1269,9 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
     a one-line PR header (#n, state and CI chips, the current milestone or
     "all clear", Details opens `pr-<n>`) over the review plan and activity feed,
     and the Review tab drops its own activity pane so the diff takes the
-    width; a location in the feed opens that Review tab at the line.
+    width. Remarks and watch points in this feed stay one-line cards (status,
+    severity, file and lines, first line, the state of their agent); a click
+    opens that Review tab at the line, where the remark and its thread live.
     `pr-<n>` (the details already fill the tab): the same plan and feed, the
     one thing the tab lacks. Agent tabs (`ag-…`, `ask-…`): status, model,
     usage, the PR it works on, its open questions with a jump to the oldest,
