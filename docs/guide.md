@@ -33,8 +33,9 @@ Dev loop: `npm run serve` in one shell, `npm run dev` in another (Vite on
 The status bar shows the commit the server runs (`coco <sha>`, `*` when the
 checkout was dirty at boot) and, once the checkout moved past it, "N commits
 behind · Restart" (`POST /api/server/restart`: the client builds into
-`dist.next` while the running server keeps serving, old chunks of the last two
-days are kept so open pages still load them, then `dist` is swapped, the old
+`dist.next` while the running server keeps serving, its chunks join `dist`
+beside the old ones (kept two days so open pages still load them), then
+`index.html` is renamed over the old one, so `dist` never misses a file; the old
 server stops and the same argv starts; a failed build leaves the old server
 running; log in `<dataDir>/server-restart.log`). A server that finds its port
 taken exits quietly.

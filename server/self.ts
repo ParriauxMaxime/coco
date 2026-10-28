@@ -8,12 +8,13 @@ import type { Req, Res, Send } from './core-types.ts';
 
 export type ServerInfo = { running: string | null; head: string | null; behind: number; dirty: boolean; startedAt: string; build: string | null };
 
-// the client builds beside dist/ while this server keeps serving, keeps the old chunks an open page still loads (two days), swaps in,
-// then this server stops and the new one takes the port; a failed build leaves this one running
+// the client builds beside dist/ while this server keeps serving; its chunks join dist/ next to the old ones an open page still loads
+// (two days), then index.html is renamed over the old one, so dist/ is never missing a file; then this server stops and the new one
+// takes the port; a failed build leaves this one running
 const RESTART = [
   'npx vite build --outDir dist.next --emptyOutDir --logLevel warn || { echo "restart: client build failed, coco keeps running"; exit 1; }',
-  '[ -d dist/assets ] && cp -pn dist/assets/* dist.next/assets/ 2>/dev/null; find dist.next/assets -type f -mtime +2 -delete',
-  'rm -rf dist.old; [ -d dist ] && mv dist dist.old; mv dist.next dist; rm -rf dist.old',
+  'rsync -a --exclude index.html dist.next/ dist/ && mv dist.next/index.html dist/index.html && rm -rf dist.next',
+  'find dist/assets -type f -mtime +2 -delete',
   'kill "$COCO_OLD_PID"; while kill -0 "$COCO_OLD_PID" 2>/dev/null; do sleep 0.2; done',
   'exec "$0" "$@"',
 ].join('\n');

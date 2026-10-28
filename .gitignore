@@ -1,7 +1,6 @@
 node_modules
 dist
 dist.next
-dist.old
 data
 *.bak
 coco-pack-*.zip
