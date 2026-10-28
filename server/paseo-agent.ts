@@ -360,7 +360,8 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     const system = mcp ? [systemPrompt, CARDS_LINE].filter(Boolean).join('\n') : systemPrompt;
     return {
       provider,
-      modeId: AGENT_MODE,
+      // auto is a Claude mode: another provider (opencode, pi, codex) starts in its own default mode
+      ...(!provider || provider.startsWith('claude') ? { modeId: AGENT_MODE } : {}),
       ...(thinking ? { thinkingOptionId: thinking } : {}),
       ...(system ? { systemPrompt: system } : {}),
       ...(mcp

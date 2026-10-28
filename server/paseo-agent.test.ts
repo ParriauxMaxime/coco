@@ -149,6 +149,12 @@ test('run starts the agent in the workspace already open on its directory, waits
   assert.deepEqual(daemon.calls.opened, []);
 });
 
+test('an agent on another provider than Claude starts in its own default mode, without the coco tools when asked', async () => {
+  const daemon = fakeDaemon({ workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }], events: [say('[]'), { type: 'turn_completed', provider: 'opencode' }], results: [{ status: 'idle', lastMessage: '[]' }] });
+  await createPaseoAgents({ APP: '/app', connect: daemon.connect }).run({ title: 'Brief lessons', prompt: 'judge', provider: 'opencode/ollama/qwen3:14b', cwd: '/acme/widgets', mcp: false });
+  assert.deepEqual(daemon.calls.agents[0].config, { provider: 'opencode/ollama/qwen3:14b' });
+});
+
 test('the shared agent line says code is edited only with Edit or Write after a Read', () => {
   assert.match(CARDS_LINE, /Edit code files only with the Edit or Write tools after a Read, never with sed, python or heredocs/);
 });

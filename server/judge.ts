@@ -8,9 +8,9 @@ import path from 'node:path';
 import { errorMessage } from './core-types.ts';
 import type { Config } from './config.ts';
 
-type RunOpts = { title: string; prompt: string; provider: string; labels: Record<string, unknown>; workspaceId: string; cwd: string; timeoutMs: number };
+type RunOpts = { title: string; prompt: string; provider: string; labels: Record<string, unknown>; workspaceId: string; cwd: string; timeoutMs: number; mcp?: boolean };
 type RunOut = { status: string; error?: string | null; finalText: string };
-export type Ask<T> = Omit<RunOpts, 'provider'> & { kind: string; repo?: string; parse: (text: string) => T | null };
+export type Ask<T> = Omit<RunOpts, 'provider' | 'mcp'> & { kind: string; repo?: string; parse: (text: string) => T | null };
 export type Decision = { id: string; at: string; kind: string; repo?: string; model: string; shadowOf?: string; input: string; output: unknown; ms: number; error?: string };
 type Label = { at: string; decision: string; dropped: string };
 export type JudgeStat = { kind: string; model: string; role: 'judge' | 'shadow'; decisions: number; failed: number; items: number; dropped: number; agree: number };
@@ -45,7 +45,7 @@ export function createJudge({ DATA, config, agents, now = Date.now }: { DATA: st
 
   async function attempt<T>(model: string, { kind, repo, parse, ...run }: Ask<T>, input: string, shadowOf?: string) {
     const start = now();
-    const out: RunOut = await agents.run({ ...run, provider: model }).catch((e: unknown) => ({ status: 'error', error: errorMessage(e), finalText: '' }));
+    const out: RunOut = await agents.run({ ...run, provider: model, mcp: false }).catch((e: unknown) => ({ status: 'error', error: errorMessage(e), finalText: '' }));
     const output = out.status === 'done' ? parse(out.finalText) : null;
     const error = output !== null ? '' : out.status === 'done' ? `${model} answered nothing parseable` : out.error || `${model} ended ${out.status}`;
     const id = crypto.randomBytes(4).toString('hex');
