@@ -500,7 +500,7 @@ test("the owner's Verify runs the checks on the ready commit in the group worktr
     briefLines: (r) => briefLines(r),
     verify: async (root, { head }) => (ran.push(`${root} ${head}`), ok(head)),
     head: async () => commit,
-  }, () => [{ id: 'aa11', commit }], undefined, exec);
+  }, () => [{ id: 'aa11', commit }], undefined, exec, { ms: 0, pollMs: 1 });
   const call = async (method: string, payload: object = {}, sub = 'verify') => {
     let out: { code: number; body: Record<string, unknown> } = { code: 0, body: {} };
     const req = { method, url: `/api/works/${SLUG}/threads/${A}/${sub}`, on: () => {} } as unknown as Req;
@@ -634,6 +634,13 @@ test('one live agent per comment: a message with another model goes to the group
   assert.equal(daemon.calls.worktrees.length, 1, 'no second worktree');
 });
 
+test('two first messages on different comments of one file land in one group and one agent', async () => {
+  const { threads, daemon } = setup();
+  const [a, b] = await Promise.all([threads.post(SLUG, A, { text: 'one' }), threads.post(SLUG, B, { text: 'two' })]);
+  assert.equal(a.groupId, b.groupId);
+  assert.equal(daemon.calls.created.length, 1);
+});
+
 test('a fresh agent for a comment whose earlier group already committed is told the sha and subject', async () => {
   let committed = false;
   const exec: Exec = async (_cmd, args) => ({ ok: args.includes('--format=%s'), stdout: args.includes('--format=%s') ? 'Add the null check\n' : '', stderr: '' });
@@ -657,21 +664,24 @@ test('a fresh agent for a comment whose earlier group already committed is told 
 
 test('the first prompt of a code agent waits for the worktree deps; past the timeout it says so and the ready message follows', async () => {
   const wt = (state: Readiness['state']): Readiness => ({ state, root: '/wt/cc-group', deps: [{ path: 'node_modules', mode: state === 'ready' ? 'linked' : 'installing' }], checks: [{ id: 'lint', label: 'Lint', command: 'lint <changed files>', available: state === 'ready', why: 'coco is installing the dependencies' }] });
-  let calls = 0;
-  const held = setup(undefined, { prepare: async () => wt(++calls > 3 ? 'ready' : 'preparing'), whenReady: () => {}, briefLines: (r) => briefLines(r) }, undefined, undefined, undefined, { ms: 5000, pollMs: 5 });
-  const first = held.threads.post(SLUG, A, { text: 'Add the null check' });
-  await until(() => calls >= 1, 'deps looked at');
-  assert.equal(held.daemon.calls.sent.length, 0, 'nothing sent while the deps install');
+  let installed = false;
+  const held = setup(undefined, { prepare: async () => wt(installed ? 'ready' : 'preparing'), whenReady: () => {}, briefLines: (r) => briefLines(r) }, undefined, undefined, undefined, { ms: 5000, pollMs: 5 });
+  const a1 = await held.threads.post(SLUG, A, { text: 'Add the null check' });
+  assert.equal(held.daemon.calls.sent.length, 0, 'the POST returned before the deps are ready; nothing sent');
   assert.equal(held.read(A).messages[0].text, 'Add the null check', 'the owner sees their message at once');
-  const a1 = await first;
+  assert.ok((held.read(A).waiting as { deps?: unknown }).deps, 'the thread says it waits for deps');
+  await held.threads.ingest(SLUG, A);
+  assert.ok(held.read(A).waiting, 'ingest does not end a thread whose prompt is held');
+  installed = true;
   await until(() => held.daemon.calls.sent.length === 1, 'prompt after the deps');
+  await until(() => !(held.read(A).waiting as { deps?: unknown } | null)?.deps, 'status cleared');
   assert.doesNotMatch(held.daemon.calls.sent[0].text, /Not available yet|coco waited/);
   assert.match(held.daemon.calls.sent[0].text, /Lint: `lint <changed files>`/);
   assert.ok(a1.waiting);
 
   const heard: [string, string][] = [];
   const slow = setup(undefined, { prepare: async () => wt('preparing'), whenReady: (root, agentId) => void heard.push([root, agentId]), briefLines: (r) => briefLines(r) }, undefined, undefined, undefined, { ms: 30, pollMs: 5 });
-  await slow.post(A, 'Add the null check');
+  await slow.threads.post(SLUG, A, { text: 'Add the null check' });
   await until(() => slow.daemon.calls.sent.length === 1, 'prompt after the timeout');
   const agent = slow.daemon.calls.created[0].id;
   assert.match(slow.daemon.calls.sent[0].text, /coco waited 0s for the dependencies[\s\S]*checks are available now/);

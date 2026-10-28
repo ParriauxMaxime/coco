@@ -49,7 +49,8 @@ type Choice = { label: string; text: string; change: boolean; option?: string };
 // card: the card whose answer (a user message) or effect (a system note) it records
 type Message = { id: string; role: string; text: string; ts: string; model?: string; agentId?: string; groupId?: string; turn?: string; steer?: boolean; blocks?: Block[]; suggestion?: Suggestion; choices?: Choice[]; picked?: number; card?: string; files?: UploadRef[] };
 type Asked = { msgId: string; replyPath: string; cardPath: string };
-type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[] };
+// deps: the first prompt is held back while the worktree installs its dependencies (since when)
+type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[]; deps?: { since: string } };
 // sentBack: a failed check already went back to the agent since the owner's last message
 // verifies: the owner's Verify runs by commit sha
 type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean; sentBack?: boolean; verifies?: Record<string, VerifyRun> };
@@ -348,7 +349,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
 
   // a code group's worktree, readied before each of its turns; its section goes in the prompt when it differs from what the agent was last told
   // a first prompt waits (up to hold.ms) while the worktree installs its dependencies; past that it says so, and the agent hears when they are ready
-  async function setupOf(group: Group, s: AgentSession, first = false) {
+  async function setupOf(group: Group, s: AgentSession, first = false, onHold: () => void = () => {}) {
     if (group.kind !== 'code' || !worktrees) return [];
     const cwd = group.worktree || s.cwd();
     if (!cwd) return [];
@@ -356,6 +357,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     let r = await worktrees.prepare(group.worktree).catch(() => null);
     if (!r) return [];
     const t0 = Date.now();
+    if (first && r.state === 'preparing') onHold();
     while (first && r?.state === 'preparing' && Date.now() - t0 < hold.ms) {
       await new Promise((ok) => setTimeout(ok, hold.pollMs));
       r = (await worktrees.prepare(group.worktree, { retrying: true, start: false }).catch(() => null)) ?? r;
@@ -492,7 +494,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // a thread waiting on an agent this coco run does not follow yet (a restart, a reload): re-attach and follow its turn
   async function follow(slug: string, key: string) {
     const { waiting } = read(slug, key);
-    if (!waiting || following.has(waiting.agentId)) return;
+    if (!waiting || waiting.deps || following.has(waiting.agentId)) return;
     const group = readGroup(slug, waiting.groupId);
     if (group?.status !== 'active' || group.agentId !== waiting.agentId) return;
     route(slug, group.id, key, waiting.msgId);
@@ -515,7 +517,26 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // a message (the owner's, a card answer, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight;
   // a card answer only reaches the agent that asked it, never a new one
   type Sending = { text: string; model?: string | null; thinking?: string | null; groupId?: string | null; role: string; files?: Upload[]; card?: Card };
-  async function dispatch(slug: string, work: Work, ref: Ref, key: string, { text, model, thinking, groupId, role, files = [], card }: Sending): Promise<Thread> {
+  // one group picked and written at a time per file, so two first messages on different comments of a file land in one group
+  const acquire = (lockKey: string) => {
+    let release = () => {};
+    const mine = new Promise<void>((ok) => (release = ok));
+    const prev = locks.get(lockKey) || Promise.resolve();
+    locks.set(lockKey, prev.then(() => mine));
+    return prev.then(() => release);
+  };
+  // the first prompts being sent in the background (deps wait), by agent: a later message to the agent goes out after it
+  const delivering = new Map<string, Promise<void>>();
+  async function dispatch(slug: string, work: Work, ref: Ref, key: string, sending: Sending): Promise<Thread> {
+    const subject = ref.kind === 'comment' ? itemOf(slug, work, ref) : null;
+    const release = subject ? await acquire(`${slug}:file:${subject.path}`) : () => {};
+    try {
+      return await dispatchIn(slug, work, ref, key, sending, release);
+    } finally {
+      release();
+    }
+  }
+  async function dispatchIn(slug: string, work: Work, ref: Ref, key: string, { text, model, thinking, groupId, role, files = [], card }: Sending, release: () => void): Promise<Thread> {
     const thread = read(slug, key);
     const item = itemOf(slug, work, ref);
     if (!item) throw new HttpError(404, `no such ${ref.kind}`);
@@ -539,6 +560,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     group.agentId = s.agentId;
     if (!group.items.includes(key)) group.items.push(key);
     writeGroup(slug, group);
+    release();
     if (thread.groupId && thread.groupId !== group.id) leaveGroup(slug, thread.groupId, key);
     thread.messages.push({ ...msg, agentId: s.agentId, groupId: group.id, ...(seen ? { turn: 'follow-up' } : {}), ...(busy ? { steer: true } : {}) });
     if (role === 'user') delete thread.sentBack;
@@ -549,15 +571,44 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     write(slug, thread);
     if (prior && prior.groupId !== group.id) route(slug, prior.groupId, key, null);
     route(slug, group.id, key, msg.id);
-    const setup = await setupOf(group, s, !seen);
-    writeGroup(slug, group);
-    const prompt = seen ? followUpPrompt({ ref, item, thread: prev, text, replyPath, cardPath, agentId: s.agentId, steer: Boolean(busy), setup }) : buildPrompt({ work, ref, item, thread: prev, text, group, replyPath, cardPath, pr, setup, earlier: fixed });
-    const messageId = files.length ? crypto.randomUUID() : null;
-    if (messageId) uploads?.record(s.agentId, { messageId, text: prompt, at: msg.ts, attachments: files.map(uploadRef) });
-    const steering = s.busy();
-    const sent = s.say(prompt, { timeoutMs: TURN_MS, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}) });
-    if (steering) sent.catch((e) => addNote(slug, key, `Could not reach the agent: ${errText(e)}`.slice(0, 500)));
-    else track(slug, group.id, s, sent);
+    const sendPrompt = (setup: string[]) => {
+      writeGroup(slug, group);
+      const prompt = seen ? followUpPrompt({ ref, item, thread: prev, text, replyPath, cardPath, agentId: s.agentId, steer: Boolean(busy), setup }) : buildPrompt({ work, ref, item, thread: prev, text, group, replyPath, cardPath, pr, setup, earlier: fixed });
+      const messageId = files.length ? crypto.randomUUID() : null;
+      if (messageId) uploads?.record(s.agentId, { messageId, text: prompt, at: msg.ts, attachments: files.map(uploadRef) });
+      const steering = s.busy();
+      const sent = s.say(prompt, { timeoutMs: TURN_MS, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}) });
+      if (steering) sent.catch((e) => addNote(slug, key, `Could not reach the agent: ${errText(e)}`.slice(0, 500)));
+      else track(slug, group.id, s, sent);
+    };
+    // deps still installing (or a first prompt of this agent still held back): return now, wait and send in the background
+    let hold = () => {};
+    const holding = new Promise<'hold'>((ok) => (hold = () => ok('hold')));
+    const setupP = setupOf(group, s, !seen, hold);
+    const ahead = delivering.get(s.agentId);
+    const early = ahead ? 'hold' : await Promise.race([setupP, holding]);
+    if (early !== 'hold') {
+      sendPrompt(early);
+      return thread;
+    }
+    thread.waiting = { ...thread.waiting!, deps: { since: ahead ? new Date().toISOString() : thread.waiting!.sentAt } };
+    write(slug, thread);
+    const job: Promise<void> = (async () => {
+      const setup = await setupP;
+      await ahead?.catch(() => {});
+      await withLock(`${slug}:${key}`, () => {
+        const t = read(slug, key);
+        if (t.waiting?.deps && delivering.get(s.agentId) === job) {
+          delete t.waiting.deps;
+          t.waiting.sentAt = new Date().toISOString();
+          write(slug, t);
+        }
+        sendPrompt(setup);
+      });
+    })()
+      .catch((e) => void addNote(slug, key, `Could not send to the agent: ${errText(e)}`.slice(0, 500)))
+      .finally(() => void (delivering.get(s.agentId) === job && delivering.delete(s.agentId)));
+    delivering.set(s.agentId, job);
     return thread;
   }
 
@@ -708,6 +759,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       if (!waiting) return thread;
       const asked = [...(waiting.earlier || []), { msgId: waiting.msgId, replyPath: waiting.replyPath, cardPath: waiting.cardPath }];
       const replied = asked.filter((a) => fs.existsSync(a.replyPath));
+      if (waiting.deps && !replied.length) return thread;
       let agent: PaseoAgentRow | null | undefined = null;
       let final = ended || replied.includes(asked[asked.length - 1]);
       if (!final && !replied.length && !following.has(waiting.agentId) && Date.now() - Date.parse(waiting.sentAt) > SETTLE_MS) {

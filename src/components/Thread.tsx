@@ -277,7 +277,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         <span className="dp-ell">{group ? `Group ${groupLabel(group)}` : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (
           <span className={`dp-chip${thread.agent.live ? ' dp-ok' : ''}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
-            <span className="dp-d" />{thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
+            <span className="dp-d" />{thread.waiting?.deps ? `waiting for deps (${Math.max(0, Math.round((Date.now() - Date.parse(thread.waiting.deps.since)) / 1000))} s)` : thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
           </span>
         )}
         <span className="dp-thr-hx">

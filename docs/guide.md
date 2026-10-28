@@ -768,8 +768,9 @@ config (docs/configuration.md); without it nothing changes.
   installed for is kept in the worktree's git dir, so a later lockfile
   change reinstalls and an install cut short is retried.
 - First prompt hold: a code group's first prompt waits (90 s, polling every
-  2 s) while the worktree installs its own copy; the owner's message shows at
-  once. Past the timeout the prompt says the checks are not ready and to run
+  2 s) while the worktree installs its own copy, in the background: the
+  owner's POST returns once the message is stored, the thread shows "waiting
+  for deps (n s)" and no lock is held while it waits. Past the timeout the prompt says the checks are not ready and to run
   no install, and the agent gets "checks are available now: <commands>" when
   they work. Check commands are to be run from the worktree root as written
   (a `cd` is part of the command, file paths relative to it), never after a
