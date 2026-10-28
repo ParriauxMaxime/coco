@@ -197,7 +197,7 @@ server.tool('propose_paseo_agent',`Propose starting a Paseo agent (local, in an 
 
 const dispatchable = catalog(config).map((e) => `${e.id} (${e.label}${e.kind === 'prompt' ? ', read-only unless edits' : e.edits ? ', works on the PR branch' : ', read-only'}${e.needsPrompt ? ', needs prompt' : ''}${e.needsPersona ? ', needs persona' : ''})`).join('; ');
 server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of its PRs, shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Dispatch on the card; then coco adds the work brief and picks the Paseo workspace (read-only kinds in the work's Plan workspace, the others in the PR's own). Call it once, at the end. Entries: ${dispatchable}. ${ON_CARD}`, {
-  entry: z.string().describe('catalog entry id, e.g. "ask", "persona-review", "fix-findings", "gate:self-review:<skill>", "prompt"'),
+  entry: z.string().describe('catalog entry id, e.g. "ask", "persona-review", "fix-findings", "sync-remote", "gate:self-review:<skill>", "prompt"'),
   pr: z.union([z.number(), z.string()]).optional().describe('PR number, or "b:<branch>" for a stack row with no PR yet; omit only for a free prompt on the whole work'),
   prompt: z.string().optional().describe('the question (ask) or the task (prompt); extra instructions for a gate run'),
   persona: z.string().optional().describe('persona login, for persona-review'),

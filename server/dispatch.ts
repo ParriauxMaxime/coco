@@ -17,7 +17,7 @@ import { conflictBody } from './jobs.ts';
 import type { Jobs } from './jobs.ts';
 import { randomUUID } from 'node:crypto';
 
-export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'gate' | 'prompt';
+export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'sync-remote' | 'gate' | 'prompt';
 export type CatalogEntry = { id: string; kind: DispatchKind; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
 export type DispatchInput = { entry?: unknown; key?: unknown; prompt?: unknown; persona?: unknown; args?: unknown; edits?: unknown; commentIds?: unknown; provider?: unknown; thinking?: unknown };
 export type Dispatched = { kind: DispatchKind; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
@@ -55,10 +55,21 @@ export function catalog(config: Config, repo?: RepoConfig | null): CatalogEntry[
     { id: 'ask', kind: 'ask', label: 'Ask on this PR', edits: false, needsPr: true, needsPrompt: true },
     { id: 'persona-review', kind: 'persona-review', label: 'Persona review', edits: false, needsPr: true, needsPersona: true },
     { id: 'fix-findings', kind: 'fix-findings', label: 'Fix findings', edits: true, needsPr: true },
+    { id: 'sync-remote', kind: 'sync-remote', label: 'Rebase on GitHub', edits: true, needsPr: true },
     ...runs,
     { id: 'prompt', kind: 'prompt', label: 'Free prompt', edits: false, needsPr: false, needsPrompt: true },
   ];
 }
+
+// a rewritten local history (tidy, restack) only needs a force push, which stays the owner's: rebasing it would replay commits GitHub already has
+const SYNC_TASK = [
+  'The local branch checked out here and its GitHub head diverged. Put the local commits back on top of GitHub\'s head, `origin/<branch>` (`<branch>`: `git branch --show-current`).',
+  '1. `git fetch origin`, then read both sides: `git log --oneline --left-right --cherry-mark origin/<branch>...HEAD`.',
+  '2. When every GitHub-only commit has a local twin (`=` marks), the local history was rewritten: change nothing and report that it needs `git push --force-with-lease`.',
+  '3. Otherwise `git rebase origin/<branch>`. On each conflict, read both sides and the commits that made them, and keep both intents. Abort with `git rebase --abort` and report when a conflict needs a product call you cannot make.',
+  '4. Run the checks of your brief on the files the conflicts touched, and fix what they report in the commit that caused it.',
+  'Never push. Report each conflict, its file and how you resolved it.',
+].join('\n');
 
 const fill = (template: string, vars: Record<string, string>) => template.replace(/\{([\w|]+)\}/g, (_, keys: string) => keys.split('|').map((k) => vars[k]?.trim()).find(Boolean) || '');
 
@@ -109,6 +120,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
       return `${review}\n${known.length ? `Already raised on this PR (title, where, status):\n${known.join('\n')}\n` : ''}Before reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}" for their resolutions and threads. Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
     }
     if (entry.kind === 'gate') return `/${entry.skill} ${args || pr}`.trim() + (prompt ? `\n\n${prompt}` : '');
+    if (entry.kind === 'sync-remote') return SYNC_TASK + (prompt ? `\n\n${prompt}` : '');
     return prompt;
   }
 

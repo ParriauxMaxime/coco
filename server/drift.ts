@@ -103,7 +103,8 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       const count = head?.state === 'diverged' ? -1 : head?.state === 'ahead' ? head.count : 0;
       if (count) {
         const push = count > 0 && r.branch && BRANCH.test(r.branch) && !pr.isCrossRepository ? toRun({ type: 'push', branch: r.branch }, 'Push', 'Copy push') : null;
-        add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', push?.action ?? null, push ? { also: push.also, run: push.run } : {});
+        const sync: DriftAction | null = count < 0 && r.branch ? { type: 'dispatch', entry: 'sync-remote', label: 'Rebase on GitHub' } : null;
+        add(drift, r.key, 'unpushed', count > 0 ? `${count} local commit${count > 1 ? 's' : ''} not pushed` : 'local branch and GitHub diverged: rebase or reset it before pushing', push?.action ?? sync, push ? { also: push.also, run: push.run } : {});
       }
 
       const pieces = await kit.view(slug, String(r.key)).then((v) => v.pieces, () => []);

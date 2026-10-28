@@ -75,7 +75,7 @@ export function HeadBadges({ slug, prKey }: { slug: string; prKey: string }) {
           <Icon name={badge.icon} size={16} />
           <span className="dp-grow">{badge.text(head)}</span>
           {push && button(push, push.also, false)}
-          {push?.action?.type === 'run' && button(push, push.action, true)}
+          {push && button(push, push.action, true)}
         </div>
       </div>
       {head.commits !== undefined && (

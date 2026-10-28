@@ -44,9 +44,9 @@ test('local commits ahead of the PR head are flagged with a push to run and to c
   assert.deepEqual(await kinds(make({ tips: { b1: 'remote1' } })), []);
 });
 
-test('a local branch that diverged from GitHub is flagged without a push to run or copy', async () => {
+test('a local branch that diverged from GitHub is flagged with a rebase agent to start, never a push to run or copy', async () => {
   const [i] = (await make({ tips: { b1: 'tip1' }, ahead: { remote1: 'diverged' } }).view('w', true)).drift;
-  assert.deepEqual([i.text, i.action, i.also, i.run], ['local branch and GitHub diverged: rebase or reset it before pushing', null, undefined, undefined]);
+  assert.deepEqual([i.text, i.action, i.also, i.run], ['local branch and GitHub diverged: rebase or reset it before pushing', { type: 'dispatch', entry: 'sync-remote', label: 'Rebase on GitHub' }, undefined, undefined]);
 });
 
 test('each open PR reports its local head against GitHub: pushed, commits ahead or behind, diverged, or no local branch', async () => {

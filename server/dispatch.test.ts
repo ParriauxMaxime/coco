@@ -51,11 +51,12 @@ function setup({ contextFails = false, writerFails = false, models = undefined a
 
 test('the catalog lists the fixed kinds and one gate run per gate skill', () => {
   const ids = catalog(config).map((e) => e.id);
-  assert.deepEqual(ids, ['ask', 'persona-review', 'fix-findings', 'gate:self-review:code-review', 'gate:kit-diagram:coco-diagram', 'prompt']);
+  assert.deepEqual(ids, ['ask', 'persona-review', 'fix-findings', 'sync-remote', 'gate:self-review:code-review', 'gate:kit-diagram:coco-diagram', 'prompt']);
   const byId = Object.fromEntries(catalog(config).map((e) => [e.id, e]));
   assert.equal(byId.ask.edits, false);
   assert.equal(byId['persona-review'].edits, false);
   assert.equal(byId['fix-findings'].edits, true);
+  assert.equal(byId['sync-remote'].edits, true);
   assert.equal(byId['gate:self-review:code-review'].edits, true);
 });
 

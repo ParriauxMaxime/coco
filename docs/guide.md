@@ -499,10 +499,12 @@ coco starts nothing by itself.
   commits not pushed"); **Push** runs `git push origin <branch>` (in the
   branch's worktree, else the repo clone) and **Copy push** copies it. The
   output of the repo's pre-push hooks (check-ts, say) shows as is when the
-  push fails. A branch that diverged from GitHub is flagged with no button,
-  since a force push could drop GitHub's commits; coco never force-pushes.
+  push fails. A branch that diverged from GitHub gets **Rebase on GitHub**:
+  an agent in the PR's workspace rebases the local commits onto GitHub's
+  head and resolves the conflicts, or reports that a rewritten local history
+  needs a force push; coco never force-pushes.
 - A stale kit piece (body, diagram, video, by the freshness rules above)
-  starts that kit gate's skill, for example `/lem-pr` for the body.
+  starts that kit gate's skill, for example `/coco-pr-body` for the body.
 - A blocked demo beat: importing a video (`kind: video`) reads the
   `<name>.report.json` lem-demo-video writes beside it and keeps its
   `blocked` list on the artifact; each beat of the PR's latest video shows
