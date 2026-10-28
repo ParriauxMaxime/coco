@@ -43,10 +43,12 @@ export function crossSite(req: { headers: Record<string, string | string[] | und
   return site === undefined || site === 'same-origin' || site === 'none' ? null : `screenshots are refused from another site (Sec-Fetch-Site: ${site})`;
 }
 
-async function launch(chromePath: string): Promise<Browser> {
+// spawned: the Chrome process as soon as it runs, so a server exiting mid-launch can kill it
+async function launch(chromePath: string, spawned: (proc: ChildProcess) => void = () => {}): Promise<Browser> {
   if (!fs.existsSync(chromePath)) throw new Error(`Chrome not found at ${chromePath}: install Google Chrome or set screenshot.chrome in coco.config.json`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-shot-'));
   const proc = spawn(chromePath, ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--mute-audio', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  spawned(proc);
   proc.on('exit', () => fs.rm(dir, { recursive: true, force: true }, () => {}));
   const wsUrl = await new Promise<string>((resolve, reject) => {
     let err = '';
@@ -70,7 +72,10 @@ async function launch(chromePath: string): Promise<Browser> {
   const ws = new WebSocket(wsUrl);
   await new Promise((resolve, reject) => {
     ws.addEventListener('open', resolve, { once: true });
-    ws.addEventListener('error', () => reject(new Error('cannot reach Chrome DevTools')), { once: true });
+    ws.addEventListener('error', () => {
+      proc.kill();
+      reject(new Error('cannot reach Chrome DevTools'));
+    }, { once: true });
   });
   let seq = 0;
   const pending = new Map<number, { resolve: (r: Record<string, any>) => void; reject: (e: Error) => void }>();
@@ -134,10 +139,15 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
   let busy = 0;
   let hooked = false;
 
+  // the Chrome still opening its DevTools port, not live yet
+  let launching: ChildProcess | null = null;
+
   // synchronous, so it also runs from the exit hook
   function stop() {
     live?.close();
+    launching?.kill();
     live = null;
+    launching = null;
     browser = null;
   }
   function ensure() {
@@ -148,12 +158,22 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
       for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(sig, () => (stop(), process.kill(process.pid, sig)));
     }
     if (!browser) {
-      const p = launch(chromePath).then((b) => {
+      const p = launch(chromePath, (proc) => (launching = proc)).then((b) => {
+        launching = null;
+        // stopped while it launched
+        if (browser !== p) {
+          b.close();
+          throw new Error('screenshots stopped');
+        }
         live = b;
         b.proc.on('exit', () => live === b && stop());
         return b;
       });
-      p.catch(() => browser === p && (browser = null));
+      p.catch(() => {
+        if (browser !== p) return;
+        launching = null;
+        browser = null;
+      });
       browser = p;
     }
     return browser;
