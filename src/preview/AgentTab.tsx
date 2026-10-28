@@ -39,7 +39,7 @@ export function Header({ title, kind, pr, state, agentId, metrics, chips }: Head
       <span className="dp-xs dp-t3">{STATE_LABEL[state]}</span>
       <span className="dp-sp" />
       {usage && metrics && <span className="dp-xs dp-t3 dp-ag-usage" title={usageTitle(metrics)}>{usage}</span>}
-      {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} />Open in Paseo</a>}
+      {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} /><span className="dp-ag-paseo">Open in Paseo</span></a>}
     </div>
   );
 }
@@ -192,7 +192,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const [raw, setRaw] = useState(false);
   const toggle = keys.length > 0 && (
     <span className="dp-seg" role="tablist">
-      <button type="button" role="tab" aria-selected={!raw} className={raw ? '' : 'dp-on'} title="Each item this agent works on, as its thread: blocks, suggestions, Approve" onClick={() => setRaw(false)}>Threads<span className="dp-t3">{keys.length}</span></button>
+      <button type="button" role="tab" aria-selected={!raw} className={raw ? '' : 'dp-on'} title="Each item this agent works on, as its thread: blocks, suggestions, Approve" onClick={() => setRaw(false)}>{keys.length > 1 ? <>Threads<span className="dp-t3">{keys.length}</span></> : 'Thread'}</button>
       <button type="button" role="tab" aria-selected={raw} className={raw ? 'dp-on' : ''} title="The agent's raw Paseo transcript: coco's prompts, thinking, tool calls" onClick={() => setRaw(true)}>Transcript</button>
     </span>
   );
@@ -212,6 +212,16 @@ function GroupThreads({ slug, keys, summaries }: { slug: string; keys: string[];
     next[next.has(k) ? 'delete' : 'add'](k);
     return next;
   });
+  if (keys.length === 1) {
+    return (
+      <div className="dp-ag-threads">
+        <div className="dp-ag-thread dp-ag-one">
+          <div className="dp-ag-thread-h dp-open"><span className="dp-ell">{summaries[keys[0]].label || keys[0]}</span></div>
+          <Thread slug={slug} threadKey={keys[0]} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="dp-ag-threads">
       {keys.map((k) => (
