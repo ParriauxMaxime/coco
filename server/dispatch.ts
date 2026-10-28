@@ -71,6 +71,13 @@ const syncTask = (pr: string) => [
   'Never push. Report each conflict, its file and how you resolved it.',
 ].join('\n');
 
+// kit agents of one PR run side by side: each makes its own piece and keeps what the others wrote in the body
+const kitScope = (kind: string) => [
+  `Make only the ${kind} kit piece. The other pieces of this PR have their own agents: never make them; use the ones already imported for this PR (get_work artifacts) where the body needs them.`,
+  kind === 'video' ? 'Once imported, put the video in the PR body yourself, under `## Demo`.' : '',
+  'Right before `gh pr edit`, read the live body again with `gh pr view` and keep what another agent put there since.',
+].filter(Boolean).join(' ');
+
 const fill = (template: string, vars: Record<string, string>) => template.replace(/\{([\w|]+)\}/g, (_, keys: string) => keys.split('|').map((k) => vars[k]?.trim()).find(Boolean) || '');
 
 // what the brief writer knows of a work when the dispatch names no PR
@@ -81,8 +88,9 @@ export const workFacts = (work: Work) => {
 
 // the dispatched agent's first message: its task, then its brief as context
 export function firstMessage({ title, task, edits, brief, read }: { title: string; task: string; edits: boolean; brief: string | null; read?: { head: string; base: string; n: RowKey } | null }) {
+  const ref = (branch: string) => (read && isLocal(read.n) ? branch : `origin/${branch}`);
   const readOnly = !edits && read
-    ? [`Read-only: do not edit files, commit or push. The PR's branch is not checked out here: \`git fetch origin\`, then read the change with \`git diff ${read.base}...${read.head}\`${isLocal(read.n) ? '' : ` or \`gh pr diff ${read.n}\``}.`, '']
+    ? [`Read-only: do not edit files, commit or push. The PR's branch is not checked out here: \`git fetch origin\`, then read the change with \`git diff ${ref(read.base)}...${ref(read.head)}\`${isLocal(read.n) ? '' : ` or \`gh pr diff ${read.n}\``}, and a file with \`git show "${ref(read.head)}:<path>"\` (quoted: zsh reads \`$var:l\` as a modifier).`, '']
     : !edits ? ['Read-only: do not edit files, commit or push.', ''] : [];
   return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
@@ -119,7 +127,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
       const known = key === null ? [] : (comments.list(slug, key).comments || []).map(findingLine);
       return `${review}\n${known.length ? `Already raised on this PR (title, where, status):\n${known.join('\n')}\n` : ''}Before reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}" for their resolutions and threads. Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
     }
-    if (entry.kind === 'gate') return `/${entry.skill} ${args || pr}`.trim() + (prompt ? `\n\n${prompt}` : '');
+    if (entry.kind === 'gate') return [`/${entry.skill} ${args || pr}`.trim(), entry.gate?.startsWith('kit-') ? kitScope(entry.gate.slice(4)) : '', prompt].filter(Boolean).join('\n\n');
     if (entry.kind === 'sync-remote') return syncTask(pr) + (prompt ? `\n\n${prompt}` : '');
     return prompt;
   }
@@ -171,7 +179,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
 
     if (entry.kind === 'fix-findings' && key !== null) {
       const given = Array.isArray(input.commentIds) ? input.commentIds.filter((x): x is string => typeof x === 'string') : [];
-      const commentIds = given.length ? given : (comments.list(slug, key).comments || []).filter((c) => c.status === 'open' && !c.kind).map((c) => c.id);
+      const commentIds = given.length ? given : (comments.list(slug, key).comments || []).filter((c) => c.status === 'open' && (!c.kind || c.kind === 'issue')).map((c) => c.id);
       if (!commentIds.length) throw new HttpError(400, `no open finding to fix on ${keyLabel(key)}`);
       const task = `Fix the review findings ${commentIds.join(', ')} of ${keyLabel(key)}; their text comes with the task.`;
       const { brief, written } = await briefOf(work, { key, title, label: entry.label, edits: true, task });

@@ -70,7 +70,8 @@ test('a read-only ask runs in the Plan workspace with its question first and the
   assert.ok(prompt.indexOf('Why a new index?') < prompt.indexOf('Written brief for Ask on this PR'));
   assert.doesNotMatch(prompt, /# CSV export — PR 2/);
   assert.match(prompt, /Read-only: do not edit files/);
-  assert.match(prompt, /git diff feat\/csv-1\.\.\.feat\/csv-2/);
+  assert.match(prompt, /git diff origin\/feat\/csv-1\.\.\.origin\/feat\/csv-2/);
+  assert.match(prompt, /git show "origin\/feat\/csv-2:<path>"/);
   assert.equal(started[0].title, 'Ask · Why a new index? · #102');
   assert.deepEqual({ ...writes[0].d }, { slug: 'csv', repoId: 'widgets', title: 'Ask · Why a new index? · #102', label: 'Ask on this PR', pr: '#102', edits: false, task: 'Why a new index?' });
   assert.match(String(writes[0].facts), /^# CSV export — PR 2/);

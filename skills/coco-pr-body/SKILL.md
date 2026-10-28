@@ -24,12 +24,15 @@ never ask for a confirmation.
   Take its title and section format only; skip its push, create and
   confirmation steps.
 
-## 2. Diagram
+## 2. Diagram and video
 
-Invoke the diagram skill the brief's kit line names (`coco-diagram` when
-none) with the Skill tool, and follow it end to end. Never draw Mermaid
-from memory: its init line and `new` / `same` / `rm` classes are what make
-the PR body read as one picture.
+A diagram or video already imported for this PR (`get_work` artifacts)
+goes in the body as is: the video under `## Demo`. Never record a video.
+
+With no diagram imported, invoke the diagram skill the brief's kit line
+names (`coco-diagram` when none) with the Skill tool, and follow it end to
+end. Never draw Mermaid from memory: its init line and `new` / `same` /
+`rm` classes are what make the PR body read as one picture.
 
 The brief's body rules win where they are stricter (plain product words, no
 legend, Before left and After right).
@@ -47,7 +50,9 @@ Write the body to `/tmp/pr-<n>/body.md` and each diagram to
 
 1. `cocopilot.import_artifact` with `{ path, pr, kind: "body" }`, then
    `{ path, pr, kind: "diagram" }`.
-2. `gh pr edit <n> --body-file /tmp/pr-<n>/body.md`, plus `--title` when
+2. Read the live body again (`gh pr view <n> --json body`) and keep what
+   another kit agent added since you started, then, from the worktree,
+   `gh pr edit <n> --body-file /tmp/pr-<n>/body.md`, plus `--title` when
    the brief or the diff calls for a new title.
 
 Never push, undraft, comment or review.
