@@ -347,6 +347,8 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
   async function rowsOf(slug: string, only: RowKey | null, fresh: boolean) {
     const hit = cache.get(`${slug}|${only}`);
     if (!fresh && hit && Date.now() - hit.at < 15000) return hit.data;
+    // an asked refresh must see a comment posted within the GitHub cache's lifetime
+    if (fresh) ghCache.drop();
     return refresh(slug, only);
   }
   function snapshot(slug: string, only: RowKey | null): Board | null {

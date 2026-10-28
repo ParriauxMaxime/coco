@@ -13,6 +13,9 @@ export const useWork = (): WorkData => {
 
 export type LoadedWork = Omit<WorkData, 'w'> & { w: WorkDetail | null };
 
+const FRESH_ON_FOCUS_MS = 30000;
+const freshAt = new Map<string, number>();
+
 export function useWorkData(slug: string): LoadedWork {
   const [w, setW] = useState<WorkDetail | null>(null);
   const [plan, setPlan] = useState<WorkPlan | null>(null);
@@ -28,7 +31,13 @@ export function useWorkData(slug: string): LoadedWork {
   useEffect(() => {
     load();
     const t = setInterval(() => load(), 30000);
-    const onVisible = () => document.visibilityState === 'visible' && load(true);
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      // every mounted view of the work hears the same focus: one GitHub refresh per slug and window
+      const fresh = Date.now() - (freshAt.get(slug) || 0) > FRESH_ON_FOCUS_MS;
+      if (fresh) freshAt.set(slug, Date.now());
+      load(fresh);
+    };
     document.addEventListener('visibilitychange', onVisible);
     // the server says this work changed (saved, stack, plan, drift, artifacts): events in a burst make one load
     let soon: ReturnType<typeof setTimeout>;
