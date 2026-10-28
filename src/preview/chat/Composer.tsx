@@ -65,6 +65,16 @@ const keepDraft = (key: string, text: string) => {
   } catch {}
 };
 
+// a message that did not leave goes back into its box, before what was typed since; a box not mounted gets it as its draft
+const refills = new Map<string, (text: string, files: UploadRef[]) => void>();
+export function refillDraft(key: string, text: string, files: UploadRef[] = []) {
+  const said = text === FILES_ONLY ? '' : text;
+  const fill = refills.get(key);
+  if (fill) return fill(said, files);
+  const typed = readDraft(key);
+  keepDraft(key, typed?.trim() ? `${said}\n\n${typed}` : said);
+}
+
 // a text held by the caller (value) is the caller's alone: no draft is read into it or kept from it
 export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', value, onValue, onCancel, draft }: ComposerProps) {
   const controlled = value !== undefined;
@@ -93,6 +103,17 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   const live = useRef(files);
   live.current = files;
   useEffect(() => () => live.current.forEach((f) => f.preview && URL.revokeObjectURL(f.preview)), []);
+  useEffect(() => {
+    if (!kept) return undefined;
+    const fill = (said: string, refs: UploadRef[]) => {
+      if (said) setOwn((typed) => (typed.trim() ? `${said}\n\n${typed}` : said));
+      setFiles((prev) => [...prev, ...refs.map((ref) => ({ key: `f${++seq}`, name: ref.fileName, size: ref.size, preview: null, ref }))]);
+    };
+    refills.set(kept, fill);
+    return () => {
+      if (refills.get(kept) === fill) refills.delete(kept);
+    };
+  }, [kept]);
 
   const upload = (key: string, file: File, name: string) =>
     api.upload(file, name).then(

@@ -14,7 +14,7 @@ import { Avatar, PersonaName } from '../preview/parts.tsx';
 import Activity from '../preview/chat/Activity.tsx';
 import CardView from '../preview/chat/Card.tsx';
 import { mergeCards } from '../preview/chat/cards.ts';
-import { Composer } from '../preview/chat/Composer.tsx';
+import { Composer, refillDraft } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { SentFiles } from '../preview/chat/Attachments.tsx';
 import { useNow } from '../preview/subagents.ts';
@@ -162,6 +162,11 @@ export function postToThread(slug: string, key: string, { text, model, thinking,
       usePosting.setState((s) => ({ [key]: (s[key] ?? NONE).filter((x) => x.nonce !== nonce) }));
       refreshThreads(slug);
     });
+}
+// a message that did not leave (the server away included) goes back into the thread's box, and says so
+export function notSent(slug: string, key: string, text: string, files: UploadRef[], e: unknown) {
+  refillDraft(`thread:${slug}:${key}`, text, files);
+  toast.error(`Not sent, the message is back in its box: ${errorMessage(e)}`, { always: true });
 }
 // a POST answers the thread without its agent or cards: keep the ones already shown
 const keep = (prev: ThreadData | null, next: ThreadData): ThreadData => ({ ...next, agent: next.agent ?? prev?.agent ?? null, cards: next.cards ?? prev?.cards });
@@ -326,14 +331,14 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     api.verifyThread(slug, key, commit).then(reload, (e) => toast.error(errorMessage(e))).finally(() => setPending(null));
   };
   const group = groups.find((g) => g.id === thread?.groupId);
-  // shown at once, confirmed by the server; while the agent works the message steers its turn
+  // shown at once, confirmed by the server (a start can take a while); while the agent works the message steers its turn
   const send = (text: string, model?: string, files: UploadRef[] = [], thinking?: string) => {
     postToThread(slug, key, { text, model, thinking, files })
       .then((next) => {
         wasWaiting.current = Boolean(next.waiting);
         setThread((prev) => keep(prev, next));
         settled.current?.();
-      }, (e) => toast.error(errorMessage(e)));
+      }, (e) => notSent(slug, key, text, files, e));
     return true;
   };
 

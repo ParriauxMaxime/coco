@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { FindingBody } from '../../components/Blocks.tsx';
-import Thread, { ThreadComposer, ThreadToggle, postToThread, threadKey } from '../../components/Thread.tsx';
+import Thread, { ThreadComposer, ThreadToggle, notSent, postToThread, threadKey } from '../../components/Thread.tsx';
 import type { Verdict } from '../../components/Thread.tsx';
 import type { UploadRef } from '../../types.ts';
 import { errorMessage } from '../../api.ts';
@@ -74,7 +74,7 @@ type StartAgent = (text: string, model?: string, files?: UploadRef[], thinking?:
 function startCommentThread(rv: ReviewHandle, commentId: string, text: string, model?: string, files: UploadRef[] = [], thinking?: string) {
   const key = threadKey.comment(rv.n, commentId);
   openThreads.add(key);
-  postToThread(rv.slug, key, { text, model, thinking, files }).catch((e) => toast.error(errorMessage(e)));
+  postToThread(rv.slug, key, { text, model, thinking, files }).catch((e) => notSent(rv.slug, key, text, files, e));
   return key;
 }
 

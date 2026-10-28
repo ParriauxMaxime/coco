@@ -19,9 +19,9 @@ const push = (kind: ToastKind, text: string, extra: { undo?: () => unknown } = {
 };
 
 // toast.error(text) · toast.success(text, { undo }): undo runs once, then the toast goes
-// while the server is away (a restart) errors stay quiet: the status bar says it reconnects
+// while the server is away (a restart) errors stay quiet: the status bar says it reconnects; always: said anyway (words that did not leave)
 export const toast = {
-  error: (text?: unknown) => (connected() ? push('error', String(text || 'Something went wrong')) : 0),
+  error: (text?: unknown, { always = false }: { always?: boolean } = {}) => (always || connected() ? push('error', String(text || 'Something went wrong')) : 0),
   success: (text: string, { undo }: { undo?: () => unknown } = {}) => push('success', text, { undo }),
 };
 

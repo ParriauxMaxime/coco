@@ -54,7 +54,10 @@ taken exits quietly.
   reload within 20 s waits for the click instead.
 - Composers (agent and Ask chats, threads, findings, commit review, dispatch)
   keep their unsent text per tab in sessionStorage (`coco.draft.<key>`), so a
-  reload loses no words.
+  reload loses no words. A thread message (or a comment's first agent
+  message) that the server refuses or never gets goes back into its box with
+  its files, before anything typed since, and an error toast says so even
+  while the server is away.
 - Questions and confirmations open an in-app dialog (`src/components/Dialogs.tsx`:
   `ask`, `confirmDialog`, `choose`), never `window.prompt` / `confirm`, which
   the desktop app does not show.
