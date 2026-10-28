@@ -1,5 +1,6 @@
 // Screenshots of coco's own pages (and local dev servers) for agents and scripts: one headless Chrome, launched on first use and driven over CDP,
 // a fresh tab per capture, closed after IDLE_MS without one and when the server exits. Paseo's browser tabs do not paint in the background.
+// The browser host (browser-host.ts) holds the same Chrome while agents keep tabs open in it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,8 +16,12 @@ const MAX_ERRORS = 30;
 
 export type ShotOptions = { url: string; width?: number; height?: number; waitMs?: number; selector?: string; eval?: string; colorScheme?: 'light' | 'dark' };
 export type Shot = { png: Buffer; url: string; width: number; height: number; errors: string[]; evalResult?: unknown };
-type Msg = { id?: number; method?: string; sessionId?: string; params?: Record<string, any>; result?: Record<string, any>; error?: { message: string } };
-type Browser = { proc: ChildProcess; dir: string; send(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, any>>; on(fn: (m: Msg) => void): () => void; close(): void };
+export type Msg = { id?: number; method?: string; sessionId?: string; params?: Record<string, any>; result?: Record<string, any>; error?: { message: string } };
+// the DevTools side of the Chrome: what a tab is driven with
+export type Cdp = { send(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, any>>; on(fn: (m: Msg) => void): () => void };
+type Browser = Cdp & { proc: ChildProcess; dir: string; close(): void };
+// the Chrome kept up until release(); browser() is the one running now, launched when none is (a crashed one is replaced)
+export type ChromeHold = { browser(): Promise<Cdp>; release(): void };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const clamp = (v: unknown, min: number, max: number, dflt: number) => (Number.isFinite(Number(v)) && v !== '' && v != null ? Math.min(max, Math.max(min, Math.round(Number(v)))) : dflt);
@@ -178,6 +183,18 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
     }
     return browser;
   }
+  // the Chrome stays up while any hold is held, then idles out after idleMs
+  function hold(): ChromeHold {
+    busy++;
+    if (idle) clearTimeout(idle);
+    let held = true;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      if (--busy === 0) idle = setTimeout(stop, idleMs).unref();
+    };
+    return { browser: ensure, release };
+  }
 
   async function capture(opts: ShotOptions): Promise<Shot> {
     const target = resolveTarget(opts.url, origin, hosts);
@@ -185,10 +202,9 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
     const width = clamp(opts.width, 200, 4000, 1600);
     const height = clamp(opts.height, 200, 4000, 1000);
     const waitMs = clamp(opts.waitMs, 0, 30_000, 2000);
-    busy++;
-    if (idle) clearTimeout(idle);
+    const held = hold();
     try {
-      const b = await ensure();
+      const b = await held.browser();
       const { targetId } = await b.send('Target.createTarget', { url: 'about:blank' });
       const errors: string[] = [];
       let off = () => {};
@@ -229,7 +245,7 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
         b.send('Target.closeTarget', { targetId }).catch(() => {});
       }
     } finally {
-      if (--busy === 0) idle = setTimeout(stop, idleMs).unref();
+      held.release();
     }
   }
 
@@ -259,5 +275,5 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
     }
   }
 
-  return { capture, handle, stop };
+  return { capture, handle, stop, hold };
 }

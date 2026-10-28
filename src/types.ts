@@ -566,6 +566,8 @@ export type FsFile = { path: string; size: number; modifiedAt: string; revision?
 // a workspace's Paseo terminals and scripts (server/workspace-terminals.ts)
 export type WorkspaceTerminal = { id: string; name: string; title: string | null; busy: boolean };
 export type WorkspaceScript = { name: string; type: string; running: boolean; health: string | null; port: number | null; url: string | null; exitCode: number | null; terminalId: string | null };
+// a browser tab an agent keeps in coco's headless Chrome while coco is Paseo's browser host (server/browser-host.ts)
+export type BrowserTab = { browserId: string; agentId: string | null; workspaceId: string; url: string; title: string; usedAt: number; shotAt: number | null };
 export type AskRun = {
   id: string;
   prompt: string;

@@ -87,6 +87,8 @@ export interface Config {
   devServers?: { api?: { bind?: string; port?: number } };
   // the headless Chrome behind /api/screenshot and the screenshot MCP tool; hosts: names it may open beyond coco and localhost (e.g. a dev domain)
   screenshot: { chrome: string; hosts: string[] };
+  // "auto": while the Paseo desktop app is closed, agents' browser_* tools run in that headless Chrome (browser-host.ts); "off": never
+  browserHost: 'auto' | 'off';
   file?: string | null;
 }
 
@@ -131,6 +133,7 @@ export const DEFAULTS: Config = {
   cloneDir: '',
   cocoWork: '',
   screenshot: { chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', hosts: [] },
+  browserHost: 'auto',
 };
 
 export const skillFor = (config: Partial<Pick<Config, 'skillOverrides' | 'methodSkill'>> | null | undefined, name: string): string => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;

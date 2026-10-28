@@ -1479,6 +1479,26 @@ one Chrome for all captures (a fresh tab each), started on the first one and
 closed after 5 idle minutes or when the server stops; set `screenshot.chrome`
 when Chrome is not at the macOS default path.
 
+### Browser host (agents' browser tools without the Paseo app)
+
+Paseo gives agents `browser_*` tools (new tab, navigate, snapshot, click, fill,
+type, keypress, screenshot, evaluate, logs…), run by a browser host: normally
+the Paseo desktop app, so with the app closed they fail with "no browser
+automation host". With `browserHost: "auto"` (the default) coco checks every
+15 s: while no Paseo app process runs, it registers itself as the host on its
+own daemon connection and runs every command in the screenshot Chrome above,
+one tab per `browser_new_tab`, kept per workspace (an agent sees only its
+workspace's tabs), refs `@e1…` from the latest snapshot. Only http(s) pages
+open (no `file://`, `chrome://`); dialogs are accepted and reported with the
+command. The daemon sends a new tab to the most recently registered host, so
+coco never registers while the app runs: once the app is back coco keeps
+serving its open tabs, then steps down when they are closed. Tabs untouched
+for 30 min close. One coco server hosts at a time (a pid lock in the temp
+directory). `GET /api/browser` tells whether coco hosts and why, with its tabs.
+An agent tab shows a Browser view next to Transcript while that agent has a tab
+in coco: what the tab shows, captured again every 3 s, read-only.
+`browserHost: "off"` never hosts.
+
 ## Model, thinking and mode (composer)
 
 Every agent composer shows, next to the paperclip, the model (Sonnet 5.5),

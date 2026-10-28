@@ -11,7 +11,7 @@ import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
 import type { FsEntry, FsFile, GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
-import type { WorkspaceScript, WorkspaceTerminal } from './types.ts';
+import type { BrowserTab, WorkspaceScript, WorkspaceTerminal } from './types.ts';
 
 export type * from './types.ts';
 
@@ -198,6 +198,7 @@ export const api = {
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
   agentInfo: (agentId: string) => get<AgentInfo>(`/api/agent-chat/${encodeURIComponent(agentId)}`),
+  agentBrowserTabs: (agentId: string) => get<{ tabs: BrowserTab[] }>(`/api/browser?agent=${encodeURIComponent(agentId)}`),
   agentModes: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/mode`).then(jsonOrError<AgentModes>),
   setAgentMode: (agentId: string, mode: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/mode`, { mode }).then(jsonOrError<AgentModes & { changed: boolean }>),
   agentCommands: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/commands`).then(jsonOrError<{ commands: AgentCommand[]; error: string | null }>),
