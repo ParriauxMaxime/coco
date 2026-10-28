@@ -82,7 +82,12 @@ async function load() {
 }
 
 function createWindow() {
-  win = new BrowserWindow({ ...savedBounds(), minWidth: 900, minHeight: 600, title: 'coco', backgroundColor: '#1c1f29', webPreferences: { preload: path.join(HERE, 'preload.cjs') } });
+  // no native title bar: the traffic lights sit in coco's own 40px top bar, which leaves room for them
+  win = new BrowserWindow({ ...savedBounds(), minWidth: 900, minHeight: 600, title: 'coco', backgroundColor: '#1c1f29', titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 }, webPreferences: { preload: path.join(HERE, 'preload.cjs') } });
+  const fullscreen = (on) => win.webContents.send('coco:fullscreen', on);
+  win.on('enter-full-screen', () => fullscreen(true));
+  win.on('leave-full-screen', () => fullscreen(false));
+  win.webContents.on('did-finish-load', () => fullscreen(win.isFullScreen()));
   const external = (url) => !url.startsWith(BASE) && !url.startsWith('data:');
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (!external(url)) return { action: 'allow' };
