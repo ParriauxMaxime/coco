@@ -66,19 +66,27 @@ export function openCommentThread(key: string, id: string) {
   openers.get(key)?.();
 }
 
+type StartAgent = (text: string, model?: string, files?: UploadRef[], thinking?: string) => Promise<boolean | void>;
+
+// opens the comment's thread in the diff and hands the text to its agent
+async function startCommentThread(rv: ReviewHandle, commentId: string, text: string, model?: string, files: UploadRef[] = [], thinking?: string) {
+  const key = threadKey.comment(rv.n, commentId);
+  openThreads.add(key);
+  await api.postThread(rv.slug, key, { text, model, ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
+  refreshThreads(rv.slug);
+  return key;
+}
+
 // Accept / Dismiss in the box keep the text as the reason (work notes). onDispatched(threadKey) once the agent has it
 export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; rv: ReviewHandle; onJump?: (c: ReviewComment) => void; onDispatched?: (key: string) => void }) {
   const [talking, setTalking] = useState(false);
   const [busy, setBusy] = useState(false);
   const { accept, dismiss } = proposalActions(rv);
-  const dispatch = async (text: string, model?: string, files: UploadRef[] = [], thinking?: string) => {
+  const dispatch: StartAgent = async (text, model, files, thinking) => {
     setBusy(true);
     try {
       const c = await accept(wp);
-      const key = threadKey.comment(rv.n, c.id);
-      openThreads.add(key);
-      await api.postThread(rv.slug, key, { text, model, ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
-      refreshThreads(rv.slug);
+      const key = await startCommentThread(rv, c.id, text, model, files, thinking);
       onDispatched?.(key);
     } catch (e) {
       toast.error(errorMessage(e));
@@ -199,17 +207,37 @@ function HeadLine({ title, body, folded, onClick }: { title?: string; body: stri
   return <span className={`cc-head-t dp-ell${title ? ' cc-titled' : ''}`} title={text} onClick={onClick}>{text}</span>;
 }
 
+// a new comment most often goes straight to an agent: ↵ saves it and starts one, Add comment only saves it
+function DraftComposer({ onAdd, onStart, onCancel }: { onAdd: (body: string) => unknown; onStart: StartAgent; onCancel: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <ThreadComposer
+      autoFocus
+      busy={busy}
+      withModel
+      verdicts={[{ label: 'Add comment', title: 'Save the comment without starting an agent', on: (body) => onAdd(body) }]}
+      placeholder="Comment, then start an agent on it (↵), or only add it (⇧↵ new line, esc cancels)"
+      onCancel={onCancel}
+      onSend={async (...args) => {
+        setBusy(true);
+        try { return await onStart(...args); } finally { setBusy(false); }
+      }}
+    />
+  );
+}
+
 type CommentZoneProps = {
   comment: ReviewComment;
   onSave?: (comment: ReviewComment, body: string) => unknown;
+  onStart?: (comment: ReviewComment, ...args: Parameters<StartAgent>) => ReturnType<StartAgent>;
   onDelete?: (comment: ReviewComment) => unknown;
   onStatus?: StatusChange;
   draft?: boolean;
   thread?: { slug: string; n: PrKey; onSettled?: () => void };
 };
 
-// onSave(comment, body) · onDelete(comment) (also cancels a draft) · onStatus(comment, status) · thread: { slug, n, onSettled } to talk with the PR agent
-export default function CommentZone({ comment, onSave, onDelete, onStatus, draft = false, thread }: CommentZoneProps) {
+// onSave(comment, body) · onStart(draft, body, model…) saves it and starts its agent · onDelete(comment) (also cancels a draft) · onStatus(comment, status) · thread: { slug, n, onSettled } to talk with the PR agent
+export default function CommentZone({ comment, onSave, onStart, onDelete, onStatus, draft = false, thread }: CommentZoneProps) {
   const [editing, setEditing] = useState(false);
   const [folded, toggleFold, setFolded] = useFolded(comment.id);
   const key = thread?.slug ? threadKey.comment(thread.n, comment.id) : null;
@@ -231,7 +259,9 @@ export default function CommentZone({ comment, onSave, onDelete, onStatus, draft
           <span className="dp-chip dp-acc">new comment</span>
           <span className="cc-lines">{comment.side === 'base' ? 'base · ' : ''}{lineSpan(comment)}</span>
         </div>
-        <CommentBox submitLabel="Add comment" onSubmit={(body) => onSave?.(comment, body)} onCancel={() => onDelete?.(comment)} />
+        {onStart && thread?.slug
+          ? <DraftComposer onAdd={(body) => onSave?.(comment, body)} onStart={(...args) => onStart(comment, ...args)} onCancel={() => onDelete?.(comment)} />
+          : <CommentBox submitLabel="Add comment" onSubmit={(body) => onSave?.(comment, body)} onCancel={() => onDelete?.(comment)} />}
       </div>
     );
   }
@@ -297,15 +327,26 @@ export function fileCommentProps(rv: ReviewHandle, path: string, file?: RefFile)
     rv.addDraft({ side, path: side === 'base' && prev ? prev : path, sha: side === 'head' ? refs.headSha : refs.mergeBase, startLine, endLine });
   };
   const fail = (e: unknown) => toast.error(errorMessage(e));
+  const addDraft = async (c: ReviewComment, body: string) => {
+    if (!refs) throw new Error('the review is not loaded yet');
+    const added = await rv.add({ path: c.path, side: c.side, sha: c.side === 'head' ? refs.headSha : refs.mergeBase, startLine: c.startLine, endLine: c.endLine, body });
+    rv.dropDraft(c.id);
+    return added;
+  };
   const save = async (c: ReviewComment, body: string) => {
     if (!c.draft) return rv.update(c.id, { body }).catch(fail);
+    try { await addDraft(c, body); } catch (e) { fail(e); }
+  };
+  const start: CommentZoneProps['onStart'] = async (c, body, model, files, thinking) => {
     try {
-      if (!refs) throw new Error('the review is not loaded yet');
-      await rv.add({ path: c.path, side: c.side, sha: c.side === 'head' ? refs.headSha : refs.mergeBase, startLine: c.startLine, endLine: c.endLine, body });
-      rv.dropDraft(c.id);
-    } catch (e) { fail(e); }
+      const added = await addDraft(c, body);
+      await startCommentThread(rv, added.id, body, model, files, thinking);
+    } catch (e) {
+      fail(e);
+      return false;
+    }
   };
   const del = (c: ReviewComment) => (c.draft ? rv.dropDraft(c.id) : confirm('Delete this comment?') && rv.remove(c.id).catch(fail));
-  const zone = (c: ReviewComment) => (isProposal(c) ? <ProposalZone comment={c} rv={rv} /> : <CommentZone comment={c} draft={Boolean(c.draft)} onSave={save} onDelete={del} onStatus={(x, status, note) => setStatus(rv, x, status, note).catch(fail)} thread={rv.slug ? { slug: rv.slug, n: rv.n, onSettled: rv.load } : undefined} />);
+  const zone = (c: ReviewComment) => (isProposal(c) ? <ProposalZone comment={c} rv={rv} /> : <CommentZone comment={c} draft={Boolean(c.draft)} onSave={save} onStart={start} onDelete={del} onStatus={(x, status, note) => setStatus(rv, x, status, note).catch(fail)} thread={rv.slug ? { slug: rv.slug, n: rv.n, onSettled: rv.load } : undefined} />);
   return { mine, onCreate, zone };
 }

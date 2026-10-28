@@ -363,8 +363,9 @@ type ComposerProps = {
   autoFocus?: boolean;
   // login of the reviewer mapped to the file: a chip prefills "What would <persona> do here?" (you still send it)
   persona?: string | null;
+  onCancel?: () => void;
 };
-export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start agent', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false, persona }: ComposerProps) {
+export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start agent', verdicts = [], placeholder = '', onSend, onStop, autoFocus = false, persona, onCancel }: ComposerProps) {
   const model = useModelChoice('thread', { fast: true });
   return (
     <Composer
@@ -388,6 +389,7 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start ag
         return (await onSend(text, pick.provider, files, pick.thinking)) !== false;
       }}
       onStop={onStop}
+      onCancel={onCancel}
     />
   );
 }

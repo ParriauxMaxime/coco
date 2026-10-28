@@ -1,5 +1,5 @@
 .dp-mdl { position: relative; display: inline-flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto; }
-.dp-comp-f .dp-mdl-btn { flex: 0 1 auto; min-width: 0; max-width: 150px; gap: 4px; padding: 0 6px; color: var(--dp-t2); }
+.dp-comp-f .dp-btn.dp-mdl-btn { flex: 0 1 auto; min-width: 0; max-width: 150px; gap: 4px; padding: 0 6px; color: var(--dp-t2); }
 .dp-mdl-btn.dp-on { background: var(--dp-active); color: var(--dp-t1); }
 .dp-mdl-btn .dp-i { color: var(--dp-t3); flex: none; }
 .dp-mdl-mode { flex: none; height: 18px; font-size: 11px; margin-left: 2px; cursor: default; }
