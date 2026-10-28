@@ -571,7 +571,11 @@ export function createService({
         }
         const failure = record.state === "ready" || record.state === "idle" ? null : (record.lastError ?? `still ${record.state} after the readiness timeout`);
         await supervisor.stop(id);
-        if (failure) return { id, outcome: "failed", detail: failure };
+        // stop clears lastError: put the failure back so the board says the warm build failed, and why
+        if (failure) {
+          await update(id, (draft) => void (draft.lastError = `warm build failed: ${failure}`));
+          return { id, outcome: "failed", detail: failure };
+        }
         return { id, outcome: "done", ...(record.buildSeconds !== undefined && { detail: `built in ${record.buildSeconds} s` }) };
       }),
 

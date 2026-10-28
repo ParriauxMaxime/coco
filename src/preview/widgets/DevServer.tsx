@@ -24,9 +24,9 @@ function costOf(r: DevServerRowData): { label: string; tone: string; why: string
   const s = r.server;
   if (s?.running) return { label: `${stateLabel(s.state)} :${s.port}`, tone: toneOf(s), why: statusText(s), warmable: false };
   if (r.prebuildQueued != null) return { label: 'warm build queued', tone: '', why: r.prebuildQueued ? `${r.prebuildQueued} ahead` : 'next', warmable: false };
-  if (s?.lastError) return { label: 'warm build failed', tone: 'dp-bad', why: s.lastError, warmable: true };
+  if (s?.lastError?.startsWith('warm build failed')) return { label: 'warm build failed', tone: 'dp-bad', why: s.lastError, warmable: true };
   if (s?.buildSeconds !== undefined) return { label: 'warm build', tone: 'dp-info', why: statusText(s), warmable: false };
-  if (r.cacheOnDisk) return { label: 'build on disk', tone: 'dp-info', why: 'A build cache is in the worktree (a server run by hand?): a start reuses it', warmable: false };
+  if (r.cacheOnDisk) return { label: 'build on disk', tone: 'dp-info', why: 'A build cache is in the worktree, but no build was seen to succeed here: Warm up makes it a known warm build', warmable: true };
   return { label: 'cold start', tone: '', why: 'No build yet: a first start builds for several minutes', warmable: true };
 }
 
