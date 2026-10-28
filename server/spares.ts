@@ -49,6 +49,8 @@ export function createSpares({ DATA, config, prepare, run = defaultRun, registry
   const wanted = (repo: RepoConfig) => Math.max(0, (repo.settings.agentWorktree ?? (repo === config.repos[0] ? config.agentWorktree : null))?.spares ?? 0);
   const git = (cwd: string, args: string[]) => run('git', args, { cwd, timeoutMs: 120_000 });
   const pooled = (s: Spare) => pool.some((x) => x.id === s.id);
+  // a worktree's .git file goes first when something removes it by hand
+  const intact = (s: Spare) => fs.existsSync(path.join(s.path, '.git'));
 
   async function discard(repo: RepoConfig | null, s: Spare) {
     pool = pool.filter((x) => x.id !== s.id);
@@ -120,7 +122,7 @@ export function createSpares({ DATA, config, prepare, run = defaultRun, registry
   async function claim(repoId: string, { branch, base }: { branch: string; base: string }): Promise<string | null> {
     const repo = repoOf(repoId);
     if (!repo || !wanted(repo)) return null;
-    const s = pool.find((x) => x.repo === repo.id && x.state !== 'creating' && fs.existsSync(x.path));
+    const s = pool.find((x) => x.repo === repo.id && x.state !== 'creating' && intact(x));
     if (!s) {
       void fill(repo);
       return null;
@@ -141,7 +143,7 @@ export function createSpares({ DATA, config, prepare, run = defaultRun, registry
     for (const s of [...pool]) {
       const repo = repoOf(s.repo);
       const extra = !repo || pool.filter((x) => x.repo === s.repo).indexOf(s) >= wanted(repo);
-      if (s.state !== 'ready' || extra || !fs.existsSync(s.path)) await discard(repo, s);
+      if (s.state !== 'ready' || extra || !intact(s)) await discard(repo, s);
     }
     await Promise.all(config.repos.filter((r) => wanted(r) > 0).map((r) => fill(r)));
   }
