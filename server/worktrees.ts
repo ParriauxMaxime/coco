@@ -37,7 +37,7 @@ export async function gitWorktrees(exec: Exec, repoPath: string) {
 
 // uncommitted files, and commits on HEAD that no remote ref nor the PR's last pushed head holds
 export async function worktreeState(exec: Exec, dir: string, headOid?: string | null) {
-  const status = await exec('git', ['-C', dir, 'status', '--porcelain']);
+  const status = await exec('git', ['-C', dir, '--no-optional-locks', 'status', '--porcelain']);
   if (!status.ok) return { dirty: 0, unpushed: 0, error: why(status) };
   const dirty = status.stdout.split('\n').filter(Boolean).length;
   const pushed = headOid && (await exec('git', ['-C', dir, 'cat-file', '-e', `${headOid}^{commit}`])).ok ? [headOid] : [];

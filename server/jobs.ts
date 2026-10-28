@@ -13,6 +13,7 @@ const KEEP = 50;
 const SETTLE_MS = 15000;
 const TAIL = 4000;
 const GLOBAL = '_global';
+const RESUMED = /^(spare|deps):/;
 
 export type JobKind = 'agent' | 'command' | 'sync' | 'setup';
 export type JobState = 'running' | 'needs-you' | 'done' | 'failed' | 'lost';
@@ -45,8 +46,13 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     try {
       jobs = dir ? JSON.parse(fs.readFileSync(fileOf(work), 'utf8')) : [];
     } catch {}
-    // a command cut by a restart cannot be followed again; an agent keeps running and reports through its events
-    for (const j of jobs) if (live(j) && (j.kind !== 'agent' || j.settle === 'promise')) Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: 'coco restarted while it ran' });
+    // a command cut by a restart cannot be followed again; an agent keeps running and reports through its events;
+    // a spare worktree or an agent worktree's install starts over on boot (spares.start, agentChecks.resume) under a new job, so its cut one leaves the list
+    for (const j of jobs) {
+      if (!live(j) || (j.kind === 'agent' && j.settle !== 'promise')) continue;
+      const over = RESUMED.test(j.action);
+      Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: over ? 'coco restarted while it ran: it starts over' : 'coco restarted while it ran', ...(over ? { dismissed: true } : {}) });
+    }
     byWork.set(work, jobs);
     return jobs;
   };

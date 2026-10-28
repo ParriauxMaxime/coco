@@ -179,7 +179,7 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     const git = (args: string[]) => exec('git', ['-C', dir, ...args]);
     const remote = (await git(['config', '--get', `branch.${repo.defaultBranch}.remote`])).stdout.trim() || 'origin';
     const tip = `${remote}/${repo.defaultBranch}`;
-    if ((await git(['status', '--porcelain'])).stdout.trim()) return;
+    if ((await git(['--no-optional-locks', 'status', '--porcelain'])).stdout.trim()) return;
     if (!(await git(['fetch', '--quiet', remote, repo.defaultBranch])).ok) return;
     const detached = !(await git(['symbolic-ref', '--quiet', 'HEAD'])).ok;
     if (detached || (await git(['merge-base', '--is-ancestor', 'HEAD', tip])).ok) await git(['checkout', '--quiet', '--detach', tip]);

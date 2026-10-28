@@ -39,7 +39,7 @@ export type WorktreeInfo = { branch: string | null; head: string; dirty: boolean
 export type WorktreeEntry = { path: string; head: string; branch: string | null };
 
 export const statusFiles = async (worktree: string) =>
-  ((await git(worktree, ["status", "--porcelain"])) ?? "")
+  ((await git(worktree, ["--no-optional-locks", "status", "--porcelain"])) ?? "")
     .split("\n")
     .filter(Boolean)
     .map((line) => line.slice(3));

@@ -97,7 +97,7 @@ export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: De
   async function busy(step: KeepStep, agents: PaseoAgentInfo[]) {
     const { worktree } = step;
     if (!worktree) return null;
-    const st = await git(worktree, ['status', '--porcelain', '--untracked-files=no']);
+    const st = await git(worktree, ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=no']);
     if (st.ok && st.stdout.trim()) return `${worktree} has uncommitted changes`;
     const agent = agents.find((a) => a.cwd && a.status === 'running' && reviewAgent.sameDir(a.cwd, worktree));
     return agent ? `agent ${agent.id.slice(0, 8)} is mid-turn in ${worktree}` : null;

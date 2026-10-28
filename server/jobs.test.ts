@@ -76,3 +76,9 @@ test('a restart loses the commands that ran and keeps following the agents; a di
   again.dismiss(again.list('w')[0].id);
   assert.deepEqual(again.list('w').map((j) => j.action), ['fix-findings']);
 });
+
+test('a spare worktree cut by a restart leaves the list: the boot makes it again under a new job', () => {
+  const DATA = tmp();
+  createJobs({ DATA }).start({ action: 'spare:app:1', label: 'Spare worktree for app', kind: 'setup' }, () => new Promise<void>(() => {}));
+  assert.deepEqual(createJobs({ DATA }).list(), []);
+});

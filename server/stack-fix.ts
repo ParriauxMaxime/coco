@@ -163,7 +163,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     for (const row of rows) {
       const { worktree } = row;
       if (!worktree) continue;
-      const st = await exec('git', ['-C', worktree, 'status', '--porcelain', '--untracked-files=no']);
+      const st = await exec('git', ['-C', worktree, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=no']);
       if (st.ok && st.stdout.trim()) throw new HttpError(409, `${worktree} has uncommitted changes on ${row.branch}`);
       const busy = agents.find((a) => a.cwd && a.status === 'running' && a.id !== requestedBy && reviewAgent.sameDir(a.cwd, worktree));
       if (busy) throw new HttpError(409, `agent ${String(busy.id).slice(0, 8)} is running in ${worktree}`);

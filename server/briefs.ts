@@ -269,7 +269,7 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     const [tip, baseTip, remote] = await Promise.all([reviewAgent.branchSha(ctx.pr.head), git(['rev-parse', '--verify', '-q', baseRef]), reviewAgent.remoteHead(ctx.n)]);
     const fork = tip && baseTip ? await git(['merge-base', baseRef, tip]) : '';
     const log = fork ? (await git(['log', '--oneline', '--no-decorate', `-${MAX_LOG}`, `${fork}..${tip}`])).split('\n').filter(Boolean) : [];
-    const dirty = ctx.worktree ? (await git(['status', '--short'])).split('\n').filter(Boolean) : [];
+    const dirty = ctx.worktree ? (await git(['--no-optional-locks', 'status', '--short'])).split('\n').filter(Boolean) : [];
     const open = (comments.list(ctx.work.slug, ctx.n).comments || []).filter((c) => !c.kind && (c.status === 'open' || c.status === 'sent'));
     const decisions = (ctx.work.decisions || []).filter((d) => d.status !== 'taken' && isLive(d) && String(d.pr) === String(ctx.n));
     return { at: new Date().toISOString(), tip: tip ?? '', baseTip, remote: remote ?? '', baseRef, fork, log, dirty, comments: open, decisions, worktree: ctx.worktree };

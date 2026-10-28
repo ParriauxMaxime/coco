@@ -228,7 +228,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const catchUp = async (group: CodeGroup, pr: ThreadPr | null): Promise<string[]> => {
     const [base, head] = [await prBase(pr), await worktreeHead(group)];
     if (!group.worktree || !base || !head || base === head) return [];
-    if ((await git(group.worktree, ['status', '--porcelain'])).stdout.trim()) return [];
+    if ((await git(group.worktree, ['--no-optional-locks', 'status', '--porcelain'])).stdout.trim()) return [];
     if (!(await git(group.worktree, ['merge-base', '--is-ancestor', head, base])).ok) return [];
     if (!(await git(group.worktree, ['merge', '--ff-only', '-q', base])).ok) return [];
     return [`- The PR moved since your last turn: coco fast-forwarded this worktree from \`${head.slice(0, 9)}\` to \`${base.slice(0, 9)}\`. Re-read the files you rely on.`, ''];
@@ -982,7 +982,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   async function prTarget(pr: ThreadPr) {
     const wt = await reviewAgent.worktreeFor(pr.head);
     if (!wt) return { wt: null, busy: false };
-    const [status, agents] = await Promise.all([git(wt, ['status', '--porcelain', '--untracked-files=no']), reviewAgent.agentsList()]);
+    const [status, agents] = await Promise.all([git(wt, ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=no']), reviewAgent.agentsList()]);
     const busy = Boolean(status.stdout.trim()) || agents.some((a) => a.status === 'running' && a.cwd && reviewAgent.sameDir(a.cwd, wt));
     return { wt, busy };
   }
