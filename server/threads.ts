@@ -787,6 +787,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // message has its reply or the agent's turn ended (ended: coco followed it; otherwise idle in `paseo ls` past the settle time)
   function ingest(slug: string, key: string, agentList?: PaseoAgentRow[] | null, { ended = false }: { ended?: boolean } = {}): Promise<Thread> {
     const { ref } = check(slug, key);
+    // nothing to ingest: answer without queueing behind a first message whose agent is still starting
+    const idle = read(slug, key);
+    if (!idle.waiting) return Promise.resolve(idle);
     return withLock(`${slug}:${key}`, async () => {
       const thread = read(slug, key);
       const { waiting } = thread;

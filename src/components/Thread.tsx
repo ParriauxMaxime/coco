@@ -120,6 +120,20 @@ function Suggestion({ s, onDecide, busy, pending, verify, onVerify }: Suggestion
 }
 
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
+
+// messages posted and not confirmed yet, by thread: a first message can leave before its thread is mounted (a new comment's Start agent)
+type Sent = { nonce: string; text: string; files: UploadRef[] };
+const NONE: Sent[] = [];
+const usePosting = create<Record<string, Sent[]>>(() => ({}));
+export function postToThread(slug: string, key: string, { text, model, thinking, files = [] }: { text: string; model?: string; thinking?: string; files?: UploadRef[] }) {
+  const nonce = nonceOf();
+  usePosting.setState((s) => ({ [key]: [...(s[key] ?? NONE), { nonce, text, files }] }));
+  return api.postThread(slug, key, { text, ...(model ? { model } : {}), ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) })
+    .finally(() => {
+      usePosting.setState((s) => ({ [key]: (s[key] ?? NONE).filter((x) => x.nonce !== nonce) }));
+      refreshThreads(slug);
+    });
+}
 // a POST answers the thread without its agent or cards: keep the ones already shown
 const keep = (prev: ThreadData | null, next: ThreadData): ThreadData => ({ ...next, agent: next.agent ?? prev?.agent ?? null, cards: next.cards ?? prev?.cards });
 
@@ -187,8 +201,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
   const [pending, setPending] = useState<string | null>(null);
   const busy = pending !== null;
-  // messages sent and not confirmed yet
-  const [sending, setSending] = useState<{ nonce: string; text: string; files: UploadRef[] }[]>([]);
+  const sending = usePosting((s) => s[key] ?? NONE);
   const [note, setNote] = useState('');
   const [turns, setTurns] = useState(SHOWN_TURNS);
   const waiting = Boolean(thread?.waiting);
@@ -246,16 +259,12 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const group = groups.find((g) => g.id === thread?.groupId);
   // shown at once, confirmed by the server; while the agent works the message steers its turn
   const send = (text: string, model?: string, files: UploadRef[] = [], thinking?: string) => {
-    const nonce = nonceOf();
-    setSending((s) => [...s, { nonce, text, files }]);
-    api.postThread(slug, key, { text, ...(model ? { model } : {}), ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) })
+    postToThread(slug, key, { text, model, thinking, files })
       .then((next) => {
         wasWaiting.current = Boolean(next.waiting);
         setThread((prev) => keep(prev, next));
-        refreshThreads(slug);
         settled.current?.();
-      }, (e) => toast.error(errorMessage(e)))
-      .finally(() => setSending((s) => s.filter((x) => x.nonce !== nonce)));
+      }, (e) => toast.error(errorMessage(e)));
     return true;
   };
 
@@ -275,7 +284,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   return (
     <div className="dp-thr">
       <div className="dp-thr-h">
-        <span className="dp-ell">{group ? `Group ${groupLabel(group)}` : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
+        <span className="dp-ell">{group ? `Group ${groupLabel(group)}` : sending.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (
           <span className={`dp-chip${thread.agent.live ? ' dp-ok' : ''}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
             <span className="dp-d" />{thread.waiting?.deps ? `waiting for deps (${Math.max(0, Math.round((Date.now() - Date.parse(thread.waiting.deps.since)) / 1000))} s)` : thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}

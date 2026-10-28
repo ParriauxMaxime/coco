@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { FindingBody } from '../../components/Blocks.tsx';
-import Thread, { ThreadComposer, ThreadToggle, refreshThreads, threadKey } from '../../components/Thread.tsx';
+import Thread, { ThreadComposer, ThreadToggle, postToThread, threadKey } from '../../components/Thread.tsx';
 import type { Verdict } from '../../components/Thread.tsx';
 import type { UploadRef } from '../../types.ts';
-import { api, errorMessage } from '../../api.ts';
+import { errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import { useAction, pendingClass } from '../../components/action.ts';
 import { Composer } from '../../preview/chat/Composer.tsx';
@@ -68,12 +68,11 @@ export function openCommentThread(key: string, id: string) {
 
 type StartAgent = (text: string, model?: string, files?: UploadRef[], thinking?: string) => Promise<boolean | void>;
 
-// opens the comment's thread in the diff and hands the text to its agent
-async function startCommentThread(rv: ReviewHandle, commentId: string, text: string, model?: string, files: UploadRef[] = [], thinking?: string) {
+// opens the comment's thread in the diff at once, the text shown as sending while its agent starts
+function startCommentThread(rv: ReviewHandle, commentId: string, text: string, model?: string, files: UploadRef[] = [], thinking?: string) {
   const key = threadKey.comment(rv.n, commentId);
   openThreads.add(key);
-  await api.postThread(rv.slug, key, { text, model, ...(thinking ? { thinking } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
-  refreshThreads(rv.slug);
+  postToThread(rv.slug, key, { text, model, thinking, files }).catch((e) => toast.error(errorMessage(e)));
   return key;
 }
 
@@ -86,7 +85,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
     setBusy(true);
     try {
       const c = await accept(wp);
-      const key = await startCommentThread(rv, c.id, text, model, files, thinking);
+      const key = startCommentThread(rv, c.id, text, model, files, thinking);
       onDispatched?.(key);
     } catch (e) {
       toast.error(errorMessage(e));
@@ -340,7 +339,7 @@ export function fileCommentProps(rv: ReviewHandle, path: string, file?: RefFile)
   const start: CommentZoneProps['onStart'] = async (c, body, model, files, thinking) => {
     try {
       const added = await addDraft(c, body);
-      await startCommentThread(rv, added.id, body, model, files, thinking);
+      startCommentThread(rv, added.id, body, model, files, thinking);
     } catch (e) {
       fail(e);
       return false;
