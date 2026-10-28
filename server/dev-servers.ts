@@ -2,6 +2,7 @@
 // the server serving it, and a coco holder of its own ({ kind: 'coco', id: '<work>/<row>' }). The plugin being down reads as "off", never as an error.
 import { execFile } from 'node:child_process';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { keyLabel, rowKey } from './stack.ts';
 import type { Jobs } from './jobs.ts';
@@ -11,7 +12,7 @@ type StackRow = { number?: number | null; planned?: { branch?: string } };
 type Work = { slug: string; title?: string; stack?: StackRow[] };
 type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[]) => Promise<ExecResult>;
-type DevServersConfig = { devServers?: { api?: { bind?: string; port?: number } } } | null;
+type DevServersConfig = { devServers?: { api?: { bind?: string; port?: number }; projects?: { warm?: { clone?: string[] } }[] } } | null;
 type Lease = { kind: string; holderId: string | null };
 type PluginServer = { running: boolean; state?: string; buildSeconds?: number; lastError?: string; leases: Lease[]; worktree: { path: string; branch?: string | null } };
 type Placement = { mode: string; servedFrom: string; because: string[] };
@@ -176,6 +177,10 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return `- Right now: no build of ${where} yet; a first start builds cold, several minutes.`;
   }
 
+  // a build a hand-run server left behind: the plugin never saw it, yet a start reuses it
+  const clonePaths = (config?.devServers?.projects || []).flatMap((p) => p.warm?.clone || []);
+  const cacheOnDisk = (worktree: string) => clonePaths.length > 0 && clonePaths.every((p) => fs.existsSync(path.join(worktree, p)));
+
   async function workView(work: Work) {
     const reply = await boardReply();
     if ('down' in reply) return { on: false, reason: reply.down };
@@ -190,7 +195,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
       const own = serverFor({ ...row, holder }, servers);
       const server = (!own?.running && shared && { ...shared, leases: shared.leases.map((lease) => ({ ...lease, mine: false })) }) || own || null;
       const queued = row.worktree ? queue.findIndex((p) => samePath(p.worktree, row.worktree)) : -1;
-      return { ...row, holderId: holder.id, server, servedFrom: server && row.worktree && !samePath(server.worktree.path, row.worktree) ? server.worktree.path : null, placement, prebuildQueued: queued < 0 ? null : queued };
+      return { ...row, holderId: holder.id, server, servedFrom: server && row.worktree && !samePath(server.worktree.path, row.worktree) ? server.worktree.path : null, placement, prebuildQueued: queued < 0 ? null : queued, cacheOnDisk: row.worktree ? cacheOnDisk(row.worktree) : false };
     }));
     return { on: true, board, rows };
   }
@@ -211,6 +216,11 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     if (action === 'start') {
       if (!row.worktree) return { status: 409, error: `${row.branch || row.label} is not checked out in a worktree: create its workspace first` };
       return call('POST', '/api/servers/start', { cwd: row.worktree, holder, ...(body.dedicated === true && { dedicated: true }) }, ACTION_MS);
+    }
+    if (action === 'warm') {
+      if (!row.worktree) return { status: 409, error: `${row.branch || row.label} is not checked out in a worktree` };
+      lastBoard = null;
+      return call('POST', '/api/prebuilds', { cwd: row.worktree }, ACTION_MS);
     }
     const id = String(body.serverId || '');
     if (!SERVER_ID.test(id)) return { status: 400, error: 'serverId required' };

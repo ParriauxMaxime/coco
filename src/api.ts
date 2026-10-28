@@ -42,8 +42,8 @@ const asThread = (t: Thread) => {
   return t;
 };
 
-export type RowAction = 'start' | 'stop' | 'pin';
-type RowActionResult = { start: StartResult; stop: StopResult; pin: PinResult };
+export type RowAction = 'start' | 'stop' | 'pin' | 'warm';
+type RowActionResult = { start: StartResult; stop: StopResult; pin: PinResult; warm: { queued: boolean; why: string } };
 
 const works = (slug: string) => `/api/works/${slug}`;
 const rulesBase = (slug: string | null | undefined) => (slug ? `${works(slug)}/rules` : '/api/rules');

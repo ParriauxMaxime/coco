@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { errorMessage } from '../../api.ts';
-import { pendingClass } from '../../components/action.ts';
+import { api, errorMessage } from '../../api.ts';
+import { pendingClass, useAction } from '../../components/action.ts';
 import { toast } from '../../components/Toast.tsx';
 import { useDevLogs, useDevServerRow } from '../../workbench/tabs/DevServers.tsx';
 import { baseName, stateLabel, stateTone, statusText, summarize } from '../../../dev-servers/shared/view-model.ts';
@@ -19,24 +19,41 @@ export function DevServersLine({ data }: { data: DevServersResponse | null }) {
 }
 
 // the work's checked-out rows and what a dev server costs there now: running (agents reuse it), building, a warm build, queued, or a cold start
-export function DevServersList({ data }: { data: DevServersResponse | null }) {
+// what a start costs in a row's worktree, worst news first: a failed warm build, then warm, on disk, queued, cold
+function costOf(r: DevServerRowData): { label: string; tone: string; why: string | null; warmable: boolean } {
+  const s = r.server;
+  if (s?.running) return { label: `${stateLabel(s.state)} :${s.port}`, tone: toneOf(s), why: statusText(s), warmable: false };
+  if (r.prebuildQueued != null) return { label: 'warm build queued', tone: '', why: r.prebuildQueued ? `${r.prebuildQueued} ahead` : 'next', warmable: false };
+  if (s?.lastError) return { label: 'warm build failed', tone: 'dp-bad', why: s.lastError, warmable: true };
+  if (s?.buildSeconds !== undefined) return { label: 'warm build', tone: 'dp-info', why: statusText(s), warmable: false };
+  if (r.cacheOnDisk) return { label: 'build on disk', tone: 'dp-info', why: 'A build cache is in the worktree (a server run by hand?): a start reuses it', warmable: false };
+  return { label: 'cold start', tone: '', why: 'No build yet: a first start builds for several minutes', warmable: true };
+}
+
+// the work's checked-out rows and what a dev server costs there now: running (agents reuse it), building, a warm build, queued, or a cold start
+export function DevServersList({ data, slug, onChange }: { data: DevServersResponse | null; slug: string; onChange: () => unknown }) {
+  const { pending, busy, run } = useAction();
   if (!data?.on) return null;
   const rows = data.rows.filter((r) => r.worktree);
   if (!rows.length) return <div className="dp-t3 dp-xs">No PR of this work is checked out</div>;
-  const queued = (r: DevServerRowData) => r.prebuildQueued != null;
+  const warm = (r: DevServerRowData) => run(`warm-${r.key}`, async () => {
+    const res = await api.devServerRow(slug, r.key, 'warm');
+    toast.success(res.queued ? `Warm build of ${baseName(r.worktree || '')} ${res.why}` : `Not queued: ${res.why}`);
+    await onChange();
+  });
   return (
     <div className="dp-dev-list">
       {rows.map((r) => {
         const s = r.server;
-        const state = s?.running ? `${stateLabel(s.state)} :${s.port}` : s && statusText(s)?.startsWith('Warm') ? 'warm build' : queued(r) ? 'warm build queued' : 'cold start';
-        const tone = s?.running ? toneOf(s) : s && statusText(s)?.startsWith('Warm') ? 'dp-info' : '';
-        const why = [s ? statusText(s) : null, r.servedFrom ? `served from ${baseName(r.servedFrom)}` : null].filter(Boolean).join(' · ');
+        const cost = costOf(r);
+        const why = [cost.why, r.servedFrom ? `served from ${baseName(r.servedFrom)}` : null].filter(Boolean).join(' · ');
         const label = typeof r.key === 'number' ? `#${r.key}` : baseName(r.worktree || '');
         return (
           <div key={String(r.key)} className="dp-row dp-g4 dp-dev-li" title={why || undefined}>
             <span className="dp-mono dp-xs">{label}</span>
-            {s?.running ? <a className={`dp-chip ${tone}`} href={s.url} target="_blank" rel="noreferrer">{state}</a> : <span className={`dp-chip ${tone}`}>{state}</span>}
+            {s?.running ? <a className={`dp-chip ${cost.tone}`} href={s.url} target="_blank" rel="noreferrer">{cost.label}</a> : <span className={`dp-chip ${cost.tone}`}>{cost.label}</span>}
             {r.servedFrom && <span className="dp-t3 dp-xs dp-ell">from {baseName(r.servedFrom)}</span>}
+            {cost.warmable && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === `warm-${r.key}`)}`} disabled={busy} title="Queue a background build of this worktree, so an agent's first start only boots" onClick={() => warm(r)}>Warm up</button>}
           </div>
         );
       })}

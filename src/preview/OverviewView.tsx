@@ -221,7 +221,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             {d.dev.data?.on && (
               <div className="dp-side-sec">
                 <div className="dp-sec-t" title="What an agent of this work gets when it needs a dev server: a running one it reuses, a warm build, or a cold start">Dev servers for agents</div>
-                <DevServersList data={d.dev.data} />
+                <DevServersList data={d.dev.data} slug={d.slug} onChange={d.dev.reload} />
               </div>
             )}
           </aside>

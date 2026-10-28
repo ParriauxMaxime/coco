@@ -509,6 +509,8 @@ export type DevServerRowData = {
   // where an agent starting a server here is served, and the row's place in the warm-build queue (0 = next)
   placement?: Placement | null;
   prebuildQueued?: number | null;
+  // the worktree holds a build cache (e.g. from a server run by hand) the plugin has no record of
+  cacheOnDisk?: boolean;
 };
 export type DevServersResponse = { on: true; board: Board; rows: DevServerRowData[] } | { on: false; reason: string };
 export type DevServerLogs = { lines: string[] };

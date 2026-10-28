@@ -4,7 +4,7 @@ import type { ZodType } from "zod";
 import { createPresenter } from "./server/board.ts";
 import { loadConfig, resolveApi, type ConfigLoad } from "./server/config.ts";
 import { createExternalScanner } from "./server/external.ts";
-import { createHttpApi, type HttpApi } from "./server/http.ts";
+import { createHttpApi, readJsonText, send, type HttpApi, type Mount } from "./server/http.ts";
 import { createLeaseManager, openLeaseStore, type LeaseManager } from "./server/leases.ts";
 import { MCP_PATH, createMcpHandler } from "./server/mcp.ts";
 import { createPaseoHooks, registerPaseoHooks, type HookRuntime, type WorkspaceHandlers } from "./server/paseo-hooks.ts";
@@ -138,7 +138,14 @@ export default function contribute(server: PluginServerContext) {
     prebuilds.start();
     const api = resolveApi(config.api, values.apiPort);
     const present = createPresenter({ leases, store: stores.state, config });
-    const http = createHttpApi({ service, present, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }) } });
+    // a worktree made before the plugin ran, or whose prebuild failed, gets its warm build on request
+    const prebuildMount: Mount = async (req, res) => {
+      if (req.method !== "POST") return send(res, 405, { error: { code: "method_not_allowed", message: "POST /api/prebuilds with { cwd }" } });
+      const body = JSON.parse((await readJsonText(req)) || "{}") as { cwd?: unknown };
+      if (typeof body.cwd !== "string" || !body.cwd) return send(res, 400, { error: { code: "invalid_input", message: "cwd is required" } });
+      send(res, 200, await prebuilds.enqueue(body.cwd));
+    };
+    const http = createHttpApi({ service, present, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }), "/api/prebuilds": prebuildMount } });
     const up = { load, apiPort: values.apiPort, stores, supervisor, leases, service, workspaces, close };
     try {
       const { bind, port } = await http.listen();
