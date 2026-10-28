@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 
 export type Shell = 'A' | 'B' | 'C';
@@ -35,6 +36,14 @@ export const usePrefs = create<Prefs & { set: (key: PrefKey, value: string) => v
 }));
 
 export const workHref = (slug: string) => `#/work/${slug}`;
+
+const readList = (key: string): string[] => { try { const v: unknown = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; } };
+export const usePersistedList = (key: string, initial: (saved: string[]) => string[]) => {
+  const [list, setList] = useState(() => initial(readList(key)));
+  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(list)); } catch {} }, [list]);
+  const toggle = (s: string) => setList((l) => (l.includes(s) ? l.filter((x) => x !== s) : [...l, s]));
+  return { list, toggle, set: setList };
+};
 
 // the last model and thinking picked in a composer, per kind of agent it starts (ask, thread, dispatch-<kind>)
 export type ModelPickPref = { provider: string; thinking: string | null };

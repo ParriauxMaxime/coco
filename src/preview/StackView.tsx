@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import DispatchMenu from '../components/DispatchMenu.tsx';
-import { api } from '../api.ts';
-import { subscribe, topic } from '../live.ts';
 import { isLive, useJobs } from '../jobs.ts';
 import type { WorkPr } from '../workbench/types.ts';
 import Icon from './Icon.tsx';
@@ -14,6 +12,7 @@ import type { PreviewData } from './data.ts';
 import { usePrefs } from './prefs.ts';
 import { reloadOverview } from './overview.ts';
 import StackKeeper from './StackKeeper.tsx';
+import { useMilestones } from './milestones.ts';
 import './stack.css';
 
 type Filter = 'all' | 'open' | 'merged' | 'planned';
@@ -46,24 +45,6 @@ function AgentsCell({ d, pr }: { d: PreviewData; pr: WorkPr }) {
       {!waiting && agents.length > 2 && <span>+{agents.length - 2}</span>}
     </>
   );
-}
-
-// each row's current milestone; computing them also refreshes the sidebar bar
-function useMilestones(slug: string) {
-  const [steps, setSteps] = useState<Record<string, string | null>>({});
-  useEffect(() => {
-    let live = true;
-    const load = () => api.milestones(slug).then((r) => {
-      if (!live) return;
-      setSteps(Object.fromEntries(r.rows.map((x) => [String(x.key), x.current])));
-      void reloadOverview();
-    }, () => {});
-    load();
-    let soon: ReturnType<typeof setTimeout>;
-    const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(load, 500); } });
-    return () => { live = false; clearTimeout(soon); off(); };
-  }, [slug]);
-  return steps;
 }
 
 function Row({ d, pr, index, step, working, selected, narrow, dispatching, onSelect, onOpen, onDispatch, onClose }: { d: PreviewData; pr: WorkPr; index: number; step: string | null; working: boolean; selected: boolean; narrow: boolean; dispatching: boolean; onSelect: () => void; onOpen: () => void; onDispatch: () => void; onClose: () => void }) {

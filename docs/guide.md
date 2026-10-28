@@ -591,8 +591,9 @@ with 409 and the running job.
 Each action button stands for its job: a running chip with the elapsed time
 that opens the agent, then a ✓ for a minute, or a failure with Retry and
 dismiss. The status bar shows "n jobs running" (and failures) with the list,
-the PR's milestone pill and its Stack row spin while a job runs on it, and the
-work sidebar lists running or failed commands under Jobs. Each job's end is
+the PR's milestone pill, its Stack row and its sidebar row spin while a job
+runs on it, and the work sidebar's Overview group lists running or failed
+commands under Jobs. Each job's end is
 toasted once. Routes: `GET /api/jobs?work=<slug>`, `POST
 /api/jobs/<id>/dismiss`, topic `jobs` (optional work).
 
@@ -1313,6 +1314,23 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
     item. Anything else, or a whole-work item: the PR selected in the Stack.
     Hidden, or with details as tabs (narrow window, "PR details: Tab"), the
     Review tab shows its activity pane again.
+  - Sidebar: under an expanded work, an **Overview** group (its label opens
+    `plan`, its caret folds it) holds Stack, Findings, Decisions, Timeline,
+    Notes and Artifacts, the running or failed command jobs, and the agents
+    tied to no PR. Below it, one row per open PR in stack order (caret, `#n`,
+    title, current milestone chip, state dot, a spinner while a job or an
+    agent works on it, the orange count of agents waiting on you); a click
+    opens `pr-<n>`, the caret unfolds Review code (`review-<n>`), Findings
+    (`findings-<n>`, open count) and the PR's agents. Merged and planned PRs
+    fold into two lines at the end ("2 merged", "25 planned"); a folded line
+    or group keeps the spinner and waiting count of what it hides. Agents
+    show status dots (blue working, orange waiting, green done, red failed,
+    grey archived), archived ones behind a fold; a group's archive button
+    archives its idle agents (two clicks), + or New agent opens `ask` or
+    `ask-new-<n>`. The focused tab's PR unfolds by itself and folds back when
+    the focus leaves it, unless toggled by hand; what is folded is kept per
+    work in `localStorage` `cc.dp.tree.<slug>`. Off the work's page, PR rows
+    come from its agents only.
   - Notes: title (100 characters), description and notes in markdown
     (Write or Preview; double-click a preview to edit), and the stack order
     as PR numbers in merge order, planned rows kept after them. Each section

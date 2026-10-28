@@ -6,24 +6,14 @@ import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import BetaPanel from './BetaPanel.tsx';
 import { useWaiting } from './waiting.ts';
-import AgentsSection from './AgentsSection.tsx';
-import { CHOICES, useBetaPanel, usePrefs, workHref } from './prefs.ts';
+import { WorkViews } from './WorkSidebar.tsx';
+import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './prefs.ts';
 import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
 import './preview.css';
 
 export type Command = { id: string; label: string; hint?: string; icon: IconName; run: () => void };
 export type Crumb = { label: string; href?: string };
-
-export const VIEWS: { id: string; label: string; icon: IconName }[] = [
-  { id: 'plan', label: 'Overview', icon: 'home' },
-  { id: 'stack', label: 'Stack', icon: 'list' },
-  { id: 'findings', label: 'Findings', icon: 'flag' },
-  { id: 'decisions', label: 'Decisions', icon: 'scale' },
-  { id: 'timeline', label: 'Timeline', icon: 'history' },
-  { id: 'notes', label: 'Notes', icon: 'notebook' },
-  { id: 'artifacts', label: 'Artifacts', icon: 'folder' },
-];
 
 type NavItem = { href: string; root: string; label: string; icon: IconName };
 const NAV: NavItem[] = [
@@ -52,14 +42,6 @@ export const useNarrow = () => {
 };
 
 const SEGMENTS: [keyof WorkSummary['progress'], string][] = [['merged', 'merged'], ['ready', 'review'], ['draft', 'draft'], ['planned', 'planned'], ['closed', 'closed']];
-
-const readList = (key: string): string[] => { try { const v: unknown = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; } };
-const usePersistedList = (key: string, initial: (saved: string[]) => string[]) => {
-  const [list, setList] = useState(() => initial(readList(key)));
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(list)); } catch {} }, [list]);
-  const toggle = (s: string) => setList((l) => (l.includes(s) ? l.filter((x) => x !== s) : [...l, s]));
-  return { list, toggle };
-};
 
 // open PRs by current milestone, furthest first
 export const MILESTONE_ORDER = ['approved', 'ready', 'pushed', 'kit', 'self-review'];
@@ -100,25 +82,6 @@ function WorkRow({ w, on, expanded, onToggle, views }: { w: WorkSummary; on: boo
       </a>
       <div className={`dp-collapse${expanded ? ' dp-open' : ''}`}><div>{views}</div></div>
     </>
-  );
-}
-
-// a work's views and agents; off its page each one opens the work on that tab
-export function WorkViews({ w, open, isOpen, count, prs }: { w: WorkSummary; open?: (id: string) => void; isOpen?: (id: string) => boolean; count?: (id: string) => number | undefined; prs?: React.ComponentProps<typeof AgentsSection>['prs'] }) {
-  const go = (id: string) => (open ? open(id) : (location.hash = `${workHref(w.slug)}/${id}`));
-  return (
-    <div className="dp-views">
-      {VIEWS.map((v) => {
-        const n = count ? count(v.id) : v.id === 'stack' ? w.stack || undefined : undefined;
-        return (
-          <div key={v.id} className={`dp-view${isOpen?.(v.id) ? ' dp-open' : ''}`} onClick={() => go(v.id)}>
-            <Icon name={v.icon} size={14} /><span>{v.label}</span>
-            {n !== undefined && <span className="dp-count">{n}</span>}
-          </div>
-        );
-      })}
-      <AgentsSection slug={w.slug} live={Boolean(open)} prs={prs || []} onOpen={go} />
-    </div>
   );
 }
 
