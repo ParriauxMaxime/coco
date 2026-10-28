@@ -470,4 +470,14 @@ server.tool('own_deps', 'Give your worktree its own copy of the dependency folde
   return r.ok ? text(r.data) : refused(`own_deps refused: ${r.error}`);
 });
 
+server.tool('post_reply', `Your reply to ${OWNER} in a coco thread (the last step of a thread agent's turn), instead of writing the reply file. Same blocks as post_blocks. A refusal names the bad field: fix it and call again.`, {
+  blocks: richBlocks.describe('the reply as typed blocks, usually 1-4; text {text} first. Same types as post_blocks'),
+  thread: z.string().optional().describe('the thread key your prompt names; omit only when one thread waits on you'),
+  finding: z.looseObject({}).optional().describe('only when the owner asked to accept, dismiss or edit the finding: { action: "accept" | "dismiss", reason, patch? }, as your prompt says'),
+}, async ({ blocks, thread, finding }) => {
+  if (!AGENT_ID) return refused('no PASEO_AGENT_ID in this MCP server environment: replies need a Paseo agent started by coco');
+  const r = await coco('POST', `/api/agent-chat/${encodeURIComponent(AGENT_ID)}/reply`, { blocks, thread, finding });
+  return r.ok ? text(r.data) : refused(`reply refused: ${r.error}`);
+});
+
 await server.connect(new StdioServerTransport());

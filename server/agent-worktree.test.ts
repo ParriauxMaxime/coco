@@ -68,7 +68,7 @@ test('a worktree whose lockfile differs gets its own cloned and installed copy, 
   aw.whenReady(wt, 'agent-1');
   await until(() => told.length > 0, 'the ready message');
   assert.equal(told[0][0], 'agent-1');
-  assert.match(told[0][1], /checks now work/);
+  assert.match(told[0][1], /checks are available now/);
   const nm = path.join(wt, 'node_modules');
   assert.equal(fs.lstatSync(nm).isSymbolicLink(), false);
   assert.equal(fs.readFileSync(path.join(nm, 'left-pad.js'), 'utf8'), 'main', 'cloned from the main checkout');

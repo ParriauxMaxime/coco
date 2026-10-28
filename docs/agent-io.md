@@ -223,6 +223,12 @@ A picked option whose effect did the work is not delivered.
   user message and the agent should not wait or poll. `thread` and option
   `effect` for thread agents.
 - `post_blocks({ title, blocks, thread? })`: a `post` card.
+- `post_reply({ blocks, thread?, finding? })`: a thread agent's reply for its
+  waiting thread (`POST /api/agent-chat/<agentId>/reply`). `blocks` go through
+  the `post_blocks` validator; a refusal names the field (`blocks[1].rows`,
+  `thread`). It writes the thread's `-reply.json` and reads it at once; the
+  file stays the fallback. `thread` is needed only when several threads wait
+  on the agent.
 - `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
   `propose_rules`: same names and inputs as before, now posting a proposal
   card (`action`) and returning `{ id, status: 'open', note }`.

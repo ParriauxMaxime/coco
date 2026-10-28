@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, commentSection, fenced, sharedRules } from './review-agent.ts';
 import { findingLine, settledLines } from './briefs.ts';
-import { blocksToMarkdown, salvageBlocks } from './blocks.ts';
+import { blocksToMarkdown, salvageBlocks, validateBlocks } from './blocks.ts';
 import { activityEvents, createPaseoAgents } from './paseo-agent.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import { HttpError, errorMessage as errText, httpStatus } from './core-types.ts';
@@ -100,6 +100,8 @@ type ThreadsOptions = {
   };
   // checks a model and thinking picked in the composer beyond the sonnet / opus shorthands
   models?: Pick<Models, 'check'>;
+  // how long a code agent's first prompt waits for its worktree's dependencies, and how often it looks
+  hold?: { ms: number; pollMs: number };
 };
 
 const isOpenSuggestion = (s?: Suggestion) => (s ? OPEN_SUGGESTION.includes(s.state) : false);
@@ -140,7 +142,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models, hold = { ms: 90_000, pollMs: 2000 } }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -225,7 +227,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       return g;
     }
     if (groupId !== 'new' && !thread.newGroup) {
-      const own = open.find((g) => g.id === thread.groupId && sameModel(g));
+      // one live agent per comment: the group that already holds it takes it back, whatever model is picked now
+      const holder = ref.kind === 'comment' ? open.find((g) => g.kind === 'code' && g.n === ref.n && g.items.includes(thread.key)) : undefined;
+      if (holder) return holder;
+      const own =open.find((g) => g.id === thread.groupId && sameModel(g));
       if (own) return own;
       const subject = open.find((g) => sameModel(g) && (ref.kind === 'decision' ? g.kind === 'decision' && g.decisionId === ref.id : ref.kind === 'plan' ? g.kind === 'plan' && g.n === ref.n : g.kind === 'code' && g.n === ref.n && g.files.includes(item.path)));
       if (subject) return subject;
@@ -248,7 +253,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     ...(kind === 'comment' ? ['An option that leaves the code as is gets `effect: { "type": "dismiss_finding" }`: picking it dismisses the finding, without a new turn.'] : []),
   ].join(' ');
   const replyRule = (replyPath: string, kind: string, key: string) => [
-    `Last step of your turn: write your reply to \`${replyPath}\` as JSON \`{ "blocks": [...] }\`, never markdown.`,
+    `Last step of your turn: call cocopilot \`post_reply\` with \`{ "blocks": [...], "thread": "${key}" }\` (typed blocks, never markdown); a refusal names the bad field: fix it and call again. Only if the tool is missing or keeps failing, write the same JSON \`{ "blocks": [...] }\` to \`${replyPath}\`.`,
     `Blocks (full reference: "Blocks" in \`${BLOCKS_DOC}\`): \`text\` (1-3 sentences), \`steps\` ({ title, items, outcome }), \`table\` ({ caption, columns, rows; a cell may be { text, tone } }),`,
     '`suggestion` ({ path, startLine, endLine, lang, after }: the code you propose at those lines; cocopilot shows it as a diff), `code` ({ path, line, lang, code }), `diagram` ({ mermaid, caption }), `callout` ({ tone, title, text }).',
     'Inline text: **bold**, `code`, path/file.ts:12 refs and <risk>…</risk> <warn> <ok> <note> marks. Lead with the answer; short.',
@@ -257,7 +262,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
-  function buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup }: { work: Work; ref: Ref; item: Item; thread: Thread; text: string; group: Group; replyPath: string; cardPath: string; pr: ThreadPr | null; setup: string[] }) {
+  function buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup, earlier }: { work: Work; ref: Ref; item: Item; thread: Thread; text: string; group: Group; replyPath: string; cardPath: string; pr: ThreadPr | null; setup: string[]; earlier: string | null }) {
     const history = thread.messages.filter((m) => m.role !== 'system').map((m) => `**${m.role === 'user' ? Owner : 'You'}:** ${m.text}${m.suggestion ? ` _(suggestion ${m.suggestion.state})_` : ''}`);
     const label = ref.kind === 'decision' ? '' : keyLabel(ref.n);
     const about = {
@@ -302,6 +307,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       '',
       ...about.section,
       '',
+      ...(earlier ? ['## Earlier work on this comment', '', `${earlier}. Build on it or say why not; do not redo it.`, ''] : []),
       ...(history.length ? ['## Thread so far', '', ...history, ''] : []),
       `## ${Owner}'s message`,
       '',
@@ -334,26 +340,46 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       text,
       '',
       ...(steer ? ['Take it into account in the work in flight. A reply you already wrote for the previous message stays; this message gets its own reply file below.', ''] : []),
-      `Same rules as your first turn. Write your reply to \`${replyPath}\` as JSON \`{ "blocks": [...] }\`${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}.`,
+      `Same rules as your first turn. Reply with cocopilot \`post_reply\` (\`{ "blocks": [...], "thread": "${thread.key}" }\`; fallback: the same JSON written to \`${replyPath}\`)${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}.`,
       '',
       ...(setup.length ? [setup[0].replace('## ', '## Changed since: '), ...setup.slice(1)] : []),
     ].join('\n');
   }
 
   // a code group's worktree, readied before each of its turns; its section goes in the prompt when it differs from what the agent was last told
-  async function setupOf(group: Group, s: AgentSession) {
+  // a first prompt waits (up to hold.ms) while the worktree installs its dependencies; past that it says so, and the agent hears when they are ready
+  async function setupOf(group: Group, s: AgentSession, first = false) {
     if (group.kind !== 'code' || !worktrees) return [];
     const cwd = group.worktree || s.cwd();
     if (!cwd) return [];
     group.worktree = expandHome(cwd);
-    const r = await worktrees.prepare(group.worktree).catch(() => null);
+    let r = await worktrees.prepare(group.worktree).catch(() => null);
     if (!r) return [];
+    const t0 = Date.now();
+    while (first && r?.state === 'preparing' && Date.now() - t0 < hold.ms) {
+      await new Promise((ok) => setTimeout(ok, hold.pollMs));
+      r = (await worktrees.prepare(group.worktree, { retrying: true, start: false }).catch(() => null)) ?? r;
+    }
+    const late = first && r.state !== 'ready' && r.state !== 'off';
     if (r.state !== 'ready' && r.state !== 'off') worktrees.whenReady(group.worktree, s.agentId);
     const lines = worktrees.briefLines(r);
     const said = lines.join('\n');
-    if (said === group.briefed) return [];
+    const waited = late ? [`- coco waited ${Math.round(hold.ms / 1000)}s for the dependencies and they are not ready: run no checks, no \`npm ci\` or install of your own. A message "checks are available now: <commands>" follows when they work; commit meanwhile and coco checks your commit.`, ''] : [];
+    if (said === group.briefed) return waited;
     group.briefed = said;
-    return lines;
+    return [...lines, ...waited];
+  }
+
+  // a fix an earlier group already committed for this comment (its Cc-Comment trailer), for the brief of a fresh agent
+  async function earlierFix(slug: string, ref: Ref, group: Group, pr: ThreadPr | null) {
+    if (ref.kind !== 'comment' || !pr) return null;
+    for (const g of listGroups(slug).filter((x) => x.id !== group.id && x.kind === 'code' && x.n === ref.n)) {
+      const fix = (await reviewAgent.trailersBetween(REPO, pr.sha, `refs/heads/${g.branch}`).catch(() => [])).find((t) => t.id === ref.id);
+      if (!fix) continue;
+      const subject = (await git(REPO, ['show', '--no-patch', '--format=%s', fix.commit])).stdout.trim();
+      return `an earlier agent already committed ${fix.commit.slice(0, 7)}${subject ? `: ${subject}` : ''} (branch \`${g.branch}\`)`;
+    }
+    return null;
   }
 
   // the readiness news of a group agent: steers its turn in flight; an idle one reads the changed section with its next prompt
@@ -507,8 +533,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const sha = busy ? busy.sha : group.kind === 'code' ? (await branchHead(group.branch)) || pr?.sha : null;
     const s = live || (await startSession(slug, group, pr));
     if (!live && group.kind === 'code') delete group.briefed;
-    const setup = await setupOf(group, s);
-    const prompt = seen ? followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId: live.agentId, steer: Boolean(busy), setup }) : buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup });
+    // the prompts read the thread as it was before this message; the message is stored first so the owner sees it while a first prompt waits for the deps
+    const prev: Thread = { ...thread, messages: [...thread.messages] };
+    const fixed = live ? null : await earlierFix(slug, ref, group, pr);
     group.agentId = s.agentId;
     if (!group.items.includes(key)) group.items.push(key);
     writeGroup(slug, group);
@@ -522,6 +549,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     write(slug, thread);
     if (prior && prior.groupId !== group.id) route(slug, prior.groupId, key, null);
     route(slug, group.id, key, msg.id);
+    const setup = await setupOf(group, s, !seen);
+    writeGroup(slug, group);
+    const prompt = seen ? followUpPrompt({ ref, item, thread: prev, text, replyPath, cardPath, agentId: s.agentId, steer: Boolean(busy), setup }) : buildPrompt({ work, ref, item, thread: prev, text, group, replyPath, cardPath, pr, setup, earlier: fixed });
     const messageId = files.length ? crypto.randomUUID() : null;
     if (messageId) uploads?.record(s.agentId, { messageId, text: prompt, at: msg.ts, attachments: files.map(uploadRef) });
     const steering = s.busy();
@@ -1006,6 +1036,28 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     follow(slug, key).catch(() => {});
   }
 
+  // the post_reply tool: the agent's reply blocks, checked like post_blocks, written as the reply file the thread waits on, then read at once.
+  // The thread is the named one, else the only one waiting on the agent
+  async function postReply(agentId: string, input: { blocks?: unknown; finding?: unknown; thread?: unknown }) {
+    const waiting = works.list().filter((w) => !w.archived).flatMap((w) => listThreads(w.slug).filter((t) => t.waiting?.agentId === agentId).map((t) => ({ slug: w.slug, thread: t })));
+    const named = typeof input.thread === 'string' && input.thread ? waiting.filter((x) => x.thread.key === input.thread) : waiting;
+    if (!named.length) throw new HttpError(404, input.thread ? `thread: no thread "${input.thread}" waits on this agent` : 'no thread waits on this agent');
+    if (named.length > 1) throw new HttpError(400, `thread: several threads wait on this agent, name one of ${named.map((x) => x.thread.key).join(', ')}`);
+    const [{ slug, thread }] = named;
+    let blocks: Block[];
+    try {
+      blocks = validateBlocks(input.blocks);
+    } catch (e) {
+      throw new HttpError(400, errText(e));
+    }
+    const { finding } = input;
+    if (finding != null && (typeof finding !== 'object' || Array.isArray(finding))) throw new HttpError(400, 'finding must be an object { action?, reason?, patch? }');
+    const file = thread.waiting!.replyPath;
+    writeJson(file, { blocks, ...(finding ? { finding } : {}) });
+    await ingest(slug, thread.key);
+    return { ok: true, thread: thread.key, blocks: blocks.length };
+  }
+
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const [, slug, b, key, sub, msgId] = parts;
@@ -1042,6 +1094,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     handle,
     watch,
     post,
+    postReply,
     ingest,
     turnEnded,
     summaries,
