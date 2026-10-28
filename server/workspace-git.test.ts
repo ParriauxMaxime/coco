@@ -127,6 +127,34 @@ test('status, diff, commit picked files, unpushed commits, push, stash, discard:
   assert.equal((await call('GET', at('status'))).body.dirty, false);
 });
 
+test('paths are literal, never glob pathspecs: "*" and app/[id].tsx touch only the file of that name', async () => {
+  fs.mkdirSync(path.join(clone, 'app'), { recursive: true });
+  write('app/[id].tsx', 'one\n');
+  write('app/i.tsx', 'one\n');
+  write('app/d.tsx', 'one\n');
+  git(clone, 'add', 'app');
+  git(clone, 'commit', '-qm', 'app');
+  for (const f of ['app/[id].tsx', 'app/i.tsx', 'app/d.tsx', 'keep.txt']) write(f, 'changed\n');
+  write('loose.txt', 'new\n');
+  const star = await call('POST', at('discard'), { paths: ['*'] });
+  assert.equal(star.status, 200, star.body.error);
+  for (const f of ['app/[id].tsx', 'app/i.tsx', 'keep.txt']) assert.equal(fs.readFileSync(path.join(clone, f), 'utf8'), 'changed\n', f);
+  assert.ok(fs.existsSync(path.join(clone, 'loose.txt')), 'an untracked file is not cleaned by "*"');
+  assert.equal((await call('POST', at('discard'), { paths: ['app/[id].tsx'] })).status, 200);
+  assert.equal(fs.readFileSync(path.join(clone, 'app/[id].tsx'), 'utf8'), 'one\n');
+  assert.equal(fs.readFileSync(path.join(clone, 'app/i.tsx'), 'utf8'), 'changed\n', 'a file the bracket glob matches stays');
+  const committed = await call('POST', at('commit'), { message: 'brackets', paths: ['app/[id].tsx', 'app/i.tsx'] });
+  assert.equal(committed.status, 200, committed.body.error);
+  assert.equal(git(clone, 'show', '--name-only', '--format=', 'HEAD'), 'app/i.tsx');
+  write('app/[id].tsx', 'two\n');
+  const commitBracket = await call('POST', at('commit'), { message: 'bracket only', paths: ['app/[id].tsx'] });
+  assert.equal(commitBracket.status, 200, commitBracket.body.error);
+  assert.equal(git(clone, 'show', '--name-only', '--format=', 'HEAD'), 'app/[id].tsx', 'app/d.tsx stays out');
+  assert.match(String((await call('GET', at(`diff/file?path=${encodeURIComponent('app/d.tsx')}&unified=1`))).body.unified), /\+changed/);
+  git(clone, 'checkout', '--', '.');
+  fs.rmSync(path.join(clone, 'loose.txt'));
+});
+
 test('a watcher hears a change in the working tree, and stops polling once gone', async () => {
   const got: string[] = [];
   const closers: (() => void)[] = [];

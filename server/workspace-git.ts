@@ -55,7 +55,8 @@ const refused = <T extends { error?: { message: string } | null; success?: boole
 };
 
 export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () => null, pollMs = POLL_MS }: Deps) {
-  const env = { ...launcherEnv(), GIT_TERMINAL_PROMPT: '0' };
+  // a path is a file name, never a glob: `*` or `app/[id].tsx` must not reach other files
+  const env = { ...launcherEnv(), GIT_TERMINAL_PROMPT: '0', GIT_LITERAL_PATHSPECS: '1' };
   const run = (cmd: string, args: string[], cwd: string, timeout = 30000) =>
     new Promise<Out>((resolve) => {
       execFile(cmd, args, { cwd, env, timeout, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' }, (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout ?? '', stderr: String(stderr || err?.message || '') }));
@@ -231,7 +232,7 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
     const out: { path: string; original: string; modified: string; binary?: boolean; unified?: string } = { path: p, original: binary ? '' : (old?.toString('utf8') ?? ''), modified: binary ? '' : (cur?.toString('utf8') ?? ''), ...(binary ? { binary } : {}) };
     if (q.get('unified') === '1' && !binary) {
       const tracked = old !== null || (await read(cwd, ['ls-files', '--error-unmatch', '--', p])).ok;
-      const r = tracked ? await read(cwd, ['diff', '-M', '--no-ext-diff', '--no-color', 'HEAD', '--', `:(literal)${p}`, ...(previous ? [`:(literal)${previous}`] : [])]) : await read(cwd, ['diff', '--no-index', '--no-color', '--', '/dev/null', p]);
+      const r = tracked ? await read(cwd, ['diff', '-M', '--no-ext-diff', '--no-color', 'HEAD', '--', p, ...(previous ? [previous] : [])]) : await read(cwd, ['diff', '--no-index', '--no-color', '--', '/dev/null', p]);
       out.unified = r.stdout;
     }
     return out;
@@ -373,7 +374,8 @@ export function createWorkspaceGit({ repos, listWorkspaces, checkout = async () 
 
   async function discard(cwd: string, body: Record<string, unknown>) {
     const list = paths(body.paths, true);
-    const c = await sdk();
+    // a name git could read as a glob goes through git here, literal, not through the daemon
+    const c = list.some((p) => /[*?[\\]|^:/.test(p)) ? null : await sdk();
     if (c) {
       refused(await c.checkoutDiscardChanges(cwd, { paths: list }));
       return { ok: true };
