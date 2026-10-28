@@ -192,3 +192,59 @@ test('the boot sweep closes the cards of agents found archived, once per agent, 
   assert.deepEqual([cards.get(made.live.id).status, cards.get(made.unreachable.id).status], ['open', 'open']);
   assert.deepEqual(await cards.sweepArchived(async () => true).then((x) => x.length), 2);
 });
+
+const confirmAction = { demo: { card: (input: Record<string, unknown>) => ({ input, card: { kind: 'confirm', title: 'Create work' } }), run: async () => null } };
+const inThreads = { resolve: (b: { thread?: string }) => b.thread ?? null, effect: async () => ({ ok: true, detail: '' }), deliver: async () => {} };
+
+test('an archive closes only the plain questions of an agent archived outside coco; proposals, thread cards and coco-archived agents keep theirs', async () => {
+  const DATA = tmpDir();
+  const ids = { hand: 'a0000000-0000-0000-0000-000000000001', coco: 'a0000000-0000-0000-0000-000000000002', ask: 'a0000000-0000-0000-0000-000000000003', handed: 'a0000000-0000-0000-0000-000000000004' };
+  const cards = createCards({ DATA, deliver: async () => {}, actions: confirmAction, threads: inThreads, outlives: (id) => id === ids.ask });
+  const plain = await cards.create({ ...choice, agentId: ids.hand });
+  const proposal = await cards.create({ agentId: ids.hand, action: { type: 'demo', input: {} } });
+  const threadCard = await cards.create({ ...choice, agentId: ids.hand, thread: 'c-1' });
+  const once = await cards.create({ ...choice, agentId: ids.coco });
+  const asked = await cards.create({ ...choice, agentId: ids.ask });
+  cards.cocoArchives(ids.coco);
+  assert.deepEqual(cards.agentArchived(ids.hand), [plain.id]);
+  assert.deepEqual([cards.agentArchived(ids.coco), cards.agentArchived(ids.ask)], [[], []]);
+  assert.deepEqual([proposal, threadCard, once, asked].map((c) => cards.get(c.id).status), ['open', 'open', 'open', 'open']);
+  assert.equal(cards.get(plain.id).closedBy, 'archive');
+  assert.deepEqual(await cards.sweepArchived(async () => true), []);
+  // a hand-off closes the old agent's plain questions even though coco archived it
+  const old = await cards.create({ ...choice, agentId: ids.handed });
+  const oldProposal = await cards.create({ agentId: ids.handed, action: { type: 'demo', input: {} } });
+  cards.cocoArchives(ids.handed);
+  assert.deepEqual(cards.handedOff(ids.handed), [old.id]);
+  assert.deepEqual([cards.get(old.id).closedBy, cards.get(oldProposal.id).status], ['handoff', 'open']);
+  // coco's own archives are kept across a restart
+  const again = createCards({ DATA, deliver: async () => {} });
+  assert.deepEqual(again.agentArchived(ids.coco), []);
+  assert.deepEqual(again.reopenArchived(), []);
+});
+
+test('the cards an earlier sweep closed with their agent reopen when the new rule keeps them, once; other closed cards stay', async () => {
+  const DATA = tmpDir();
+  const ids = { hand: 'b0000000-0000-0000-0000-000000000001', ask: 'b0000000-0000-0000-0000-000000000002' };
+  const before = createCards({ DATA, deliver: async () => {}, actions: confirmAction, threads: inThreads });
+  const plain = await before.create({ ...choice, agentId: ids.hand });
+  const proposal = await before.create({ agentId: ids.hand, action: { type: 'demo', input: {} } });
+  const threadCard = await before.create({ ...choice, agentId: ids.hand, thread: 'c-1' });
+  const asked = await before.create({ ...choice, agentId: ids.ask });
+  const dismissed = await before.create({ ...choice, agentId: ids.ask });
+  await before.cancel(dismissed.id);
+  // what the old sweep wrote: every open card cancelled with archived, no closedBy
+  for (const c of [plain, proposal, threadCard, asked]) {
+    fs.writeFileSync(path.join(DATA, 'cards', `${c.id}.json`), JSON.stringify({ ...before.get(c.id), status: 'cancelled', archived: '2026-10-28T18:06:25.330Z', delivery: { at: '2026-10-28T18:06:25.330Z', ok: true, skipped: true } }));
+  }
+  const cards = createCards({ DATA, deliver: async () => {}, actions: confirmAction, threads: inThreads, outlives: (id) => id === ids.ask });
+  assert.deepEqual(cards.reopenArchived().sort(), [proposal.id, threadCard.id, asked.id].sort());
+  assert.deepEqual([proposal, threadCard, asked].map((c) => [cards.get(c.id).status, cards.get(c.id).archived, cards.get(c.id).delivery]), Array(3).fill(['open', undefined, undefined]));
+  assert.deepEqual([cards.get(plain.id).status, cards.get(dismissed.id).status], ['cancelled', 'cancelled']);
+  assert.deepEqual(cards.reopenArchived(), []);
+  assert.equal(createCards({ DATA, deliver: async () => {} }).get(asked.id).status, 'open');
+  // a card closed under the new rule carries closedBy and is never reopened
+  const later = await cards.create({ ...choice, agentId: ids.hand });
+  cards.agentArchived(ids.hand);
+  assert.ok(!createCards({ DATA, deliver: async () => {}, outlives: () => true }).reopenArchived().includes(later.id));
+});

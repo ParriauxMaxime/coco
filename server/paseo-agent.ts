@@ -357,7 +357,8 @@ export type AgentSession = Started & {
   close(): Promise<void>;
 };
 
-export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null } = {}) {
+// onArchive: told just before coco itself archives an agent (a run's end, a conversation closed, archiveWhenDone, archive)
+export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null, onArchive = () => {} }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null; onArchive?: (agentId: string) => void } = {}) {
   let pending: Promise<DaemonClient> | null = null;
   const client = () =>
     (pending ||= connect().catch((e) => {
@@ -433,8 +434,10 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
 
   async function archive(agentId: string) {
     const agent = await attach(agentId);
-    if (agent) await agent.archive();
-    return Boolean(agent);
+    if (!agent) return false;
+    onArchive(agentId);
+    await agent.archive();
+    return true;
   }
 
   // archives a one-off agent once its turn ends well; one still waiting on the owner, failed or out of time is left for them to see
@@ -444,7 +447,10 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     const deadline = Date.now() + timeoutMs;
     for (let left; (left = deadline - Date.now()) > 0; ) {
       const r = await agent.waitForFinish(left);
-      if (r.status === 'idle') return Boolean(await agent.archive());
+      if (r.status === 'idle') {
+        onArchive(agentId);
+        return Boolean(await agent.archive());
+      }
       if (r.status !== 'permission') return false;
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
@@ -566,6 +572,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
       detach: () => unsubscribe(),
       async close() {
         unsubscribe();
+        onArchive(started.agentId);
         await agent.archive().catch(() => {});
       },
     };

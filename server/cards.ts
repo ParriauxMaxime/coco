@@ -55,8 +55,9 @@ export type Card = CardBody & {
   result?: CardResult;
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };
   explained?: { at: string; ok: boolean; error?: string; skipped?: boolean };
-  // closed because its agent was archived: nothing can answer it any more
+  // closed because its agent was archived outside coco (closedBy archive) or handed off: nothing can answer it any more
   archived?: string;
+  closedBy?: 'archive' | 'handoff';
 };
 export const EXPLAIN_TEXT = 'Explain the options in more detail before I pick';
 export const DISMISS_TEXT = 'The user dismissed this card without choosing. Continue with your recommendation if it is safe; otherwise stop and say what is left.';
@@ -289,11 +290,19 @@ export function deliveryText(card: Card) {
 }
 
 // deliver resolves to SKIPPED when nobody waits for the answer (a one-shot run that ended)
-type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef>; threads?: ThreadHook };
+// outlives: agents whose cards stay open once archived (an Ask conversation's: answering revives it)
+type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef>; threads?: ThreadHook; outlives?: (agentId: string) => boolean };
+const KEPT_MAX = 2000;
 
-export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {}, threads }: Options) {
+export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {}, threads, outlives = () => false }: Options) {
   const DIR = path.join(DATA, 'cards');
   fs.mkdirSync(DIR, { recursive: true });
+  // agents coco archived itself (a one-shot run, a closed conversation, a gate run): their cards wait for the owner
+  const KEPT = path.join(DATA, 'cards-kept.json');
+  let kept: string[] = [];
+  try {
+    kept = JSON.parse(fs.readFileSync(KEPT, 'utf8'));
+  } catch {}
   const cards = new Map<string, Card>();
   for (const f of fs.readdirSync(DIR).filter((x) => x.endsWith('.json'))) {
     try {
@@ -439,20 +448,40 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     return closed.map((c) => c.id);
   }
 
-  // an archived agent takes no message: its open cards close, nothing delivered, and stop waiting on the owner
-  function agentArchived(agentId: string) {
-    const closed = [...cards.values()].filter((c) => c.status === 'open' && c.agentId === agentId);
-    for (const c of closed) save({ ...c, status: 'cancelled', archived: now(), delivery: { at: now(), ok: true, skipped: true } });
-    return closed.map((c) => c.id);
+  // coco archives this agent itself: its cards keep waiting on the owner
+  function cocoArchives(agentId: string) {
+    if (kept.includes(agentId)) return;
+    kept = [...kept, agentId].slice(-KEPT_MAX);
+    const tmp = `${KEPT}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(kept));
+    fs.renameSync(tmp, KEPT);
   }
+  // only a plain question dies with its agent: a proposal is applied by coco and a thread's card answered through its thread
+  const plain = (c: Card) => c.status === 'open' && !c.action && !c.thread;
+  const outlived = (agentId: string) => kept.includes(agentId) || outlives(agentId);
+  const close = (agentId: string, closedBy: 'archive' | 'handoff') => {
+    const closed = [...cards.values()].filter((c) => c.agentId === agentId && plain(c));
+    for (const c of closed) save({ ...c, status: 'cancelled', archived: now(), closedBy, delivery: { at: now(), ok: true, skipped: true } });
+    return closed.map((c) => c.id);
+  };
 
-  // the agents of open cards, each checked once: archived (true) closes its cards, unknown (null) or unreachable leaves them
+  // an agent archived outside coco (by hand in Paseo) takes no message: its plain open questions close, nothing delivered
+  const agentArchived = (agentId: string) => (outlived(agentId) ? [] : close(agentId, 'archive'));
+
+  // the agents of open plain questions, each checked once: archived (true) closes its cards, unknown (null) or unreachable leaves them
   async function sweepArchived(isArchived: (agentId: string) => Promise<boolean | null>) {
     const closed: string[] = [];
-    for (const agentId of new Set([...cards.values()].filter((c) => c.status === 'open').map((c) => c.agentId))) {
+    for (const agentId of new Set([...cards.values()].filter((c) => plain(c) && !outlived(c.agentId)).map((c) => c.agentId))) {
       if ((await isArchived(agentId).catch(() => null)) === true) closed.push(...agentArchived(agentId));
     }
     return closed;
+  }
+
+  // the cards an earlier sweep closed with their agent that the rule above keeps open: reopened, once (later closures carry closedBy)
+  function reopenArchived() {
+    const back = [...cards.values()].filter((c) => c.status === 'cancelled' && c.archived && !c.closedBy && c.delivery?.skipped && (c.action || c.thread || outlived(c.agentId)));
+    for (const c of back) save(strip({ ...c, status: 'open', archived: undefined, delivery: undefined }));
+    return back.map((c) => c.id);
   }
 
   async function cancel(id: string) {
@@ -497,6 +526,10 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     chattedInThread: (work: string, thread: string) => answeredInChat((c) => c.work === work && c.thread === thread),
     agentArchived,
     sweepArchived,
+    cocoArchives,
+    reopenArchived,
+    // the agent handed its work to a new one: its plain open questions close, whoever archived it
+    handedOff: (agentId: string) => close(agentId, 'handoff'),
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     // the work an agent's cards were posted in, by its full id or its first characters
     workOfAgent: (idPrefix: string) => (idPrefix ? [...cards.values()].find((c) => c.agentId.startsWith(idPrefix) && c.work)?.work ?? null : null),

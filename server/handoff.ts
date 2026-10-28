@@ -25,6 +25,8 @@ type Deps = {
   start: (opts: { title: string; prompt: string; labels: Record<string, string>; workspaceId: string | null; cwd: string | null; provider?: string; thinking?: string; mode?: string }) => Promise<{ agentId: string }>;
   archiveWhenDone: (agentId: string, opts?: { timeoutMs?: number }) => Promise<boolean>;
   archive: (agentId: string) => Promise<boolean>;
+  // the old agent was archived once the new one started: its plain open questions close
+  handedOff?: (agentId: string) => void;
   models?: Pick<Models, 'check' | 'mode'>;
   link?: { linked(): { agentId: string; key: RowKey }[]; linkAgent(a: { agentId: string; workspaceId?: string | null; cwd?: string | null; title?: string | null }): Promise<unknown>; briefed(agentId: string): unknown };
   waitMs?: number;
@@ -97,7 +99,7 @@ export function firstMessage({ owner, fromTitle, from, source, briefing, note, f
   ].join('\n');
 }
 
-export function createHandoff({ DATA, owner, defaultModel, client, say, start, archiveWhenDone, archive, models, link, waitMs = WAIT_MS, pollMs = POLL_MS }: Deps) {
+export function createHandoff({ DATA, owner, defaultModel, client, say, start, archiveWhenDone, archive, handedOff = () => {}, models, link, waitMs = WAIT_MS, pollMs = POLL_MS }: Deps) {
   const FILE = path.join(DATA, 'handoffs.json');
   const DIR = path.join(DATA, 'handoffs');
   const load = (): Handoff[] => {
@@ -181,6 +183,7 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
       }
       const archived = await archiveWhenDone(h.from, { timeoutMs: ARCHIVE_WAIT_MS }).catch(() => false) || (await archive(h.from).catch(() => false));
       update(h, { archived });
+      if (archived) handedOff(h.from);
     } catch (e) {
       update(h, { step: 'failed', error: errorMessage(e) });
     }

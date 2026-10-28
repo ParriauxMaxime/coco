@@ -95,7 +95,7 @@ interface FeedbackItem {
 fs.mkdirSync(DATA, { recursive: true });
 const uploads = createUploads({ DATA });
 const agentUsage = createAgentUsage(path.join(DATA, 'agent-usage.json'));
-const paseoAgents = createPaseoAgents({ APP, usage: agentUsage });
+const paseoAgents = createPaseoAgents({ APP, usage: agentUsage, onArchive: (agentId) => cards.cocoArchives(agentId) });
 const subagents = createSubagents({ client: paseoAgents.client });
 const models = createModels({ client: paseoAgents.client, config });
 const jobs = createJobs({ DATA });
@@ -203,11 +203,14 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
   const conv = ask.convOf(agentId);
   if (conv?.once) return SKIPPED;
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
-} });
+}, outlives: (agentId) => Boolean(ask.convOf(agentId)) });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
+// cards an earlier sweep closed with an agent coco archived itself (a proposal, a thread's, an Ask conversation's) wait again
+const reopened = cards.reopenArchived();
+if (reopened.length) console.log(`cards: ${reopened.length} closed with their archived agent reopened (${reopened.join(', ')})`);
 // works an agent created before lineage was kept: the work that agent's cards were posted in becomes their parent
 for (const l of backfillParents(works, cards.workOfAgent)) console.log(`work ${l.slug} spun off ${l.parent}`);
-// an archived agent's open cards close; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
+// an agent archived outside coco closes its plain open questions; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
 const archivedAgent = (agentId: string) => paseoAgents.attach(agentId).then((a) => a === null);
 const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} of archived agents closed`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));
 permissions.onAgent((a, removed) => {
@@ -217,7 +220,7 @@ permissions.onAgent((a, removed) => {
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), models, subagents });
-const handoff = createHandoff({ DATA, owner: config.owner.name, defaultModel: config.models.default, client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, models, link: paseoLink });
+const handoff = createHandoff({ DATA, owner: config.owner.name, defaultModel: config.models.default, client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), models, link: paseoLink });
 const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, permissions, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
 for (const on of [cards.onChange, threads.onChange, ask.onChange, permissions.onChange]) on(() => waiting.touch());
 const events = createHub();

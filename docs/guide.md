@@ -1270,11 +1270,17 @@ while some are open. **Dismiss** is not a silent stop: the agent is told
 "The user dismissed this card without choosing. Continue with your
 recommendation if it is safe; otherwise stop and say what is left."
 
-An archived agent takes no message, so its open cards close as **agent
-archived** (nothing delivered) and leave the waiting counts: when Paseo
-reports it archived or closed, when it drops from the live agent list and is
-found gone, and in a sweep of every open card's agent at boot and every
-10 minutes (an unreachable daemon leaves them open).
+An agent archived outside coco (by hand in Paseo) takes no message, so its
+plain open questions close as **agent archived** (nothing delivered) and
+leave the waiting counts: when Paseo reports it archived or closed, when it
+drops from the live agent list and is found gone, and in a sweep of every
+open card's agent at boot and every 10 minutes (an unreachable daemon leaves
+them open). A hand-off closes the old agent's plain questions the same way
+once it is archived. Other cards stay open: a proposal (coco applies it, not
+the agent), a thread's card (answered through its thread), and every card
+of an agent coco archived itself (an Ask conversation parked or closed,
+whose answer revives it; a one-shot run such as a rules proposal; a gate
+run).
 
 Proposals are cards too. `propose_work_scaffold`, `propose_paseo_agent`,
 `dispatch` and `propose_repo` post a confirm card that coco builds from the
