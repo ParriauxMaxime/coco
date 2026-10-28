@@ -9,6 +9,7 @@ import type { ActionDef } from './cards.ts';
 import type { Raw } from './blocks.ts';
 import type { Exec, PrInfo, RowKey, StackRow, Work } from './core-types.ts';
 import type { Change } from './works.ts';
+import type { Jobs } from './jobs.ts';
 
 const BRANCH = /^[\w][\w./-]*$/;
 export type Part = { title: string; branch: string; files?: string[]; scope?: string; existingPr?: number };
@@ -66,9 +67,10 @@ type Deps = {
   // the /lem-pr body gate dispatch entry (e.g. gate:kit-body:lem-pr), and a way to post a dispatch card for it
   bodyEntry?: string | null;
   queue?: (agentId: string, input: Raw) => Promise<unknown>;
+  jobs?: Pick<Jobs, 'wrap'>;
 };
 
-export function createStackSplit({ works, exec, github, defaultBranch, notion, bodyEntry, queue }: Deps) {
+export function createStackSplit({ works, exec, github, defaultBranch, notion, bodyEntry, queue, jobs }: Deps) {
   const workOf = (slug: string) => {
     const w = works.get(slug);
     if (!w) throw new Error(`no work ${slug}`);
@@ -171,5 +173,18 @@ export function createStackSplit({ works, exec, github, defaultBranch, notion, b
       return { ok: !bad.length, detail: bad.length ? `${detail}. Approve a new propose_split with the same parts to retry the failed steps.` : detail, link: `#/work/${fresh.slug}` };
     },
   };
+  // the split as a job: a failed step fails it with the steps' detail, the card still gets its result
+  const run = cardAction.run;
+  if (jobs && run) {
+    cardAction.run = async (card, ...rest) => {
+      const input = splitOf(card.action?.input ?? {}, null);
+      let result: Awaited<ReturnType<typeof run>> | undefined;
+      return jobs.wrap({ work: input.work, pr: input.pr, action: 'split', label: `Split ${keyLabel(input.pr)}`, kind: 'command' }, async () => {
+        result = await run(card, ...rest);
+        if (result && typeof result === 'object' && 'ok' in result && !result.ok) throw new Error(String((result as { detail?: string }).detail || 'the split failed'));
+        return result;
+      }).catch((e) => result ?? Promise.reject(e));
+    };
+  }
   return { cardAction };
 }

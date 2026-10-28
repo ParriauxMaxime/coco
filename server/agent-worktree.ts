@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { expandHome, launcherEnv } from './paseo-agent.ts';
 import { repoSetting } from './config.ts';
 import type { AgentWorktreeConfig, CheckDef, Config, DepsEntry, RepoConfig } from './config.ts';
+import type { Jobs } from './jobs.ts';
 
 export type RunResult = { ok: boolean; output: string };
 export type Run = (cmd: string, args: string[], opts: { cwd: string; timeoutMs: number }) => Promise<RunResult>;
@@ -99,9 +100,10 @@ type Deps = {
   log?: (text: string) => void;
   retryMs?: number[];
   platform?: NodeJS.Platform;
+  registry?: Pick<Jobs, 'start'>;
 };
 
-export function createAgentWorktrees({ config, run = defaultRun, notify = async () => {}, log = () => {}, retryMs = RETRY_MS, platform = process.platform }: Deps) {
+export function createAgentWorktrees({ config, run = defaultRun, notify = async () => {}, log = () => {}, retryMs = RETRY_MS, platform = process.platform, registry }: Deps) {
   const jobs = new Map<string, Promise<void>>();
   const failures = new Map<string, string>();
   const attempts = new Map<string, number>();
@@ -189,7 +191,11 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     if (jobs.has(root)) return;
     failures.delete(root);
     log(`agent worktree ${root}: own copy of ${deps.map((d) => d.path).join(', ')}`);
-    const job = own(root, main, marks, deps)
+    const installing = own(root, main, marks, deps);
+    try {
+      registry?.start({ action: `deps:${root}`, label: `Install ${deps.map((d) => d.path).join(', ')} in ${path.basename(root)}`, kind: 'setup' }, () => installing.then(() => ({ output: '' })));
+    } catch {}
+    const job = installing
       .catch((e) => {
         failures.set(root, e instanceof Error ? e.message : String(e));
         log(`agent worktree ${root}: ${failures.get(root)}`);

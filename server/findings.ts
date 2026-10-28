@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { parseFindings } from './review-import.ts';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
+import type { Jobs } from './jobs.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import type { Block, Source } from './blocks.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
@@ -52,6 +53,7 @@ type IssueComment = { user: string; body: string; created_at: string; html_url: 
 type Check = { name: string; bucket: string; link: string };
 type ReviewFile = { file: string; source: string; mtime: string };
 type FindingsOptions = {
+  jobs?: Pick<Jobs, 'wrap'>;
   DATA: string;
   REPO: string;
   config: { owner: { login: string }; repo: { github: string; reviewsDir: string }; botGroups?: BotGroups | null };
@@ -191,7 +193,7 @@ export const reviewSource = (name: string, text = '') => {
   return logins.length ? `review-as:${logins.join('+')}` : 'review-local';
 };
 
-export function createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, exec = defaultExec }: FindingsOptions) {
+export function createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, exec = defaultExec, jobs }: FindingsOptions) {
   const GH = config.repo.github;
   const ME = config.owner.login;
   const BOTS = config.botGroups || {};
@@ -431,7 +433,9 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         refresh(slug, only).catch(() => {});
         return send(res, 200, { ...snap, stale: true, left: LEFT });
       }
-      return send(res, 200, { ...(await rowsOf(slug, only, url.searchParams.get('fresh') === '1')), left: LEFT });
+      const fresh = url.searchParams.get('fresh') === '1';
+      const board = fresh && jobs ? await jobs.wrap({ work: slug, pr: only, action: 'findings-collect', label: `Collect findings${only === null ? '' : ` ${keyLabel(only)}`}`, kind: 'sync' }, () => rowsOf(slug, only, true), (b) => `${b.rows.length} findings`) : await rowsOf(slug, only, fresh);
+      return send(res, 200, { ...board, left: LEFT });
     } catch (e) {
       return send(res, errStatus(e), { error: errText(e) });
     }

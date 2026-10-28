@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { keyLabel, rowKey } from './stack.ts';
 import { HttpError, errorMessage, errorStatus } from './core-types.ts';
 import type { Config } from './config.ts';
+import type { Jobs } from './jobs.ts';
 import type { PaseoAgentInfo, ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, Work, Works } from './core-types.ts';
 
 type KeepRow = { key: RowKey | null; number: number | null; state: string; branch: string | null; tip?: string | null; headOid?: string | null; worktree?: string | null; keptFor?: number | null; containsParent?: boolean };
@@ -50,9 +51,10 @@ type Deps = {
   config: { repo: { github: string; defaultBranch?: string } };
   works: Pick<Works, 'get' | 'save' | 'prInfo'>;
   reviewAgent: Pick<ReviewAgentApi, 'exec' | 'timeline' | 'worktreeFor' | 'branchSha' | 'sameDir' | 'agentsList'>;
+  jobs?: Pick<Jobs, 'wrap'>;
 };
 
-export function createStackKeeper({ REPO, config, works, reviewAgent }: Deps) {
+export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: Deps) {
   const opts = { github: config.repo.github, branch: config.repo.defaultBranch || 'main' };
   const BASE = `origin/${opts.branch}`;
   const exec = (cmd: string, args: string[]) => reviewAgent.exec(cmd, args);
@@ -165,7 +167,7 @@ export function createStackKeeper({ REPO, config, works, reviewAgent }: Deps) {
     try {
       const [, slug, , action] = parts;
       if (req.method === 'GET') return send(res, 200, await plan(slug));
-      if (req.method === 'POST' && action === 'apply') return send(res, 200, await apply(slug));
+      if (req.method === 'POST' && action === 'apply') return send(res, 200, jobs ? await jobs.wrap({ work: slug, action: 'restack', label: 'Restack', kind: 'command' }, () => apply(slug)) : await apply(slug));
       if (req.method === 'POST' && action === 'dismiss') {
         const { parent, steps } = await plan(slug);
         if (parent) {

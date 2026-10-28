@@ -52,6 +52,19 @@ test('a deferred job (review plan, Notion sync) ends when its work says so, not 
   return new Promise((r) => setImmediate(r)).then(() => assert.deepEqual([t.job?.state, t.job?.error, t.job?.agentId], ['failed', 'the agent ended without a plan', 'a1']));
 });
 
+test('wrap hands its caller the value, fails the job on a throw, and runs a duplicate untracked instead of refusing it', async () => {
+  const jobs = createJobs({ DATA: tmp() });
+  const sync = { work: 'w', action: 'github-refresh', label: 'GitHub refresh', kind: 'sync' as const };
+  let release: () => void = () => {};
+  const first = jobs.wrap(sync, () => new Promise<string>((r) => (release = () => r('board'))));
+  assert.equal(await jobs.wrap(sync, async () => 'again'), 'again');
+  assert.equal(jobs.list('w').length, 1);
+  release();
+  assert.equal(await first, 'board');
+  await assert.rejects(jobs.wrap({ ...sync, action: 'restack' }, async () => { throw new Error('conflict in a.ts'); }), /conflict in a.ts/);
+  assert.deepEqual(jobs.list('w').map((j) => [j.action, j.state]), [['github-refresh', 'done'], ['restack', 'failed']]);
+});
+
 test('a restart loses the commands that ran and keeps following the agents; a dismissed job leaves the list', async () => {
   const DATA = tmp();
   const first = createJobs({ DATA });

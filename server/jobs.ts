@@ -119,6 +119,23 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     }
   }
 
+  // a job around work its caller waits on; while the same one runs, fn runs untracked rather than refused
+  async function wrap<T>(meta: JobMeta, fn: () => Promise<T>, output: (v: T) => string = () => ''): Promise<T> {
+    let value: T | undefined;
+    let started;
+    try {
+      started = start(meta, async () => {
+        value = await fn();
+        return { output: output(value) };
+      });
+    } catch (e) {
+      if (e instanceof JobConflict) return fn();
+      throw e;
+    }
+    await started.done;
+    return value as T;
+  }
+
   // the agent a promise job runs, for its chip to open
   function link(job: Job, agentId: string | null | undefined) {
     if (!agentId || job.agentId === agentId) return;
@@ -154,7 +171,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     }
   }
 
-  return { start, link, onAgent, list, dismiss, watch, handle, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
+  return { start, wrap, link, onAgent, list, dismiss, watch, handle, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
 }
 
 export type Jobs = ReturnType<typeof createJobs>;

@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { failureText } from './agent-worktree.ts';
-import { rowKey } from './stack.ts';
+import { keyLabel, rowKey } from './stack.ts';
+import type { Jobs } from './jobs.ts';
 import type { AgentWorktrees, Verification } from './agent-worktree.ts';
 import type { Readier } from './review-agent.ts';
 import type { AgentCheck, RowKey, Work } from './core-types.ts';
@@ -16,6 +17,7 @@ type Deps = {
   post?: (agentId: string, title: string, blocks: Record<string, unknown>[]) => Promise<unknown>;
   say?: (agentId: string, text: string) => Promise<unknown>;
   works?: { get(slug: string): Work | null; save(w: Work, opts?: { touch?: boolean }): unknown };
+  jobs?: Pick<Jobs, 'wrap'>;
 };
 
 const TONE = { passed: 'ok', failed: 'risk', skipped: 'mute' } as const;
@@ -29,7 +31,7 @@ export function checksBlocks(v: Verification): Record<string, unknown>[] {
   ];
 }
 
-export function createAgentChecks({ DATA, worktrees, post, say, works }: Deps) {
+export function createAgentChecks({ DATA, worktrees, post, say, works, jobs }: Deps) {
   const file = path.join(DATA, 'agent-worktrees.json');
   const load = (): Record<string, Tracked> => {
     try {
@@ -88,7 +90,11 @@ export function createAgentChecks({ DATA, worktrees, post, say, works }: Deps) {
     if (!head || head === t.base || head === t.checkedHead) return null;
     running.add(agentId);
     try {
-      const v = await worktrees.verify(t.cwd, { base: t.base, head });
+      const verify = worktrees.verify;
+      const check = () => verify(t.cwd, { base: t.base ?? '', head });
+      const label = `Checks on ${head.slice(0, 7)}${t.key != null ? ` ${keyLabel(t.key)}` : ''}`;
+      // a failed check run is a finished job: its state is in the checks card, not a job failure
+      const v = jobs ? await jobs.wrap({ work: t.slug ?? null, pr: t.key ?? null, action: `verify:${agentId}`, label, kind: 'command' }, check, (r) => r?.state ?? 'skipped') : await check();
       if (!v) return null;
       const sendBack = v.state === 'failed' && !t.sentBack;
       save(agentId, { ...load()[agentId], checkedHead: head, last: v, sentBack: v.state === 'failed' ? true : v.state === 'passed' ? false : t.sentBack });

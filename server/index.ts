@@ -110,6 +110,7 @@ const agentWorktrees = createAgentWorktrees({
   config,
   log: (text) => console.log(text),
   notify: async (agentId, text) => (await threads.steerAgent(agentId, text)) || workAgents.say(agentId, text),
+  registry: jobs,
 });
 const agentChecks = createAgentChecks({
   DATA,
@@ -117,6 +118,7 @@ const agentChecks = createAgentChecks({
   works,
   post: (agentId, title, blocks) => cards.create({ agentId, kind: 'post', title, blocks }),
   say: (agentId, text) => workAgents.say(agentId, text),
+  jobs,
 });
 const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement, readier: agentChecks.readier });
 const lang = createLang({ REPO, config });
@@ -124,7 +126,7 @@ const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rule
 const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, place: (slug) => placement.place({ kind: 'work', slug }) });
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key), worktrees: agentWorktrees, models, jobs });
-const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads });
+const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, jobs });
 threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
@@ -134,7 +136,7 @@ const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, fin
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs });
-const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
+const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent, jobs });
 // the directory of the workspace remembered for a row, which its agents run in
 const rowDir = async (slug: string, key: RowKey) => {
   const id = works.get(slug)?.stack?.find((s) => rowKey(s) === key)?.workspaceId;
@@ -146,9 +148,9 @@ works.hooks.drift = (slug) => drift.view(slug).catch(() => null);
 works.onChange((slug) => drift.drop(slug));
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
-const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r) });
+const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r), jobs });
 const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json'), onArchived: (agentId) => void briefWriter.ended(agentId).catch((e) => console.error(`brief lessons of ${agentId}: ${errorMessage(e)}`)), onTurnEnded: (agentId) => void agentChecks.turnEnded(agentId).catch((e) => console.error(`checks of ${agentId}: ${errorMessage(e)}`)) });
-const devServers = createDevServers({ REPO, config, works });
+const devServers = createDevServers({ REPO, config, works, jobs });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});
 const subdirs = (dir: string) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(dir, d.name)) : []);
@@ -176,7 +178,7 @@ const bodyGate = () => {
   return skill ? `gate:kit-body:${skill}` : null;
 };
 // an Ask agent's answer goes through its conversation and a thread agent's through its thread, so the turn it opens is logged there; a one-shot run is not reopened for it
-const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction, stack_edit: createStackEdit({ works, notion: works.notion }).cardAction, split: createStackSplit({ works, exec: (cmd, args) => run(cmd, args), github: (slug) => repos.repoFor(works.get(slug)).github, defaultBranch: config.repo.defaultBranch, notion: works.notion, bodyEntry: bodyGate(), queue: (agentId, input) => cards.create({ agentId, action: { type: 'dispatch', input } }) }).cardAction, pr_reply: createPrReply({ githubOf: (slug) => (slug ? repos.repoFor(works.get(slug)).github : config.repo.github), exec: (cmd, args) => run(cmd, args) }).cardAction }, threads: threads.cardHook, deliver: async (agentId, text) => {
+const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction, stack_edit: createStackEdit({ works, notion: works.notion }).cardAction, split: createStackSplit({ works, exec: (cmd, args) => run(cmd, args), github: (slug) => repos.repoFor(works.get(slug)).github, defaultBranch: config.repo.defaultBranch, notion: works.notion, bodyEntry: bodyGate(), queue: (agentId, input) => cards.create({ agentId, action: { type: 'dispatch', input } }), jobs }).cardAction, pr_reply: createPrReply({ githubOf: (slug) => (slug ? repos.repoFor(works.get(slug)).github : config.repo.github), exec: (cmd, args) => run(cmd, args) }).cardAction }, threads: threads.cardHook, deliver: async (agentId, text) => {
   const conv = ask.convOf(agentId);
   if (conv?.once) return SKIPPED;
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);

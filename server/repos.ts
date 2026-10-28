@@ -6,6 +6,7 @@ import os from 'node:os';
 import { DEFAULTS, addRepoToConfigFile, repoId } from './config.ts';
 import type { Config, RepoConfig, RepoEntry } from './config.ts';
 import type { RunResult, Work } from './core-types.ts';
+import type { Jobs } from './jobs.ts';
 
 type BranchExists = (repo: RepoConfig, branch: string) => Promise<boolean>;
 export type Layout = { repos: string[]; works: Record<string, string[]> };
@@ -133,10 +134,11 @@ type AdderDeps = {
   exec?: Exec;
   project?: (repo: RepoConfig) => Promise<{ projectId: string; name: string }>;
   setup?: (repo: RepoConfig) => Promise<{ agentId: string | null }>;
+  jobs?: Pick<Jobs, 'wrap'>;
 };
 
 // adds a repo: its clone (a local folder, one found on disk by its origin remote, else `gh repo clone` into cloneDir), listed in the config file and live at once, then its Paseo project and a setup run
-export function createRepoAdder({ config, APP, configFile, exec = defaultExec, project, setup }: AdderDeps) {
+export function createRepoAdder({ config, APP, configFile, exec = defaultExec, project, setup, jobs }: AdderDeps) {
   async function cloneAt(dir: string): Promise<Clone | null> {
     const top = await exec('git', ['-C', dir, 'rev-parse', '--show-toplevel']);
     if (!top.ok) return null;
@@ -204,9 +206,19 @@ export function createRepoAdder({ config, APP, configFile, exec = defaultExec, p
 
   // one add at a time: each reads the config file the previous one wrote
   let queue: Promise<unknown> = Promise.resolve();
+  // as a job: a refused add (already known, not found) fails it with its reason
+  const tracked = (source: string) => {
+    if (!jobs) return add(source);
+    let result: AddRepoResult | undefined;
+    return jobs.wrap({ action: `repo-add:${source}`, label: `Add repo ${path.basename(source)}`, kind: 'setup' }, async () => {
+      result = await add(source);
+      if (!result.ok) throw new Error(result.error);
+      return result;
+    }).catch((e) => result ?? Promise.reject(e));
+  };
   return {
     add: (source: string) => {
-      const next = queue.then(() => add(source));
+      const next = queue.then(() => tracked(source));
       queue = next.catch(() => {});
       return next;
     },

@@ -582,8 +582,13 @@ with 409 and the running job.
 - A review plan and a Notion sync or preview end with their own outcome, not
   at their agent's first idle turn: a plan with no proposal, an error or a
   page edited in Notion fails the job. Their agent is linked for the chip.
-- A command job (push, fix base, mark ready) keeps the command's output tail;
-  a failed command fails the job with it.
+- A command job (push, fix base, mark ready, restack, split, dev server start
+  or stop, coco's checks on an agent's commits) keeps the command's output
+  tail; a failed command fails the job with it. A failed check run still ends
+  its job done: its result is in the checks card.
+- A sync job (a GitHub refresh, a findings collect asked fresh) and a setup job
+  (a worktree's dependency install, a repo add) are waited on by their caller:
+  while the same one runs, a second request runs untracked rather than refused.
 - The last 50 jobs of each work are kept in `<dataDir>/jobs/<work>.json`. After
   a restart, a command, a review plan or a Notion sync that was running is
   lost; an agent job keeps following its agent.
@@ -596,9 +601,6 @@ runs on it, and the work sidebar's Overview group lists running or failed
 commands under Jobs. Each job's end is
 toasted once. Routes: `GET /api/jobs?work=<slug>`, `POST
 /api/jobs/<id>/dismiss`, topic `jobs` (optional work).
-
-Not jobs yet: GitHub refresh, findings collect, dev servers, restack, split,
-worktree installs, coco verify, repo add.
 
 ## Stack keeper
 

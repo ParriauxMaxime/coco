@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { keyLabel, rowKey } from './stack.ts';
+import type { Jobs } from './jobs.ts';
 
 type RowKey = number | string;
 type StackRow = { number?: number | null; planned?: { branch?: string } };
@@ -75,9 +76,10 @@ type DevServersOptions = {
   exec?: Exec;
   fetchImpl?: typeof fetch;
   timeouts?: { read?: number; action?: number };
+  jobs?: Pick<Jobs, 'wrap'>;
 };
 
-export function createDevServers({ REPO, config, works, exec = defaultExec, fetchImpl = fetch, timeouts = {} }: DevServersOptions) {
+export function createDevServers({ REPO, config, works, exec = defaultExec, fetchImpl = fetch, timeouts = {}, jobs }: DevServersOptions) {
   const base = apiBase(config);
   const { read: READ_MS = READ_TIMEOUT_MS, action: ACTION_MS = ACTION_TIMEOUT_MS } = timeouts;
 
@@ -180,7 +182,18 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
         if (!work) return send(res, 404, { error: 'no such work' });
         if (!c && req.method === 'GET') return send(res, 200, await workView(work));
         if (c === 'rows' && d && e && req.method === 'POST') {
-          const reply = await rowAction(work, decodeURIComponent(d), e, body);
+          const key = decodeURIComponent(d);
+          const act = () => rowAction(work, key, e, body);
+          // start and stop are jobs: a refused or failed call fails it with the plugin's answer
+          const reply = jobs && (e === 'start' || e === 'stop')
+            ? await jobs.wrap({ work: work.slug, pr: key, action: `dev-server:${e}`, label: `${e === 'start' ? 'Start' : 'Stop'} dev server ${keyLabel(key)}`, kind: 'command' }, async () => {
+              const r = await act();
+              if ('error' in r) throw Object.assign(new Error(r.error), { reply: r });
+              if ('down' in r) throw Object.assign(new Error(r.down), { reply: r });
+              if (r.status >= 400) throw Object.assign(new Error(`the dev-server plugin answered ${r.status}`), { reply: r });
+              return r;
+            }).catch((err: { reply?: Awaited<ReturnType<typeof act>> }) => err.reply ?? Promise.reject(err))
+            : await act();
           return 'error' in reply ? send(res, reply.status, { error: reply.error }) : relay(send, res, reply);
         }
       }

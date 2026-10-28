@@ -121,7 +121,7 @@ interface NotionBody {
   mode?: string;
 }
 
-export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link'> }) {
+export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'> }) {
   const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; drift?: (slug: string) => Promise<unknown> } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
@@ -473,6 +473,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       return send(res, 200, { ok: true });
     }
     const fresh = query().get('fresh') === '1';
+    if (fresh && jobs) return send(res, 200, await jobs.wrap({ work: a, action: 'github-refresh', label: 'GitHub refresh', kind: 'sync' }, () => detail(a, true)));
     return send(res, 200, await detail(a, fresh));
   }
 
