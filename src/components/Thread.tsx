@@ -8,6 +8,7 @@ import { subscribe, topic } from '../live.ts';
 import { toast } from './Toast.tsx';
 import { pendingClass } from './action.ts';
 import Icon from '../preview/Icon.tsx';
+import { Avatar, PersonaName } from '../preview/parts.tsx';
 import Activity from '../preview/chat/Activity.tsx';
 import CardView from '../preview/chat/Card.tsx';
 import { mergeCards } from '../preview/chat/cards.ts';
@@ -376,7 +377,7 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start ag
       tools={withModel && <ModelControls choice={model.choice} onPick={model.pick} hint="for the agent group this starts" />}
       actions={(text, clear, fill) => (
         <>
-          {persona && <button type="button" className="dp-btn dp-sm dp-ghost" title={`Prefill the box with a question for ${persona}: a quick consult, not a persona review`} onClick={() => fill(`What would ${persona} do here?`)}>Ask {persona}</button>}
+          {persona && <button type="button" className="dp-btn dp-sm dp-ghost" title={`Prefill the box with a question for ${persona}: a quick consult, not a persona review`} onClick={() => fill(`What would ${persona} do here?`)}><Avatar login={persona} />Ask <PersonaName login={persona} /></button>}
           {verdicts.map((v) => (
             <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text)} onClick={() => { v.on(text); clear(); }}>{v.label}</button>
           ))}

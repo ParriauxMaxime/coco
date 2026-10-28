@@ -4,6 +4,7 @@ import { useAction } from './action.ts';
 import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
+import { loadPersonas } from '../preview/parts.tsx';
 import type { DispatchEntry, DispatchResult, PreflightResult } from '../types.ts';
 import './parts.css';
 
@@ -28,8 +29,6 @@ const catalogOf = (slug: string) => {
   hit.catch(() => catalogs.delete(slug));
   return hit;
 };
-let logins: Promise<string[]> | null = null;
-const personaLogins = () => (logins ??= api.personas().then((list) => list.map((p) => p.login), () => []));
 
 // pick a catalog agent (or a free prompt) and dispatch it; coco places it: read-only in the Plan workspace, the rest in the PR's own
 export default function DispatchMenu({ slug, prKey = null, rows = [], personas = [], initial, commentIdsFor, onClose, onStarted }: Props) {
@@ -44,7 +43,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const model = useModelChoice(`dispatch-${id}`, { fast: id === 'persona-review' });
   useEffect(() => {
     catalogOf(slug).then(setEntries, (e) => toast.error(errorMessage(e)));
-    personaLogins().then(setKnown);
+    loadPersonas().then((list) => setKnown(list.map((p) => p.login)));
   }, [slug]);
   const video = id.startsWith('gate:kit-video:') && key !== '';
   const [pre, setPre] = useState<PreflightResult | null>(null);

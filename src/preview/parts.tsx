@@ -1,6 +1,30 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
+import { api } from '../api.ts';
+import type { Persona } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
 import { prState } from './data.ts';
+
+let personas: Promise<Persona[]> | null = null;
+export const loadPersonas = () => (personas ??= api.personas().catch(() => []));
+
+// "Camille Ingouf — `CamilleINGOUF`" → "Camille Ingouf"; the login until the list loads or without a persona file
+export function usePersonaName(login: string) {
+  const [name, setName] = useState(login);
+  useEffect(() => {
+    let live = true;
+    loadPersonas().then((list) => {
+      const title = list.find((p) => p.login === login)?.title;
+      if (live) setName(title?.split(/ [—-] /)[0] || login);
+    });
+    return () => { live = false; };
+  }, [login]);
+  return name;
+}
+
+export function PersonaName({ login }: { login: string }) {
+  const name = usePersonaName(login);
+  return <span title={name === login ? `@${login}` : `${name} (@${login})`}>{login}</span>;
+}
 
 type Hue = CSSProperties & { [k: `--${string}`]: number };
 
