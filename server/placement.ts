@@ -150,8 +150,21 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return { ...made, name: work.title };
   }
 
+  // a clean plan worktree, detached or on a branch the default branch already holds, moves to the default branch's tip before an agent reads it
+  async function refreshPlan(dir: string, repo: RepoConfig) {
+    if (!path.resolve(dir).startsWith(path.resolve(plansDir) + path.sep)) return;
+    const git = (args: string[]) => exec('git', ['-C', dir, ...args]);
+    const remote = (await git(['config', '--get', `branch.${repo.defaultBranch}.remote`])).stdout.trim() || 'origin';
+    const tip = `${remote}/${repo.defaultBranch}`;
+    if ((await git(['status', '--porcelain'])).stdout.trim()) return;
+    if (!(await git(['fetch', '--quiet', remote, repo.defaultBranch])).ok) return;
+    const detached = !(await git(['symbolic-ref', '--quiet', 'HEAD'])).ok;
+    if (detached || (await git(['merge-base', '--is-ancestor', 'HEAD', tip])).ok) await git(['checkout', '--quiet', '--detach', tip]);
+  }
+
   async function workPlace(work: Work) {
     const p = await ensureWorkProject(work);
+    await refreshPlan(p.path, repoById(work.repo)).catch(() => {});
     return workspaceOn(p.projectId, p.path, WORK_WORKSPACE_TITLE);
   }
 
