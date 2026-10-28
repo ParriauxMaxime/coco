@@ -261,6 +261,15 @@ A picked option whose effect did the work is not delivered.
   (`POST /api/agent-worktree/own-deps` with the agent's cwd and id). Returns
   at once with `{ started, already, note }`; coco messages the agent once
   they are installed (docs/guide.md, "Agent worktrees").
+- `screenshot({ url, width?, height?, waitMs?, selector?, eval?, colorScheme?, out? })`:
+  the agent sees a page. `url` is a coco hash path (`#/work/<slug>/<tab>`,
+  opened on the coco server) or a full http URL on loopback (any port, so a
+  dev server or the agent's own server copy) or a `screenshot.hosts` name;
+  anything else is refused. Calls `GET /api/screenshot?…&json=1` and returns
+  an MCP `image` block (PNG) plus a text block `{ url, width, height, errors,
+  evalResult?, saved? }`: `errors` are the page's console errors, uncaught
+  exceptions and failed loads; `out` also writes the PNG to that absolute path
+  (for `attach_media`).
 
 Work writes mirror the HTTP routes. `work` and `pr` default to the calling
 agent's labels (`GET /api/agent-chat/<agentId>/place`; its row only on its
@@ -284,7 +293,9 @@ refused card comes back as a tool error naming the bad field, so the agent can
 fix it and retry. Every coco agent's system prompt carries one line
 (`CARDS_LINE` in `server/paseo-agent.ts`): ask the user only through
 `cocopilot.ask`; show rich results with `post_blocks`; edit code only with the
-Edit or Write tools after a Read, never with sed, python or heredocs.
+Edit or Write tools after a Read, never with sed, python or heredocs; check a
+UI change with `screenshot` and look at it before reporting, never ask the
+user to reload and check.
 
 `AskUserQuestion` is off through Paseo's Claude provider options: the agent
 config carries `options: { disallowedTools: ['AskUserQuestion'] }` (Paseo

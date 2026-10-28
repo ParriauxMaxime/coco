@@ -58,6 +58,7 @@ import { createStackSplit } from './stack-split.ts';
 import { createPrReply } from './pr-reply.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createSpares } from './spares.ts';
+import { createScreenshots } from './screenshot.ts';
 import { createAgentChecks } from './agent-checks.ts';
 import { allowedHosts, guard } from './guard.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
@@ -79,6 +80,7 @@ const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
 const HOSTS = allowedHosts(PORT, config.baseUrl, config.hosts);
+const screenshots = createScreenshots({ chromePath: config.screenshot.chrome, origin: `http://${BIND === '0.0.0.0' || BIND === '::' ? '127.0.0.1' : BIND}:${PORT}`, hosts: [...config.hosts, ...config.screenshot.hosts] });
 
 interface FeedbackItem {
   node?: unknown;
@@ -481,6 +483,7 @@ async function api(req: Req, res: Res, url: URL) {
       console.error('client error', line);
       return send(res, 204, '');
     }
+    if (root === 'screenshot' && req.method === 'GET') return screenshots.handle(res, url, send);
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());

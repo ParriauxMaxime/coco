@@ -494,4 +494,27 @@ server.tool('post_reply', `Your reply to ${OWNER} in a coco thread (the last ste
   return r.ok ? text(r.data) : refused(`reply refused: ${r.error}`);
 });
 
+server.tool('screenshot', `See a page as ${OWNER} would: coco renders it in a headless Chrome and returns the PNG plus the page's console errors. Use it to check a UI change yourself before you report, instead of asking ${OWNER} to reload. It shows what the running coco serves (${config.baseUrl}); to see your own worktree's build, run your server copy on a free port and pass its full URL.`, {
+  url: z.string().describe('a coco path like "#/work/<slug>/<tab>" or "#/agents", or a full http URL on 127.0.0.1 / localhost (a dev server, your own server copy)'),
+  width: z.number().int().min(200).max(4000).optional().describe('viewport width, default 1600'),
+  height: z.number().int().min(200).max(4000).optional().describe('viewport height, default 1000'),
+  waitMs: z.number().int().min(0).max(30000).optional().describe('wait after load before capture, default 2000'),
+  selector: z.string().optional().describe('CSS selector to wait for (15s at most); the image is clipped to it'),
+  eval: z.string().optional().describe('JS run in the page before capture, e.g. a click on a tab; its returned value comes back as evalResult'),
+  colorScheme: z.enum(['light', 'dark']).optional(),
+  out: z.string().optional().describe('absolute path to also save the PNG to (for attach_media)'),
+}, async ({ url, width, height, waitMs, selector, eval: js, colorScheme, out }) => {
+  const q = new URLSearchParams({ url, json: '1' });
+  for (const [k, v] of Object.entries({ w: width, h: height, waitMs, selector, eval: js, colorScheme })) if (v !== undefined) q.set(k, String(v));
+  const r = await coco('GET', `/api/screenshot?${q}`);
+  if (!r.ok) return refused(`screenshot failed: ${r.error}`);
+  const { png, ...facts } = r.data;
+  if (out) {
+    if (!path.isAbsolute(out)) return refused('out: absolute path expected');
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, Buffer.from(String(png), 'base64'));
+  }
+  return { content: [{ type: 'image' as const, data: String(png), mimeType: 'image/png' }, { type: 'text' as const, text: JSON.stringify({ ...facts, ...(out ? { saved: out } : {}) }, null, 1) }] };
+});
+
 await server.connect(new StdioServerTransport());

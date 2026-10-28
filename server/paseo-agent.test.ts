@@ -159,6 +159,11 @@ test('the shared agent line says code is edited only with Edit or Write after a 
   assert.match(CARDS_LINE, /Edit code files only with the Edit or Write tools after a Read, never with sed, python or heredocs/);
 });
 
+test('the shared agent line has agents check a UI change with the screenshot tool, not the user', () => {
+  assert.match(CARDS_LINE, /call cocopilot screenshot on the page and look at it before you report: never ask the user to reload/);
+  assert.ok(COCO_MCP_TOOLS.includes('screenshot'));
+});
+
 test('the shared agent line sends "what would a reviewer do" to consult_persona, not a persona review', () => {
   assert.match(CARDS_LINE, /call cocopilot consult_persona and answer with that reviewer's call plus an ask card: do not start a persona review unless asked/);
   assert.ok(COCO_MCP_TOOLS.includes('consult_persona'));

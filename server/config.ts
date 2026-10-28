@@ -85,6 +85,8 @@ export interface Config {
   // the work that owns cocopilot itself, where flag_coco_issue files the changes users ask of coco; empty: the work whose repo is cocopilot
   cocoWork: string;
   devServers?: { api?: { bind?: string; port?: number } };
+  // the headless Chrome behind /api/screenshot and the screenshot MCP tool; hosts: names it may open beyond coco and localhost (e.g. a dev domain)
+  screenshot: { chrome: string; hosts: string[] };
   file?: string | null;
 }
 
@@ -128,6 +130,7 @@ export const DEFAULTS: Config = {
   preflight: null,
   cloneDir: '',
   cocoWork: '',
+  screenshot: { chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', hosts: [] },
 };
 
 export const skillFor = (config: Partial<Pick<Config, 'skillOverrides' | 'methodSkill'>> | null | undefined, name: string): string => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;
@@ -151,6 +154,7 @@ export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(AP
   c.personasDir = home(c.personasDir || path.join(c.dataDir, 'personas'));
   c.briefsDir = home(c.briefsDir);
   c.importRoots = c.importRoots.map(home);
+  c.screenshot.chrome = home(c.screenshot.chrome);
   if (c.featureFlags?.provider) c.featureFlags.provider = home(c.featureFlags.provider);
   c.file = fs.existsSync(file) ? file : null;
   c.repos = loadRepos(c, raw, APP);

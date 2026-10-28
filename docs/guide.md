@@ -1157,6 +1157,24 @@ agent and work that raised it, and the agent answers with its link
 title updates the finding. Nothing is dispatched; no fix agent starts and the
 Fix accepted run skips these findings.
 
+### Screenshots (agents see coco)
+
+Agents check a UI change themselves instead of asking you to reload: the
+`screenshot` MCP tool renders a page in a headless Chrome and hands the agent
+the PNG plus the page's console errors (every agent's system line says to use
+it before reporting a UI change). It takes a coco hash path
+(`#/work/<slug>/review`) or a full URL on `127.0.0.1`/`localhost` (a dev
+server, or an agent's own server copy on another port, the way to see a
+worktree's build), a viewport (default 1600×1000), `waitMs`, a `selector` to
+wait for and crop to, `eval` JS run first (click a tab) and `colorScheme`
+light or dark. Other hosts are refused unless listed in `screenshot.hosts`.
+The same capture is `GET /api/screenshot?url=%23%2Fagents&w=1200&h=800`
+(image/png, `X-Console-Errors` the error count; `&json=1` for
+`{ png: base64, errors, … }`), handy from a script or the browser. coco keeps
+one Chrome for all captures (a fresh tab each), started on the first one and
+closed after 5 idle minutes or when the server stops; set `screenshot.chrome`
+when Chrome is not at the macOS default path.
+
 ## Model, thinking and mode (composer)
 
 Every agent composer shows, next to the paperclip, the model (Sonnet 5.5),
