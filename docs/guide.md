@@ -1236,6 +1236,17 @@ waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
 context behind **Show details**; open ones stay unfolded. A thread agent's
 cards show in its thread (see Agent threads).
 
+A choice card can draw its options: each option may carry a Mermaid
+`diagram`, and the card one of today. Options with diagrams sit side by side
+(up to three columns, stacked in a narrow pane), each with a small preview a
+click opens full screen (zoom, pan); today's diagram sits above them.
+**Compare** opens today and every option's diagram full screen, side by side
+at full size, each headed by its option and consequence (a click on the
+header picks it; Esc closes). Agents are told
+to draw the options of an architecture or flow choice (12 nodes at most, the
+same layout across options), not every choice. The Waiting page and the
+waiting popover show such a card's "N diagrams" chip, not the diagrams.
+
 You can also just write to the agent: every agent view has a composer (agent
 tabs, `#/agents/<agentId>` for agents outside a work, Ask, threads). A message
 sent there (or a Waiting-page reply to an Ask chat) closes the agent's open

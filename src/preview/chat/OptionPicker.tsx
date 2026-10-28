@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Inline } from '../../components/Blocks.tsx';
 import Markdown from '../../components/Markdown.tsx';
@@ -24,12 +24,44 @@ export function MoreButton({ open, onToggle, children = 'details' }: { open: boo
   );
 }
 
-type OptionProps = { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void; open?: boolean; markdown?: boolean; n?: number };
+// Markdown views rendering mermaid at once clash (ids from Date.now(), mermaid re-initialized under a running render),
+// so the diagrams of cards render one after another, mermaid loaded: each waits for the svg of the one before (3 s at most, a broken one)
+let turn: Promise<unknown> = Promise.resolve();
 
-function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdown, n }: OptionProps) {
+// a Mermaid diagram as Markdown renders it: a click opens it full screen
+export function Diagram({ src, className = '' }: { src: string; className?: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let live = true;
+    let done = () => {};
+    turn = turn.then(() => import('mermaid')).catch(() => {}).then(() => new Promise<void>((resolve) => {
+      if (!live) return resolve();
+      const seen = new MutationObserver(() => box.current?.querySelector('pre.mermaid svg') && finish());
+      const timer = setTimeout(() => finish(), 3000);
+      const finish = () => {
+        seen.disconnect();
+        clearTimeout(timer);
+        setTimeout(resolve);
+      };
+      done = finish;
+      if (box.current) seen.observe(box.current, { childList: true, subtree: true });
+      setReady(true);
+    }));
+    return () => {
+      live = false;
+      done();
+    };
+  }, []);
+  return <div ref={box} className={`dp-cd-dg ${className}`}>{ready ? <Markdown text={`\`\`\`mermaid\n${src}\n\`\`\``} /> : <div className="dp-cd-dgw" />}</div>;
+}
+
+type OptionProps = { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void; open?: boolean; markdown?: boolean; n?: number; diagram?: boolean };
+
+function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdown, n, diagram }: OptionProps) {
   const [open, setOpen] = useState(initial);
   return (
-    <div className="dp-cd-opt">
+    <div className={`dp-cd-opt${on ? ' dp-on' : ''}`}>
       <label className={`dp-opt${on ? ' dp-on' : ''}${ro ? ' dp-cd-ro' : ''}`}>
         <input className="dp-vh" type={multi ? 'checkbox' : 'radio'} name={name} checked={on} disabled={ro} onChange={onPick} />
         <span className={multi ? 'dp-check' : 'dp-radio'} />
@@ -42,6 +74,7 @@ function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdow
       </label>
       {o.consequence && <Inline as="div" className="dp-cd-cons" text={o.consequence} />}
       {o.details && open && <Details text={o.details} markdown={markdown} />}
+      {diagram && o.diagram && <Diagram src={o.diagram} className="dp-cd-dgp" />}
     </div>
   );
 }
@@ -62,11 +95,13 @@ type Props = {
   children?: ReactNode;
 };
 
-// one list of options to pick from, radio or checkbox, with recommended and "NN% sure" chips and folded details
+// one list of options to pick from, radio or checkbox, with recommended and "NN% sure" chips and folded details;
+// options with diagrams sit side by side, each with a preview of its diagram
 export default function OptionPicker({ name, label, options, picked, multi, ro, onPick, openRecommended, markdown, done, numbered, children }: Props) {
+  const grid = options.some((o) => o.diagram);
   return (
-    <div className={`dp-cd-opts${done ? ' dp-cd-done' : ''}`} role={multi ? 'group' : 'radiogroup'} aria-label={label}>
-      {options.map((o, i) => <Option key={o.key} o={o} on={picked.includes(o.key)} multi={multi} name={name} ro={ro} onPick={() => onPick(o.key)} open={openRecommended && o.recommended} markdown={markdown} n={numbered && i < 9 ? i + 1 : undefined} />)}
+    <div className={`dp-cd-opts${grid ? ' dp-cd-opts-dg' : ''}${done ? ' dp-cd-done' : ''}`} role={multi ? 'group' : 'radiogroup'} aria-label={label}>
+      {options.map((o, i) => <Option key={o.key} o={o} on={picked.includes(o.key)} multi={multi} name={name} ro={ro} onPick={() => onPick(o.key)} open={openRecommended && o.recommended} markdown={markdown} n={numbered && i < 9 ? i + 1 : undefined} diagram={grid} />)}
       {children}
     </div>
   );

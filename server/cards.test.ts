@@ -94,6 +94,27 @@ test('a choice option carries a consequence and the card a recommended key, whic
   assert.throws(() => validateCard({ ...choice, options: [{ ...opts[0], consequence: 'x'.repeat(201) }, opts[1]] }), /options\[0\]\.consequence longer than 200/);
 });
 
+test('a choice card and its options may carry Mermaid diagrams, capped like a diagram block, counted on their waiting row', async () => {
+  const opts = [{ key: 'q', label: 'Queue', diagram: 'flowchart LR\n  api --> queue --> worker' }, { key: 'd', label: 'Direct', diagram: '  flowchart LR\n  api --> worker  ' }];
+  const c = validateCard({ ...choice, options: opts, diagram: 'flowchart LR\n  api --> db' });
+  assert.deepEqual([c.diagram, c.options?.map((o) => o.diagram)], ['flowchart LR\n  api --> db', [opts[0].diagram, 'flowchart LR\n  api --> worker']]);
+  assert.equal(validateCard({ ...choice, options: [{ ...opts[0], diagram: '' }, opts[1]] }).options?.[0].diagram, undefined);
+  assert.throws(() => validateCard({ ...choice, options: [{ ...opts[0], diagram: 'x'.repeat(4001) }, opts[1]] }), /options\[0\]\.diagram longer than 4000/);
+  assert.throws(() => validateCard({ ...choice, options: [opts[0], { ...opts[1], diagram: { mermaid: 'flowchart LR' } }] }), /options\[1\]\.diagram must be Mermaid source text/);
+  assert.throws(() => validateCard({ ...choice, diagram: 42 }), /^Error: diagram must be Mermaid source text/);
+  assert.throws(() => validateCard({ ...choice, diagram: 'x'.repeat(4001) }), /^Error: diagram longer than 4000/);
+  assert.throws(() => validateCard({ ...rows, diagram: 'flowchart LR' }), /diagram is only for a choice card/);
+  assert.throws(() => validateCard({ ...rows, rowOptions: [{ key: 'fix', label: 'Fix', diagram: 'flowchart LR' }, { key: 'skip', label: 'Skip' }] }), /rowOptions\[0\]\.diagram is only for the options of a choice card/);
+  assert.throws(() => validateCard({ ...choice, blocks: [{ type: 'diagram', mermaid: ['flowchart'] }] }), /blocks\[0\]\.mermaid must be Mermaid source text/);
+
+  const cards = createCards({ DATA: tmpDir(), deliver: async () => {} });
+  const drawn = await cards.create({ ...choice, options: opts, diagram: 'flowchart LR\n  api --> db', agentId: AGENT });
+  const plain = await cards.create({ ...choice, agentId: AGENT });
+  const waiting = createWaiting({ works: { list: () => [] }, cards, threads: { queue: () => [], ready: async () => null }, ask: { list: () => [] } });
+  const items = (await waiting.view()).items;
+  assert.deepEqual([items.find((i) => i.id === `card:${drawn.id}`)?.diagrams, items.find((i) => i.id === `card:${plain.id}`)?.diagrams], [3, undefined]);
+});
+
 test('explain asks the agent for detail and leaves the card open, answerable', async () => {
   const sent: string[] = [];
   const cards = createCards({ DATA: tmpDir(), deliver: async (_a, text) => void sent.push(text) });

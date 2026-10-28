@@ -281,7 +281,7 @@ export type Source = { label: string; url?: string; path?: string };
 export type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
 // what picking an option of a thread card does in coco instead of a new turn of the agent
 export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
-export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
+export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string };
 export type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: TableCell[]; recommended?: string | boolean };
 export type CardValue = string | number | boolean;
@@ -308,6 +308,8 @@ export type Card = {
   blocks?: Block[];
   options?: CardOption[];
   multi?: boolean;
+  // a choice card's Mermaid of today, above its options
+  diagram?: string;
   columns?: string[];
   rows?: CardRow[];
   select?: 'many' | 'one';
@@ -619,6 +621,6 @@ export type RitualLaunchBody = { kind: string; login?: string; pr?: string; path
 export type RitualLaunchResult = RitualRun | { ok: false; error: string };
 
 export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
-export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[] };
+export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
 // byAgent, byWork: how many items each Paseo agent id and each work slug holds
 export type WaitingView = { items: WaitingItem[]; count: number; byAgent: Record<string, number>; byWork: Record<string, number> };

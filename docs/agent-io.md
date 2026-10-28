@@ -59,7 +59,7 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 
 ```ts
 type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
-type CardOption = { key: string; label: string; details?: string; consequence?: string /* ≤ 200, one line: what happens, the risk */; recommended?: boolean; confidence?: number; effect?: CardEffect };
+type CardOption = { key: string; label: string; details?: string; consequence?: string /* ≤ 200, one line: what happens, the risk */; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string /* choice options only: Mermaid source, ≤ 4000 */ };
 type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };  // thread cards, single choice only
 type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
@@ -76,6 +76,7 @@ type Card = {
   // choice
   options?: CardOption[];         // 2-8
   multi?: boolean;
+  diagram?: string;               // Mermaid source of today, ≤ 4000, shown above the options
   // rows
   columns?: string[];             // 1-8
   rows?: CardRow[];               // 1-40
@@ -166,6 +167,12 @@ at most unless `multi`); `one` row select needs exactly one row (or `other`
 alone); `rowOptions` needs ≥ 1 row pick or `other`; required fields need a
 value (on a `confirm`, only to approve); `confirm` needs `approved` or `other`. Option, row and field keys are
 short ids (`[\w.:~-]{1,60}`), unique per card. A `post` card needs `blocks`.
+A `diagram` (on a choice card or its options, refused elsewhere) is Mermaid
+source checked like a `diagram` block's `mermaid` (`mermaid()` of
+`server/blocks.ts`: text, ≤ 4000): `options[1].diagram must be Mermaid source
+text`, `diagram longer than 4000`. The `ask` tool asks for one per option on
+an architecture or flow choice (≤ 12 nodes, the same layout across options),
+never as a must.
 Cards are stored one JSON file each under `<dataDir>/cards/`.
 
 ## Routes
@@ -252,7 +259,7 @@ A picked option whose effect did the work is not delivered.
 - `ask(card)`: kinds `choice | rows | form | confirm`; returns
   `{ id, status: 'open', note }`, the note saying the answer arrives as a new
   user message and the agent should not wait or poll. `thread` and option
-  `effect` for thread agents.
+  `effect` for thread agents. Option and card `diagram` on choice cards.
 - `post_blocks({ title, blocks, thread? })`: a `post` card.
 - `post_reply({ blocks, thread?, finding? })`: a thread agent's reply for its
   waiting thread (`POST /api/agent-chat/<agentId>/reply`). `blocks` go through

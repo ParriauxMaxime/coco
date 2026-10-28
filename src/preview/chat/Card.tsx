@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api, errorMessage } from '../../api.ts';
 import Blocks, { Inline } from '../../components/Blocks.tsx';
 import { pendingClass } from '../../components/action.ts';
 import ErrorBoundary from '../../ErrorBoundary.tsx';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
-import OptionPicker from './OptionPicker.tsx';
+import OptionPicker, { Diagram, Rec } from './OptionPicker.tsx';
 import RowsPicker from './RowsPicker.tsx';
 import type { Card, CardAnswerBody, CardField, CardValue } from '../../types.ts';
 import './card.css';
@@ -73,6 +74,70 @@ function Other({ value, ro, single, onChange }: { value: string; ro: boolean; si
 }
 
 const pickIn = (c: Card, d: Draft, k: string): Partial<Draft> => (c.multi ? { picked: d.picked.includes(k) ? d.picked.filter((x) => x !== k) : [...d.picked, k] } : { picked: [k], other: '' });
+
+// every diagram of a choice card in one row, full screen and at full size; a header picks its option
+function Compare({ c, d, set, ro, onClose }: Part & { onClose: () => void }) {
+  useEffect(() => {
+    // Esc closes the diagram viewer opened from here first
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.dp-dv') && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return createPortal(
+    <div className="dp dp-float">
+      <div className="dp-cd-ov" role="dialog" aria-modal="true" aria-label={`Compare: ${c.title}`}>
+        <div className="dp-dv-bar">
+          <Icon name="columns" size={14} />
+          <b className="dp-ell">{c.title}</b>
+          <span className="dp-dv-hint">{ro ? 'a click on a diagram zooms it · Esc to close' : 'a header picks its option · a click on a diagram zooms it · Esc to close'}</span>
+          <span className="dp-sp" />
+          <button type="button" className="dp-ibtn" onClick={onClose} title="Close (Esc)" aria-label="Close"><Icon name="x" size={14} /></button>
+        </div>
+        <div className="dp-cd-cmp">
+          {c.diagram && <figure className="dp-cd-cmpi"><figcaption className="dp-cd-cmph"><b>Today</b></figcaption><Diagram src={c.diagram} /></figure>}
+          {(c.options ?? []).filter((o) => o.diagram).map((o) => {
+            const on = d.picked.includes(o.key);
+            return (
+              <figure key={o.key} className={`dp-cd-cmpi${on ? ' dp-on' : ''}`}>
+                <figcaption>
+                  <button type="button" className="dp-cd-cmph" aria-pressed={on} disabled={ro} title={ro ? undefined : `Pick ${o.label}`} onClick={() => set(pickIn(c, d, o.key))}>
+                    <span className={`${c.multi ? 'dp-check' : 'dp-radio'}${on ? ' dp-on' : ''}`} />
+                    <Inline className="dp-ell" text={o.label} />
+                    {o.recommended && <Rec />}
+                  </button>
+                  {o.consequence && <Inline as="div" className="dp-cd-cons" text={o.consequence} />}
+                </figcaption>
+                <Diagram src={o.diagram ?? ''} />
+              </figure>
+            );
+          })}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// a choice card's diagrams: today's above the options (their previews are on them) and Compare
+function Diagrams({ c, d, set, ro, today }: Part & { today: boolean }) {
+  const [compare, setCompare] = useState(false);
+  const drawn = (c.options ?? []).filter((o) => o.diagram).length;
+  const comparable = drawn > 0 && drawn + (c.diagram ? 1 : 0) > 1;
+  if (!comparable && !(c.diagram && today)) return null;
+  return (
+    <div className="dp-cd-dgs">
+      {comparable && (
+        <div className="dp-cd-dgbar">
+          <Icon name="git-fork" size={12} />
+          <span>{drawn === 1 ? '1 option drawn' : `${drawn} options drawn`}{c.diagram ? ', and today' : ''}</span>
+          <button type="button" className="dp-btn dp-ghost dp-sm" title="All the diagrams in one row at full size" onClick={() => setCompare(true)}><Icon name="columns" size={12} />Compare</button>
+        </div>
+      )}
+      {c.diagram && today && <figure className="dp-cd-today"><figcaption>Today</figcaption><Diagram src={c.diagram} className="dp-cd-dgp" /></figure>}
+      {compare && <Compare c={c} d={d} set={set} ro={ro} onClose={() => setCompare(false)} />}
+    </div>
+  );
+}
 
 function Choice({ c, d, set, ro }: Part) {
   return (
@@ -242,7 +307,7 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
   };
   const [label, icon] = KIND[c.kind] || ['card', 'bot'];
   const [state, tone] = outcome(c);
-  const Kind = c.kind === 'choice' ? Choice : c.kind === 'rows' ? Rows : null;
+  const folds = !open && !post && Boolean(c.blocks?.length || c.diagram);
   return (
     <div ref={root} id={cardDomId(c.id)} className={`dp-card-q dp-cd${open && !post ? ' dp-attn' : ''}${!open && !post ? ' dp-cd-done' : ''}`} onKeyDown={onKey}>
       <div className="dp-cq-h">
@@ -255,13 +320,15 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
       </div>
       <div className="dp-cq-b dp-cd-b">
         {c.question && <Inline as="div" className="dp-cd-q" text={c.question} />}
-        {c.blocks && c.blocks.length > 0 && !open && !post && (
+        {folds && (
           <button type="button" className={`dp-btn dp-ghost dp-sm dp-cd-more dp-cd-fold${details ? ' dp-open' : ''}`} aria-expanded={details} onClick={() => setDetails(!details)}>
             <Icon name="chevron-right" size={12} />{details ? 'Hide details' : 'Show details'}
           </button>
         )}
         {c.blocks && c.blocks.length > 0 && (open || post || details) && <div className="dp-cd-blocks"><Blocks blocks={c.blocks} /></div>}
-        {Kind && <Kind c={c} d={d} set={set} ro={ro} />}
+        {c.kind === 'choice' && <Diagrams c={c} d={d} set={set} ro={ro} today={open || details} />}
+        {c.kind === 'choice' && <Choice c={c} d={d} set={set} ro={ro} />}
+        {c.kind === 'rows' && <Rows c={c} d={d} set={set} ro={ro} />}
         {(c.kind === 'form' || (c.kind === 'confirm' && (c.fields?.length ?? 0) > 0)) && <Form c={c} d={d} set={set} ro={ro} tried={tried} />}
         {c.kind === 'confirm' && hasOther(c) && (open ? <textarea className="dp-inp dp-cd-ta dp-cd-note" rows={2} value={d.other} disabled={ro} placeholder="Optional note for the agent" aria-label="Note for the agent" onChange={(e) => set({ other: e.target.value })} /> : d.other && <div className="dp-cd-said"><span className="dp-t3">Note:</span> {d.other}</div>)}
       </div>

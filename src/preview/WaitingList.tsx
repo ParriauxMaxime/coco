@@ -22,6 +22,7 @@ export default function WaitingList({ items, empty }: { items: WaitingItem[]; em
               <b className="dp-ell">{i.title}</b>
               {i.excerpt && <span className="dp-ell dp-t3">{i.excerpt}</span>}
             </span>
+            {i.diagrams ? <span className="dp-chip dp-info">{i.diagrams === 1 ? '1 diagram' : `${i.diagrams} diagrams`}</span> : null}
             <Icon name="chevron-right" size={12} />
           </a>
         );

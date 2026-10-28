@@ -22,7 +22,8 @@ const LAST_WORD_MS = 2 * 24 * 3600 * 1000;
 
 // kind: pick an option / approve / dismiss go through their endpoint as is; reply sends { [field]: text }; ack only hides the item here
 export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
-export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[] };
+// diagrams: how many Mermaid diagrams a card carries, named on its row and shown on the card itself
+export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
 // byAgent, byWork: how many items each Paseo agent id and each work slug holds
 export type WaitingView = { items: WaitingItem[]; count: number; byAgent: Record<string, number>; byWork: Record<string, number> };
 
@@ -100,7 +101,8 @@ export function createWaiting({ DATA, works, cards, threads, ask, permissions, c
       if (work && !slugs.has(work)) continue;
       asked.add(c.agentId);
       const link = c.thread && c.work ? (threads.link?.(c.work, c.thread) ?? `#/work/${c.work}`) : conv ? (work ? `#/work/${work}/ask-${conv.id}` : `#/ask/${conv.id}`) : work ? `#/work/${work}/ag-${c.agentId}` : `#/agents/${c.agentId}`;
-      items.push({ id: `card:${c.id}`, kind: 'card', agentId: c.agentId, work, pr: c.pr, title: c.title, excerpt: cut(c.question || ''), at: c.createdAt, link, actions: cardActions(c, link) });
+      const diagrams = (c.diagram ? 1 : 0) + (c.options ?? []).filter((o) => o.diagram).length;
+      items.push({ id: `card:${c.id}`, kind: 'card', agentId: c.agentId, work, pr: c.pr, title: c.title, excerpt: cut(c.question || ''), at: c.createdAt, link, actions: cardActions(c, link), ...(diagrams ? { diagrams } : {}) });
     }
 
     // an agent held on a permission is not also waiting for your word on its last turn

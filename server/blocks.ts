@@ -37,6 +37,12 @@ const tone = (v: unknown, field: string): Tone | undefined => {
 };
 const strip = (o: Raw): Raw => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
+// Mermaid source, as a diagram block or a card and its options carry it
+export const mermaid = (v: unknown, field: string) => {
+  if (v != null && typeof v !== 'string') throw new Error(`${field} must be Mermaid source text`);
+  return str(v, MAX_CODE, field);
+};
+
 export const cell = (c: Raw | string | number, at: string): Cell => (typeof c === 'string' || typeof c === 'number' ? String(c).slice(0, 300) : { text: str(String(c?.text ?? ''), 300, `${at}.text`), ...strip({ tone: tone(c?.tone, `${at}.tone`) }) });
 
 const TYPES: Record<string, (b: Raw, at: string) => Raw> = {
@@ -46,7 +52,7 @@ const TYPES: Record<string, (b: Raw, at: string) => Raw> = {
     if (!Array.isArray(b.items) || !b.items.length || b.items.length > 12) throw new Error(`${at}.items must hold 1-12 steps`);
     return { title: opt(b.title, 120, `${at}.title`), items: b.items.map((s: unknown, i: number) => str(s, 500, `${at}.items[${i}]`)), outcome: opt(b.outcome, 500, `${at}.outcome`) };
   },
-  diagram: (b: Raw, at: string) => ({ mermaid: str(b.mermaid, MAX_CODE, `${at}.mermaid`), caption: opt(b.caption, 200, `${at}.caption`) }),
+  diagram: (b: Raw, at: string) => ({ mermaid: mermaid(b.mermaid, `${at}.mermaid`), caption: opt(b.caption, 200, `${at}.caption`) }),
   code: (b: Raw, at: string) => ({ path: opt(b.path, 300, `${at}.path`), line: optLine(b.line, `${at}.line`), lang: b.lang && LANGS.test(b.lang) ? b.lang : undefined, code: str(b.code, MAX_CODE, `${at}.code`), caption: opt(b.caption, 200, `${at}.caption`) }),
   suggestion: (b: Raw, at: string) => {
     const startLine = line(b.startLine, `${at}.startLine`);

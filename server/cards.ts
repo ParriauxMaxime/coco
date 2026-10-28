@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { cell, validateBlocks } from './blocks.ts';
+import { cell, mermaid, validateBlocks } from './blocks.ts';
 import type { Block, Cell, Raw } from './blocks.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { ReadBody, Req, Res, Send } from './core-types.ts';
@@ -16,7 +16,8 @@ export type CardValue = string | number | boolean;
 export const EFFECT_TYPES = ['take_decision', 'dismiss_finding'] as const;
 // what picking a choice option asked in a thread does in coco instead of a new turn
 export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
-export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
+// diagram: Mermaid source, on the options of a choice card only
+export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
 // chat: closed by a message the owner typed to the agent instead of answering the card
@@ -28,6 +29,8 @@ export type CardBody = {
   blocks?: Block[];
   options?: CardOption[];
   multi?: boolean;
+  // a choice card's Mermaid of how things are today, shown above its options and first when comparing theirs
+  diagram?: string;
   columns?: string[];
   rows?: CardRow[];
   select?: 'many' | 'one';
@@ -115,13 +118,16 @@ const effectOf = (e: Raw, at: string): CardEffect | undefined => {
   const type = oneOf(e?.type, EFFECT_TYPES, `${at}.type`);
   return type === 'take_decision' ? { type, option: key(e.option, `${at}.option`) } : { type };
 };
-const option = (o: Raw, at: string, effects: boolean): CardOption => {
+const diagramOf = (v: unknown, at: string) => (v == null || v === '' ? undefined : mermaid(v, at));
+// effects: a single choice card's options; diagrams: a choice card's
+const option = (o: Raw, at: string, effects: boolean, diagrams: boolean): CardOption => {
   if (o?.confidence != null && (typeof o.confidence !== 'number' || o.confidence < 0 || o.confidence > 100)) throw new Error(`${at}.confidence must be 0-100`);
   if (o?.effect != null && !effects) throw new Error(`${at}.effect is only for the options of a single choice card`);
-  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), consequence: opt(o.consequence, 200, `${at}.consequence`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`) });
+  if (o?.diagram != null && !diagrams) throw new Error(`${at}.diagram is only for the options of a choice card`);
+  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), consequence: opt(o.consequence, 200, `${at}.consequence`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`), diagram: diagramOf(o.diagram, `${at}.diagram`) });
 };
-const options = (v: unknown, min: number, max: number, field: string, effects = false) => {
-  const out = list(v, min, max, field).map((o, i) => option(o, `${field}[${i}]`, effects));
+const options = (v: unknown, min: number, max: number, field: string, effects = false, diagrams = false) => {
+  const out = list(v, min, max, field).map((o, i) => option(o, `${field}[${i}]`, effects, diagrams));
   unique(out.map((o) => o.key), field);
   return out;
 };
@@ -175,12 +181,13 @@ export function validateCard(c: Raw): CardBody {
     return strip(head);
   }
   const other = bool(c.other, 'other') ?? kind !== 'form';
+  if (c.diagram != null && kind !== 'choice') throw new Error('diagram is only for a choice card');
   if (kind === 'choice') {
-    const opts = options(c.options, 2, 8, 'options', c.multi !== true);
+    const opts = options(c.options, 2, 8, 'options', c.multi !== true, true);
     // `recommended` names the option key the agent advises; the renderer reads it off the option
     const rec = c.recommended == null ? undefined : key(c.recommended, 'recommended');
     if (rec && !opts.some((o) => o.key === rec)) throw new Error(`recommended must be an option key among ${opts.map((o) => o.key).join(', ')}`);
-    return strip({ ...head, options: rec ? opts.map((o) => (o.key === rec ? { ...o, recommended: true } : o)) : opts, multi: bool(c.multi, 'multi'), other });
+    return strip({ ...head, options: rec ? opts.map((o) => (o.key === rec ? { ...o, recommended: true } : o)) : opts, multi: bool(c.multi, 'multi'), diagram: diagramOf(c.diagram, 'diagram'), other });
   }
   if (kind === 'rows') {
     const columns = list(c.columns, 1, 8, 'columns').map((x, i) => str(String(x ?? ''), 60, `columns[${i}]`));

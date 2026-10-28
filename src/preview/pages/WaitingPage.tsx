@@ -36,6 +36,7 @@ function Row({ item, on, onTick, run, pending }: { item: WaitingItem; on: boolea
         <div className="dp-wt-h">
           <span className="dp-chip">{KIND[item.kind]}</span>
           <a className="dp-ell dp-wt-title" href={item.link}><b>{item.title}</b></a>
+          {item.diagrams ? <a className="dp-chip dp-info" href={item.link} title="Open the card to see and compare them">{item.diagrams === 1 ? '1 diagram' : `${item.diagrams} diagrams`}</a> : null}
           <span className="dp-t3 dp-sm dp-num">{when(item.at)}</span>
         </div>
         {item.excerpt && <div className="dp-wt-x">{item.excerpt}</div>}
