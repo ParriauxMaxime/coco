@@ -94,9 +94,19 @@ export type GitCache = {
 
 export function createGitCache(ttlMs: number): GitCache {
   const entries = new Map<string, { at: number; value: Promise<unknown> }>();
-  const cached = <T>(key: string, load: () => Promise<T>): Promise<T> => {
+  const refreshing = new Set<string>();
+  // stale: an expired entry is served while it refreshes, so a git status over every worktree never holds the board up; placement reads stay strict
+  const cached = <T>(key: string, load: () => Promise<T>, stale = false): Promise<T> => {
     const hit = entries.get(key);
     if (hit && Date.now() - hit.at < ttlMs) return hit.value as Promise<T>;
+    if (hit && stale) {
+      if (!refreshing.has(key)) {
+        refreshing.add(key);
+        const next = load();
+        next.then(() => entries.set(key, { at: Date.now(), value: next }), () => {}).finally(() => refreshing.delete(key));
+      }
+      return hit.value as Promise<T>;
+    }
     const value = load();
     entries.set(key, { at: Date.now(), value });
     return value;
@@ -112,7 +122,7 @@ export function createGitCache(ttlMs: number): GitCache {
           dirtyFiles(worktree),
         ]);
         return { head: head?.trim() ?? "", branch: branch?.trim() || null, dirty: files.length > 0 };
-      }),
+      }, true),
     forget: (worktree) => {
       entries.delete(`status ${worktree}`);
       entries.delete(`info ${worktree}`);
