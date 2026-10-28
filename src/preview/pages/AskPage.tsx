@@ -10,6 +10,7 @@ import { Empty, Loading, PageHead } from './Page.tsx';
 import type { AskRun, UploadRef } from '../../types.ts';
 import { useAskModel } from '../chat/ModelPicker.tsx';
 import { SubagentBar } from '../Subagents.tsx';
+import { useSeen } from '../waiting.ts';
 import './ask-page.css';
 
 const EXAMPLES = [
@@ -46,6 +47,7 @@ function ConvRow({ h, on, live }: { h: AskRun; on: boolean; live?: string | null
 export default function AskPage({ convId }: { convId?: string }) {
   const convo = useAskConversation('ask', { kind: 'global' });
   const { run, events, pending, working, state, history: past, open, reset, send, cards, mergeCard } = convo;
+  useSeen(convId ? `ask:${convId}` : null);
   const [closing, setClosing] = useState(false);
   useEffect(() => {
     if (convId && run?.id !== convId) api.askConversation(convId).then(open, (e) => toast.error(errorMessage(e)));

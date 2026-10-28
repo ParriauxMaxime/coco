@@ -7,7 +7,7 @@ import { subscribe, topic } from '../live.ts';
 import { Composer, Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
 import { PendingPermissions } from './chat/Permission.tsx';
-import { useWaitingByAgent } from './waiting.ts';
+import { useSeen, useWaitingByAgent } from './waiting.ts';
 import { nonceOf, useAskConversation } from './chat/conversation.ts';
 import { WorkContext, useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
@@ -89,6 +89,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const model = useAskModel(run);
   const listed = useWorkAgent(slug, tabId);
   const asked = useWaitingByAgent();
+  useSeen(`ask:${id}`);
   useEffect(() => {
     api.askConversation(id).then(convo.open, (e) => toast.error(errorMessage(e)));
   }, [id]);

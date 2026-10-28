@@ -8,6 +8,7 @@ import { subscribe, topic } from '../live.ts';
 import { toast } from './Toast.tsx';
 import { confirmDialog } from './Dialogs.tsx';
 import { pendingClass } from './action.ts';
+import { useSeen } from '../preview/waiting.ts';
 import Icon from '../preview/Icon.tsx';
 import { Avatar, PersonaName } from '../preview/parts.tsx';
 import Activity from '../preview/chat/Activity.tsx';
@@ -261,6 +262,7 @@ function inboundOf(server: ThreadInbound[], local: Sent[]) {
 
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
   const { groups, summaries } = useThreadsOf(slug);
+  useSeen(`thread:${slug}:${key}`);
   const [thread, setThread] = useState<ThreadData | null>(null);
   const [error, setError] = useState('');
   // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label

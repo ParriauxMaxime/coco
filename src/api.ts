@@ -153,6 +153,7 @@ export const api = {
   waiting: (work?: string) => get<WaitingView>(work ? `/api/works/${work}/waiting` : '/api/waiting'),
   // one button of a waiting item: its own endpoint and body, plus the text of a reply
   waitingAct: (a: WaitingAction, text?: string) => postJson(a.url, a.kind === 'reply' ? { [a.field || 'text']: text } : a.body).then(jsonOrError<unknown>),
+  ackWaiting: (ids: string[]) => postJson('/api/waiting/ack', { ids }).then(jsonOrError<unknown>),
   packContents: () => get<PackContents>('/api/pack/contents'),
   exportPack: async (body: PackExportBody) => {
     const res = await fetch('/api/pack/export', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });

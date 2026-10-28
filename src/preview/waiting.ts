@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import { api } from '../api.ts';
 import { subscribe } from '../live.ts';
 import type { WaitingItem, WaitingView } from '../types.ts';
 
@@ -41,3 +42,14 @@ const viewOf = (items: WaitingItem[]): WaitingView => {
 };
 // an item the owner just handled leaves the list at once; the next push confirms it
 export const forget = (ids: string[]) => useStore.setState((s) => (s.view ? { view: viewOf(s.view.items.filter((i) => !ids.includes(i.id))) } : s));
+
+// a reply open in front of the owner is read: it stops waiting on them until the agent speaks again
+export function useSeen(id: string | null) {
+  useEffect(connect, []);
+  const there = useStore((s) => Boolean(id && s.view?.items.some((i) => i.id === id)));
+  useEffect(() => {
+    if (!id || !there || document.hidden) return;
+    forget([id]);
+    api.ackWaiting([id]).catch(() => {});
+  }, [id, there]);
+}
