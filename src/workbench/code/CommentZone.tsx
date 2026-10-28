@@ -25,7 +25,7 @@ export const SevChip = ({ value }: { value?: string }) => (value ? <span classNa
 export const SureChip = ({ value }: { value?: number }) => (value !== undefined && Number.isFinite(value) ? <span className="dp-chip" title="how sure its author is">{value}% sure</span> : null);
 export const lineSpan = (c: ReviewComment) => `L${c.startLine}${c.endLine !== c.startLine ? `–${c.endLine}` : ''}`;
 
-function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
+export function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
   return (
     <Composer
       autoFocus

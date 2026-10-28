@@ -260,3 +260,11 @@
 .dp-rv-fold-h .dp-chip { flex: none; margin-left: auto; }
 .rv-fold.dp-open > .dp-rv-fold-h { border-radius: var(--dp-r3) var(--dp-r3) 0 0; border-bottom: 1px solid var(--dp-line); }
 .rv-fold-b { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px 10px; }
+
+/* an agent's suggested commit */
+.cm-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.cm-head { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); font-size: 12px; color: var(--dp-t3); }
+.cm-head-r { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.cm-newer { display: flex; align-items: center; gap: 8px; color: var(--dp-warn); }
+.cm-files { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px; }
+.cm-send { flex: none; padding: 8px 16px 12px; border-top: 1px solid var(--dp-line); background: var(--dp-panel); }

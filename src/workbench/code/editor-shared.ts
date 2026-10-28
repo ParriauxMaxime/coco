@@ -26,8 +26,9 @@ export const EDITOR_OPTIONS = {
 
 const models = new Map<string, number>();
 
-export function acquireModel({ monaco, languageFor }: ModelHost, side: Side | 'ext', path: string, text: string) {
-  const uri = monaco.Uri.from({ scheme: 'cc', path: `/${side}/${path}` });
+// scope: models of another tree than the PR's (a suggested commit) live apart from the cc:/head/* ones code navigation reads
+export function acquireModel({ monaco, languageFor }: ModelHost, side: Side | 'ext', path: string, text: string, scope = '') {
+  const uri = monaco.Uri.from({ scheme: 'cc', path: `/${scope ? `${scope}-` : ''}${side}/${path}` });
   const key = uri.toString();
   let model = monaco.editor.getModel(uri);
   if (model) {

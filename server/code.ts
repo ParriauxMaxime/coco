@@ -295,7 +295,7 @@ export function createCode({ REPO, config, works }: Deps) {
     return { sha: null, path: rel, text: await fs.readFile(path.join(REPO, rel), 'utf8'), size: st.size, binary: false, external: true };
   }
 
-  async function diffOf(refs: Refs, p: string, previous: string | null) {
+  async function diffOf(refs: Pick<Refs, 'mergeBase' | 'headSha'>, p: string, previous: string | null) {
     const spec = [`:(literal)${p}`, ...(previous ? [`:(literal)${previous}`] : [])];
     const r = await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha, '--', ...spec]);
     if (!r.ok) throw new HttpError(500, `git diff: ${r.stderr.trim().slice(0, 200)}`);
@@ -350,9 +350,24 @@ export function createCode({ REPO, config, works }: Deps) {
     throw new HttpError(400, 'ref must be head, base or a sha');
   }
 
+  // one commit against its parent: an agent's suggested commit, reviewed before it lands on the PR branch
+  async function commitRoute(rawSha: string, action: string, q: URLSearchParams) {
+    if (!SHA_RE.test(rawSha)) throw new HttpError(400, 'bad sha');
+    const headSha = await revParse(rawSha);
+    if (!headSha) throw new HttpError(404, `unknown commit ${rawSha}`);
+    const mergeBase = await revParse(`${headSha}^`);
+    if (!mergeBase) throw new HttpError(400, `${rawSha.slice(0, 9)} has no parent`);
+    if (action === 'refs') return { headSha, mergeBase, files: await filesBetween(mergeBase, headSha) };
+    const p = checkPath(q.get('path'));
+    if (action === 'file') return readFile(q.get('ref') === 'base' ? mergeBase : headSha, p);
+    if (action === 'diff') return { path: p, mergeBase, headSha, unified: await diffOf({ mergeBase, headSha }, p, q.get('previous') ? checkPath(q.get('previous')) : null) };
+    throw new HttpError(404, 'no route');
+  }
+
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
       const [root, kind, n, action] = parts;
+      if (root === 'code' && kind === 'commit' && req.method === 'GET') return send(res, 200, await commitRoute(n, action, new URL(req.url || '/', 'http://x').searchParams));
       const number = parseKey(n);
       if (root !== 'code' || kind !== 'pr' || req.method !== 'GET' || !number || !['refs', 'tree', 'file', 'diff', 'search'].includes(action)) return send(res, 404, { error: 'no route' });
       const q = new URL(req.url || '/', 'http://x').searchParams;

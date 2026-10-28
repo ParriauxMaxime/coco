@@ -29,6 +29,13 @@ export const prOfTab = (id: string | null | undefined) => {
   return m ? toKey(m[1]) : null;
 };
 
-export const codeTabId = (n: PrKey, path: string, files: Pick<RefFile, 'filename'>[] = []) => `${files.some((f) => f.filename === path) ? 'diff' : 'file'}-${n}~${path}`;
+// an agent's suggested commit: `commit-<thread key>~<message id>`
+export const commitTabId = (threadKey: string, msgId: string) => `commit-${threadKey}~${msgId}`;
+export const parseCommitTab = (id: string | null | undefined) => {
+  const m = /^commit-(.+)~([0-9a-f]+)$/.exec(id || '');
+  return m ? { threadKey: m[1], msgId: m[2] } : null;
+};
+
+export const codeTabId =(n: PrKey, path: string, files: Pick<RefFile, 'filename'>[] = []) => `${files.some((f) => f.filename === path) ? 'diff' : 'file'}-${n}~${path}`;
 
 export const baseName = (path: string) => path.split('/').pop() ?? path;

@@ -16,6 +16,13 @@ export const codeApi = {
   search: (n: PrKey, q: string) => fetch(`${base(n)}/search?${qs({ q })}`).then(json),
 };
 
+const commitBase = (sha: string) => `/api/code/commit/${sha}`;
+export const commitApi = {
+  refs: (sha: string) => fetch(`${commitBase(sha)}/refs`).then(json),
+  file: (sha: string, ref: 'base' | 'head', path: string) => fetch(`${commitBase(sha)}/file?${qs({ ref, path })}`).then(json),
+  diff: (sha: string, path: string, previous?: string) => fetch(`${commitBase(sha)}/diff?${qs(previous ? { path, previous } : { path })}`).then(json),
+};
+
 export const isDesktop = () => typeof matchMedia === 'function' && matchMedia('(min-width: 900px) and (pointer: fine)').matches;
 
 export const loadMonaco = () => import('./monaco.ts');

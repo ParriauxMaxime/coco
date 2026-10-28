@@ -17,6 +17,8 @@ import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import { SentFiles } from '../preview/chat/Attachments.tsx';
 import { useNow } from '../preview/subagents.ts';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
+import { useWorkbench } from '../workbench/workbench-store.ts';
+import { commitTabId } from '../workbench/code/ids.ts';
 import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
 import './thread.css';
 
@@ -47,7 +49,11 @@ export function useThreadsOf(slug: string): ThreadsOf {
 export const useThreadSummary = (slug: string, key: string): ThreadSummary | undefined => useThreadsOf(slug).summaries[key];
 
 export const threadKey = { decision: (id: string) => `d.${id}`, comment: (n: string | number, id: string) => `c.${String(n).replaceAll(':', '~')}.${id}`, plan: (n: string | number) => `p.${String(n).replaceAll(':', '~')}` };
-const groupLabel = (g: ThreadGroup) => `${g.id} · ${g.model.split('/').pop()}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
+export const openCommitTab = (key: string, msgId: string) => {
+  const s = useWorkbench.getState();
+  s.open(commitTabId(key, msgId), { group: s.otherGroup() });
+};
+const groupLabel =(g: ThreadGroup) => `${g.id} · ${g.model.split('/').pop()}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
 
 export const threadLabel = (s: ThreadSummary | undefined, idle: string) => (s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle);
 
@@ -83,39 +89,58 @@ function cardSlots(messages: ThreadMessage[], cards: Card[]) {
   return at;
 }
 
-// pending: 'approve' | 'dismiss' while that decision is in flight
-type SuggestionProps = { s: SuggestionData; onDecide: (action: SuggestionAction) => void; busy: boolean; pending: string | null; verify?: VerifyRun; onVerify: () => void };
+// pending: 'approve' | 'dismiss' | 'verify' while that action is in flight
+type SuggestionActionsProps = { s: SuggestionData; onDecide: (action: SuggestionAction) => void; busy: boolean; pending: string | null; verify?: VerifyRun; onVerify: () => void };
 const VERIFIED_TAG: Record<string, string> = { pass: ' · verified ✓', fail: ' · checks failed' };
 function VerifyButton({ run, busy, pending, onClick }: { run?: VerifyRun; busy: boolean; pending: boolean; onClick: () => void }) {
   return <button type="button" className={`dp-btn dp-sm${pendingClass(pending)}`} disabled={busy || run?.status === 'running'} title="Run the repo's lint, format, type check and nearby tests on this commit before you approve" onClick={onClick}><Icon name="check" size={12} />{run?.status === 'running' ? 'Verifying…' : run ? 'Verify again' : 'Verify'}</button>;
 }
-function Suggestion({ s, onDecide, busy, pending, verify, onVerify }: SuggestionProps) {
-  const open = OPEN.includes(s.state);
+export const isOpenSuggestion = (s: SuggestionData) => OPEN.includes(s.state);
+export function SuggestionState({ s }: { s: SuggestionData }) {
+  return (
+    <>
+      <span className={`dp-chip ${STATE_CHIP[s.state] ?? ''}`}>{s.state}</span>
+      {s.appliedCommit && <span>→ <code>{s.appliedCommit.slice(0, 7)}</code></span>}
+      {STATE_NOTE[s.state] && <span>{STATE_NOTE[s.state]}</span>}
+    </>
+  );
+}
+// checks, then Verify / Approve / Dismiss while the suggestion is open
+export function SuggestionActions({ s, onDecide, busy, pending, verify, onVerify }: SuggestionActionsProps) {
   const red = s.checks?.state === 'failed';
   return (
-    <div className="dp-thr-sugg">
-      <div className="dp-thr-sugg-h">
-        <span className={`dp-chip ${STATE_CHIP[s.state] ?? ''}`}>{s.state}</span>
-        {s.kind === 'commit' ? <code>{s.commit.slice(0, 7)}</code> : <span>card change</span>}
-        {s.kind === 'commit' && <span className="dp-ell">{s.files.map((f) => f.split('/').pop()).join(', ')}</span>}
-        {s.appliedCommit && <span>→ <code>{s.appliedCommit.slice(0, 7)}</code></span>}
-        {STATE_NOTE[s.state] && <span>{STATE_NOTE[s.state]}</span>}
-      </div>
-      <details open={open}>
-        <summary>{s.kind === 'commit' ? 'Diff' : 'Fields'}</summary>
-        <Markdown text={s.kind === 'commit' ? `\`\`\`diff\n${s.diff}\n\`\`\`` : `\`\`\`json\n${JSON.stringify(s.fields, null, 1)}\n\`\`\``} />
-      </details>
+    <>
       {s.checks && <Checks run={s.checks} />}
       {verify && <VerifyChips run={verify} />}
       {s.error && <div className="dp-thr-err">{s.error}</div>}
-      {open && (
+      {isOpenSuggestion(s) && (
         <div className="dp-thr-sugg-f">
           {s.kind === 'commit' && <VerifyButton run={verify} busy={busy} pending={pending === 'verify'} onClick={onVerify} />}
-          {s.kind === 'commit' && <span style={{ fontSize: 11, opacity: 0.7 }}>runs the repo's checks on the agent's code</span>}
           {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={() => (!red || confirm("coco's checks fail on this commit. Approve anyway?")) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>}
           <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}><Icon name="x" size={12} />Dismiss</button>
         </div>
       )}
+    </>
+  );
+}
+// a commit is read in its own tab (onReview), where line comments go back to this thread's agent; a card change shows its fields here
+function Suggestion({ onReview, ...props }: SuggestionActionsProps & { onReview: () => void }) {
+  const { s } = props;
+  return (
+    <div className="dp-thr-sugg">
+      <div className="dp-thr-sugg-h">
+        <SuggestionState s={s} />
+        {s.kind === 'commit' ? <code>{s.commit.slice(0, 7)}</code> : <span>card change</span>}
+        {s.kind === 'commit' && <span className="dp-ell" title={s.files.join('\n')}>{s.files.map((f) => f.split('/').pop()).join(', ')}</span>}
+        {s.kind === 'commit' && <><span className="dp-sp" /><button type="button" className="dp-btn dp-sm" title="Read the commit's diff in a tab and comment its lines for the agent" onClick={onReview}><Icon name="eye" size={12} />Review commit</button></>}
+      </div>
+      {s.kind === 'card' && (
+        <details open={isOpenSuggestion(s)}>
+          <summary>Fields</summary>
+          <Markdown text={`\`\`\`json\n${JSON.stringify(s.fields, null, 1)}\n\`\`\``} />
+        </details>
+      )}
+      <SuggestionActions {...props} />
     </div>
   );
 }
@@ -336,7 +361,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
                   {m.files?.length ? <SentFiles files={m.files} /> : null}
                   {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
                   {m.choices && <OldChoices m={m} />}
-                  {m.suggestion && <Suggestion s={m.suggestion} verify={thread.verifies?.[m.suggestion.commit]} onVerify={() => verify(m.suggestion!.commit)} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
+                  {m.suggestion && <Suggestion s={m.suggestion} onReview={() => openCommitTab(key, m.id)}verify={thread.verifies?.[m.suggestion.commit]} onVerify={() => verify(m.suggestion!.commit)} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
                 </div>
               </div>
             )}

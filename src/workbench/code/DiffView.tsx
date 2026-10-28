@@ -27,11 +27,12 @@ type Props = {
   reveal?: Reveal | null;
   options?: editor.IDiffEditorConstructionOptions;
   onEditor?: (diff: editor.IStandaloneDiffEditor | null) => void;
+  scope?: string;
 };
 
 // original = base text, modified = head text; comments on side 'base' live in the left editor, 'head' in the right one
 // options: extra createDiffEditor options (creation only) · onEditor(diffEditor | null)
-const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, modified, path, sideBySide = true, readOnly = true, comments = [], onCreateComment, onJump, renderZone, decorationsRef, reveal = null, options, onEditor }, ref) {
+const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, modified, path, sideBySide = true, readOnly = true, comments = [], onCreateComment, onJump, renderZone, decorationsRef, reveal = null, options, onEditor, scope }, ref) {
   const { mod, error } = useMonaco();
   const hostRef = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<editor.IStandaloneDiffEditor | null>(null);
@@ -68,8 +69,8 @@ const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, mod
 
   useEffect(() => {
     if (!mod || !editor) return undefined;
-    const base = acquireModel(mod, 'base', path, original ?? '');
-    const head = acquireModel(mod, 'head', path, modified ?? '');
+    const base = acquireModel(mod, 'base', path, original ?? '', scope);
+    const head = acquireModel(mod, 'head', path, modified ?? '', scope);
     editor.setModel({ original: base, modified: head });
     return () => {
       try {
@@ -78,7 +79,7 @@ const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, mod
       releaseModel(base);
       releaseModel(head);
     };
-  }, [mod, editor, path, original, modified]);
+  }, [mod, editor, path, original, modified, scope]);
 
   useEffect(() => {
     if (!mod || !editor || !reveal?.line) return undefined;

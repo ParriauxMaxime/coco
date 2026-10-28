@@ -56,18 +56,31 @@ test('prFilesFromGit shape', async () => {
   assert.equal(execFileSync('git', ['-C', dir, 'for-each-ref', 'refs/cocopilot'], { encoding: 'utf8' }), '');
 });
 
+type Body = { binary?: boolean; text?: string; headSha?: string; mergeBase?: string; files?: { filename: string }[]; unified?: string };
+const seed = async (u: string) => {
+  const out: { status?: number; body: Body } = { body: {} };
+  const p = new URL(u, 'http://x').pathname.split('/').filter(Boolean).slice(1);
+  const req = new IncomingMessage(new Socket());
+  req.method = 'GET';
+  req.url = u;
+  await code.handle(req, new ServerResponse(req), p, async () => '', (_r, status, body) => void Object.assign(out, { status, body }));
+  return out;
+};
+
+test('commit: files and texts of one commit against its parent', async () => {
+  const refs = (await seed(`/api/code/commit/${head}/refs`)).body;
+  assert.equal(refs.mergeBase, base);
+  assert.ok(refs.files?.some((f) => f.filename === 'new.txt'));
+  assert.equal((await seed(`/api/code/commit/${head.slice(0, 9)}/file?ref=base&path=mod.txt`)).body.text, 'a\nb\nc\n');
+  assert.equal((await seed(`/api/code/commit/${head}/file?path=mod.txt`)).body.text, 'a\nB\nc\nd\n');
+  assert.match((await seed(`/api/code/commit/${head}/diff?path=mod.txt`)).body.unified ?? '', /\+B/);
+  assert.equal((await seed(`/api/code/commit/${base}/refs`)).status, 400);
+  assert.equal((await seed('/api/code/commit/nothex/refs')).status, 400);
+});
+
 test('file: 404 outside tree, binary flag, text, traversal', async () => {
   await code.ensureRefs(2, { headSha: head, baseSha: base });
   const stub = (n: string) => `/api/code/pr/2/${n}`;
-  const seed = async (u: string) => {
-    const out: { status?: number; body: { binary?: boolean; text?: string } } = { body: {} };
-    const p = new URL(u, 'http://x').pathname.split('/').filter(Boolean).slice(1);
-    const req = new IncomingMessage(new Socket());
-    req.method = 'GET';
-    req.url = u;
-    await code.handle(req, new ServerResponse(req), p, async () => '', (_r, status, body) => void Object.assign(out, { status, body }));
-    return out;
-  };
   assert.equal((await seed(stub('file?ref=head&path=missing.txt'))).status, 404);
   assert.equal((await seed(stub('file?ref=head&path=old'))).status, 404);
   const bin = await seed(stub('file?ref=head&path=blob.bin'));
