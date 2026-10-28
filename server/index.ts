@@ -104,7 +104,7 @@ repos
   .then((moved) => moved.forEach((m) => console.log(`work ${m.slug} → repo ${m.repo}`)))
   .then(() => placement.syncProjectNames(works.list()))
   .then(logRenames, () => {});
-works.hooks.onRetitled = (w) => placement.syncProjectNames([w]).then(logRenames);
+works.hooks.onRetitled = (w) => placement.syncProjectNames([w], { all: works.list() }).then(logRenames);
 works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
 works.hooks.forgetWork = (work) => placement.forgetWork(work);
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.enqueue(slug, input).done, preflight: async (slug, entry, key) => (isVideoEntry(entry) ? preflight.run(slug, key) : null), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });

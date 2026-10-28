@@ -53,13 +53,17 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
   const appRepo = () => repos.find((r) => samePath(r.path, APP)) || repos[repos.length - 1];
   const plansDir = path.join(DATA, 'worktrees');
 
-  // Paseo project names follow work titles; returns the renames, applied unless dryRun
-  async function syncProjectNames(list: Work[], { dryRun = false } = {}) {
+  // Paseo project names follow work titles, unless several live works share the project; returns the renames, applied unless dryRun
+  async function syncProjectNames(list: Work[], { dryRun = false, all = list } = {}) {
     const known = await projects();
     const renames: { slug: string; projectId: string; from: string; to: string; skipped?: string }[] = [];
     for (const w of list) {
       const p = w.projectId ? known.find((x) => x.projectId === w.projectId) : null;
       if (!p || !w.title || p.name === w.title) continue;
+      if (all.some((o) => o.slug !== w.slug && o.projectId === p.projectId && !o.archived)) {
+        renames.push({ slug: w.slug, projectId: p.projectId, from: p.name, to: w.title, skipped: 'shared by several works' });
+        continue;
+      }
       if (isRepoProject(p)) {
         renames.push({ slug: w.slug, projectId: p.projectId, from: p.name, to: w.title, skipped: 'the repo’s own project' });
         continue;
