@@ -61,7 +61,8 @@ export type IconName =
   | 'brain'
   | 'git-fork'
   | 'calendar'
-  | 'pause';
+  | 'pause'
+  | 'mic';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   archive: (
@@ -233,6 +234,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   settings: <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
   play: <path d="M6 4l14 8-14 8z" />,
   pause: <path d="M7 4h3v16H7zM14 4h3v16h-3z" />,
+  mic: <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />,
   calendar: (
     <>
       <rect width="18" height="18" x="3" y="4" rx="2" />

@@ -22,3 +22,7 @@ a.dp-upl-chip:hover { border-color: var(--dp-accent); }
 .dp-comp-f .dp-btn.dp-upl-clip:hover:not(:disabled) { color: var(--dp-t1); }
 .dp-comp-f .dp-btn.dp-comp-stop { color: var(--dp-bad); }
 .dp-comp-f .dp-btn.dp-comp-stop svg { fill: currentColor; }
+.dp-comp-f .dp-btn.dp-upl-clip.dp-mic-on, .dp-comp-f .dp-btn.dp-upl-clip.dp-mic-on:hover:not(:disabled) { color: var(--dp-bad); }
+.dp-mic-on svg.dp-i { animation: dp-mic-pulse 1.2s ease-in-out infinite; }
+@keyframes dp-mic-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dp-mic-on svg.dp-i { animation: none; } }

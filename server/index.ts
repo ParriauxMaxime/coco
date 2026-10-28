@@ -45,6 +45,7 @@ import { createWorkspaceGit } from './workspace-git.ts';
 import { createWorkspaceFiles } from './workspace-files.ts';
 import { createWorkspaceTerminals } from './workspace-terminals.ts';
 import { createSchedules } from './schedules.ts';
+import { createDictation } from './dictation.ts';
 import { fillTemplate } from './schedule-view.ts';
 import { createPurge } from './purge.ts';
 import { SWEEP_AGE, createUploads, servePaseoAttachment } from './uploads.ts';
@@ -206,6 +207,12 @@ const workspaceTerminals = createWorkspaceTerminals({
     return c.connection?.state().status === 'connected' ? (c.terminalApi ?? null) : null;
   },
 });
+const dictation = createDictation({
+  daemon: async () => {
+    const c = await paseoAgents.client();
+    return c.connection?.state().status === 'connected' ? (c.voiceApi ?? null) : null;
+  },
+});
 const ritualVars = () => ({ briefsDir: BRIEFS, owner: config.owner.name });
 const schedules = createSchedules({
   daemon: async () => {
@@ -285,6 +292,7 @@ events.topic('workspace-git', workspaceGit.watch);
 events.topic('workspace-file', workspaceFiles.watch);
 events.topic('workspace-terminals', workspaceTerminals.watchList);
 events.topic('terminal', workspaceTerminals.watchTerminal);
+events.topic('dictation', dictation.watch);
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 void paseoHealth.boot().then(sweepArchivedCards);
@@ -606,6 +614,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'workspaces' && b === 'files') return workspaceFiles.handle(req, res, parts, readBody, send);
     if (root === 'workspaces' && (b === 'terminals' || b === 'scripts')) return workspaceTerminals.handle(req, res, parts, readBody, send);
     if (root === 'schedules') return schedules.handle(req, res, parts, readBody, send);
+    if (root === 'dictation') return dictation.handle(req, res, parts, readBody, send);
     // the work's Plan workspace (made on first use, as a read-only dispatch does), for its terminal
     if (root === 'works' && b === 'plan-workspace' && !c && req.method === 'POST') {
       if (!works.get(a)) return send(res, 404, { error: `no work ${a}` });

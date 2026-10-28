@@ -5,6 +5,7 @@ import { pendingClass } from '../../components/action.ts';
 import { useUnsaved } from '../../updates.ts';
 import { FILES_ONLY, MAX_ATTACHMENTS, fileProblem, isImage, sizeOf } from './Attachments.tsx';
 import { useAgentInput } from './agent-input.tsx';
+import { useDictation } from './dictation.ts';
 import type { UploadRef } from '../../types.ts';
 
 // follows the bottom while new steps arrive, unless the owner scrolled up to read
@@ -55,6 +56,8 @@ type ComposerProps = {
 };
 
 const DRAFT = 'coco.draft.';
+// ⌥Space held this long talks until released; a shorter press toggles
+const HOLD_MS = 500;
 const readDraft = (key?: string) => {
   try {
     return key ? sessionStorage.getItem(DRAFT + key) : null;
@@ -104,6 +107,61 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   const [files, setFiles] = useState<Attached[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [drag, setDrag] = useState(false);
+
+  // dictation: the transcript so far replaces what it wrote before, between the text before and after the cursor when it started
+  const box = useRef<HTMLTextAreaElement>(null);
+  const spot = useRef<{ pre: string; post: string } | null>(null);
+  const caret = useRef<number | null>(null);
+  const holdFrom = useRef(0);
+  const stopWhenLive = useRef(false);
+  const dictation = useDictation({
+    onText: (said, final) => {
+      const at = spot.current;
+      if (!at) return;
+      const lead = at.pre && said && !/\s$/.test(at.pre) ? ' ' : '';
+      const trail = at.post && said && !/^\s/.test(at.post) ? ' ' : '';
+      const head = at.pre + lead + said;
+      setText(head + trail + at.post);
+      caret.current = head.length;
+      if (final) spot.current = null;
+    },
+    onError: (message) => {
+      spot.current = null;
+      setErrors([message]);
+    },
+  });
+  const dictating = dictation.state !== 'idle';
+  const dictate = () => {
+    if (dictation.state === 'idle') {
+      const el = box.current;
+      const [a, b] = el ? [el.selectionStart, el.selectionEnd] : [text.length, text.length];
+      spot.current = { pre: text.slice(0, a), post: text.slice(b) };
+      setErrors([]);
+    }
+    void dictation.toggle();
+  };
+  const { state: dictationState, stop: stopDictation } = dictation;
+  useEffect(() => {
+    if (dictationState !== 'live' || !stopWhenLive.current) return;
+    stopWhenLive.current = false;
+    void stopDictation();
+  }, [dictationState, stopDictation]);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (caret.current === null || !el) return;
+    el.setSelectionRange(caret.current, caret.current);
+    if (!dictating) {
+      caret.current = null;
+      el.focus();
+    }
+  }, [text, dictating]);
+  const micTitle = !dictation.avail
+    ? 'Checking dictation…'
+    : !dictation.avail.engine
+      ? dictation.avail.reason ?? 'Dictation unavailable'
+      : dictating
+        ? 'Stop dictation (click, Esc or ⌥Space): the text stays for review'
+        : `Dictate at the cursor (⌥Space, hold to talk)${dictation.avail.engine === 'browser' ? ` · ${dictation.avail.reason}` : ''}`;
   const picker = useRef<HTMLInputElement>(null);
   const live = useRef(files);
   live.current = files;
@@ -158,7 +216,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   const uploading = files.some((f) => !f.ref);
   const empty = withText && !allowEmpty && !text.trim() && !files.length;
   const send = async () => {
-    if (empty || disabled || busy || sending || uploading) return;
+    if (empty || disabled || busy || sending || uploading || dictating) return;
     // the key can change while it sends (a new conversation gets its id) and the box unmount: the sent text leaves its own key
     const from = draft;
     if (await onSend(text.trim() || (files.length ? FILES_ONLY : ''), files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
@@ -193,14 +251,35 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
         {errors.length > 0 && <div className="dp-upl-err" role="alert"><Icon name="alert-triangle" size={12} /><span>{errors.join(' · ')}</span></div>}
         {withText && (
           <textarea
+            ref={box}
             rows={2}
             value={text}
             disabled={disabled}
+            readOnly={dictating}
             autoFocus={autoFocus}
-            placeholder={placeholder}
+            placeholder={dictating ? 'Listening…' : placeholder}
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => { const pasted = [...e.clipboardData.files]; if (pasted.length) { e.preventDefault(); add(pasted); } }}
+            onKeyUp={(e) => {
+              if (e.code !== 'Space' || !holdFrom.current) return;
+              const held = Date.now() - holdFrom.current >= HOLD_MS;
+              holdFrom.current = 0;
+              if (!held) return;
+              if (dictation.state === 'live') void dictation.stop();
+              else if (dictation.state === 'starting') stopWhenLive.current = true;
+            }}
             onKeyDown={(e) => {
+              if (e.altKey && e.code === 'Space' && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                if (e.repeat || !dictation.avail?.engine) return;
+                holdFrom.current = dictation.state === 'idle' ? Date.now() : 0;
+                return dictate();
+              }
+              if (dictating) {
+                if (e.key === 'Escape' || e.key === 'Enter') e.preventDefault();
+                if (e.key === 'Escape' && dictation.state === 'live') void dictation.stop();
+                return;
+              }
               if (agentInput.key(e)) return;
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
               else if (e.key === 'Escape' && (onStop || onCancel)) { e.preventDefault(); if (onStop) stop(); else onCancel?.(); }
@@ -214,11 +293,23 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
               <button type="button" className="dp-btn dp-ghost dp-sm dp-upl-clip" disabled={disabled} title="Attach images or files (or paste or drop them)" aria-label="Attach files" onClick={() => picker.current?.click()}><Icon name="paperclip" size={14} /></button>
             </>
           )}
+          {withText && (
+            <button
+              type="button"
+              className={`dp-btn dp-ghost dp-sm dp-upl-clip${dictating ? ' dp-mic-on' : ''}${pendingClass(dictation.state === 'starting' || dictation.state === 'finishing')}`}
+              disabled={disabled || !dictation.avail?.engine || dictation.state === 'finishing'}
+              aria-pressed={dictating}
+              aria-label={dictating ? 'Stop dictation' : 'Dictate'}
+              title={micTitle}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={dictate}
+            ><Icon name="mic" size={14} /></button>
+          )}
           {tools}
           <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
           {actions?.(text.trim(), () => setText(''), setText)}
           {onStop && <button type="button" className={`dp-btn dp-sm dp-comp-stop${pendingClass(stopping)}`} disabled={stopping} title="Interrupt the agent (Esc)" onClick={stop}><Icon name="square" size={12} />Stop<kbd>esc</kbd></button>}
-          <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading} title={uploading ? 'Waiting for the files to upload' : 'Shift+Enter for a new line'} onClick={() => void send()}>{sendLabel}<kbd>↵</kbd></button>
+          <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading || dictating} title={uploading ? 'Waiting for the files to upload' : dictating ? 'Stop dictation first' : 'Shift+Enter for a new line'} onClick={() => void send()}>{sendLabel}<kbd>↵</kbd></button>
         </div>
       </div>
     </div>

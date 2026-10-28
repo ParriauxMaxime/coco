@@ -20,6 +20,6 @@
     "appId": "com.parriauxmaxime.coco",
     "productName": "coco",
     "files": ["main.mjs", "preload.cjs", "app-dir.json", "build/trayTemplate*.png"],
-    "mac": { "icon": "build/icon.png", "category": "public.app-category.developer-tools", "target": "dir", "identity": null }
+    "mac": { "icon": "build/icon.png", "category": "public.app-category.developer-tools", "target": "dir", "identity": null, "extendInfo": { "NSMicrophoneUsageDescription": "coco dictates into its message boxes through Paseo's speech to text." } }
   }
 }

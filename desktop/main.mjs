@@ -1,6 +1,6 @@
 // coco's desktop shell: one window on the coco server (started when none answers), a menu bar icon, a dock badge and a global shortcut.
 // The server outlives the app: quitting coco leaves it running for the agents that call it.
-import { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage, session, shell, systemPreferences } from 'electron';
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,6 +39,28 @@ function baseUrl() {
   return 'http://127.0.0.1:8777';
 }
 const BASE = baseUrl();
+
+const ORIGIN = new URL(BASE).origin;
+const fromCoco = (url) => {
+  try {
+    return new URL(url).origin === ORIGIN;
+  } catch {
+    return false;
+  }
+};
+
+// the composer's mic (dictation): coco's own pages only, audio only, after macOS asks once; every other permission as Electron grants it
+function allowMic() {
+  const s = session.defaultSession;
+  s.setPermissionCheckHandler((_wc, permission, origin) => permission !== 'media' || fromCoco(origin));
+  s.setPermissionRequestHandler((_wc, permission, done, details) => {
+    if (permission !== 'media') return done(true);
+    const audioOnly = (details.mediaTypes ?? []).every((t) => t === 'audio');
+    if (!fromCoco(details.requestingUrl) || !audioOnly) return done(false);
+    if (process.platform !== 'darwin') return done(true);
+    systemPreferences.askForMediaAccess('microphone').then(done, () => done(false));
+  });
+}
 
 const answers = () => fetch(`${BASE}/api/server`, { signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => false);
 
@@ -149,6 +171,7 @@ app.on('will-quit', () => globalShortcut.unregisterAll());
 app.whenReady().then(() => {
   // packaged, the bundle carries the icon; run from source, Electron's own would show
   if (!app.isPackaged) app.dock?.setIcon(nativeImage.createFromPath(path.join(HERE, 'build', 'icon.png')));
+  allowMic();
   tray = new Tray(nativeImage.createFromPath(path.join(HERE, 'build', 'trayTemplate.png')));
   tray.on('click', show);
   refreshTray();

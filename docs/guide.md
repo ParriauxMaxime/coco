@@ -1731,6 +1731,39 @@ agent, paired by message id or text. `GET /api/uploads/<id>` serves a file
 back. At boot and daily, uploads older than 24 h that neither record names
 (dropped from the composer, never sent) are deleted; sent ones stay.
 
+## Dictation (voice into any composer)
+
+Every composer with a text box (agent tabs and pages, Ask, threads, New
+agent) has a mic next to the paperclip. Click it, or press ⌥Space in the
+box, and speak: the transcript so far shows live at the cursor, between the
+text before and after it, the box read-only meanwhile. Click again, Esc or
+⌥Space stops; holding ⌥Space past half a second talks until you release it.
+The final text stays in the box for review: nothing is sent, and Send waits
+until dictation stops.
+
+It is Paseo's own speech to text, the one its app's mic uses (Paseo
+settings, Dictation: `features.dictation` in `~/.paseo/config.json`, a local
+Parakeet model by default). The page captures the mic as 16-bit mono PCM
+(16 kHz, or the browser's rate, which the daemon resamples) and posts
+quarter-second chunks; coco relays them on its daemon connection:
+`GET /api/dictation` (`{ available, reason }` from the daemon's
+`capabilities.voice.dictation`), `POST /api/dictation { id, rate }`,
+`POST /api/dictation/<id>/audio { audio }` (base64, at most 136 KB, an even
+byte count), `.../finish` → `{ text }`, `.../cancel`. The transcript so far
+comes back on topic `dictation:<id>` (`partial`, then `final` or `failed`).
+At most 4 run at once; one fed no audio for 30 s, or running 10 min, is
+stopped.
+
+When Paseo is away or its dictation is off, Chrome's own speech recognition
+stands in (the mic's tooltip says so); the desktop app has no such fallback
+(Electron lacks Google's speech keys), so the mic is disabled there with the
+reason as its tooltip. A failure shows under the box, never silently. The
+desktop app grants the microphone to coco's own origin only, audio only,
+after macOS asks once (`NSMicrophoneUsageDescription` in the packaged app:
+rebuild it with `npm run install-app` in `desktop/`). Reading replies aloud
+is not offered: Paseo speaks only inside its voice mode, which drives an
+agent turn by turn, not as a standalone text to speech.
+
 ## Team pack (share with teammates)
 
 The **Team pack** card on the Dashboard zips what a teammate needs to work

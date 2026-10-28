@@ -113,6 +113,15 @@ export const scheduleApi = {
   act: (id: string, action: 'pause' | 'resume' | 'run-once') => postJson(schedUrl(id, action)).then(jsonOrError<Sched>),
   remove: (id: string) => fetch(schedUrl(id), { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
 };
+// dictation through Paseo's speech to text (server/dictation.ts)
+const dictUrl = (id?: string, action?: string) => `/api/dictation${id ? `/${id}/${action}` : ''}`;
+export const dictationApi = {
+  status: () => getOrError<{ available: boolean; reason: string | null }>(dictUrl()),
+  start: (id: string, rate: number) => postJson(dictUrl(), { id, rate }).then(jsonOrError<{ ok: boolean }>),
+  audio: (id: string, audio: string) => postJson(dictUrl(id, 'audio'), { audio }).then(jsonOrError<{ seq: number }>),
+  finish: (id: string) => postJson(dictUrl(id, 'finish')).then(jsonOrError<{ text: string }>),
+  cancel: (id: string) => postJson(dictUrl(id, 'cancel')).then(jsonOrError<{ ok: boolean }>),
+};
 // a worktree with no Paseo workspace, by its path
 export const pathWsId = (dir: string) => `p.${btoa(String.fromCharCode(...new TextEncoder().encode(dir))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 
