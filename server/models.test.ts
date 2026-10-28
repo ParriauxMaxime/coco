@@ -79,3 +79,24 @@ test('a live agent switches model and thinking in place, only what changed, and 
   await assert.rejects(models.apply('a1', { thinking: 'low' }), (e: Error & { status?: number }) => e.status === 409);
   assert.equal(calls.model.length, 1);
 });
+
+test('every provider Paseo has ready is offered after the ones coco uses, with its label and modes; one not ready or listing no model is left out', async () => {
+  const listed: string[] = [];
+  const entries = [
+    { provider: 'claude', status: 'ready', label: 'Claude', modes: [{ id: 'auto', label: 'Auto mode' }], defaultModeId: 'auto' },
+    { provider: 'codex', status: 'unavailable', label: 'Codex' },
+    { provider: 'opencode', status: 'ready', label: 'OpenCode', modes: [{ id: 'build', label: 'Build' }] },
+    { provider: 'omp', status: 'ready', enabled: false },
+    { provider: 'claude-perso', status: 'ready', label: 'Claude (Perso)', modes: [{ id: 'plan', label: 'Plan Mode', colorTier: 'planning' }], defaultModeId: 'auto' },
+  ];
+  const client = {
+    providers: {
+      snapshot: async () => ({ entries }),
+      listModels: async (id: string) => (listed.push(id), id === 'opencode' ? { models: [], error: 'no auth' } : { models: RAW }),
+    },
+  } as unknown as ModelsClient;
+  const cat = await createModels({ client: async () => client, config }).list();
+  assert.deepEqual(listed, ['claude', 'claude-perso', 'opencode']);
+  assert.deepEqual(cat.providers.map((p) => [p.id, p.label, p.models.length, p.modes?.map((m) => m.id), p.defaultMode]), [['claude', 'Claude', 3, ['auto'], 'auto'], ['claude-perso', 'Claude (Perso)', 3, ['plan'], 'auto']]);
+  assert.deepEqual(checkPick(cat, { provider: 'claude-perso/sonnet', thinking: 'low' }), { provider: 'claude-perso/claude-sonnet-5-5', thinking: 'low' });
+});

@@ -20,7 +20,8 @@ import { ContextRing } from './Ring.tsx';
 import { HandoffControls } from './Handoff.tsx';
 import Thread, { threadLabel, useThreadsOf } from '../components/Thread.tsx';
 import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadSummary, UploadRef } from '../types.ts';
-import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
+import { ModelControls, useAskModel, useLiveMode, useModelChoice } from './chat/ModelPicker.tsx';
+import { AgentTitle } from './AgentTitle.tsx';
 import type { Choice } from './chat/ModelPicker.tsx';
 import { useOverview } from './overview.ts';
 import { SubagentBar } from './Subagents.tsx';
@@ -30,15 +31,16 @@ const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
 
 // serverId: given outside a work, where no work agent list carries it; handoff: its Hand off button and where it was handed from or to
-type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; serverId?: string | null; handoff?: boolean };
-export function Header({ title, kind, pr, state, agentId, metrics, chips, serverId, handoff = false }: HeaderProps) {
+// onRenamed: after the title was edited in place (a live agent's title is a click to rename)
+type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; serverId?: string | null; handoff?: boolean; onRenamed?: (title: string) => void };
+export function Header({ title, kind, pr, state, agentId, metrics, chips, serverId, handoff = false, onRenamed }: HeaderProps) {
   const listedServer = useServerId(useContext(WorkContext)?.slug ?? '');
   const href = paseoLink(serverId ?? listedServer, agentId);
   const usage = metrics ? usageLine(metrics) : '';
   return (
     <div className="dp-vbar dp-ag-bar">
       <AgentDot state={state} />
-      <span className="dp-title dp-ell">{title}</span>
+      <AgentTitle title={title} agentId={state === 'archived' ? null : agentId} onRenamed={onRenamed} />
       <span className="dp-chip">{kind}</span>
       {pr && <span className="dp-chip">{prLabel(pr)}</span>}
       {chips}
@@ -99,7 +101,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const state = working && base !== 'waiting' ? 'running' : base;
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
-      <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
+      <Header title={listed?.title || run?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
       <SubagentParent.Provider value={run?.agentId ?? listed?.agentId ?? null}>
         <Log size={events.length + pending.length + cards.length}>
           {run && <Conversation run={run} events={events} pending={pending} working={working} cards={cards} onCard={mergeCard} />}
@@ -109,6 +111,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
       <SubagentBar agentId={run?.agentId ?? listed?.agentId} />
       <Composer
         draft={`ask:${id}`}
+        agentId={model.agentId}
         placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
         note={state === 'archived' ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : ''}
         tools={model.tools}
@@ -167,6 +170,8 @@ export function AgentTranscript({ agentId, state, who, lead, fallback, inline = 
   const archived = state === 'archived';
   const listed = useOverview().ov?.agents.find((a) => a.id === agentId);
   const model = useModelChoice(null, { live: true, current: current ?? (listed?.provider ? { provider: listed.provider, thinking: listed.thinking || null } : null) });
+  const live = archived || gone ? null : agentId;
+  const mode = useLiveMode(live);
   return (
     <>
       <SubagentParent.Provider value={agentId}>
@@ -184,7 +189,8 @@ export function AgentTranscript({ agentId, state, who, lead, fallback, inline = 
         placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
         note={archived ? (inline ? 'Archived' : 'Archived: + in Agents starts a new one') : state === 'running' ? 'Sends while it works' : cards.some((c) => c.status === 'open' && c.kind !== 'post') ? 'A message answers its open cards' : ''}
         disabled={archived || gone}
-        tools={<ModelControls choice={model.choice} onPick={model.pick} hint="switches this agent from your next message" disabled={archived || gone} />}
+        agentId={live}
+        tools={<ModelControls choice={model.choice} onPick={model.pick} hint="switches this agent from your next message" disabled={archived || gone} mode={mode} lock />}
         onSend={async (text, files) => {
           const ok = await send(text, files, model.body());
           if (ok) onSent?.();

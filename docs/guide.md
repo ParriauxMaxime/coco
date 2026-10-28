@@ -1366,15 +1366,39 @@ when Chrome is not at the macOS default path.
 
 Every agent composer shows, next to the paperclip, the model (Sonnet 5.5),
 the thinking level (High, or the model's default) and an **auto** chip.
-Each opens a small menu: the models Paseo lists for the providers your
-`models.default` and `models.fast` use (`default` and `fast` tagged), and the
-thinking levels of the picked model. The model menu lists the newest release
+Each opens a small menu: the models Paseo lists, grouped by provider under
+Paseo's name for it — first the providers your `models.default` and
+`models.fast` use (`default` and `fast` tagged), then every other provider
+Paseo has ready (another Claude login such as **Claude (Perso)** right after
+Claude, then OpenCode…; a provider not ready or listing no model is left out)
+— and the thinking levels of the picked model. The model menu lists the newest release
 of each family (Opus, Sonnet, Fable, Haiku…), plus the defaults and your
 current pick even when older; **Show all models** at its foot adds the older
-releases and the 1M-context variants, and is remembered in this browser. The mode is not a choice: every coco
-agent runs in Paseo's auto mode, and a brief saying not to touch code is what
-keeps one read-only. The one exception is the New agent launcher (below),
-whose mode chip is a menu of Paseo's own modes for the provider.
+releases and the 1M-context variants, and is remembered in this browser. An
+agent coco starts runs in Paseo's auto mode, and a brief saying not to touch
+code is what keeps one read-only; the New agent launcher (below) picks
+another mode at start, and a live agent's mode chip switches it (below).
+
+- **Mode of a live agent** (agent tabs and pages, an open Ask conversation):
+  the chip shows the agent's current mode as Paseo reports it, read again
+  each time you open it, and is a menu of the modes the agent can take (the
+  ones New agent offers for its provider: Plan, Always Ask, Accept File Edits,
+  Auto, Bypass). A pick switches the agent at once, its turn in flight
+  included (Paseo's set-mode call), not from your next message.
+  `GET|POST /api/agent-chat/<agent>/mode` (`{ mode }`, one of the agent's).
+- **Slash commands**: `/` at the start of a live agent's composer (agent tabs
+  and pages, an open Ask conversation) opens the commands and skills the
+  agent's session loaded, filtered as you type; ↑↓ pick, ↵ or Tab inserts
+  `/<name> `, Esc closes. `GET /api/agent-chat/<agent>/commands`.
+- **Prompt recall**: ↑ in an empty composer brings back the prompts you sent
+  that agent, newest first (its latest 30, in full), ↓ goes back down to an
+  empty box. Text you typed is never replaced: recall only acts on an empty
+  box or on a recalled prompt left unchanged. `GET /api/agent-chat/<agent>/prompts`.
+- **Rename**: click the title in a live agent's header (or focus it and press
+  ↵), edit it in place, ↵ saves and Esc leaves it. The name goes to Paseo (an
+  agent coco started keeps its `coco · ` prefix there), the lists and tabs
+  follow, and an Ask conversation keeps it for its next agent.
+  `POST /api/agent-chat/<agent>/rename` (`{ name }`, at most 80 characters).
 
 - Starting an agent (a new-agent tab, the Ask page and panels, Dispatch, a
   thread's first message): the pick goes with the start. Unpicked, Ask and
@@ -1385,7 +1409,8 @@ whose mode chip is a menu of Paseo's own modes for the provider.
   current model and thinking, and a new pick switches the agent in place from
   your next message (Paseo's set-model and set-thinking calls); a parked or
   closed Ask conversation takes it to the next agent it starts. A live agent
-  never switches provider.
+  never switches provider: an agent tab's model menu offers only its own
+  provider's models.
 - Picks are checked against `GET /api/models` (Paseo's list, cached 10 min,
   retried sooner after a failure): an unknown model or a thinking level the
   model lacks is refused before anything starts. Routes take `provider`

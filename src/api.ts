@@ -8,7 +8,7 @@ import type {
 } from './types.ts';
 import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
-import type { AgentInfo, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
+import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
 
 export type * from './types.ts';
@@ -143,6 +143,11 @@ export const api = {
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),
   dropUpload: (id: string) => fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
   agentInfo: (agentId: string) => get<AgentInfo>(`/api/agent-chat/${encodeURIComponent(agentId)}`),
+  agentModes: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/mode`).then(jsonOrError<AgentModes>),
+  setAgentMode: (agentId: string, mode: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/mode`, { mode }).then(jsonOrError<AgentModes & { changed: boolean }>),
+  agentCommands: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/commands`).then(jsonOrError<{ commands: AgentCommand[]; error: string | null }>),
+  agentPrompts: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/prompts`).then(jsonOrError<{ prompts: AgentPrompt[] }>),
+  renameAgent: (agentId: string, name: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/rename`, { name }).then(jsonOrError<{ ok: boolean; title: string }>),
   handoffs: (agentId: string) => get<AgentHandoffs>(`/api/agent-chat/${encodeURIComponent(agentId)}/handoff`),
   handOff: (agentId: string, body: HandoffBody) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/handoff`, body).then(jsonOrError<{ handoff: Handoff }>),
   newAgentPlaces: (work?: string | null) => get<NewAgentPlaces>(`/api/new-agent${work ? `?work=${encodeURIComponent(work)}` : ''}`),

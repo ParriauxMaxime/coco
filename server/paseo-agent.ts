@@ -50,11 +50,13 @@ export type DaemonAgent = {
   workspaceId?: string | null;
   cwd?: string | null;
   status?: string | null;
-  timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
+  timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before' | 'after'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string } & AgentInput): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; currentModeId?: string | null; cwd?: string | null; workspaceId?: string | null; lastUsage?: PaseoUsage | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; currentModeId?: string | null; availableModes?: ModeEntry[] | null; cwd?: string | null; workspaceId?: string | null; lastUsage?: PaseoUsage | null } | null } | null>;
   archive(): Promise<unknown>;
+  // the slash commands and skills its live session loaded; a provider that cannot answer says so in error
+  commands?(): Promise<{ commands?: { name: string; description?: string; argumentHint?: string; kind?: string }[]; error?: string | null }>;
 } & ReturnType<PermissionClient['agents']['ref']>;
 export type WorkspaceEntry = { id: string; projectId?: string; workspaceDirectory?: string; archivingAt?: unknown; name?: string | null; title?: string | null; projectDisplayName?: string | null; activityAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null };
 export type UsageWindow = { id: string; label: string; shortLabel?: string; summary?: boolean; usedPct?: number | null; resetsAt?: string | null; tone?: 'default' | 'ok' | 'warning' | 'danger' };
@@ -63,7 +65,10 @@ export type ProviderUsage = { providerId: string; displayName: string; status: '
 export type ConnectionState = { status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'disposed'; reason?: string; nextRetryAt?: string; attempt?: number };
 export type DaemonConnection = { state(): ConnectionState; onChange(l: (s: ConnectionState) => void): () => void; lastError(): string | null; version(): string | null; reconnect(): void };
 // modes and defaultModeId: what Paseo's own new-agent screen offers for the provider, and the mode it starts in
-export type ProviderEntry = { provider: string; status: string; enabled?: boolean; label?: string; source?: string; error?: string | null; modes?: { id: string; label: string; description?: string; colorTier?: string }[]; defaultModeId?: string | null };
+export type ModeEntry = { id: string; label: string; description?: string; colorTier?: string };
+export type ProviderEntry = { provider: string; status: string; enabled?: boolean; label?: string; source?: string; error?: string | null; modes?: ModeEntry[]; defaultModeId?: string | null };
+// a user prompt in an agent's timeline index: its preview is clipped (ends with …) past a few hundred characters
+export type PromptIndex = { epoch?: string; prompts?: { seq: number; timestamp?: string; preview: string }[]; error?: string | null };
 export type WorkspaceHandle ={ id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
 export type DaemonClient = {
   workspaces: {
@@ -78,6 +83,9 @@ export type DaemonClient = {
   connection?: DaemonConnection;
   setAgentModel?(agentId: string, modelId: string | null): Promise<unknown>;
   setAgentThinkingOption?(agentId: string, thinkingOptionId: string | null): Promise<unknown>;
+  setAgentMode?(agentId: string, modeId: string): Promise<unknown>;
+  updateAgent?(agentId: string, updates: { name?: string }): Promise<unknown>;
+  listAgentTimelinePrompts?(agentId: string): Promise<PromptIndex>;
 } & SubagentApi;
 type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
 
@@ -120,7 +128,7 @@ export async function daemonServerId(exec: Exec = defaultExec): Promise<string |
 
 export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}): Promise<DaemonClient> {
   const url = await daemonUrl(exec);
-  // the SDK's own client, plus the model and thinking setters only its inner daemon client has
+  // the SDK's own client, plus the setters (model, thinking, mode, name) and the prompt index only its inner daemon client has
   const raw = new RawDaemon({ url, clientId: 'cocopilot', clientType: 'cli', password: process.env.PASEO_PASSWORD || undefined, reconnect: { enabled: true, maxDelayMs: RECONNECT_MAX_MS } });
   const api = createPaseoApi(raw);
   const close = () => api.dispose().finally(() => raw.close());
@@ -132,7 +140,8 @@ export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}
     reconnect: () => raw.ensureConnected(),
   };
   const client = { ...api, close, connection, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
-  Object.assign(client, { listProviderSubagents: (id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts) });
+  Object.assign(client, { setAgentMode: (id: string, m: string) => raw.setAgentMode(id, m), updateAgent: (id: string, u: { name?: string }) => raw.updateAgent(id, u), listAgentTimelinePrompts: (id: string) => raw.listAgentTimelinePrompts(id) });
+  Object.assign(client, { listProviderSubagents:(id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts) });
   // with reconnect on, the SDK's first connect waits for the daemon forever: past the deadline coco reports it unreachable and tries again later
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -408,7 +417,8 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
         ? {
             mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true } },
             toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) },
-            ...(String(provider).startsWith('claude/') ? { options: { disallowedTools: ['AskUserQuestion'] } } : {}),
+            // a provider that extends Claude (claude-perso) takes Claude's options too
+            ...(/^claude[\w-]*\//.test(String(provider)) ? { options: { disallowedTools: ['AskUserQuestion'] } } : {}),
           }
         : {}),
     };

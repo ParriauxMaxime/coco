@@ -557,6 +557,8 @@ export type WorktreesRemoved = { removed: string[]; kept: { path: string; why: s
 export type AskRun = {
   id: string;
   prompt: string;
+  // the name the user gave its agent
+  title?: string | null;
   scope?: AskScope;
   workSlug?: string | null;
   pr?: string | number | null;
@@ -579,7 +581,12 @@ export type ModelThinking = { id: string; label: string };
 export type ModelEntry = { id: string; label: string; description: string | null; aliases: string[]; thinking: ModelThinking[]; defaultThinking: string | null };
 // modes: what Paseo's new-agent screen offers for the provider, defaultMode the one it starts in
 export type AgentMode = { id: string; label: string; description: string | null; tier: string | null };
-export type ModelCatalog = { mode: string; defaults: { default: string; fast: string }; providers: { id: string; models: ModelEntry[]; error: string | null; modes?: AgentMode[]; defaultMode?: string | null }[] };
+// providers: those of coco's config first, then every other one Paseo has ready (label: Paseo's name for it)
+export type ModelCatalog = { mode: string; defaults: { default: string; fast: string }; providers: { id: string; label?: string | null; models: ModelEntry[]; error: string | null; modes?: AgentMode[]; defaultMode?: string | null }[] };
+// a live agent's mode (GET|POST /api/agent-chat/<id>/mode), its slash commands and the prompts the user sent it
+export type AgentModes = { mode: string | null; modes: AgentMode[]; defaultMode: string | null; provider: string | null; archived: boolean };
+export type AgentCommand = { name: string; description: string; hint: string; kind: string };
+export type AgentPrompt = { text: string; at: string | null };
 // where a new agent can run (GET /api/new-agent); rows: the open PRs of the work asked for
 export type NewAgentPlaces = {
   app: string | null;

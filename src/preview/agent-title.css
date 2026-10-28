@@ -1,0 +1,4 @@
+.dp-ag-name { cursor: text; border-radius: var(--dp-r1); padding: 0 2px; margin: 0 -2px; }
+.dp-ag-name:hover { background: var(--dp-hover); }
+.dp-ag-name:focus-visible { outline: 2px solid var(--dp-focus); }
+.dp-inp.dp-ag-rename { height: 24px; flex: 0 1 320px; min-width: 120px; font-weight: 600; }

@@ -65,6 +65,8 @@ const scopeOf = (c: { scope?: AskScope | null; workSlug?: string | null }): AskS
 type Conv = {
   id: string;
   prompt: string;
+  // the name the user gave its agent, kept for the lists and its next agent
+  title?: string | null;
   scope: AskScope;
   workSlug: string | null;
   // the stack row a work's conversation is about: its agent runs in that row's worktree
@@ -93,7 +95,7 @@ type Conv = {
   onEnd?: (conv: Conv) => void;
   once?: boolean;
 };
-const META = ['id', 'prompt', 'scope', 'workSlug', 'pr', 'kind', 'model', 'thinking', 'startedAt', 'lastActivity', 'status', 'turns', 'proposed', 'text', 'agentId', 'agentIds', 'cost', 'costBase', 'once'] as const satisfies readonly (keyof Conv)[];
+const META = ['id', 'prompt', 'title', 'scope', 'workSlug', 'pr', 'kind', 'model', 'thinking', 'startedAt', 'lastActivity', 'status', 'turns', 'proposed', 'text', 'agentId', 'agentIds', 'cost', 'costBase', 'once'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; text?: string; cost?: number | null };
 type CardFeed = { ofAgent(agentId: string): Card[]; onChange(l: (agentId: string) => void): () => void; chatted?(agentIds: string[]): unknown };
@@ -314,7 +316,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       const { workspaceId, cwd } = await where(conv.scope, conv.pr ?? null);
       push(conv, { type: 'step', text: 'Starting the agent' });
       const s = await agents.session({
-        title: `Ask: ${conv.prompt.split('\n')[0]}`,
+        title: conv.title || `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${providerFor(conv.model)}${conv.thinking ? `, thinking ${conv.thinking}` : ''}.`,
         provider: providerFor(conv.model),
         ...(conv.thinking ? { thinking: conv.thinking } : {}),
@@ -500,7 +502,16 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const saved = metas().find((m) => agentsOf(m).includes(agentId));
     return saved ? load(saved.id) : null;
   }
-  const from = (conv: Conv | null, agentId: string) => (conv ? `ask ${conv.id.slice(0, 8)}: "${conv.prompt.slice(0, 120)}"` : `agent ${agentId.slice(0, 8)}`);
+
+  // the user renamed the conversation's agent: its lists and its next agent take that name
+  function rename(agentId: string, title: string) {
+    const conv = convOf(agentId);
+    if (!conv) return false;
+    conv.title = title;
+    save(conv);
+    return true;
+  }
+  const from =(conv: Conv | null, agentId: string) => (conv ? `ask ${conv.id.slice(0, 8)}: "${conv.prompt.slice(0, 120)}"` : `agent ${agentId.slice(0, 8)}`);
 
   // parent: the work of the agent that proposed it, kept on a new work only
   function apply(p: Scaffold, { scope, source, replaceStack = false, parent = null }: { scope: AskScope; source: string; replaceStack?: boolean; parent?: string | null }) {
@@ -727,6 +738,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     load,
     byAgent: (agentId: string) => [...convs.values()].find((c) => c.agentId === agentId) || null,
     convOf,
+    rename,
     onChange: (l: () => void) => (changed.add(l), () => changed.delete(l)),
     actions,
   };

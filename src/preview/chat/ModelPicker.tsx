@@ -5,7 +5,8 @@ import Icon from '../Icon.tsx';
 import { useModelList, useModelPicks } from '../prefs.ts';
 import type { ModelPickPref } from '../prefs.ts';
 import { latestModels } from './model-view.ts';
-import type { ModelCatalog, ModelChoice } from '../../types.ts';
+import { toast } from '../../components/Toast.tsx';
+import type { AgentMode, AgentModes, ModelCatalog, ModelChoice } from '../../types.ts';
 import './model.css';
 
 export type Choice = ModelPickPref;
@@ -57,21 +58,48 @@ export function useModelChoice(kind: string | null, { fast = false, live = false
 }
 
 // an Ask conversation's pick: the kind's until it starts, then its agent's; a parked or closed one takes it to its next agent
-export function useAskModel(run: { model?: string | null; thinking?: string | null; status?: string } | null) {
+export function useAskModel(run: { model?: string | null; thinking?: string | null; status?: string; agentId?: string | null } | null) {
   const { catalog } = useModelCatalog();
   const provider = run ? run.model || catalog?.defaults.default : null;
   const m = useModelChoice('ask', { live: Boolean(run), current: provider ? { provider, thinking: run?.thinking ?? null } : null });
   const later = run && !['idle', 'running'].includes(run.status || '');
+  // its live agent, for the composer's slash commands and prompt recall
+  const agentId = later ? null : run?.agentId ?? null;
+  const mode = useLiveMode(agentId);
   const hint = !run ? 'for the agent this starts' : later ? 'applies to the next agent' : 'switches its agent from your next message';
-  return { ...m, tools: <ModelControls choice={m.choice} onPick={m.pick} hint={hint} /> };
+  return { ...m, agentId, tools: <ModelControls choice={m.choice} onPick={m.pick} hint={hint} mode={mode} /> };
+}
+
+// a live agent's mode chip as a menu: its current mode from Paseo (read again on each open), a pick switches it at once
+export function useLiveMode(agentId: string | null | undefined): ModePick | undefined {
+  const [now, setNow] = useState<AgentModes | null>(null);
+  const read = () => {
+    if (agentId) api.agentModes(agentId).then(setNow, () => {});
+  };
+  useEffect(() => {
+    setNow(null);
+    read();
+  }, [agentId]);
+  if (!agentId || !now || now.archived || !now.modes.length) return undefined;
+  const pick = (id: string | null) => {
+    if (!id || id === now.mode) return;
+    const was = now;
+    setNow({ ...now, mode: id });
+    api.setAgentMode(agentId, id).then(setNow, (e) => {
+      setNow(was);
+      toast.error(`Mode not changed: ${errorMessage(e)}`);
+    });
+  };
+  return { value: now.mode, onPick: pick, live: true, modes: now.modes, defaultMode: now.defaultMode, onOpen: read };
 }
 
 const MODE_TITLE = 'Every coco agent runs in Paseo\'s auto mode: it works on its own, and a brief that says not to touch code is what keeps one read-only';
 
 // the composer's model and thinking pickers, then the mode chip; hint says when a pick applies
-// mode: a new agent's own pick among the provider's Paseo modes (null: the provider's default), instead of coco's fixed auto chip
-type ModePick = { value: string | null; onPick: (id: string | null) => void };
-export function ModelControls({ choice, onPick, hint, disabled = false, mode }: { choice: Choice | null; onPick: (c: Choice) => void; hint: string; disabled?: boolean; mode?: ModePick }) {
+// mode: a new agent's own pick among the provider's Paseo modes (null: the provider's default), instead of coco's fixed auto chip;
+// live: a running agent's mode (modes: its own list), switched at once; lock: a live agent keeps its provider, so only that one's models are offered
+type ModePick = { value: string | null; onPick: (id: string | null) => void; live?: boolean; modes?: AgentMode[]; defaultMode?: string | null; onOpen?: () => void };
+export function ModelControls({ choice, onPick, hint, disabled = false, mode, lock = false }: { choice: Choice | null; onPick: (c: Choice) => void; hint: string; disabled?: boolean; mode?: ModePick; lock?: boolean }) {
   const { catalog, error } = useModelCatalog();
   const [open, setOpen] = useState<'model' | 'thinking' | 'mode' | null>(null);
   const box = useRef<HTMLSpanElement>(null);
@@ -89,7 +117,8 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode }: 
   const { all, toggle: toggleAll } = useModelList();
   const model = modelOf(catalog, choice?.provider);
   const kept = [model, modelOf(catalog, catalog?.defaults.default), modelOf(catalog, catalog?.defaults.fast)].flatMap((m) => (m ? [m.id] : []));
-  const offered = catalog?.providers.filter((p) => p.models.length) ?? [];
+  const only = lock && choice ? family(choice.provider) : null;
+  const offered = catalog?.providers.filter((p) => p.models.length && (!only || p.id === only)) ?? [];
   const providers = all ? offered : offered.map((p) => ({ ...p, models: latestModels(p.models, kept) }));
   const hidden = offered.reduce((n, p) => n + p.models.length, 0) - providers.reduce((n, p) => n + p.models.length, 0);
   const failed = error || catalog?.providers.map((p) => p.error && `${p.id}: ${p.error}`).filter(Boolean).join(' · ');
@@ -97,10 +126,14 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode }: 
   const level = (id: string | null | undefined) => model?.thinking.find((t) => t.id === id)?.label ?? id;
   const thinkingLabel = choice?.thinking ? level(choice.thinking) : model?.defaultThinking ? level(model.defaultThinking) : 'default';
   const entry = choice ? catalog?.providers.find((p) => p.id === family(choice.provider)) : null;
-  const modes = mode ? entry?.modes ?? [] : [];
-  const modeId = mode?.value ?? entry?.defaultMode ?? null;
+  const modes = mode ? mode.modes ?? entry?.modes ?? [] : [];
+  const defaultMode = mode?.defaultMode !== undefined ? mode.defaultMode : entry?.defaultMode ?? null;
+  const modeId = mode?.value ?? defaultMode;
   const shown = modes.find((m) => m.id === modeId);
-  const toggle = (which: 'model' | 'thinking' | 'mode') => setOpen((o) => (o === which ? null : which));
+  const toggle = (which: 'model' | 'thinking' | 'mode') => {
+    if (which === 'mode' && open !== 'mode') mode?.onOpen?.();
+    setOpen((o) => (o === which ? null : which));
+  };
   const choose = (c: Choice) => {
     onPick(c);
     setOpen(null);
@@ -120,19 +153,19 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode }: 
       ) : <span className="dp-chip dp-mdl-mode" title={MODE_TITLE}>{mode ? 'default' : 'auto'}</span>}
       {open === 'mode' && mode && (
         <div className="dp-pop dp-on dp-mdl-pop dp-mdl-mpop" role="menu">
-          <div className="dp-pop-h"><b>Mode</b><span className="dp-xs dp-t3 dp-ell">{entry?.id}</span></div>
+          <div className="dp-pop-h"><b>Mode</b><span className="dp-xs dp-t3 dp-ell">{entry?.label || entry?.id}</span></div>
           <div className="dp-pop-s">
             {modes.map((m) => (
-              <div key={m.id} role="menuitemradio" aria-checked={m.id === modeId} className={`dp-mi${m.id === modeId ? ' dp-hl' : ''}`} title={m.description ?? m.label} onClick={() => { mode.onPick(m.id === entry?.defaultMode ? null : m.id); setOpen(null); }}>
+              <div key={m.id} role="menuitemradio" aria-checked={m.id === modeId} className={`dp-mi${m.id === modeId ? ' dp-hl' : ''}`} title={m.description ?? m.label} onClick={() => { mode.onPick(!mode.live && m.id === defaultMode ? null : m.id); setOpen(null); }}>
                 {m.id === modeId ? <Icon name="check" size={14} /> : <span className="dp-mdl-sp" />}
                 <span className="dp-ell">{m.label}</span>
-                {m.id === entry?.defaultMode && <span className="dp-chip dp-mdl-tag">default</span>}
+                {m.id === defaultMode && <span className="dp-chip dp-mdl-tag">default</span>}
                 {m.tier === 'dangerous' && <span className="dp-chip dp-bad dp-mdl-tag">no prompts</span>}
                 <span className="dp-r dp-ell">{m.description ?? ''}</span>
               </div>
             ))}
           </div>
-          <div className="dp-pop-s dp-mdl-foot dp-xs dp-t3">Paseo's modes for {entry?.id}; the agent starts in this one</div>
+          <div className="dp-pop-s dp-mdl-foot dp-xs dp-t3">{mode.live ? 'Switches the agent now, its turn in flight included' : `Paseo's modes for ${entry?.label || entry?.id}; the agent starts in this one`}</div>
         </div>
       )}
       {open === 'model' && (
@@ -142,7 +175,7 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode }: 
           {!catalog && !error && <div className="dp-mdl-err dp-xs dp-t3">Loading Paseo's models…</div>}
           {providers.map((p) => (
             <div key={p.id} className="dp-pop-s">
-              {providers.length > 1 && <div className="dp-pop-t">{p.id}</div>}
+              {providers.length > 1 && <div className="dp-pop-t" title={`Paseo provider ${p.id}`}>{p.label || p.id}</div>}
               {p.models.map((m) => {
                 const id = `${p.id}/${m.id}`;
                 const on = model === m;

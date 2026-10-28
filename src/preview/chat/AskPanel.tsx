@@ -66,7 +66,7 @@ export function AskPanel({ convo, start, placeholder, examples = [], draft }: { 
           {examples.map((e) => <button key={e} type="button" className="dp-btn dp-sm" title={e} onClick={() => void ask(e)}>{e.slice(0, 48)}…</button>)}
         </div>
       )}
-      <Composer draft={run ? `ask:${run.id}` : draft} placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} tools={model.tools} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
+      <Composer draft={run ? `ask:${run.id}` : draft} agentId={model.agentId} placeholder={placeholder} sendLabel={!run ? 'Ask' : working ? 'Send while it works' : 'Send'} tools={model.tools} onSend={ask} onStop={working && run?.agentId ? () => api.agentStop(run.agentId ?? '') : undefined} />
     </div>
   );
 }

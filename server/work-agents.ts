@@ -32,7 +32,7 @@ export type WorkAgent = { id: string; agentId: string | null; askId: string | nu
 type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens: number | null; contextMax: number | null; openCards: number };
 type CardFeed = { ofAgent(agentId: string): unknown[]; openCount(agentId: string): number; onChange(l: (agentId: string) => void): () => void; chatted?(agentIds: string[]): unknown };
 
-type AskMeta = { id: string; prompt: string; kind: string; pr?: RowKey | null; status: string; agentId: string | null; lastActivity?: string; startedAt: string };
+type AskMeta = { id: string; prompt: string; title?: string | null; kind: string; pr?: RowKey | null; status: string; agentId: string | null; lastActivity?: string; startedAt: string };
 type Linked = { agentId: string; key: RowKey; title: string | null };
 type Options = {
   client: () => Promise<DaemonClient>;
@@ -84,7 +84,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     const seen = new Set(labelled.map((a) => a.id));
     const links = await Promise.all(linked(slug).filter((l) => !seen.has(l.agentId)).map(async (l) => ({ l, a: (await c.agents.ref(l.agentId).refresh().catch(() => null))?.agent ?? null })));
     return [
-      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: m.prompt.split('\n')[0].slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, ...metrics(m.agentId) })),
+      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, ...metrics(m.agentId) })),
       ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: a.labels?.pr ? a.labels.pr.replaceAll('~', ':') : null, status: statusOf(a), updatedAt: a.updatedAt || null, ...metrics(a.id, a.lastUsage) })),
       ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, ...metrics(l.agentId, a?.lastUsage) })),
     ];

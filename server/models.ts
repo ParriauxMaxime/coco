@@ -1,20 +1,23 @@
-// The models and thinking levels a composer can pick, from Paseo, for the providers coco's config uses; a pick is checked against them on every start and say.
+// The models and thinking levels a composer can pick, from Paseo: the providers coco's config uses first, then every other provider Paseo has ready
+// (a second Claude login such as claude-perso); a pick is checked against them on every start and say.
 import { HttpError, errorMessage } from './core-types.ts';
 import { AGENT_MODE } from './paseo-agent.ts';
-import type { DaemonClient } from './paseo-agent.ts';
+import type { DaemonClient, ModeEntry } from './paseo-agent.ts';
 
 export type Thinking = { id: string; label: string };
 export type ModelEntry = { id: string; label: string; description: string | null; aliases: string[]; thinking: Thinking[]; defaultThinking: string | null };
 export type Mode = { id: string; label: string; description: string | null; tier: string | null };
-// modes and defaultMode: what Paseo's new-agent screen offers for the provider, when its snapshot lists them
-export type ProviderEntry = { id: string; models: ModelEntry[]; error: string | null; modes?: Mode[]; defaultMode?: string | null };
+// label: Paseo's name for it (Claude (Perso)); modes and defaultMode: what Paseo's new-agent screen offers for the provider, when its snapshot lists them
+export type ProviderEntry = { id: string; label?: string | null; models: ModelEntry[]; error: string | null; modes?: Mode[]; defaultMode?: string | null };
 export type Catalog = { mode: string; defaults: { default: string; fast: string }; providers: ProviderEntry[] };
 export type ModelPick = { provider?: unknown; thinking?: unknown };
 export type Picked = { provider?: string; thinking?: string };
 export type Applied = { provider: string | null; thinking: string | null; changed: boolean };
+// a live agent's mode and the ones it can switch to
+export type LiveModes = { mode: string | null; modes: Mode[]; defaultMode: string | null; provider: string | null; archived: boolean };
 
 type RawModel = { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string };
-export type ModelsClient = Pick<DaemonClient, 'agents' | 'providers' | 'setAgentModel' | 'setAgentThinkingOption'>;
+export type ModelsClient = Pick<DaemonClient, 'agents' | 'providers' | 'setAgentModel' | 'setAgentThinkingOption' | 'setAgentMode'>;
 type Options = { client: () => Promise<ModelsClient>; config: { models: { default: string; fast: string } }; ttlMs?: number; retryMs?: number };
 
 const TTL_MS = 10 * 60 * 1000;
@@ -30,6 +33,7 @@ const entryOf = (m: RawModel): ModelEntry => ({
   thinking: (m.thinkingOptions || []).map((t) => ({ id: t.id, label: t.label || t.id })),
   defaultThinking: m.defaultThinkingOptionId || null,
 });
+const modeOf = (m: ModeEntry): Mode => ({ id: m.id, label: m.label || m.id, description: m.description || null, tier: m.colorTier || null });
 
 // a pick against the catalog: provider is `<provider>/<model id or alias>`, thinking one of that model's (fallback's when no provider is picked)
 export function checkPick(catalog: Catalog, pick: ModelPick, fallback?: string | null): Picked {
@@ -65,27 +69,36 @@ export function checkMode(catalog: Catalog, provider: string, mode: unknown): st
 export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_MS }: Options) {
   let cached: { at: number; ttl: number; value: Promise<Catalog> } | null = null;
   const families = () => [...new Set([config.models.default, config.models.fast].filter(Boolean).map(family))];
+  // a list read while Paseo still discovers its providers, or without its snapshot, may miss some
+  let partial = false;
 
   async function load(): Promise<Catalog> {
     const c = await client();
-    const snapshot = c.providers?.snapshot ? await c.providers.snapshot().then((s) => s.entries, () => []) : [];
-    const modesOf = (id: string) => {
-      const s = snapshot.find((e) => e.provider === id);
-      return s?.modes?.length ? { modes: s.modes.map((m) => ({ id: m.id, label: m.label || m.id, description: m.description || null, tier: m.colorTier || null })), defaultMode: s.defaultModeId || null } : {};
+    const snapshot = c.providers?.snapshot ? await c.providers.snapshot().then((s) => s.entries, () => null) : [];
+    const mine = families();
+    // another login of a provider coco uses (claude-perso) comes right after it
+    const kin = (id: string) => (mine.some((m) => id.startsWith(m)) ? 0 : 1);
+    const others = (snapshot ?? []).filter((e) => e.enabled !== false && e.status === 'ready' && !mine.includes(e.provider)).map((e) => e.provider).sort((a, b) => kin(a) - kin(b));
+    partial = !snapshot || snapshot.some((e) => e.enabled !== false && e.status === 'loading');
+    const infoOf = (id: string) => {
+      const s = snapshot?.find((e) => e.provider === id);
+      return { ...(s?.label ? { label: s.label } : {}), ...(s?.modes?.length ? { modes: s.modes.map(modeOf), defaultMode: s.defaultModeId || null } : {}) };
     };
     const providers = await Promise.all(
-      families().map(async (id): Promise<ProviderEntry> => {
+      [...mine, ...others].map(async (id): Promise<ProviderEntry> => {
         try {
           if (!c.providers) throw new Error('this Paseo client cannot list models');
           const r = await c.providers.listModels(id);
           const models = (r.models || []).filter((m) => m.isSelectable !== false).map(entryOf);
-          return { id, models, error: models.length ? null : r.error || 'no model listed', ...modesOf(id) };
+          return { id, ...infoOf(id), models, error: models.length ? null : r.error || 'no model listed' };
         } catch (e) {
           return { id, models: [], error: errorMessage(e) };
         }
       }),
     );
-    return { mode: AGENT_MODE, defaults: { default: config.models.default, fast: config.models.fast }, providers };
+    // a provider coco does not use is only offered once it lists models; one that failed is tried again with the next list
+    if (providers.some((p) => p.error && !mine.includes(p.id))) partial = true;
+    return { mode: AGENT_MODE, defaults: { default: config.models.default, fast: config.models.fast }, providers: providers.filter((p) => mine.includes(p.id) || !p.error) };
   }
 
   // a list with a provider that failed is kept only briefly, so the next open retries
@@ -94,7 +107,7 @@ export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_M
     const value = load().catch((e) => ({ mode: AGENT_MODE, defaults: { default: config.models.default, fast: config.models.fast }, providers: families().map((id) => ({ id, models: [], error: errorMessage(e) })) }));
     const entry = { at: Date.now(), ttl: ttlMs, value };
     cached = entry;
-    value.then((cat) => { if (cat.providers.some((p) => p.error)) entry.ttl = retryMs; });
+    value.then((cat) => { if (partial || cat.providers.some((p) => p.error)) entry.ttl = retryMs; });
     return value;
   }
 
@@ -123,6 +136,31 @@ export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_M
     return now;
   }
 
-  return { list, check, mode, apply };
+  // a live agent's current mode and the modes Paseo lets it switch to (its own list, else its provider's)
+  async function liveModes(agentId: string): Promise<LiveModes> {
+    const found = (await (await client()).agents.ref(agentId).refresh())?.agent;
+    if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
+    const entry = found.provider ? (await list()).providers.find((p) => p.id === found.provider) : null;
+    // the agent's own list carries no color tier: the provider's says which mode skips every prompt
+    const tierOf = (m: Mode) => ({ ...m, tier: m.tier ?? entry?.modes?.find((x) => x.id === m.id)?.tier ?? null });
+    const modes = found.availableModes?.length ? found.availableModes.map(modeOf).map(tierOf) : entry?.modes ?? [];
+    return { mode: found.currentModeId ?? null, modes, defaultMode: entry?.defaultMode ?? null, provider: found.provider ?? null, archived: Boolean(found.archivedAt) || found.status === 'closed' };
+  }
+
+  // switches a live agent's mode now, as Paseo's mode menu does; the same mode is a no-op
+  async function setMode(agentId: string, mode: unknown): Promise<LiveModes & { changed: boolean }> {
+    if (typeof mode !== 'string' || !mode.trim()) throw new HttpError(400, 'mode required');
+    const now = await liveModes(agentId);
+    if (now.archived) throw new HttpError(409, 'this agent is archived');
+    if (!now.modes.length) throw new HttpError(400, `no mode list from Paseo for ${now.provider || 'this agent'}`);
+    if (!now.modes.some((m) => m.id === mode)) throw new HttpError(400, `${now.provider || 'this agent'} has no mode ${mode}: pick one of ${now.modes.map((m) => m.id).join(', ')}`);
+    if (mode === now.mode) return { ...now, changed: false };
+    const c = await client();
+    if (!c.setAgentMode) throw new HttpError(501, 'this Paseo client cannot change a mode');
+    await c.setAgentMode(agentId, mode);
+    return { ...now, mode, changed: true };
+  }
+
+  return { list, check, mode, apply, liveModes, setMode };
 }
 export type Models = ReturnType<typeof createModels>;

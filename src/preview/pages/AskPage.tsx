@@ -32,7 +32,7 @@ function ConvRow({ h, on, live }: { h: AskRun; on: boolean; live?: string | null
     <a className={`dp-askp-conv${on ? ' dp-on' : ''}`} href={`#/ask/${h.id}`} title={h.prompt}>
       <span className={`dp-ag-dot ${dot}`} title={label} />
       <span className="dp-rowi-b">
-        <span className="dp-ell">{firstLine(h.prompt)}</span>
+        <span className="dp-ell">{h.title || firstLine(h.prompt)}</span>
         <span className="dp-askp-cm">
           {when(h.lastActivity || h.startedAt)}
           {(h.turns ?? 0) > 1 && <><span className="dp-t4">·</span>{h.turns} turns</>}
@@ -96,7 +96,7 @@ export default function AskPage({ convId }: { convId?: string }) {
             <>
               <div className="dp-vbar dp-askp-bar">
                 <span className={`dp-ag-dot ${dot}`} title={label} />
-                <span className="dp-title dp-ell">{firstLine(run.prompt) || 'Ask coco'}</span>
+                <span className="dp-title dp-ell">{run.title || firstLine(run.prompt) || 'Ask coco'}</span>
                 <span className="dp-chip">{label}</span>
                 {run.agentId && <code className="dp-xs" title="coco's Paseo agent">{run.agentId.slice(0, 8)}</code>}
                 <span className="dp-sp" />
@@ -109,6 +109,7 @@ export default function AskPage({ convId }: { convId?: string }) {
               <SubagentBar agentId={run.agentId} inline />
               <Composer
                 draft={`ask:${run.id}`}
+                agentId={model.agentId}
                 placeholder="Follow up, correct or narrow it down (↵, ⇧↵ new line)"
                 note={ended ? 'Its agent is archived: a message starts a new one with the conversation so far' : working ? 'Sends while it works' : 'It reads and proposes; you apply. Nothing is pushed, posted or sent.'}
                 tools={model.tools}

@@ -4,6 +4,7 @@ import Icon from '../Icon.tsx';
 import { pendingClass } from '../../components/action.ts';
 import { useUnsaved } from '../../updates.ts';
 import { FILES_ONLY, MAX_ATTACHMENTS, fileProblem, isImage, sizeOf } from './Attachments.tsx';
+import { useAgentInput } from './agent-input.tsx';
 import type { UploadRef } from '../../types.ts';
 
 // follows the bottom while new steps arrive, unless the owner scrolled up to read
@@ -49,6 +50,8 @@ type ComposerProps = {
   onCancel?: () => void;
   // where the unsent text is kept for this tab (sessionStorage), so a reload onto a new coco build loses no words
   draft?: string;
+  // the live agent it talks to: `/` lists its slash commands, ↑ in an empty box recalls its earlier prompts
+  agentId?: string | null;
 };
 
 const DRAFT = 'coco.draft.';
@@ -77,7 +80,7 @@ export function refillDraft(key: string, text: string, files: UploadRef[] = []) 
 }
 
 // a text held by the caller (value) is the caller's alone: no draft is read into it or kept from it
-export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', value, onValue, onCancel, draft }: ComposerProps) {
+export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', value, onValue, onCancel, draft, agentId }: ComposerProps) {
   const controlled = value !== undefined;
   const kept = controlled ? undefined : draft;
   const [own, setOwn] = useState(() => readDraft(kept) ?? initial);
@@ -88,6 +91,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   }
   const text = controlled ? value : own;
   const setText = onValue ?? setOwn;
+  const agentInput = useAgentInput(disabled ? null : agentId, text, setText);
   useEffect(() => {
     if (kept) keepDraft(kept, text);
   }, [kept, text]);
@@ -159,6 +163,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
     const from = draft;
     if (await onSend(text.trim() || (files.length ? FILES_ONLY : ''), files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
       if (from) keepDraft(from, '');
+      agentInput.sent();
       files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
       setText('');
       setFiles([]);
@@ -184,6 +189,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
             ))}
           </div>
         )}
+        {agentInput.menu}
         {errors.length > 0 && <div className="dp-upl-err" role="alert"><Icon name="alert-triangle" size={12} /><span>{errors.join(' · ')}</span></div>}
         {withText && (
           <textarea
@@ -195,6 +201,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => { const pasted = [...e.clipboardData.files]; if (pasted.length) { e.preventDefault(); add(pasted); } }}
             onKeyDown={(e) => {
+              if (agentInput.key(e)) return;
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
               else if (e.key === 'Escape' && (onStop || onCancel)) { e.preventDefault(); if (onStop) stop(); else onCancel?.(); }
             }}

@@ -45,7 +45,7 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   return (
     <div ref={seen} className="dp-page dp-agpage" role="main">
       <section className="dp-agpage-chat">
-        <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={inWork} handoff />
+        <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={inWork} handoff onRenamed={() => void load()} />
         <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />
       </section>
     </div>
