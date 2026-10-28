@@ -68,6 +68,7 @@ import { errorMessage, httpStatus } from './core-types.ts';
 import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
+import { backfillParents, nextSummary } from './lineage.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -149,6 +150,10 @@ const kit = createKit({ REPO, DATA, config, works, betaFlags });
 const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents, jobs });
 const judge = createJudge({ DATA, config, agents: paseoAgents });
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, judge, place: (slug) => placement.place({ kind: 'work', slug }) });
+works.hooks.lessons = (w) => {
+  const repo = repos.repoFor(w).id;
+  return { repo, count: briefWriter.lessons(repo).length };
+};
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent, jobs });
@@ -200,6 +205,8 @@ const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId
   return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
 } });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
+// works an agent created before lineage was kept: the work that agent's cards were posted in becomes their parent
+for (const l of backfillParents(works, cards.workOfAgent)) console.log(`work ${l.slug} spun off ${l.parent}`);
 // an archived agent's open cards close; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
 const archivedAgent = (agentId: string) => paseoAgents.attach(agentId).then((a) => a === null);
 const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} of archived agents closed`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));
@@ -419,7 +426,7 @@ function workProgress(w: Work) {
   return { ...out, milestones };
 }
 
-const summarize = (w: Work) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null });
+const summarize = (w: Work) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null, parent: w.parent || null });
 
 type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
 const loosePrCache = swrCache<LoosePr[]>(60000, cacheFile(DATA, 'loose-prs'));
@@ -438,7 +445,6 @@ async function loosePrs(repo: RepoConfig, held: Set<number>, fresh: boolean) {
   }
 }
 
-const nextSummary = (next: unknown) => (next && typeof next === 'object' && 'summary' in next && typeof next.summary === 'string' ? next.summary : null);
 async function repoPage(repo: RepoConfig, fresh: boolean) {
   const mine = works.list().filter((w) => repos.repoFor(w).id === repo.id);
   const order = repos.grouped(mine.map(summarize)).find((g) => g.id === repo.id)?.works || [];

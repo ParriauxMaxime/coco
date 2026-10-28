@@ -139,6 +139,21 @@ worktree (`.claude/reviews/*`, PR review pages, briefs, demo clips) so they
 outlive the scratch folders. Stored under `data/works/<slug>.json` and
 `data/works/<slug>/artifacts/`, served at `/works/<slug>/artifacts/…`.
 
+### Spun-off works
+
+When an agent of one work proposes a new work (`propose_work_scaffold`) and
+you press Create work, the new work keeps `parent: <slug>` (the work the
+agent's card was posted in, else its Ask conversation's work), lands in the
+parent's repo, and the parent's timeline gets "spun off work <title>"
+linking to it. The parent's Overview lists its spun-off works (title, stack
+state or archived, and each one's What's next summary, read live: a child's
+new title, state or `next` reloads the parent's page; nothing is copied into
+the parent's own `next`). The child's Overview header reads "from <parent>".
+In the sidebar a live child sits indented under its parent when both are in
+the same repo. Works created before this are linked once at boot from their
+"created from agent <id>" timeline line, when that agent's cards name a work
+(`server/lineage.ts`; idempotent). Updating an existing work links nothing.
+
 ### What's next
 
 A work can carry `next`: the owner's to-do as of now, written by the
@@ -523,6 +538,19 @@ for "no demo"; any extra `kitKinds`). All new fields are optional.
   shows it first (`GET …/briefs/<n>?handoff=1`).
 
 Routes: `GET /api/works/<slug>/briefs/<n>`, `POST …/briefs/<n>/save|start|handoff`.
+
+### Brief lessons
+
+A dispatched agent's brief is written by a fast-model run from the template
+facts and the repo's lessons (`server/brief-writer.ts`). Lessons come from
+your follow-ups to dispatched agents: once such a run is archived, or idle
+for an hour (checked every 10 minutes), the judge (`models.judge`) keeps the
+follow-ups that supplied context its brief lacked (a fact, where something
+lives, a convention), not steering or new requests. They are stored per repo
+in `data/repos/<id>/brief-lessons.json` and listed on the repo page
+(`#/repo/<id>/lessons` scrolls to them), where Drop removes one. A work's
+Overview shows the count under Facts (Lessons N, linking there), and ⌘K has
+"Lessons · <repo>" for each repo, the open work's first.
 
 ## Kit freshness
 

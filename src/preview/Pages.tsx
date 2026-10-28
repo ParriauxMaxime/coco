@@ -43,7 +43,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (root === 'rituals') return { crumbs: [page('Rituals')], node: <RitualsPage key={id} preset={a} /> };
   if (root === 'ask') return { crumbs: [page('Ask coco', a ? '#/ask' : undefined), ...(a ? [page(id.slice(0, 8))] : [])], node: <AskPage key={id} convId={a} /> };
   if (root === 'repos' && a === 'new') return { crumbs: [page('Projects', '#/projects'), page('New repo')], node: <NewRepoPage /> };
-  if (root === 'repo' && a) return { crumbs: [page('Projects', '#/projects'), page(ov?.repos.find((r) => r.id === id)?.name || id)], node: <RepoPage key={id} id={id} /> };
+  if (root === 'repo' && a) return { crumbs: [page('Projects', '#/projects'), page(ov?.repos.find((r) => r.id === id)?.name || id)], node: <RepoPage key={id} id={id} section={b} /> };
   if (root === 'work' && a === 'new' && b) return { crumbs: [page('Projects', '#/projects'), page('New work')], node: <NewWorkPage projectId={b} projectName={dec(c) || b} /> };
   if (root === 'persona' && a) {
     const p = ov?.personas.find((x) => x.login === id);

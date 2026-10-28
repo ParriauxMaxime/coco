@@ -13,6 +13,7 @@ import { decisionBullet, decisionSummary, validChoice } from './decisions.ts';
 import type { Decision } from './decisions.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { validateNext } from './next.ts';
+import { spunOff } from './lineage.ts';
 import { GITHUB_MIN_FRESH_MS, batcher, cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
@@ -122,7 +123,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'> }) {
-  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown> } = {};
+  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
@@ -154,6 +155,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     if (before && before.title !== work.title) Promise.resolve(hooks.onRetitled?.(work)).catch(() => {});
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
     changed(work.slug, what ?? (before && JSON.stringify(before.stack) !== JSON.stringify(work.stack) ? 'stack' : 'work'));
+    // the parent's Overview lists this work's title, state and What's next
+    const seen = (w: Work | null) => JSON.stringify([w?.title, w?.archived, w?.next]);
+    if (work.parent && seen(before) !== seen(work)) changed(work.parent, 'work');
     return work;
   };
 
@@ -393,7 +397,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     const artifacts = listArtifacts(slug);
     if (!work.archived && work.autoArchive !== false && isDone(work, prs)) setArchived(slug, true, 'auto');
     const current = (events.length || get(slug)?.archived !== work.archived ? get(slug) : work) ?? work;
-    return { ...current, prs, artifacts, drift: (await hooks.drift?.(slug)) ?? null, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
+    const parent = current.parent ? get(current.parent) : null;
+    const lineage = { parentWork: parent ? { slug: parent.slug, title: parent.title, archived: Boolean(parent.archived) } : null, spunOff: spunOff(list(), slug), lessons: hooks.lessons?.(current) ?? null };
+    return { ...current, ...lineage, prs, artifacts, drift: (await hooks.drift?.(slug)) ?? null, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
   }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {

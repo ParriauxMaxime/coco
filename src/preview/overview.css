@@ -20,3 +20,11 @@ button.dp-prb { cursor: pointer; }
 .dp-ov-decb > svg { color: var(--dp-t3); flex: none; }
 .dp-ov-decb:hover .dp-grow { color: var(--dp-accent); }
 .dp-ov-side { padding-top: 16px; border-top: 1px solid var(--dp-line); }
+.dp-ov-spun { margin: 0; padding: 0; list-style: none; }
+.dp-ov-spun li { padding: 8px 0; border-bottom: 1px solid var(--dp-line); font-size: 13px; }
+.dp-ov-spun li:last-child { border-bottom: 0; }
+.dp-ov-spun li svg { color: var(--dp-t3); flex: none; }
+.dp-ov-spun a { color: inherit; font-weight: 500; text-decoration: none; }
+.dp-ov-spun a:hover { color: var(--dp-accent); }
+.dp-ov-spun-next { margin: 4px 0 0 20px; font-size: 12.5px; line-height: 19px; }
+.dp-ov-spun-next p { display: inline; margin: 0; }

@@ -491,6 +491,8 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     agentArchived,
     sweepArchived,
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    // the work an agent's cards were posted in, by its full id or its first characters
+    workOfAgent: (idPrefix: string) => (idPrefix ? [...cards.values()].find((c) => c.agentId.startsWith(idPrefix) && c.work)?.work ?? null : null),
     open: () => [...cards.values()].filter((c) => c.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,
     handle,

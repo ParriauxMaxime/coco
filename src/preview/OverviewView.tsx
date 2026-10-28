@@ -10,8 +10,10 @@ import { prKey, prState, prTitle } from './data.ts';
 import DriftPanel from '../workbench/tabs/DriftPanel.tsx';
 import { DevServersLine, DevServersList } from './widgets/DevServer.tsx';
 import { openDecision } from './DecisionsView.tsx';
+import { workHref } from './prefs.ts';
 import type { PreviewData } from './data.ts';
 import type { WhatsNextData, WorkPr } from '../workbench/types.ts';
+import type { SpunOffWork, WorkSummary } from '../types.ts';
 import './overview.css';
 
 const STATES = ['merged', 'approved', 'changes', 'review', 'draft', 'planned', 'closed'];
@@ -43,6 +45,33 @@ function Next({ prs, onOpenPr }: { prs: WorkPr[]; onOpenPr: (key: string) => voi
         {planned ? <>{prTitle(first)}: not opened yet.</> : <><PrChip pr={first} /> {actionFor(first)}. <span className="dp-t2">{prTitle(first)}</span></>}
       </div>
       {!planned && <button type="button" className="dp-btn dp-sm dp-primary" onClick={() => onOpenPr(prKey(first))}>Open</button>}
+    </div>
+  );
+}
+
+const stackWord = (s?: WorkSummary) => {
+  if (!s?.stack) return 'no PR yet';
+  const p = s.progress;
+  return p.merged ? `${p.merged}/${s.stack - p.closed} merged` : p.ready + p.draft ? `${p.ready + p.draft} open` : `${p.planned} planned`;
+};
+
+// works an agent of this one created: their state and What's next, read live from each
+function SpunOff({ list, summaries }: { list: SpunOffWork[]; summaries: WorkSummary[] }) {
+  return (
+    <div className="dp-block">
+      <div className="dp-h2">Spun-off works<span className="dp-count">{list.length}</span></div>
+      <ul className="dp-ov-spun">
+        {list.map((c) => (
+          <li key={c.slug}>
+            <div className="dp-row dp-g6">
+              <Icon name="git-fork" size={14} />
+              <a className="dp-grow dp-ell" href={workHref(c.slug)}>{c.title}</a>
+              <span className={`dp-chip${c.archived ? '' : ' dp-info'}`}>{c.archived ? 'archived' : stackWord(summaries.find((s) => s.slug === c.slug))}</span>
+            </div>
+            <div className="dp-ov-spun-next">{c.next ? <><span className="dp-t3">Next{c.nextAt && ` · ${ago(c.nextAt)}`}: </span><Markdown text={c.next} /></> : <span className="dp-t3">No What’s next yet.</span>}</div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -80,6 +109,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             <div className="dp-row dp-g4 dp-xs dp-t3 dp-ov-meta">
               <Icon name="folder" size={12} />
               {w.projectName && <>{w.projectName}<span className="dp-t4">·</span></>}
+              {w.parentWork && <>from <a href={workHref(w.parentWork.slug)} title="The work whose agent created this one">{w.parentWork.title}</a><span className="dp-t4">·</span></>}
               {w.tier && <>{w.tier} tier<span className="dp-t4">·</span></>}
               {w.updatedAt && <>updated {stamp(w.updatedAt)}</>}
             </div>
@@ -119,6 +149,8 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                 {next.blocks && next.blocks.length > 0 && <Blocks blocks={next.blocks} />}
               </div>
             )}
+
+            {w.spunOff && w.spunOff.length > 0 && <SpunOff list={w.spunOff} summaries={d.overview?.works || []} />}
 
             {waiting.length > 0 && (
               <div className="dp-block">
@@ -180,7 +212,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                   {timeline.map((t, i) => (
                     <li key={i}>
                       <span className={`dp-chip ${KIND_TONE[t.kind] || ''}`}>{t.kind}</span>
-                      <span className="dp-grow dp-ell" title={t.text}>{t.text}</span>
+                      {t.link ? <a className="dp-grow dp-ell" href={t.link} title={t.text}>{t.text}</a> : <span className="dp-grow dp-ell" title={t.text}>{t.text}</span>}
                       <span className="dp-xs dp-t3 dp-num">{ago(t.ts)}</span>
                     </li>
                   ))}
@@ -213,6 +245,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                 <dt>PRs</dt><dd>{prs.length}</dd>
                 <dt>Decisions</dt><dd>{(w.decisions || []).length - decisions.length} taken{decisions.length > 0 && `, ${decisions.length} open`}</dd>
                 <dt>Agents</dt><dd>{d.agents.length ? `${d.agents.length} linked` : 'none linked'}</dd>
+                {w.lessons && <><dt>Lessons</dt><dd><a href={`#/repo/${w.lessons.repo}/lessons`} title="The repo's brief lessons: what agent briefs learned from your follow-ups">{w.lessons.count}</a></dd></>}
                 <dt>Dev servers</dt><dd><DevServersLine data={d.dev.data} /></dd>
               </dl>
             </div>

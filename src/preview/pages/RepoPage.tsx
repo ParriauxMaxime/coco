@@ -147,7 +147,8 @@ function JudgeTable({ rows }: { rows: JudgeStat[] }) {
   );
 }
 
-export default function RepoPage({ id }: { id: string }) {
+// section: a part of the page to scroll to once it loaded (#/repo/<id>/lessons)
+export default function RepoPage({ id, section }: { id: string; section?: string }) {
   const [data, setData] = useState<RepoData | null>(null);
   const [err, setErr] = useState('');
   const [creating, setCreating] = useState(false);
@@ -158,6 +159,10 @@ export default function RepoPage({ id }: { id: string }) {
     setCreating(false);
     load();
   }, [id]);
+  const loaded = Boolean(data);
+  useEffect(() => {
+    if (loaded && section) document.getElementById(`repo-${section}`)?.scrollIntoView({ block: 'start' });
+  }, [loaded, section]);
   if (!data) return <Page>{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Loading the repo…" />}</Page>;
   const refresh = () => {
     setRefreshing(true);
@@ -187,7 +192,7 @@ export default function RepoPage({ id }: { id: string }) {
         { label: 'Works', value: data.works.length, hint: data.archivedCount ? `${data.archivedCount} archived` : 'none archived', href: data.archivedCount ? '#/archive' : undefined },
         { label: 'Open PRs', value: openPrs, hint: attention ? `${attention} need attention` : 'all calm', tone: attention ? 'warn' : undefined },
         { label: 'Loose PRs', value: data.loose.prs.length, hint: 'held by no work', tone: data.loose.prs.length ? 'acc' : undefined },
-        { label: 'Lessons', value: data.lessons.length, hint: 'from your corrections' },
+        { label: 'Lessons', value: data.lessons.length, hint: 'from your corrections', href: `#/repo/${data.id}/lessons` },
       ]} />
 
       <Section title="Works" count={data.works.length} action={data.archivedCount > 0 && <a className="dp-lnk" href="#/archive">{data.archivedCount} archived<Icon name="chevron-right" size={12} /></a>}>
@@ -218,7 +223,7 @@ export default function RepoPage({ id }: { id: string }) {
         {!data.loose.error && data.loose.prs.length === 0 && <Empty icon="git-pull-request">None: every open PR of yours belongs to a work.</Empty>}
       </Section>
 
-      <Section title="Lessons" count={data.lessons.length}>
+      <Section id="repo-lessons" title="Lessons" count={data.lessons.length}>
         <p className="dp-repop-lead">What agent briefs in this repo learned from your mid-run corrections.</p>
         {data.lessons.length ? (
           <div className="dp-rows">
@@ -231,7 +236,7 @@ export default function RepoPage({ id }: { id: string }) {
               </div>
             ))}
           </div>
-        ) : <Empty icon="notebook">No lesson yet.</Empty>}
+        ) : <Empty icon="notebook">No lesson yet. They come from the follow-ups you send to agents coco dispatched in this repo: once such a run is archived or idle for an hour, a judge keeps the follow-ups that gave context its brief lacked.</Empty>}
         {data.judge.length > 0 && <JudgeTable rows={data.judge} />}
       </Section>
 

@@ -86,6 +86,7 @@ export interface TimelineEntry {
   ts: string;
   kind: string;
   text: string;
+  link?: string;
 }
 
 export interface WorkLink {
@@ -124,6 +125,8 @@ export interface Work {
   next?: unknown;
   archived?: { at: string; reason: string };
   autoArchive?: boolean;
+  // the work whose agent created this one (server/lineage.ts)
+  parent?: string;
   createdAt?: string;
   updatedAt?: string;
   [key: string]: unknown;

@@ -67,6 +67,27 @@ test('importing an artifact is announced as an artifacts change', async () => {
   assert.deepEqual(s.got, [{ slug: 'w', what: 'artifacts' }]);
 });
 
+test('a spun-off work announces a new title, state or What’s next to its parent, and the work read gives both sides of the link and the repo lessons', async () => {
+  const { works, sink } = make();
+  works.save({ slug: 'kid', title: 'Kid', stack: [], timeline: [], parent: 'w' });
+  const s = sink();
+  works.watchWork(s, 'w');
+  const kid = works.get('kid')!;
+  works.save({ ...kid, notes: 'only notes' });
+  works.save({ ...kid, next: { summary: 'Push PR 1', at: '2026-10-28T14:45:00Z' } });
+  assert.deepEqual(s.got, [{ slug: 'w', what: 'work' }]);
+
+  works.hooks.lessons = (x) => ({ repo: `repo-of-${x.slug}`, count: 2 });
+  const read = async (slug: string) => {
+    let out: Record<string, unknown> = {};
+    await works.handle({ method: 'GET', url: `/api/works/${slug}` } as never, {} as never, ['works', slug], async () => '', (_res, _code, body) => void (out = body as Record<string, unknown>));
+    return out;
+  };
+  const kidRead = await read('kid');
+  assert.deepEqual([kidRead.parentWork, kidRead.spunOff, kidRead.lessons], [{ slug: 'w', title: 'W', archived: false }, [], { repo: 'repo-of-kid', count: 2 }]);
+  assert.deepEqual((await read('w')).spunOff, [{ slug: 'kid', title: 'Kid', archived: false, next: 'Push PR 1', nextAt: '2026-10-28T14:45:00Z', createdAt: null }]);
+});
+
 test('dropping a cached value makes the next read recompute', async () => {
   const c = swrCache<number>(60000);
   let n = 0;

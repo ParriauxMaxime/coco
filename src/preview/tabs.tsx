@@ -103,7 +103,7 @@ function TimelineTab() {
           {list.map((t, i) => (
             <div key={i} className="dp-rowi dp-tl-row">
               <span className={`dp-chip ${TL_TONE[t.kind] || ''}`}>{t.kind}</span>
-              <span className="dp-grow">{t.text}</span>
+              {t.link ? <a className="dp-grow" href={t.link}>{t.text}</a> : <span className="dp-grow">{t.text}</span>}
               <span className="dp-rowi-m dp-num">{t.ts.slice(0, 16).replace('T', ' ')}</span>
             </div>
           ))}

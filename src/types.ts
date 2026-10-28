@@ -84,7 +84,7 @@ export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgen
 
 // milestones: open PRs by current milestone, missing until the stack view computed them once
 export type WorkProgress = { merged: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean; milestones?: Record<string, number> };
-export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null };
+export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null; parent?: string | null };
 export type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
 // a repo's page: its live works in sidebar order with their what's-next line, the owner's open PRs no work holds, its brief lessons and rule files
 export type RepoPage = {
@@ -156,7 +156,7 @@ export type RulesResponse = {
 };
 
 export type Link = { label: string; url: string };
-export type TimelineEntry = { ts: string; kind: string; text: string };
+export type TimelineEntry = { ts: string; kind: string; text: string; link?: string };
 export type WorkArchived = { at: string; reason: string };
 
 export type DecisionOption = { key: string; label: string };
@@ -249,10 +249,13 @@ export type Work = {
   next?: unknown;
   archived?: WorkArchived | null;
   autoArchive?: boolean;
+  parent?: string;
   createdAt?: string;
   updatedAt?: string;
 };
-export type WorkDetail = Work & { prs: PrInfo[]; artifacts: Artifact[]; notionStatus: NotionStatus; fetchedAt: string };
+export type SpunOffWork = { slug: string; title: string; archived: boolean; next: string | null; nextAt: string | null; createdAt: string | null };
+export type WorkLineage = { parentWork?: { slug: string; title: string; archived: boolean } | null; spunOff?: SpunOffWork[]; lessons?: { repo: string; count: number } | null };
+export type WorkDetail = Work & WorkLineage & { prs: PrInfo[]; artifacts: Artifact[]; notionStatus: NotionStatus; fetchedAt: string };
 export type WorkPlan = Work & { prs: PlanPr[] };
 export type NotionStatus = { running?: boolean; [key: string]: unknown };
 export type NotionResult = { error?: string; [key: string]: unknown };

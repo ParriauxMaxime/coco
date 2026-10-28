@@ -21,9 +21,9 @@ export function PageHead({ icon, title, sub, actions, meta }: { icon?: IconName;
   );
 }
 
-export function Section({ title, count, meta, action, children }: { title: React.ReactNode; count?: number; meta?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+export function Section({ id, title, count, meta, action, children }: { id?: string; title: React.ReactNode; count?: number; meta?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="dp-psec">
+    <section className="dp-psec" id={id}>
       <h2 className="dp-h2">{title}{count !== undefined && <span className="dp-count">{count}</span>}{meta && <span className="dp-meta">{meta}</span>}{action && <span className={meta ? '' : 'dp-psec-act'}>{action}</span>}</h2>
       {children}
     </section>

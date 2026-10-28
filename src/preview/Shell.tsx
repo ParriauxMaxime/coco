@@ -71,11 +71,11 @@ export function SegBar({ w, thin = true }: { w: WorkSummary; thin?: boolean }) {
 }
 export const workDot = (w: WorkSummary) => (w.progress.attention ? 'dp-st-changes' : w.progress.ready + w.progress.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow');
 
-function WorkRow({ w, on, expanded, onToggle, views }: { w: WorkSummary; on: boolean; expanded: boolean; onToggle: () => void; views: React.ReactNode }) {
+function WorkRow({ w, on, expanded, onToggle, views, depth = 0 }: { w: WorkSummary; on: boolean; expanded: boolean; onToggle: () => void; views: React.ReactNode; depth?: number }) {
   const p = w.progress;
   return (
     <>
-      <a className={`dp-work dp-work2${on ? ' dp-on' : ''}`} href={workHref(w.slug)} title={w.title} onClick={() => { if (!expanded) onToggle(); }}>
+      <a className={`dp-work dp-work2${depth ? ' dp-work-sub' : ''}${on ? ' dp-on' : ''}`} style={depth > 1 ? { marginLeft: 14 * depth } : undefined} href={workHref(w.slug)} title={depth ? `${w.title}, spun off the work above` : w.title} onClick={() => { if (!expanded) onToggle(); }}>
         <span className="dp-work-top">
           <button type="button" className={`dp-caret${expanded ? ' dp-open' : ''}`} aria-label={expanded ? 'Collapse' : 'Expand'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}><Icon name="chevron-right" size={12} /></button>
           <span className={`dp-dot dp-lg ${workDot(w)}`} />
@@ -93,6 +93,13 @@ function WorkRow({ w, on, expanded, onToggle, views }: { w: WorkSummary; on: boo
   );
 }
 
+// a spun-off work right under its parent when both are live in the same repo, in the repo's order otherwise
+const nested = (list: WorkSummary[]) => {
+  const here = new Set(list.map((w) => w.slug));
+  const under = (rows: WorkSummary[], depth: number): { w: WorkSummary; depth: number }[] => rows.flatMap((w) => [{ w, depth }, ...under(list.filter((c) => c.parent === w.slug), depth + 1)]);
+  return under(list.filter((w) => !w.parent || !here.has(w.parent)), 0);
+};
+
 function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: string; views: (w: WorkSummary) => React.ReactNode; repo?: string }) {
   const works = new Map((ov?.works || []).filter((w) => !w.archived).map((w) => [w.slug, w]));
   const repos = (ov?.repos || []).filter((r) => !repo || r.id === repo);
@@ -102,8 +109,8 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
       {repos.map((r) => (
         <React.Fragment key={r.id}>
           {!repo && <a className="dp-repo" href={`#/repo/${r.id}`}><Icon name="git-branch" size={14} /><span>{r.name}</span><span className="dp-gh-name">{r.github.split('/')[0]}</span></a>}
-          {r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w)).map((w) => (
-            <WorkRow key={w.slug} w={w} on={w.slug === slug} expanded={expanded.includes(w.slug)} onToggle={() => toggle(w.slug)} views={views(w)} />
+          {nested(r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w))).map(({ w, depth }) => (
+            <WorkRow key={w.slug} w={w} depth={depth} on={w.slug === slug} expanded={expanded.includes(w.slug)} onToggle={() => toggle(w.slug)} views={views(w)} />
           ))}
         </React.Fragment>
       ))}
@@ -212,6 +219,8 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const renderViews = views || ((w: WorkSummary) => <WorkViews w={w} />);
 
   const go = (href: string) => () => { location.hash = href; };
+  // the open work's repo lists its lessons first
+  const repoOfSlug = (ov?.works || []).find((w) => w.slug === slug)?.repo ?? repoId;
   const all: Command[] = [
     { id: 'launch-agent', label: 'New agent…', hint: slug ? 'in this work' : 'agents', icon: 'bot', run: () => openLauncher({ place: slug ? `work:${slug}` : null }) },
     ...commands,
@@ -219,6 +228,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
     { id: 'new-repo', label: 'New repo', hint: 'page', icon: 'plus', run: go('#/repos/new') },
     ...(ov?.works || []).filter((w) => !w.archived && w.slug !== slug).map((w) => ({ id: `w-${w.slug}`, label: w.title, hint: 'work', icon: 'layers' as const, run: go(workHref(w.slug)) })),
     ...(ov?.repos || []).map((r) => ({ id: `r-${r.id}`, label: r.name, hint: 'repo', icon: 'git-branch' as const, run: go(`#/repo/${r.id}`) })),
+    ...[...(ov?.repos || [])].sort((a, b) => Number(b.id === repoOfSlug) - Number(a.id === repoOfSlug)).map((r) => ({ id: `l-${r.id}`, label: `Lessons · ${r.name}`, hint: 'brief lessons', icon: 'notebook' as const, run: go(`#/repo/${r.id}/lessons`) })),
     ...(ov?.personas || []).map((p) => ({ id: `p-${p.login}`, label: firstName(p.title), hint: 'persona', icon: 'user' as const, run: go(`#/persona/${p.login}`) })),
     ...(ov?.skills || []).map((s) => ({ id: `s-${s.name}`, label: s.name, hint: 'skill', icon: 'book' as const, run: go(`#/skill/${s.name}`) })),
     ...CHOICES.flatMap((c) => c.options.map((o) => ({ id: `c-${c.key}-${o.value}`, label: `${c.label}: ${o.label}`, hint: prefs[c.key] === o.value ? 'current' : 'variant', icon: 'eye' as const, run: () => prefs.set(c.key, o.value) }))),

@@ -18,6 +18,7 @@ import type { Upload, Uploads } from './uploads.ts';
 import type { ModelPick, Models } from './models.ts';
 import { notionOf } from './stack-edit.ts';
 import { replaceRows, stackDiff } from './stack-replace.ts';
+import { linkParent } from './lineage.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
 // past the prompt cache's one-hour lifetime a kept agent saves no tokens, only context, and the conversation so far restores the gist
@@ -501,15 +502,17 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   }
   const from = (conv: Conv | null, agentId: string) => (conv ? `ask ${conv.id.slice(0, 8)}: "${conv.prompt.slice(0, 120)}"` : `agent ${agentId.slice(0, 8)}`);
 
-  function apply(p: Scaffold, { scope, source, replaceStack = false }: { scope: AskScope; source: string; replaceStack?: boolean }) {
+  // parent: the work of the agent that proposed it, kept on a new work only
+  function apply(p: Scaffold, { scope, source, replaceStack = false, parent = null }: { scope: AskScope; source: string; replaceStack?: boolean; parent?: string | null }) {
     const existing = works.get(p.slug);
+    const spunFrom = !existing && parent && parent !== p.slug ? works.get(parent) : null;
     const stackKept = Boolean(existing?.stack?.length && !replaceStack);
     const stack = scaffoldRows(p);
     const notes = [p.notes, '', '## Surface table', '', '| Surface | Entry point | Coverage |', '| --- | --- | --- |', ...(p.surfaces || []).map((s) => `| ${s.surface} | ${s.entryPoint} | ${s.coverage} |`), '', '## Open questions', '', ...(p.openQuestions || []).map((q, i) => `${i + 1}. ${q.question} Recommended: ${q.recommendation}. Tradeoff: ${q.tradeoff}`), '', '## Next steps', '', ...(p.nextSteps || []).map((s) => `- ${s}`)].join('\n');
     const work: AskWork = {
       ...(existing || { createdAt: new Date().toISOString(), timeline: [] }),
       slug: p.slug,
-      ...(!existing?.repo && scope.kind === 'repo' ? { repo: scope.repoId } : {}),
+      ...(!existing?.repo && scope.kind === 'repo' ? { repo: scope.repoId } : spunFrom?.repo ? { repo: spunFrom.repo } : {}),
       title: (p.title || '').slice(0, 100),
       description: p.description || '',
       summary: p.summary,
@@ -525,6 +528,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     };
     work.timeline = [{ ts: new Date().toISOString(), kind: 'coco', text: `${existing ? 'updated' : 'created'} from ${source}` }, ...(work.timeline || [])];
     works.save(work);
+    if (spunFrom) linkParent(works, work.slug, spunFrom.slug);
     return { slug: work.slug, created: !existing, stackKept };
   }
 
@@ -565,7 +569,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       },
       run: async (card) => {
         const conv = convOf(card.agentId);
-        const r = apply(scaffoldOf(card.action?.input ?? {}), { scope: conv?.scope ?? { kind: 'global' }, source: from(conv, card.agentId), replaceStack: card.answer?.values?.replaceStack === true });
+        const r = apply(scaffoldOf(card.action?.input ?? {}), { scope: conv?.scope ?? { kind: 'global' }, source: from(conv, card.agentId), replaceStack: card.answer?.values?.replaceStack === true, parent: card.work || conv?.workSlug });
         return { ok: true, detail: `${r.created ? 'created' : 'updated'} work ${r.slug}${r.stackKept ? ', its stack kept' : ''}`, link: `#/work/${r.slug}` };
       },
       posted: (card) => proposed(card, { kind: 'work', title: String(card.action?.input.title) }),
