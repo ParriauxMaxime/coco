@@ -136,7 +136,8 @@ const delivered = (c: Card) => {
 };
 
 function Status({ c }: { c: Card }) {
-  if (c.status === 'cancelled') return <div className="dp-cd-st"><Icon name="x" size={12} />Dismissed: the agent was told</div>;
+  if (c.status === 'cancelled') return <div className="dp-cd-st"><Icon name="x" size={12} />Dismissed: the agent goes on with its recommendation if safe, else says what is left</div>;
+  if (c.answer?.chat) return <div className="dp-cd-st"><Icon name="message-square" size={12} /><span>Answered in chat {clock(c.answer.at)}</span><span>your message went to the agent instead</span></div>;
   const bad = c.delivery && !c.delivery.ok;
   return (
     <div className={`dp-cd-st${bad ? ' dp-cd-bad' : ''}`}>
@@ -164,6 +165,7 @@ function Result({ c }: { c: Card }) {
 const outcome = (c: Card): [string, string] => {
   if (c.status === 'open') return ['waiting on you', 'dp-warn'];
   if (c.status === 'cancelled') return ['dismissed', ''];
+  if (c.answer?.chat) return ['answered in chat', 'dp-ok'];
   if (c.result && !c.result.ok) return ['failed', 'dp-bad'];
   if (c.kind === 'confirm' && c.answer?.approved != null) return c.answer.approved ? [c.confirmLabel ? c.confirmLabel.toLowerCase() : 'approved', 'dp-ok'] : [c.rejectLabel ? c.rejectLabel.toLowerCase() : 'rejected', 'dp-bad'];
   return ['answered', 'dp-ok'];
@@ -282,7 +284,7 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
           )}
           {err && <span className="dp-cd-err" role="alert">{err}</span>}
           <span className="dp-sp" />
-          <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question; the agent is told you dismissed it" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>
+          <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question without choosing; the agent is told to go on with its recommendation if it is safe, else to stop and say what is left" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>
         </div>
       )}
       <Result c={c} />

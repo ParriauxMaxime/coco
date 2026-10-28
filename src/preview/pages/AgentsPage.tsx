@@ -42,6 +42,7 @@ function AgentRow({ r, open, log, where, onToggle }: { r: Row; open: boolean; lo
         {usage && a.usage && <span className="dp-xs dp-t3 dp-agp-usage" title={usageTitle(a.usage)}>{usage}</span>}
         {r.state !== 'closed' && <span className="dp-xs dp-t3"><ContextRing used={a.usage?.contextTokens} max={a.usage?.contextMax} label /></span>}
         <span className="dp-rowi-m dp-agp-ago">{a.created}</span>
+        <a className="dp-btn dp-sm dp-agp-open" href={`#/agents/${encodeURIComponent(a.id)}`} title="Its transcript, cards and a composer to message it" onClick={(e) => e.stopPropagation()}><Icon name="message-square" size={12} />Chat</a>
         <span className="dp-agp-caret"><Icon name="chevron-right" size={12} /></span>
       </div>
       <div className={`dp-collapse${open ? ' dp-open' : ''}`}><div><pre className="dp-agp-log">{log ?? ''}</pre></div></div>
@@ -84,7 +85,7 @@ export default function AgentsPage() {
     <PageHead
       icon="bot"
       title="Agents"
-      sub={<>From <code>paseo ls --json</code>, refreshed every 15 s. Open an agent for its recent log; questions it waits on show first.</>}
+      sub={<>From <code>paseo ls --json</code>, refreshed every 15 s. Open an agent for its recent log, or Chat to message it; questions it waits on show first.</>}
       actions={<button type="button" className="dp-btn" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} className={busy ? 'dp-spin' : undefined} />Refresh</button>}
     />
   );

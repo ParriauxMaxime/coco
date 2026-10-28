@@ -177,7 +177,20 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
 - `POST /api/cards/<id>/answer` body `CardAnswer` minus `at` → `Card`. Stores the
   answer, then delivers it.
 - `POST /api/cards/<id>/cancel` → `Card` (user dismisses an open ask; the agent
-  is told it was dismissed).
+  is told it was dismissed and to go on with its recommendation if safe, see
+  Delivery).
+- Answered in chat: when the owner writes to the agent instead of answering
+  (`POST /api/agent-chat/<agentId>/messages`, `POST /api/ask/<id>/messages`
+  for every agent of the conversation, `POST /api/works/<slug>/threads/<key>`
+  for that thread's cards only), its open cards outside threads (in a thread:
+  that thread's) become `status: 'answered'` with `answer: { at, chat: true }`
+  and `delivery.skipped`: nothing is sent, the message is the answer. They
+  leave `openCards`, the thread's `asks` and the Waiting page. Card
+  delivery itself (answers, dismissals) never closes other cards.
+- `GET /api/agent-chat/<agentId>` → `{ agentId, title, kind, work, pr,
+  status, updatedAt, provider, thinking, serverId, openCards, …usage }` for
+  any Paseo agent (404 when Paseo no longer knows it): the `#/agents/<agentId>`
+  page of an agent outside a work.
 - `POST /api/cards/<id>/explain` → `Card` (the "Explain more" button of a
   choice card): sends the agent "[coco card <id> explain] … Explain the
   options in more detail before I pick"; the card stays open, `explained`
@@ -217,7 +230,15 @@ Done: <result detail>      (or Failed: …, proposal cards only)
 followed by the answer JSON in a fenced block (with `result: { ok, detail,
 link }` when the action ran). The answer to a card of a one-shot Ask run (the
 rules run) is not delivered: `delivery.skipped`. A dismissal sends
-`[coco card <id> dismissed] <title>` and a line saying the user dismissed it.
+
+```
+[coco card <id> dismissed] <title>
+The user dismissed this card without choosing. Continue with your recommendation if it is safe; otherwise stop and say what is left.
+```
+
+so a "next steps" card dismissed by mistake or by impatience does not leave
+the work half done. The cards line of every coco agent's system prompt also
+says that a plain message from the user while a card is open answers it.
 Running agent: steer; idle: new turn; archived or unreachable: stored with
 `delivery.ok: false` and shown on the card. An Ask coco agent gets it through
 its conversation (so the turn is logged there; a gone agent is replaced like

@@ -79,12 +79,12 @@ export default function DashboardPage() {
         {ov.agents.length ? (
           <div className="dp-rows">
             {ov.agents.slice(0, 8).map((a) => (
-              <div key={a.id} className="dp-rowi">
+              <a key={a.id} className="dp-rowi" href={`#/agents/${encodeURIComponent(a.id)}`} title="Its transcript, cards and a composer to message it">
                 <span className={`dp-ag-dot ${AGENT_TONE[a.status] || 'dp-ag-archived'}`} title={a.status} />
                 <span className="dp-ell dp-grow">{a.name}</span>
                 <span className="dp-chip">{a.provider}</span>
                 <span className="dp-rowi-m">{a.created}</span>
-              </div>
+              </a>
             ))}
           </div>
         ) : !ov.agentsError && <Empty icon="bot">No Paseo agent right now.</Empty>}

@@ -74,7 +74,7 @@ export default function Onboarding() {
       <div className="dp-ob-f">
         <button type="button" className="dp-btn dp-sm" disabled={busy || Boolean(agent)} onClick={startAgent}><Icon name="bot" size={12} />Ask an agent to finish the setup</button>
         {error && <span className="dp-ob-err">{error}</span>}
-        {agent && <span className="dp-t3 dp-sm">Agent started{agent.agentId ? ` (${agent.agentId.slice(0, 8)})` : ''}: follow it in <a href="#/agents">Agents</a> or Paseo, then Recheck.</span>}
+        {agent && <span className="dp-t3 dp-sm">Agent started{agent.agentId ? ` (${agent.agentId.slice(0, 8)})` : ''}: follow it in <a href={agent.agentId ? `#/agents/${agent.agentId}` : '#/agents'}>Agents</a> or Paseo, then Recheck.</span>}
       </div>
     </div>
   );

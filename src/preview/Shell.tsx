@@ -310,7 +310,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
         <footer className="dp-statusbar">
           {status}
           {!slug && running > 0 && <a className="dp-sbi" href="#/agents"><span className="dp-dot dp-live" />{running} agent{running > 1 ? 's' : ''} running</a>}
-          <JobsStatus onOpenAgent={(j) => { location.hash = j.work ? `#/work/${encodeURIComponent(j.work)}/ag-${j.agentId}` : '#/agents'; }} />
+          <JobsStatus onOpenAgent={(j) => { location.hash = j.work ? `#/work/${encodeURIComponent(j.work)}/ag-${j.agentId}` : `#/agents/${j.agentId}`; }} />
           <span className="dp-sp" />
           {waiting.length > 0 && <span className="dp-sbi dp-wait" onClick={() => (prefs.questions === 'tab' && onWaitingTab ? onWaitingTab() : setWaitOpen((w) => !w))}><Icon name="message-square" />{waiting.length} waiting on you</span>}
           {statusRight}

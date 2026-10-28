@@ -105,6 +105,7 @@ export default function RitualsPage({ preset }: { preset?: string }) {
                 <span className="dp-chip">{r.kind}</span>
                 <span className="dp-rowi-b"><span className="dp-ell">{r.title}</span>{r.prompt && <code className="dp-rit-pr dp-ell" title={r.prompt}>{r.prompt}</code>}</span>
                 <span className="dp-rowi-m">{stamp(r.ts)}{r.agentId ? ` · ${r.agentId.slice(0, 8)}` : ''}</span>
+                {r.agentId && <a className="dp-btn dp-sm" href={`#/agents/${encodeURIComponent(r.agentId)}`} title="Its transcript, cards and a composer to message it"><Icon name="message-square" size={12} />Chat</a>}
               </div>
             ))}
           </div>

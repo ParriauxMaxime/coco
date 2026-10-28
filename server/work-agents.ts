@@ -30,7 +30,7 @@ export type WorkAgent = { id: string; agentId: string | null; askId: string | nu
 // contextTokens of contextMax: its context window at its last turn
 // openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
 type Metrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens: number | null; contextMax: number | null; openCards: number };
-type CardFeed = { ofAgent(agentId: string): unknown[]; openCount(agentId: string): number; onChange(l: (agentId: string) => void): () => void };
+type CardFeed = { ofAgent(agentId: string): unknown[]; openCount(agentId: string): number; onChange(l: (agentId: string) => void): () => void; chatted?(agentIds: string[]): unknown };
 
 type AskMeta = { id: string; prompt: string; kind: string; pr?: RowKey | null; status: string; agentId: string | null; lastActivity?: string; startedAt: string };
 type Linked = { agentId: string; key: RowKey; title: string | null };
@@ -207,7 +207,27 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     return { work: labels?.work || null, pr: labels?.pr ? labels.pr.replaceAll('~', ':') : null };
   }
 
-  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>/events|place · POST /api/agent-chat/<agentId>/messages|stop
+  // any Paseo agent, in a work or not: what its own page shows above its chat
+  async function info(agentId: string) {
+    const found = (await (await client()).agents.ref(agentId).refresh())?.agent;
+    if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
+    const l = found.labels;
+    return {
+      agentId,
+      title: titleOf(found.title, agentId),
+      kind: l?.kind || l?.ritual || 'agent',
+      work: l?.work || null,
+      pr: l?.pr ? l.pr.replaceAll('~', ':') : null,
+      status: statusOf(found),
+      updatedAt: found.updatedAt || null,
+      provider: found.provider && found.model ? `${found.provider}/${found.model}` : found.provider || null,
+      thinking: found.thinkingOptionId ?? null,
+      serverId: await serverOf(),
+      ...metrics(agentId, found.lastUsage),
+    };
+  }
+
+  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>[/events|place] · POST /api/agent-chat/<agentId>/messages|stop
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
@@ -219,6 +239,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         return send(res, 200, await archive(a, ids.map(String)));
       }
       if (root === 'agent-chat' && a && b === 'events') return await watchChat(sseSink(req, res), a);
+      if (root === 'agent-chat' && a && !b && req.method === 'GET') return send(res, 200, await info(a));
       if (root === 'agent-chat' && a && b === 'place' && req.method === 'GET') return send(res, 200, await placeOf(a));
       if (root === 'agent-chat' && a && b === 'stop' && req.method === 'POST') return send(res, 200, await stop(a));
       if (root === 'agent-chat' && a && b === 'messages' && req.method === 'POST') {
@@ -228,7 +249,9 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         if (!said) throw new HttpError(400, 'text required');
         if (models && (provider != null || thinking != null)) await models.apply(a, { provider, thinking });
         const setup = (await beforeTurn?.(a).catch(() => [])) ?? [];
-        return send(res, 200, await say(a, setup.length ? `${said}\n\n${setup.join('\n')}` : said, files));
+        const r = await say(a, setup.length ? `${said}\n\n${setup.join('\n')}` : said, files);
+        cards?.chatted?.([a]);
+        return send(res, 200, r);
       }
       return send(res, 404, { error: 'no route' });
     } catch (e) {
@@ -236,5 +259,5 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  return { list, handle, watchList, watchChat, say, placeOf };
+  return { list, handle, watchList, watchChat, say, placeOf, info };
 }

@@ -31,6 +31,10 @@
 .dp-agp-more:focus-visible { box-shadow: inset 0 0 0 2px var(--dp-focus); }
 .dp-agp-cwd { width: auto; font: 11.5px var(--dp-mono); color: var(--dp-t3); }
 .dp-agp-cwd .dp-ell { display: block; }
+.dp-agp-open { flex: none; }
+.dp-page.dp-agpage { display: flex; flex-direction: column; overflow: hidden; }
+.dp-agpage > .dp-perr, .dp-agpage > .dp-ploading { margin: 24px; }
+.dp-agpage-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; container: ag-tab / inline-size; }
 @container (max-width: 760px) {
   .dp-agp-prov, .dp-agp-path, .dp-agp-usage { display: none; }
   .dp-agp-filters { display: none; }

@@ -93,7 +93,7 @@ type Conv = {
 const META = ['id', 'prompt', 'scope', 'workSlug', 'pr', 'kind', 'model', 'thinking', 'startedAt', 'lastActivity', 'status', 'turns', 'proposed', 'text', 'agentId', 'agentIds', 'cost', 'costBase', 'once'] as const satisfies readonly (keyof Conv)[];
 type Meta = Pick<Conv, (typeof META)[number]>;
 type TurnEnd = { status: string; error?: string | null; text?: string; cost?: number | null };
-type CardFeed = { ofAgent(agentId: string): Card[]; onChange(l: (agentId: string) => void): () => void };
+type CardFeed = { ofAgent(agentId: string): Card[]; onChange(l: (agentId: string) => void): () => void; chatted?(agentIds: string[]): unknown };
 type AskWork = Work & { stack?: StackRow[]; timeline?: TimelineEntry[] };
 type AskOptions = {
   DATA: string;
@@ -682,6 +682,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         return send(res, httpStatus(e), { error: errorMessage(e) });
       }
       say(conv, said, { nonce, files });
+      cards?.()?.chatted?.(agentsOf(conv));
       return send(res, 200, { ok: true, status: conv.status });
     }
     if (action === 'close' && req.method === 'POST') return send(res, 200, await close(id));

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
 import { CardsWaiting } from './chat/Card.tsx';
@@ -8,7 +8,7 @@ import { Composer, Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
 import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
 import { nonceOf, useAskConversation } from './chat/conversation.ts';
-import { useWork } from '../workbench/use-work.ts';
+import { WorkContext, useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import Icon from './Icon.tsx';
 import { AgentDot } from './AgentsSection.tsx';
@@ -19,6 +19,7 @@ import { ContextRing } from './Ring.tsx';
 import Thread, { threadLabel, useThreadsOf } from '../components/Thread.tsx';
 import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadSummary, UploadRef } from '../types.ts';
 import { ModelControls, useAskModel, useModelChoice } from './chat/ModelPicker.tsx';
+import type { Choice } from './chat/ModelPicker.tsx';
 import { useOverview } from './overview.ts';
 import { SubagentBar } from './Subagents.tsx';
 import { SubagentParent } from './subagents.ts';
@@ -26,9 +27,11 @@ import { SubagentParent } from './subagents.ts';
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
 
-type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode };
-export function Header({ title, kind, pr, state, agentId, metrics, chips }: HeaderProps) {
-  const href = paseoLink(useServerId(useWork().slug), agentId);
+// serverId: given outside a work, where no work agent list carries it
+type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; serverId?: string | null };
+export function Header({ title, kind, pr, state, agentId, metrics, chips, serverId }: HeaderProps) {
+  const listedServer = useServerId(useContext(WorkContext)?.slug ?? '');
+  const href = paseoLink(serverId ?? listedServer, agentId);
   const usage = metrics ? usageLine(metrics) : '';
   return (
     <div className="dp-vbar dp-ag-bar">
@@ -127,7 +130,8 @@ function useAgentChat(agentId: string) {
       },
       message: (ev: ActivityEvent) => {
         setEvents((prev) => [...prev, ev]);
-        if (ev.type === 'user') setPending((p) => p.filter((x) => x.text !== ev.text));
+        // the agent may get lines coco adds after the owner's text (a readied worktree)
+        if (ev.type === 'user') setPending((p) => p.filter((x) => !(ev.text ?? '').startsWith(x.text)));
       },
     });
   }, [agentId]);
@@ -149,14 +153,15 @@ function useAgentChat(agentId: string) {
 const NOTE_ONLY = ['meta', 'stderr'];
 
 // an agent's chat under any header: lead on top, its timeline, permissions, open cards and composer;
-// fallback follows when Paseo has no timeline for it (only notes came back)
-type TranscriptProps = { agentId: string; state: AgentState; who: string; lead?: React.ReactNode; fallback?: React.ReactNode };
-export function AgentTranscript({ agentId, state, who, lead, fallback }: TranscriptProps) {
+// fallback follows when Paseo has no timeline for it (only notes came back); inline: outside a work, subagents open in a dialog
+// current: its model and thinking when the caller knows them, else the overview's
+type TranscriptProps = { agentId: string; state: AgentState; who: string; lead?: React.ReactNode; fallback?: React.ReactNode; inline?: boolean; current?: Choice | null; onSent?: () => void };
+export function AgentTranscript({ agentId, state, who, lead, fallback, inline = false, current, onSent }: TranscriptProps) {
   const { events, pending, send, cards, merge } = useAgentChat(agentId);
   const gone = events.length > 0 && events.every((e) => NOTE_ONLY.includes(e.type));
   const archived = state === 'archived';
   const listed = useOverview().ov?.agents.find((a) => a.id === agentId);
-  const model = useModelChoice(null, { live: true, current: listed?.provider ? { provider: listed.provider, thinking: listed.thinking || null } : null });
+  const model = useModelChoice(null, { live: true, current: current ?? (listed?.provider ? { provider: listed.provider, thinking: listed.thinking || null } : null) });
   return (
     <>
       <SubagentParent.Provider value={agentId}>
@@ -168,13 +173,17 @@ export function AgentTranscript({ agentId, state, who, lead, fallback }: Transcr
         </Log>
       </SubagentParent.Provider>
       <CardsWaiting cards={cards} />
-      <SubagentBar agentId={agentId} />
+      <SubagentBar agentId={agentId} inline={inline} />
       <Composer
         placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
-        note={archived ? 'Archived: + in Agents starts a new one' : state === 'running' ? 'Sends while it works' : ''}
+        note={archived ? (inline ? 'Archived' : 'Archived: + in Agents starts a new one') : state === 'running' ? 'Sends while it works' : cards.some((c) => c.status === 'open' && c.kind !== 'post') ? 'A message answers its open cards' : ''}
         disabled={archived || gone}
         tools={<ModelControls choice={model.choice} onPick={model.pick} hint="switches this agent from your next message" disabled={archived || gone} />}
-        onSend={(text, files) => send(text, files, model.body())}
+        onSend={async (text, files) => {
+          const ok = await send(text, files, model.body());
+          if (ok) onSent?.();
+          return ok;
+        }}
         onStop={state === 'running' ? () => api.agentStop(agentId) : undefined}
       />
     </>

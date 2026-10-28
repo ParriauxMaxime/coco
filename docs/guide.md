@@ -1100,6 +1100,18 @@ waiting on you. `AskUserQuestion` is off for coco agents. Cards live in
 context behind **Show details**; open ones stay unfolded. A thread agent's
 cards show in its thread (see Agent threads).
 
+You can also just write to the agent: every agent view has a composer (agent
+tabs, `#/agents/<agentId>` for agents outside a work, Ask, threads). A message
+sent there (or a Waiting-page reply to an Ask chat) closes the agent's open
+cards as **answered in chat**: they stop waiting on you and leave the
+waiting counts, nothing extra is delivered (your message is the answer; coco
+agents are told so in their system prompt). A message in a thread closes only
+that thread's cards; a message to a group agent's transcript leaves its
+thread cards open. The composer notes "A message answers its open cards"
+while some are open. **Dismiss** is not a silent stop: the agent is told
+"The user dismissed this card without choosing. Continue with your
+recommendation if it is safe; otherwise stop and say what is left."
+
 Proposals are cards too. `propose_work_scaffold`, `propose_paseo_agent`,
 `dispatch` and `propose_repo` post a confirm card that coco builds from the
 proposal (stack, surfaces, open questions and flags as tables, the brief or
@@ -1399,8 +1411,19 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
   every related file, feedback log; a button per configured ritual that
   takes a persona login.
 - Skill: rendered SKILL.md or companion file, editor.
-- Agents: live list with log on tap; workspaces.
-- Rituals: one form per entry of `rituals` in the config.
+- Agents: live list with log on tap and a **Chat** button per agent;
+  workspaces.
+- Agent (`#/agents/<agentId>`): any Paseo agent as a chat, one outside a
+  work included (a ritual, a persona refresh, one started in Paseo): the
+  agent tab's header (status, usage, context ring, Open in Paseo, **In its
+  work** when it has a work label) over its transcript, permissions, cards
+  and composer (attachments, model and thinking switch, Stop). Reached from
+  Chat on the Agents page, the Dashboard's agent rows, a ritual's history
+  row, a job of no work and the Waiting page link of a card whose agent has
+  no work. `GET /api/agent-chat/<agentId>` gives its title, kind, work, PR,
+  status, model, thinking, open cards and usage; the page polls it every 5 s.
+- Rituals: one form per entry of `rituals` in the config; a launched one's
+  history row has Chat.
 
 ## Personas
 

@@ -94,6 +94,8 @@ type ThreadsOptions = {
   agents?: ReturnType<typeof createPaseoAgents>;
   uploads?: Pick<Uploads, 'resolve' | 'record'>;
   cardsOf?: (slug: string, key: string) => Card[];
+  // the owner's message in a thread answers its open cards
+  chatted?: (slug: string, key: string) => unknown;
   jobs?: Pick<Jobs, 'start'>;
   // readies a code group's worktree before each turn and checks its commits
   worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify' | 'head'>>;
@@ -146,7 +148,7 @@ const defaultExec: Exec = (cmd, args) =>
     });
   });
 
-export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], worktrees, models, jobs, hold = { ms: 0, pollMs: 2000 } }: ThreadsOptions) {
+export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], chatted, worktrees, models, jobs, hold = { ms: 0, pollMs: 2000 } }: ThreadsOptions) {
   const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
@@ -562,7 +564,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (model && !short && !models) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
     const picked = models && (thinking || (model && !short)) ? await models.check({ provider: short ? MODELS[model || ''] : model, thinking }, MODELS[model || 'sonnet']) : {};
     const chosen = short ? model : picked.provider || model;
-    const send = () => withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files }));
+    const send = () => withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files })).then((t) => {
+      chatted?.(slug, key);
+      return t;
+    });
     if (!jobs) return send();
     // each message is its own job: a thread takes a second message while its agent still works
     const label = `Thread: ${said.split('\n')[0].slice(0, 50)}`;

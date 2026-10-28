@@ -19,7 +19,8 @@ export type CardEffect = { type: 'take_decision'; option: string } | { type: 'di
 export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
-export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string };
+// chat: closed by a message the owner typed to the agent instead of answering the card
+export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string; chat?: boolean };
 export type CardBody = {
   kind: CardKind;
   title: string;
@@ -53,6 +54,7 @@ export type Card = CardBody & {
   explained?: { at: string; ok: boolean; error?: string; skipped?: boolean };
 };
 export const EXPLAIN_TEXT = 'Explain the options in more detail before I pick';
+export const DISMISS_TEXT = 'The user dismissed this card without choosing. Continue with your recommendation if it is safe; otherwise stop and say what is left.';
 type Place = { work: string | null; pr: string | null };
 export type ActionContext = Place & { agentId: string };
 // a proposal card: card() checks the agent's input and builds the card showing it, run() does what approving it does
@@ -266,12 +268,13 @@ export function answerSummary(card: Card) {
   if (a.approved != null) lines.push(a.approved ? 'Approved' : 'Rejected');
   for (const f of card.fields || []) if (a.values && f.key in a.values) lines.push(`${f.label}: ${a.values[f.key] === true ? 'yes' : a.values[f.key] === false ? 'no' : a.values[f.key]}`);
   if (a.other) lines.push(`Other: ${a.other}`);
+  if (a.chat) lines.push('Answered in chat');
   if (card.result) lines.push(`${card.result.ok ? 'Done' : 'Failed'}: ${card.result.detail}`);
   return lines.join('\n');
 }
 
 export function deliveryText(card: Card) {
-  if (card.status === 'cancelled') return `[coco card ${card.id} dismissed] ${card.title}\nThe user dismissed this ask without answering.`;
+  if (card.status === 'cancelled') return `[coco card ${card.id} dismissed] ${card.title}\n${DISMISS_TEXT}`;
   const r = card.result;
   return `[coco card ${card.id} answered] ${card.title}\n${answerSummary(card)}\n\n\`\`\`json\n${JSON.stringify(r ? { ...card.answer, result: strip({ ok: r.ok, detail: r.detail, link: r.link }) } : card.answer)}\n\`\`\``;
 }
@@ -420,6 +423,13 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     return save(c);
   }
 
+  // the owner wrote to the agent instead: its open asks stop waiting, answered in chat, nothing delivered (the message is the answer)
+  function answeredInChat(pick: (c: Card) => boolean) {
+    const closed = [...cards.values()].filter((c) => c.status === 'open' && pick(c));
+    for (const c of closed) save({ ...c, status: 'answered', answer: { at: now(), chat: true }, delivery: { at: now(), ok: true, skipped: true } });
+    return closed.map((c) => c.id);
+  }
+
   async function cancel(id: string) {
     const c = open(id);
     c.status = 'cancelled';
@@ -457,6 +467,9 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     cancel,
     explain,
     ofAgent,
+    // a message to an agent closes its asks outside threads; a message in a thread closes that thread's
+    chatted: (agentIds: string[]) => answeredInChat((c) => agentIds.includes(c.agentId) && !c.thread),
+    chattedInThread: (work: string, thread: string) => answeredInChat((c) => c.work === work && c.thread === thread),
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     open: () => [...cards.values()].filter((c) => c.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,

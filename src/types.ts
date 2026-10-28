@@ -287,6 +287,8 @@ export type CardAnswer = {
   values?: Record<string, CardValue>;
   approved?: boolean;
   other?: string;
+  // closed by a message the owner typed to the agent instead
+  chat?: boolean;
 };
 export type CardAnswerBody = Omit<CardAnswer, 'at'>;
 export type Card = {
@@ -559,6 +561,8 @@ export type ModelCatalog = { mode: string; defaults: { default: string; fast: st
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
+// any Paseo agent, in a work or not (GET /api/agent-chat/<agentId>)
+export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; provider: string | null; thinking: string | null; serverId: string | null; openCards: number } & AgentMetrics;
 // estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them; the context window at the last turn
 export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens?: number | null; contextMax?: number | null };
 export type UsageWindow = { id: string; label: string; shortLabel?: string; summary?: boolean; usedPct?: number | null; resetsAt?: string | null; tone?: 'default' | 'ok' | 'warning' | 'danger' };

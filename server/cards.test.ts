@@ -103,3 +103,31 @@ test('explain asks the agent for detail and leaves the card open, answerable', a
   assert.equal((await cards.answer(asked.id, { picked: ['csv'] })).status, 'answered');
   await assert.rejects(cards.explain(asked.id), /already answered/);
 });
+
+test('a dismissal tells the agent to go on with its recommendation if safe, else to stop and say what is left', async () => {
+  const sent: string[] = [];
+  const cards = createCards({ DATA: tmpDir(), deliver: async (_a, text) => void sent.push(text) });
+  const asked = await cards.create({ ...choice, agentId: AGENT });
+  await cards.cancel(asked.id);
+  assert.equal(sent[0], `[coco card ${asked.id} dismissed] Export format\nThe user dismissed this card without choosing. Continue with your recommendation if it is safe; otherwise stop and say what is left.`);
+});
+
+test("a message typed to the agent answers its open cards in chat, a thread message only that thread's; nothing is delivered", async () => {
+  const sent: string[] = [];
+  const DATA = tmpDir();
+  const cards = createCards({ DATA, place: async () => ({ work: 'csv', pr: null }), deliver: async (_a, text) => void sent.push(text), threads: { resolve: (b) => b.thread ?? null, effect: async () => ({ ok: true, detail: '' }), deliver: async (_c, text) => void sent.push(text) } });
+  const plain = await cards.create({ ...choice, agentId: AGENT });
+  const inThread = await cards.create({ ...choice, agentId: AGENT, thread: 'c-1' });
+  const other = await cards.create({ ...choice, agentId: 'someone-else' });
+  const post = await cards.create({ kind: 'post', title: 'Coverage', blocks: [{ type: 'text', text: 'ok' }], agentId: AGENT });
+  assert.deepEqual(cards.chatted([AGENT]), [plain.id]);
+  const closed = cards.get(plain.id);
+  assert.deepEqual([closed.status, closed.answer?.chat, closed.delivery?.skipped], ['answered', true, true]);
+  assert.deepEqual([cards.get(inThread.id).status, cards.get(other.id).status, cards.get(post.id).answer], ['open', 'open', undefined]);
+  assert.equal(cards.openCount(AGENT), 1);
+  assert.deepEqual(cards.chattedInThread('csv', 'c-1'), [inThread.id]);
+  assert.equal(cards.openCount(AGENT), 0);
+  assert.deepEqual(sent, []);
+  await assert.rejects(cards.answer(plain.id, { picked: ['csv'] }), /already answered/);
+  assert.equal(createCards({ DATA, deliver: async () => {} }).get(plain.id).answer?.chat, true);
+});

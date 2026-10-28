@@ -84,7 +84,7 @@ export function createWaiting({ DATA, works, cards, threads, ask, convOf, now = 
       const work = c.work ?? conv?.workSlug ?? null;
       if (work && !slugs.has(work)) continue;
       asked.add(c.agentId);
-      const link = c.thread && c.work ? (threads.link?.(c.work, c.thread) ?? `#/work/${c.work}`) : conv ? (work ? `#/work/${work}/ask-${conv.id}` : `#/ask/${conv.id}`) : work ? `#/work/${work}/ag-${c.agentId}` : '#/agents';
+      const link = c.thread && c.work ? (threads.link?.(c.work, c.thread) ?? `#/work/${c.work}`) : conv ? (work ? `#/work/${work}/ask-${conv.id}` : `#/ask/${conv.id}`) : work ? `#/work/${work}/ag-${c.agentId}` : `#/agents/${c.agentId}`;
       items.push({ id: `card:${c.id}`, kind: 'card', work, pr: c.pr, title: c.title, excerpt: cut(c.question || ''), at: c.createdAt, link, actions: cardActions(c, link) });
     }
 
