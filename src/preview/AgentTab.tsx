@@ -203,6 +203,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const listed = useWorkAgent(slug, tabId);
   const asked = useWaitingByAgent();
   const state = listed ? stateOf(listed, asked) : 'done';
+  const seen = useSeen(`agent:${agentId}`);
   const { summaries, groups } = useThreadsOf(slug);
   const group = groups.find((g) => g.agentId === agentId);
   const keys = group ? Object.keys(summaries).filter((k) => summaries[k].groupId === group.id).sort((a, b) => (summaries[b].lastTs ?? '').localeCompare(summaries[a].lastTs ?? '')) : [];
@@ -214,7 +215,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
     </span>
   );
   return (
-    <div className="dp-tabview dp-agtab">
+    <div ref={seen} className="dp-tabview dp-agtab">
       <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={toggle} handoff />
       {keys.length && !raw ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
     </div>

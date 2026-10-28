@@ -620,7 +620,8 @@ export type OverviewRituals = { kinds: string[]; rituals: Ritual[]; history: Rit
 export type RitualLaunchBody = { kind: string; login?: string; pr?: string; paths?: string; text?: string };
 export type RitualLaunchResult = RitualRun | { ok: false; error: string };
 
-export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
-export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
+export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open' | 'archive'; label: string; url: string; body?: Record<string, unknown>; field?: string };
+// agent: any other agent coco started or links that ended its turn with the last word
+export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask' | 'agent'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
 // byAgent, byWork: how many items each Paseo agent id and each work slug holds
 export type WaitingView = { items: WaitingItem[]; count: number; byAgent: Record<string, number>; byWork: Record<string, number> };

@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWaiting } from './waiting.ts';
+import { LAST_WORD_MS, createWaiting } from './waiting.ts';
+import { createFinishedAgents } from './finished-agents.ts';
+import type { LastWord } from './finished-agents.ts';
+import type { AgentSnapshot } from './permissions.ts';
 import type { Card } from './cards.ts';
 
 const card = (id: string, extra: Partial<Card> = {}): Card => ({ id, agentId: `ag-${id}`, work: 'w', pr: '7', kind: 'choice', title: `card ${id}`, question: 'Which one?', options: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }], other: true, status: 'open', createdAt: '2026-10-20T10:00:00Z', ...extra });
@@ -12,8 +15,10 @@ const conv = (id: string, extra: Record<string, unknown> = {}) => ({ id, prompt:
 
 const perm = (agentId: string, id: string, extra: Record<string, unknown> = {}) => ({ agentId, agentTitle: `coco · ${agentId}`, request: { id, kind: 'tool', name: 'Bash', title: 'npm test' }, since: '2026-10-20T09:00:00Z', where: null, work: 'w', pr: '7', ...extra });
 
-type Setup = { cards?: Card[]; queue?: ReturnType<typeof queued>[]; asks?: ReturnType<typeof conv>[]; perms?: ReturnType<typeof perm>[]; ready?: { commit: string; subject: string; stat: string } | null; DATA?: string; archived?: boolean; at?: string };
-const make = ({ cards = [], queue = [], asks = [], perms = [], ready = null, DATA, archived, at = '2026-10-21T12:00:00Z' }: Setup = {}) =>
+const word = (agentId: string, extra: Partial<LastWord> = {}): LastWord => ({ agentId, title: `agent ${agentId}`, work: 'w', pr: '7', text: 'Done: the fix is pushed.', at: '2026-10-21T08:00:00Z', ...extra });
+
+type Setup = { cards?: Card[]; queue?: ReturnType<typeof queued>[]; asks?: ReturnType<typeof conv>[]; perms?: ReturnType<typeof perm>[]; words?: LastWord[]; convs?: Record<string, string>; ready?: { commit: string; subject: string; stat: string } | null; DATA?: string; archived?: boolean; at?: string };
+const make = ({ cards = [], queue = [], asks = [], perms = [], words = [], convs = {}, ready = null, DATA, archived, at = '2026-10-21T12:00:00Z' }: Setup = {}) =>
   createWaiting({
     DATA,
     now: () => Date.parse(at),
@@ -22,6 +27,8 @@ const make = ({ cards = [], queue = [], asks = [], perms = [], ready = null, DAT
     threads: { queue: (slug) => (slug === 'w' ? queue : []), ready: async () => ready },
     ask: { list: () => asks },
     permissions: { list: () => perms },
+    finished: { list: async () => words },
+    convOf: (agentId) => (convs[agentId] ? { id: convs[agentId], workSlug: 'w' } : null),
   });
 const ids = async (w: ReturnType<typeof make>, slug?: string) => (await w.view(slug)).items.map((i) => i.id);
 
@@ -184,4 +191,91 @@ test('one thing counts once: a question asked both as a card and through Paseo i
   assert.deepEqual(v.items.map((i) => i.id).sort(), ['card:c1', 'perm:A:t1', 'perm:B:q3', 'perm:T:t2', 'thread:w:c.7.bb22']);
   assert.equal(v.items.find((i) => i.id === 'perm:B:q3')?.title, 'Which base?');
   assert.deepEqual(v.byAgent, { A: 2, B: 1, T: 1, U: 1 });
+});
+
+test('an agent that finished its turn with the last word is a done item, opened in its work tab or its own page, answered, dismissed or archived', async () => {
+  const w = make({ words: [word('X'), word('Y', { work: null, pr: null }), word('Z', { work: 'gone' })] });
+  const v = await w.view();
+  assert.deepEqual(v.items.map((i) => i.id).sort(), ['agent:X', 'agent:Y']);
+  const x = v.items.find((i) => i.id === 'agent:X');
+  assert.deepEqual([x?.kind, x?.agentId, x?.work, x?.pr, x?.title, x?.excerpt, x?.link], ['agent', 'X', 'w', '7', 'agent X', 'Done: the fix is pushed.', '#/work/w/ag-X']);
+  assert.deepEqual(x?.actions.map((a) => [a.kind, a.url]), [['reply', '/api/agent-chat/X/messages'], ['ack', '/api/waiting/ack'], ['archive', '/api/agent-chat/X/archive']]);
+  assert.deepEqual(x?.actions[1].body, { ids: ['agent:X'] });
+  assert.equal(v.items.find((i) => i.id === 'agent:Y')?.link, '#/agents/Y');
+  assert.deepEqual(v.byAgent, { X: 1, Y: 1 });
+  assert.deepEqual(v.byWork, { w: 1 });
+});
+
+test('a finished agent with an open card, a permission, an Ask chat or a thread waits through that, not as a done agent', async () => {
+  const w = make({
+    words: ['A', 'B', 'C', 'D', 'E', 'F'].map((id) => word(id)),
+    cards: [card('c1', { agentId: 'A' })],
+    perms: [perm('B', 'r1')],
+    asks: [conv('a1', { agentIds: ['C'], status: 'running' })],
+    queue: [queued('c.7.aa11', { agentId: 'D', busy: true })],
+    convs: { E: 'conv-e' },
+  });
+  assert.deepEqual((await ids(w)).sort(), ['agent:F', 'card:c1', 'perm:B:r1']);
+});
+
+test("a done agent's last word stops waiting after two days, and a dismiss hides it until the agent speaks again", async () => {
+  const at = '2026-10-21T12:00:00Z';
+  const old = new Date(Date.parse(at) - LAST_WORD_MS - 1000).toISOString();
+  assert.deepEqual(await ids(make({ words: [word('X', { at: old }), word('Y')], at })), ['agent:Y']);
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'waiting-'));
+  const w = make({ words: [word('X')], DATA, at });
+  w.ack(['agent:X']);
+  assert.deepEqual(await ids(w), []);
+  assert.deepEqual(await ids(make({ words: [word('X', { at: new Date(Date.now() + 60000).toISOString() })], DATA, at })), ['agent:X']);
+});
+
+const snap = (id: string, extra: Partial<AgentSnapshot> = {}): AgentSnapshot => ({ id, title: `coco · task ${id}`, labels: { source: 'cocopilot', kind: 'dispatch', work: 'w', pr: 'b~feat' }, status: 'idle', updatedAt: '2026-10-21T10:00:00Z', archivedAt: null, pendingPermissions: [], ...extra });
+
+test('finished agents: dispatch, New agent, setup, ritual, linked and hand-off agents idle with the last word; Ask, cc-group, running, archived, held, old or plain ones are not', async () => {
+  const agents = [
+    snap('dispatch'),
+    snap('new', { labels: { source: 'cocopilot', kind: 'agent' } }),
+    snap('ritual', { title: 'Weekly', labels: { source: 'cockpit', ritual: 'weekly' } }),
+    snap('linked', { title: 'by hand', labels: {} }),
+    snap('successor', { labels: { source: 'cocopilot', kind: 'ask' } }),
+    snap('ask', { labels: { source: 'cocopilot', kind: 'agent', ask: 'abcd1234' } }),
+    snap('group', { labels: { source: 'cocopilot', kind: 'cc-group', work: 'w' } }),
+    snap('review', { labels: { source: 'cocopilot', kind: 'review', work: 'w' } }),
+    snap('plain', { title: 'by hand', labels: {} }),
+    snap('running', { status: 'running' }),
+    snap('archived', { archivedAt: '2026-10-21T11:00:00Z' }),
+    snap('held', { pendingPermissions: [{ id: 'r', name: 'Bash', kind: 'tool' }] }),
+    snap('old', { updatedAt: '2026-10-18T10:00:00Z' }),
+    snap('owner-last'),
+  ];
+  const fetched: string[] = [];
+  const timeline = (id: string) => ({
+    refetch: async () => {
+      fetched.push(id);
+      const entries = [{ item: { type: 'user_message', text: 'go' }, timestamp: '2026-10-21T09:00:00Z' }, { item: { type: 'assistant_message', text: `  ${id} is done ` }, timestamp: '2026-10-21T09:30:00Z' }, { item: { type: 'tool_call', name: 'Bash' }, timestamp: '2026-10-21T09:31:00Z' }];
+      return { entries: id === 'owner-last' ? [...entries, { item: { type: 'user_message', text: 'stop' }, timestamp: '2026-10-21T09:40:00Z' }] : entries };
+    },
+  });
+  const f = createFinishedAgents({
+    client: async () => ({ agents: { ref: (id: string) => ({ timeline: timeline(id) }) } }) as never,
+    agents: () => agents,
+    linked: () => [{ agentId: 'linked', slug: 'w', key: 12 }],
+    successors: () => ['successor'],
+    maxAgeMs: LAST_WORD_MS,
+    now: () => Date.parse('2026-10-21T12:00:00Z'),
+  });
+  const words = await f.list();
+  assert.deepEqual(words.map((x) => x.agentId).sort(), ['dispatch', 'linked', 'new', 'ritual', 'successor']);
+  assert.deepEqual(words.find((x) => x.agentId === 'dispatch'), { agentId: 'dispatch', title: 'task dispatch', work: 'w', pr: 'b:feat', text: 'dispatch is done', at: '2026-10-21T09:30:00Z' });
+  assert.deepEqual([words.find((x) => x.agentId === 'linked')?.work, words.find((x) => x.agentId === 'linked')?.pr], ['w', '12']);
+  const n = fetched.length;
+  await f.list();
+  assert.equal(fetched.length, n, 'an agent not updated since is not fetched again');
+  agents[0] = { ...agents[0], updatedAt: '2026-10-21T11:00:00Z' };
+  await f.list();
+  assert.deepEqual(fetched.slice(n), ['dispatch']);
+  assert.equal(f.changed(agents[0]), true);
+  assert.equal(f.changed(agents[0]), false);
+  assert.equal(f.changed({ ...agents[0], status: 'running' }), true);
+  assert.equal(f.changed(agents[8]), false, 'an agent it does not track changes nothing');
 });

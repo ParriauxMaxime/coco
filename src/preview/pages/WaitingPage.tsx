@@ -10,7 +10,7 @@ import { Empty, Loading, Page, PageHead, Section } from './Page.tsx';
 import type { Overview, WaitingAction, WaitingItem } from '../../types.ts';
 import './waiting.css';
 
-const KIND: Record<WaitingItem['kind'], string> = { card: 'question', permission: 'permission', approve: 'approve', thread: 'thread', ask: 'ask' };
+const KIND: Record<WaitingItem['kind'], string> = { card: 'question', permission: 'permission', approve: 'approve', thread: 'thread', ask: 'ask', agent: 'done' };
 const when = (iso: string) => iso.slice(0, 16).replace('T', ' ');
 // what Dismiss selected does to an item: its own dismiss, else the ack that hides it
 const dismissOf = (i: WaitingItem) => i.actions.find((a) => a.kind === 'dismiss') || i.actions.find((a) => a.kind === 'ack');
@@ -42,7 +42,7 @@ function Row({ item, on, onTick, run, pending }: { item: WaitingItem; on: boolea
         {item.excerpt && <div className="dp-wt-x">{item.excerpt}</div>}
         <div className="dp-wt-f">
           {item.actions.filter((a) => a.kind !== 'reply').map((a) => (
-            <button key={a.id} type="button" className={`dp-btn dp-sm${a.kind === 'approve' ? ' dp-primary' : a.kind === 'dismiss' || a.kind === 'ack' ? ' dp-ghost' : ''}${pendingClass(pending === key(a))}`} disabled={pending !== null} onClick={() => (a.kind === 'open' ? void (location.hash = a.url) : run(a))}>{a.label}</button>
+            <button key={a.id} type="button" className={`dp-btn dp-sm${a.kind === 'approve' ? ' dp-primary' : a.kind === 'dismiss' || a.kind === 'ack' || a.kind === 'archive' ? ' dp-ghost' : ''}${pendingClass(pending === key(a))}`} disabled={pending !== null} onClick={() => (a.kind === 'open' ? void (location.hash = a.url) : run(a))}>{a.label}</button>
           ))}
           {reply && (
             <span className="dp-wt-reply">

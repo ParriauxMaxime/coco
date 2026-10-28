@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { AgentTranscript, Header } from '../AgentTab.tsx';
 import { focusCard } from '../chat/Card.tsx';
-import { useWaitingByAgent } from '../waiting.ts';
+import { useSeen, useWaitingByAgent } from '../waiting.ts';
 import Icon from '../Icon.tsx';
 import type { AgentState } from '../agents.ts';
 import { ErrorNote, Loading } from './Page.tsx';
@@ -21,6 +21,7 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [err, setErr] = useState('');
   const waiting = useWaitingByAgent();
+  const seen = useSeen(`agent:${agentId}`);
   const load = () => api.agentInfo(agentId).then((i) => { setInfo(i); setErr(''); }, (e) => setErr(errorMessage(e)));
   useEffect(() => {
     void load();
@@ -42,7 +43,7 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   const state: AgentState = info.status !== 'archived' && waiting[agentId] ? 'waiting' : info.status;
   const inWork = info.work && <a className="dp-btn dp-sm" href={`#/work/${encodeURIComponent(info.work)}/ag-${agentId}`} title="Open it among its work's tabs"><Icon name="layers" size={14} />In its work</a>;
   return (
-    <div className="dp-page dp-agpage" role="main">
+    <div ref={seen} className="dp-page dp-agpage" role="main">
       <section className="dp-agpage-chat">
         <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={inWork} handoff />
         <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />

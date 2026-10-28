@@ -70,6 +70,8 @@ type Options = { client: () => Promise<PermissionClient>; locate?: (agent: Agent
 
 export function createPermissions({ client, locate = () => null, waitMs = WAIT_MS, retryMs = RETRY_MS }: Options) {
   const held = new Map<string, { agent: AgentSnapshot; since: Map<string, string> }>();
+  // the latest snapshot of every agent in Paseo's live list
+  const live = new Map<string, AgentSnapshot>();
   const listeners = new Set<() => void>();
   const agentListeners = new Set<AgentListener>();
   let booting: Promise<void> | null = null;
@@ -79,6 +81,7 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
   const isPending = (agentId: string, requestId: string) => Boolean(held.get(agentId)?.agent.pendingPermissions?.some((r) => r.id === requestId));
 
   function keep(agent: AgentSnapshot) {
+    live.set(agent.id, agent);
     const pending = !agent.archivedAt && isCocoAgent(agent) ? agent.pendingPermissions || [] : [];
     if (!pending.length) return held.delete(agent.id);
     const before = held.get(agent.id)?.since;
@@ -88,12 +91,16 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
     const id = update.kind === 'upsert' ? update.agent.id : update.agentId;
     const before = idsOf(id);
     if (update.kind === 'upsert') keep(update.agent);
-    else held.delete(id);
+    else {
+      held.delete(id);
+      live.delete(id);
+    }
     if (idsOf(id) !== before) changed();
     agentListeners.forEach((l) => (update.kind === 'upsert' ? l(update.agent) : l(null, id)));
   }
   function reset(agents: AgentSnapshot[]) {
     held.clear();
+    live.clear();
     agents.forEach(keep);
     changed();
     agentListeners.forEach((l) => l(null));
@@ -187,6 +194,7 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
     apply,
     reset,
     list,
+    agents: () => [...live.values()],
     respond,
     handle,
     watch,

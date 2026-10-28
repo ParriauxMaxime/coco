@@ -269,5 +269,7 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
     }
   }
 
-  return { begin, of, handle };
+  // the agents hand-offs started
+  const successors = () => list.flatMap((h) => (h.to ? [h.to] : []));
+  return { begin, of, successors, handle };
 }

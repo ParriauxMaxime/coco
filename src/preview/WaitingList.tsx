@@ -4,7 +4,7 @@ import Icon from './Icon.tsx';
 import type { WaitingItem } from '../types.ts';
 import './chat/chat.css';
 
-const KIND: Record<WaitingItem['kind'], string> = { card: 'question', permission: 'permission', approve: 'approve', thread: 'your word', ask: 'your word' };
+const KIND: Record<WaitingItem['kind'], string> = { card: 'question', permission: 'permission', approve: 'approve', thread: 'your word', ask: 'your word', agent: 'done' };
 
 // items of the waiting queue in a popover, a tab or a page section: a Paseo permission is answered in place, anything else opens where it is asked
 export default function WaitingList({ items, empty }: { items: WaitingItem[]; empty?: React.ReactNode }) {

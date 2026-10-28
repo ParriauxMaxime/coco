@@ -1,6 +1,6 @@
 // "Waiting on you": the one read model of everything that stops until the owner answers, which every counter reads (sidebar, status bar, dock,
 // Agents page, work tree): open cards, Paseo permissions of coco's agents, suggestions with an open Approve, Ask chats and cc-group threads whose
-// agent ended its turn with the last word. Each item names its agent and work, and one thing counts once. Nothing acts by itself: each item lists
+// agent ended its turn with the last word, and any other agent coco started or links that did. Each item names its agent and work, and one thing counts once. Nothing acts by itself: each item lists
 // the existing endpoints its buttons call.
 // GET /api/waiting · GET /api/works/<slug>/waiting · POST /api/waiting/ack { ids } hides agent questions until the agent speaks again · SSE topic `waiting`
 import fs from 'node:fs';
@@ -10,6 +10,7 @@ import type { ReadBody, Req, Res, Send } from './core-types.ts';
 import { swrCache } from './swr.ts';
 import type { Sink } from './events.ts';
 import type { Card } from './cards.ts';
+import type { LastWord } from './finished-agents.ts';
 
 const TTL_MS = 30000;
 const SETTLE_MS = 500;
@@ -18,12 +19,13 @@ const MAX_IDS = 100;
 const MAX_ID = 200;
 const ACK_TTL_MS = 30 * 24 * 3600 * 1000;
 // an agent's last word left unanswered this long is read and let go: questions and permissions stay until answered
-const LAST_WORD_MS = 2 * 24 * 3600 * 1000;
+export const LAST_WORD_MS = 2 * 24 * 3600 * 1000;
 
-// kind: pick an option / approve / dismiss go through their endpoint as is; reply sends { [field]: text }; ack only hides the item here
-export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
+// kind: pick an option / approve / dismiss / archive go through their endpoint as is; reply sends { [field]: text }; ack only hides the item here
+export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open' | 'archive'; label: string; url: string; body?: Record<string, unknown>; field?: string };
 // diagrams: how many Mermaid diagrams a card carries, named on its row and shown on the card itself
-export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
+// agent: any other agent coco started or links that ended its turn with the last word
+export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask' | 'agent'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
 // byAgent, byWork: how many items each Paseo agent id and each work slug holds
 export type WaitingView = { items: WaitingItem[]; count: number; byAgent: Record<string, number>; byWork: Record<string, number> };
 
@@ -38,6 +40,8 @@ type Options = {
   threads: { queue(slug: string): Queued[]; ready(slug: string, key: string): Promise<Ready>; link?: (slug: string, key: string) => string };
   ask: { list(): AskMeta[] };
   permissions?: { list(): Permission[] };
+  // the other agents coco started or links whose turn ended with their last word (server/finished-agents.ts)
+  finished?: { list(): Promise<LastWord[]> };
   // the Ask chat an agent belongs to, to open its cards there
   convOf?: (agentId: string) => { id: string; workSlug: string | null } | null;
   now?: () => number;
@@ -73,7 +77,7 @@ function cardActions(c: Card, link: string): WaitingAction[] {
   return [...picks, ...(c.other && c.kind !== 'form' ? [reply(`${url}/answer`, 'other')] : []), { id: 'dismiss', kind: 'dismiss', label: 'Dismiss', url: `${url}/cancel` }];
 }
 
-export function createWaiting({ DATA, works, cards, threads, ask, permissions, convOf, now = Date.now }: Options) {
+export function createWaiting({ DATA, works, cards, threads, ask, permissions, finished, convOf, now = Date.now }: Options) {
   const file = DATA ? path.join(DATA, 'waiting-acks.json') : null;
   const acks: Record<string, string> = (() => {
     try {
@@ -118,7 +122,10 @@ export function createWaiting({ DATA, works, cards, threads, ask, permissions, c
       items.push({ id: `perm:${p.agentId}:${r.id}`, kind: 'permission', agentId: p.agentId, work, pr: p.pr ?? null, title, excerpt: cut([p.agentTitle, r.kind === 'tool' ? r.title : '', r.description].filter(Boolean).join(' · ')), at: p.since, link, actions: [openOf(link)] });
     }
 
+    // agents that wait through another kind: an Ask chat's or a thread's
+    const other = new Set<string>();
     for (const m of ask.list()) {
+      m.agentIds.forEach((a) => other.add(a));
       if (!['idle', 'parked'].includes(m.status) || !m.turns || m.once || !m.text || m.agentIds.some((a) => asked.has(a) || held.has(a))) continue;
       if (m.workSlug && !slugs.has(m.workSlug)) continue;
       const id = `ask:${m.id}`;
@@ -128,6 +135,7 @@ export function createWaiting({ DATA, works, cards, threads, ask, permissions, c
 
     for (const w of live) {
       for (const q of threads.queue(w.slug)) {
+        if (q.agentId) other.add(q.agentId);
         if (q.busy) continue;
         const base = `/api/works/${w.slug}/threads/${enc(q.key)}`;
         const s = q.suggestion;
@@ -145,6 +153,17 @@ export function createWaiting({ DATA, works, cards, threads, ask, permissions, c
         if (!q.agentLast || q.asks || !q.text || acked(id, q.at) || (q.agentId && held.has(q.agentId))) continue;
         items.push({ id, kind: 'thread', agentId: q.agentId ?? null, work: w.slug, pr: q.pr, key: q.key, title: q.title, excerpt: cut(q.text), at: q.at, link: q.link, actions: [reply(base), ackOf(id)] });
       }
+    }
+
+    for (const f of (await finished?.list().catch(() => [])) ?? []) {
+      const id = `agent:${f.agentId}`;
+      if (asked.has(f.agentId) || held.has(f.agentId) || other.has(f.agentId) || convOf?.(f.agentId) || acked(id, f.at)) continue;
+      if (f.work && !slugs.has(f.work)) continue;
+      const base = `/api/agent-chat/${enc(f.agentId)}`;
+      items.push({
+        id, kind: 'agent', agentId: f.agentId, work: f.work, pr: f.pr, title: f.title, excerpt: cut(f.text), at: f.at, link: f.work ? `#/work/${f.work}/ag-${f.agentId}` : `#/agents/${enc(f.agentId)}`,
+        actions: [reply(`${base}/messages`), ackOf(id), { id: 'archive', kind: 'archive', label: 'Archive', url: `${base}/archive` }],
+      });
     }
     return items.sort((a, b) => b.at.localeCompare(a.at));
   }

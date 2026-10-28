@@ -47,6 +47,8 @@ type Options = {
   // lines added to the owner's follow-up of a code-writing agent: its readied worktree, when that changed
   beforeTurn?: (agentId: string) => Promise<string[]>;
   closeAsk?: (id: string) => Promise<unknown>;
+  // archives one agent through coco, which keeps its cards as when coco archives it itself; false once it is archived already
+  archiveAgent?: (agentId: string) => Promise<boolean>;
   // a follow-up's model or thinking pick, applied to the agent before the message
   models?: Pick<Models, 'apply'>;
   subagents?: Pick<Subagents, 'counts' | 'onChange'>;
@@ -58,7 +60,7 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, models, subagents }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, models, subagents }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -229,10 +231,14 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     };
   }
 
-  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>[/events|place] · POST /api/agent-chat/<agentId>/messages|stop
+  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>[/events|place] · POST /api/agent-chat/<agentId>/messages|stop|archive
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
+      if (root === 'agent-chat' && a && b === 'archive' && req.method === 'POST') {
+        if (!archiveAgent) throw new HttpError(501, 'archiving is not wired');
+        return send(res, 200, { ok: true, archived: await archiveAgent(a) });
+      }
       if (root === 'works' && b === 'agents' && c === 'events') return watchList(sseSink(req, res), a);
       if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
       if (root === 'works' && b === 'agents' && c === 'archive' && req.method === 'POST') {
