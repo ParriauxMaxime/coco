@@ -581,8 +581,10 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp-ag-thread-h { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px; padding: 0 10px 0 6px; cursor: pointer; font: 12.5px var(--dp-mono); color: var(--dp-t1); }
 .dp-ag-thread-h:hover { background: var(--dp-hover); }
 .dp-ag-thread-h.dp-open { border-bottom: 1px solid var(--dp-line); }
-.dp-ag-bar .dp-title { min-width: 0; }
-.dp-ag-usage { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dp-ag-bar .dp-title { min-width: 60px; }
+.dp-ag-bar > :not(.dp-title, .dp-sp, .dp-ag-usage) { flex: none; white-space: nowrap; }
+.dp-ag-bar > .dp-ag-usage { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dp-ag-usage { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dp-ag-start { display: flex; align-items: center; justify-content: center; }
 .dp-ag-hello { max-width: 520px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
 .dp-ag-h { margin-top: 6px; font-size: 15px; font-weight: 600; }

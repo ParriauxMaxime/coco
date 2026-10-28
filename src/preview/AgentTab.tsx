@@ -192,7 +192,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const [raw, setRaw] = useState(false);
   const toggle = keys.length > 0 && (
     <span className="dp-seg" role="tablist">
-      <button type="button" role="tab" aria-selected={!raw} className={raw ? '' : 'dp-on'} title="Each item this agent works on, as its thread: blocks, suggestions, Approve" onClick={() => setRaw(false)}>Threads · {keys.length}</button>
+      <button type="button" role="tab" aria-selected={!raw} className={raw ? '' : 'dp-on'} title="Each item this agent works on, as its thread: blocks, suggestions, Approve" onClick={() => setRaw(false)}>Threads<span className="dp-t3">{keys.length}</span></button>
       <button type="button" role="tab" aria-selected={raw} className={raw ? 'dp-on' : ''} title="The agent's raw Paseo transcript: coco's prompts, thinking, tool calls" onClick={() => setRaw(true)}>Transcript</button>
     </span>
   );
