@@ -130,6 +130,11 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     return server && { ...server, leases: server.leases.map((lease) => ({ ...lease, mine: mine(lease) })) };
   }
 
+  const up = async () => {
+    const reply = await call('GET', '/api/board', undefined, READ_MS);
+    return !('down' in reply) && reply.status === 200;
+  };
+
   async function workView(work: Work) {
     const reply = await call('GET', '/api/board', undefined, READ_MS);
     if ('down' in reply) return { on: false, reason: reply.down };
@@ -214,5 +219,5 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     }
   }
 
-  return { handle, workView, rowsOf };
+  return { handle, workView, rowsOf, up };
 }

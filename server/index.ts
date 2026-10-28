@@ -111,6 +111,7 @@ const agentWorktrees = createAgentWorktrees({
   log: (text) => console.log(text),
   notify: async (agentId, text) => (await threads.steerAgent(agentId, text)) || workAgents.say(agentId, text),
   registry: jobs,
+  devServersUp: () => devServers.up(),
 });
 const agentChecks = createAgentChecks({
   DATA,

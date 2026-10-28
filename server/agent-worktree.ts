@@ -101,9 +101,18 @@ type Deps = {
   retryMs?: number[];
   platform?: NodeJS.Platform;
   registry?: Pick<Jobs, 'start'>;
+  // the dev-servers plugin answers: a brief names its tools only then
+  devServersUp?: () => Promise<boolean>;
 };
 
-export function createAgentWorktrees({ config, run = defaultRun, notify = async () => {}, log = () => {}, retryMs = RETRY_MS, platform = process.platform, registry }: Deps) {
+const DEV_UP_TTL_MS = 30000;
+
+export function createAgentWorktrees({ config, run = defaultRun, notify = async () => {}, log = () => {}, retryMs = RETRY_MS, platform = process.platform, registry, devServersUp }: Deps) {
+  const devConfigured = Boolean(config.devServers && 'projects' in config.devServers);
+  let devUp = { at: 0, on: false };
+  const probeDev = async () => {
+    if (devConfigured && devServersUp && Date.now() - devUp.at > DEV_UP_TTL_MS) devUp = { at: Date.now(), on: await devServersUp().catch(() => false) };
+  };
   const jobs = new Map<string, Promise<void>>();
   const failures = new Map<string, string>();
   const attempts = new Map<string, number>();
@@ -234,6 +243,7 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     root = path.resolve(expandHome(root));
     const s = await settingsOf(root);
     if (!s) return { state: 'off', root, deps: [], checks: [] };
+    await probeDev();
     const { cfg, main, marks } = s;
     if (!retrying) attempts.delete(root);
     const atMain = sameReal(root, main);
@@ -338,7 +348,13 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     root = path.resolve(expandHome(root));
     return serial(root, async () => {
       const at = new Date().toISOString();
-      const r = await prepare(root);
+      let r = await prepare(root);
+      // an install started for this commit: checking right away would only say "unavailable"
+      const installing = r.state === 'preparing' && jobs.get(root);
+      if (installing) {
+        await installing.catch(() => {});
+        r = await prepare(root, { retrying: true, start: false });
+      }
       if (r.state === 'off' || !r.checks.length) return null;
       const diff = await run('git', ['diff', '--name-only', '--diff-filter=d', base, head], { cwd: root, timeoutMs: 30000 });
       const files = diff.ok ? diff.output.split('\n').map((l) => l.trim()).filter(Boolean) : [];
@@ -372,7 +388,7 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     return r.ok ? r.output.split('\n')[0].trim() : null;
   };
 
-  return { prepare, whenReady, ownDeps, verify, head, briefLines: (r: Readiness) => briefLines(r, Boolean(config.devServers && 'projects' in config.devServers)) };
+  return { prepare, whenReady, ownDeps, verify, head, briefLines: (r: Readiness) => briefLines(r, devConfigured && (!devServersUp || devUp.on)) };
 }
 export type AgentWorktrees = ReturnType<typeof createAgentWorktrees>;
 
