@@ -132,6 +132,7 @@ function Suggestion({ onReview, ...props }: SuggestionActionsProps & { onReview:
       <div className="dp-thr-sugg-h">
         <SuggestionState s={s} />
         {s.kind === 'commit' ? <code>{s.commit.slice(0, 7)}</code> : <span>card change</span>}
+        {s.kind === 'commit' && s.checks?.state === 'running' && <span>commit seen · checks running</span>}
         {s.kind === 'commit' && <span className="dp-ell" title={s.files.join('\n')}>{s.files.map((f) => f.split('/').pop()).join(', ')}</span>}
         {s.kind === 'commit' && <><span className="dp-sp" /><button type="button" className="dp-btn dp-sm" title="Read the commit's diff in a tab and comment its lines for the agent" onClick={onReview}><Icon name="eye" size={12} />Review commit</button></>}
       </div>
@@ -225,7 +226,7 @@ function EarlierTurns({ hidden, onMore }: { hidden: number; onMore: () => void }
 }
 
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
-  const { groups } = useThreadsOf(slug);
+  const { groups, summaries } = useThreadsOf(slug);
   const [thread, setThread] = useState<ThreadData | null>(null);
   const [error, setError] = useState('');
   // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
@@ -334,6 +335,16 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         {!waiting && group?.status === 'active' && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={async () => (await confirmDialog({ title: `Prune the agent of group ${group.id}?`, body: `${group.items.length} item(s): archive its agent and worktree, delete its branch.`, ok: 'Prune', danger: true })) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}><Icon name="archive" size={12} />Prune agent</button>}
         </span>
       </div>
+      {group?.unlinked?.map((u) => (
+        <div key={u.commit} className="dp-thr-sys dp-thr-ready">
+          commit <code>{u.commit.slice(0, 7)}</code> not linked to a comment · {u.subject}
+          <select className="dp-inp" value="" disabled={busy} aria-label="Link the commit to an item" title="Make it the suggestion of one of this agent's items, or drop it" onChange={(e) => act('link', async () => { await api.linkCommit(slug, group.id, u.commit, e.target.value === 'drop' ? null : e.target.value); return api.thread(slug, key); })}>
+            <option value="" disabled>Link to…</option>
+            {group.items.map(String).map((k) => <option key={k} value={k}>{k === key ? 'this comment' : summaries[k]?.label ?? k}</option>)}
+            <option value="drop">Drop it</option>
+          </select>
+        </div>
+      ))}
       {thread.ready && (
         <div className="dp-thr-sys dp-thr-ready">
           commit <code>{thread.ready.commit.slice(0, 7)}</code> ready{thread.ready.approve ? <>: <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => document.getElementById(`thr-${thread.ready?.approve}`)?.scrollIntoView({ block: 'center' })}>Approve</button></> : ', no Approve offered yet'} · {thread.ready.subject}{thread.ready.stat && <span className="dp-thr-stat"> · {thread.ready.stat}</span>}

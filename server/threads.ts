@@ -1,6 +1,6 @@
 // Threads and dispatch: the owner sends a decision card or a review comment to a small scoped agent and approves or dismisses what it suggests.
 // Items on the same subject share a group: one agent and, for code, one worktree branched off the PR head (comments join the group touching their file).
-// The agent writes its reply to a file; a code change is one commit per item (Cc-Comment trailer) that Approve cherry-picks onto the PR branch;
+// The agent writes its reply to a file; a code change is one commit per item (Cc-Comment trailer, else the item of its turn) that Approve cherry-picks onto the PR branch;
 // a card change is a JSON file of fields that Approve writes to the card. Coco follows each group agent through the Paseo SDK: a message sent while
 // it works steers its turn, and its activity streams to the threads waiting on it.
 import fs from 'node:fs';
@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
-import { capitalize, commentSection, fenced, sharedRules } from './review-agent.ts';
+import { capitalize, commentSection, fenced, parseCommitLog, sharedRules } from './review-agent.ts';
 import { findingLine, settledLines } from './briefs.ts';
 import { blocksToMarkdown, salvageBlocks, validateBlocks } from './blocks.ts';
 import { activityEvents, createPaseoAgents } from './paseo-agent.ts';
@@ -62,6 +62,10 @@ type PlanGroup = GroupBase & { kind: 'plan'; n: RowKey; decisionId?: undefined; 
 // spare: the worktree came from the spare pool, so closing the group removes it (Paseo only removes the worktrees it made)
 type CodeGroup = GroupBase & { kind: 'code'; n: RowKey; branch: string; worktree: string | null; files: string[]; decisionId?: undefined; briefed?: string; spare?: boolean };
 type Group = DecisionGroup | PlanGroup | CodeGroup;
+// a code group's commit bookkeeping, apart from the group file that a dispatch rewrites whole: the head coco last looked at, the PR branch
+// (its commits are never the agent's), the items of the agent's current turn, and the commits no item could take
+type Unlinked = { commit: string; subject: string; files: string[]; at: string };
+type GroupCommits = { seen?: string; pr?: string; turn?: string[]; unlinked?: Unlinked[] };
 type Finding = { action?: string; reason?: string; patch?: Record<string, unknown> };
 type Reply = { text: string; blocks?: Block[]; finding?: Finding | null; error?: string; dropped?: string[] };
 type SessionPromise = Promise<AgentSession | null> & { agentId?: string | null };
@@ -173,7 +177,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const readGroup = (slug: string, id: unknown) => (GROUP.test(String(id)) ? readJson<Group | null>(path.join(groupDir(slug), `${id}.json`), null) : null);
   const writeGroup = (slug: string, group: Group) => writeJson(path.join(groupDir(slug), `${group.id}.json`), { ...group, updatedAt: new Date().toISOString() });
   const listJson = <T>(d: string, name: (stem: string) => boolean = () => true): T[] => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.json') && name(f.slice(0, -5))).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))) : []);
-  const listGroups = (slug: string) => listJson<Group>(groupDir(slug));
+  const listGroups = (slug: string) => listJson<Group>(groupDir(slug), (stem) => GROUP.test(stem));
+  const commitsFile = (slug: string, id: string) => path.join(groupDir(slug), `${id}.commits.json`);
+  const readCommits = (slug: string, id: string) => readJson<GroupCommits>(commitsFile(slug, id), {});
+  // read and written in one go, no await in between
+  const updateCommits = (slug: string, id: string, fn: (c: GroupCommits) => GroupCommits) => writeJson(commitsFile(slug, id), fn(readCommits(slug, id)));
   // reply and card files share the directory
   const listThreads = (slug: string) => listJson<Thread>(dir(slug), (name) => KEY.test(name) && !/-[0-9a-f]{8}-(reply|card)$/.test(name));
   const message = (role: string, text: string, extra: Partial<Message> = {}): Message => ({ id: hex(4), role, text, ts: new Date().toISOString(), ...extra });
@@ -338,7 +346,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         SHARED_RULES[0],
       ],
       comment: [
-        `- You work in your own worktree on branch \`${group.branch}\`, branched off the PR head; stay on it. To suggest a change, make it and commit ONE commit with the trailer \`Cc-Comment: ${item.id}\`, self-contained. ${Owner} presses Approve, which cherry-picks that commit onto the PR worktree (\`${pr?.head}\`). Never cherry-pick, merge or push onto the PR branch yourself. A suggestion shown as "dismissed" is ${Owner}'s call, not a failure. When you disagree, say why instead of changing it.`,
+        `- You work in your own worktree on branch \`${group.branch}\`, branched off the PR head; stay on it. To suggest a change, make it and commit ONE commit with the trailer \`Cc-Comment: ${item.id}\`, self-contained. ${Owner} presses Approve, which cherry-picks that commit onto the PR worktree (\`${pr?.head}\`). coco shows each commit you make in this thread by itself: never amend or re-commit only to make it show. Never cherry-pick, merge or push onto the PR branch yourself. A suggestion shown as "dismissed" is ${Owner}'s call, not a failure. When you disagree, say why instead of changing it.`,
         `- When ${Owner}'s message is a question ("what do you recommend?", "why?", "options?"), answer it. Do not commit.`,
         ...SHARED_RULES,
       ],
@@ -481,6 +489,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       notify(slug, key, line);
     }
     if (keep && ev.type === 'tool' && ev.status !== 'running') for (const [key] of targets) ingest(slug, key).catch(() => {});
+    // a commit shows in its thread as soon as it is made, with coco's checks running, not only at the end of the turn
+    if (keep && ev.type === 'tool' && ev.status === 'completed' && /\bgit\b[\s\S]*\bcommit\b/.test(`${ev.summary}\n${ev.input}`)) sweep(slug, groupId).catch(() => {});
   }
   const streamFor = (slug: string, groupId: string) => activityEvents({ keep: (ev) => onActivity(slug, groupId, ev, true), live: (ev) => onActivity(slug, groupId, ev, false) });
 
@@ -538,6 +548,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
           notify(slug, key, end);
           if (r.status !== 'timeout') await ingest(slug, key, null, { ended: true }).catch(() => {});
         }
+        // a commit made after the reply that ended a thread's wait
+        await sweep(slug, groupId).catch(() => {});
         await drainQueue(slug).catch(() => {});
       },
       () => following.delete(s.agentId),
@@ -627,6 +639,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     group.agentId = s.agentId;
     if (!group.items.includes(key)) group.items.push(key);
     writeGroup(slug, group);
+    // a fast-forward moved the worktree past PR commits: coco looks for the agent's commits from there
+    if (group.kind === 'code' && !busy) updateCommits(slug, group.id, (c) => ({ ...c, seen: (moved.length ? sha : c.seen || sha) ?? undefined, pr: pr?.head || c.pr }));
     release();
     if (thread.groupId && thread.groupId !== group.id) leaveGroup(slug, thread.groupId, key);
     thread.messages.push({ ...msg, agentId: s.agentId, groupId: group.id, ...(seen ? { turn: 'follow-up' } : {}), ...(busy ? { steer: true } : {}) });
@@ -644,6 +658,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const messageId = files.length ? crypto.randomUUID() : null;
       if (messageId) uploads?.record(s.agentId, { messageId, text: prompt, at: msg.ts, attachments: files.map(uploadRef) });
       const steering = s.busy();
+      if (group.kind === 'code') updateCommits(slug, group.id, (c) => ({ ...c, turn: steering ? [...new Set([...(c.turn ?? []), key])] : [key] }));
       const sent = s.say(prompt, { timeoutMs: TURN_MS, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}) });
       if (steering) sent.catch((e) => addNote(slug, key, `Could not reach the agent: ${errText(e)}`.slice(0, 500)));
       else track(slug, group.id, s, sent);
@@ -684,22 +699,135 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (g) writeGroup(slug, { ...g, items: g.items.filter((k) => k !== key) });
   }
 
-  // what the agent suggested for this item since the message: its latest commit with the item's trailer, or a card JSON
-  async function suggestionOf(slug: string, ref: Ref, waiting: Waiting): Promise<Suggestion | null> {
-    if (ref.kind === 'decision') {
-      const fields = readJson<Record<string, unknown> | null>(waiting.cardPath, null);
-      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return null;
-      for (const k of STATE_FIELDS) delete fields[k];
-      return Object.keys(fields).length ? { kind: 'card', fields, state: 'pending' } : null;
+  // the card change the agent suggested for a decision since the message: its card JSON
+  function cardSuggestion(cardPath: string): CardSuggestion | null {
+    const fields = readJson<Record<string, unknown> | null>(cardPath, null);
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return null;
+    for (const k of STATE_FIELDS) delete fields[k];
+    return Object.keys(fields).length ? { kind: 'card', fields, state: 'pending' } : null;
+  }
+
+  async function commitOf(commit: string) {
+    const [diff, names, head] = await Promise.all([git(REPO, ['show', '--format=', '--stat', '--patch', commit]), git(REPO, ['show', '--format=', '--name-only', commit]), git(REPO, ['show', '--no-patch', '--format=%cI%n%s', commit])]);
+    const [when, subject = ''] = head.ok ? head.stdout.split('\n') : [];
+    const at = Date.parse(when) ? new Date(when).toISOString() : new Date().toISOString();
+    return { commit, files: names.stdout.split('\n').filter(Boolean), diff: diff.stdout.slice(0, MAX_DIFF), at, subject: head.ok ? subject : '' };
+  }
+
+  // a commit lands in the turn that made it (the last message sent to the agent before it): on that turn's last agent message, else just after it,
+  // else where the turn ends, so it reads before the cards and messages that came later
+  function placeCommit(thread: Thread, s: CommitSuggestion, at: string, by: { agentId: string | null; groupId: string }) {
+    const msgs = thread.messages;
+    const sent = (m: Message) => m.role !== 'agent' && Boolean(m.agentId);
+    const before = msgs.findLastIndex((m) => sent(m) && m.ts <= at);
+    const start = before >= 0 ? before : msgs.findLastIndex(sent);
+    const next = msgs.findIndex((m, i) => i > start && sent(m));
+    const end = next < 0 ? msgs.length : next;
+    const last = msgs.slice(0, end).findLastIndex((m, i) => i > start && m.role === 'agent');
+    if (last >= 0 && !msgs[last].suggestion) {
+      msgs[last].suggestion = s;
+      return msgs[last];
     }
-    const group = readGroup(slug, waiting.groupId);
-    if (!group || group.kind !== 'code' || !waiting.sha) return null;
-    const fix = (await reviewAgent.trailersBetween(REPO, waiting.sha, await groupTip(group))).find((t) => ref.kind === 'comment' && t.id === ref.id);
-    if (!fix) return null;
-    const [diff, names] = await Promise.all([git(REPO, ['show', '--format=', '--stat', '--patch', fix.commit]), git(REPO, ['show', '--format=', '--name-only', fix.commit])]);
-    const files = names.stdout.split('\n').filter(Boolean);
-    writeGroup(slug, { ...group, files: [...new Set([...group.files, ...files])] });
-    return { kind: 'commit', commit: fix.commit, files, diff: diff.stdout.slice(0, MAX_DIFF), state: 'pending' };
+    const m = message('agent', '', { ...(by.agentId ? { agentId: by.agentId } : {}), groupId: by.groupId, suggestion: s });
+    msgs.splice(last >= 0 ? last + 1 : end, 0, m);
+    return m;
+  }
+  type Found = Awaited<ReturnType<typeof commitOf>>;
+  // the suggestion goes in the thread with coco's checks running, started once the thread is written
+  function addCommit(slug: string, key: string, thread: Thread, group: CodeGroup, found: Found) {
+    if (thread.messages.some((m) => m.suggestion?.kind === 'commit' && m.suggestion.commit === found.commit)) return null;
+    const s: CommitSuggestion = { kind: 'commit', commit: found.commit, files: found.files, diff: found.diff, state: 'pending' };
+    const cwd = group.worktree;
+    if (cwd && worktrees?.verify) s.checks = { state: 'running', at: new Date().toISOString(), head: s.commit };
+    const m = placeCommit(thread, s, found.at, { agentId: group.agentId, groupId: group.id });
+    return () => cwd && worktrees?.verify && setImmediate(() => verifySuggestion(slug, key, m.id, s.commit, cwd).catch((e) => addNote(slug, key, `coco could not run the checks: ${errText(e)}`.slice(0, 500))));
+  }
+
+  // the commits a code group's agent made since coco last looked at its branch, none of the PR's: each becomes a suggestion of the item its Cc-Comment line
+  // names; one without names the only item of the agent's turn, else the item it answered last; a commit no item takes waits on the group, to link by hand.
+  // `held`: the thread the caller holds the lock of, changed in place; the others are written after the group lock, in the background when a thread is held
+  const answered = (t: Thread, agentId: string | null) => {
+    const replies = t.waiting ? [...(t.waiting.earlier || []), t.waiting].filter((a) => fs.existsSync(a.replyPath)).map((a) => fs.statSync(a.replyPath).mtime.toISOString()) : [];
+    return [...t.messages.filter((m) => m.role === 'agent' && m.agentId === agentId).map((m) => m.ts), ...replies].sort().at(-1) || '';
+  };
+  async function sweep(slug: string, groupId: string, from?: string | null, held?: { key: string; thread: Thread }) {
+    const found = await withLock(`${slug}:group:${groupId}`, async () => {
+      const group = readGroup(slug, groupId);
+      if (group?.kind !== 'code' || group.status !== 'active') return null;
+      const book = readCommits(slug, groupId);
+      const head = (await worktreeHead(group)) || (await branchHead(group.branch));
+      const base = book.seen || from;
+      if (!base) return null;
+      const tip = head || `refs/heads/${group.branch}`;
+      const prRefs = book.pr ? (await git(REPO, ['for-each-ref', '--format=%(objectname)', `refs/heads/${book.pr}`, `refs/remotes/origin/${book.pr}`])).stdout.split('\n').filter(Boolean) : [];
+      const log = await git(REPO, ['log', '--no-merges', '--format=%H%n%B%x00', tip, '--not', base, ...prRefs]);
+      if (!log.ok) return null;
+      const commits = parseCommitLog(log.stdout).reverse();
+      const threadOf = (k: string) => (held?.key === k ? held.thread : read(slug, k));
+      const known = new Set([...group.items.flatMap((k) => threadOf(k).messages.flatMap((m) => (m.suggestion?.kind === 'commit' ? [m.suggestion.commit] : []))), ...(book.unlinked ?? []).map((u) => u.commit)]);
+      const itemOf = (id: string) => group.items.find((k) => {
+        const r = parseThreadKey(k);
+        return r?.kind === 'comment' && r.id === id;
+      });
+      const turn = (book.turn ?? []).filter((k) => group.items.includes(k));
+      const latest = turn.map((k) => [k, answered(threadOf(k), group.agentId)] as const).sort((a, b) => a[1].localeCompare(b[1])).at(-1)?.[0];
+      const out: { key: string; found: Found }[] = [];
+      const unlinked: Unlinked[] = [];
+      for (const c of commits.filter((x) => !known.has(x.commit))) {
+        const info = await commitOf(c.commit);
+        if (!c.ids.length && !info.files.length) continue;
+        const key = c.ids.length ? c.ids.map(itemOf).find(Boolean) : latest;
+        if (key) out.push({ key, found: info });
+        else unlinked.push({ commit: c.commit, subject: info.subject, files: info.files, at: info.at });
+      }
+      const files = out.flatMap((o) => o.found.files).filter((f) => !group.files.includes(f));
+      if (files.length) writeGroup(slug, { ...(readGroup(slug, groupId) as CodeGroup), files: [...group.files, ...new Set(files)] });
+      updateCommits(slug, groupId, (b) => ({ ...b, ...(head ? { seen: head } : {}), ...(unlinked.length ? { unlinked: [...(b.unlinked ?? []), ...unlinked] } : {}) }));
+      if (unlinked.length) for (const k of group.items) notify(slug, k, { type: 'thread' });
+      return { group, out };
+    });
+    if (!found) return 0;
+    let mine = 0;
+    const later: Promise<unknown>[] = [];
+    for (const { key, found: f } of found.out) {
+      if (held?.key === key) {
+        const start = addCommit(slug, key, held.thread, found.group, f);
+        if (start) {
+          mine++;
+          start();
+        }
+        continue;
+      }
+      later.push(withLock(`${slug}:${key}`, () => {
+        const thread = read(slug, key);
+        const start = addCommit(slug, key, thread, found.group, f);
+        if (!start) return;
+        write(slug, thread);
+        start();
+      }).catch(() => {}));
+    }
+    if (!held) await Promise.all(later);
+    return mine;
+  }
+
+  // the owner links a commit no item took to one of the group's items (it becomes that thread's suggestion), or drops it (key null)
+  async function linkCommit(slug: string, id: string, commit: unknown, key: unknown) {
+    const group = readGroup(slug, id);
+    if (group?.kind !== 'code') throw new HttpError(404, 'no such code group');
+    if (!readCommits(slug, id).unlinked?.some((u) => u.commit === commit)) throw new HttpError(404, 'no such commit waiting to be linked');
+    if (key != null && !group.items.includes(String(key))) throw new HttpError(400, 'that item is not in this group');
+    if (key != null) {
+      const info = await commitOf(String(commit));
+      await withLock(`${slug}:${key}`, () => {
+        const thread = read(slug, String(key));
+        const start = addCommit(slug, String(key), thread, group, info);
+        write(slug, thread);
+        if (start) start();
+      });
+    }
+    updateCommits(slug, id, (b) => ({ ...b, unlinked: (b.unlinked ?? []).filter((u) => u.commit !== commit) }));
+    for (const k of group.items) notify(slug, k, { type: 'thread' });
+    return { ...group, unlinked: readCommits(slug, id).unlinked ?? [] };
   }
 
   // a reply is `{ "blocks": [...] }` (typed blocks, as on finding cards); `text` keeps its markdown twin for the next prompts' history.
@@ -842,11 +970,20 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const notes = [];
       for (const a of replied) {
         const reply = await readReply(a.replyPath, waiting.sha);
-        added.push(message('agent', reply.text, { ...by, ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
+        // dated when the agent wrote it: which item it answered last decides where a commit without a Cc-Comment line goes
+        added.push(message('agent', reply.text, { ...by, ts: fs.statSync(a.replyPath).mtime.toISOString(), ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
         if (reply.error) notes.push(message('system', `Reply not in blocks (${reply.error}): shown as text.`));
         if (reply.dropped) notes.push(message('system', `Part of the reply was not valid blocks, left out: ${reply.dropped.join('; ')}.`.slice(0, 500)));
         if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) notes.push(message('system', note));
       }
+      const wrote = added.length;
+      // a commit seen mid-turn waits at the end as a bare suggestion: the turn's reply fills it, so the reply reads above its card
+      const bare = thread.messages.at(-1);
+      if (wrote && bare?.role === 'agent' && bare.agentId === waiting.agentId && !bare.text && !bare.blocks && bare.suggestion?.kind === 'commit') {
+        const last = added.pop()!;
+        thread.messages.splice(-1, 0, ...added);
+        Object.assign(bare, { text: last.text, ts: last.ts, ...(last.blocks ? { blocks: last.blocks } : {}) });
+      } else thread.messages.push(...added);
       if (final) {
         const group = readGroup(slug, waiting.groupId);
         if (group?.kind === 'code') {
@@ -854,19 +991,14 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
           const cwd = s?.agentId === waiting.agentId ? s.cwd() : (agent || (await reviewAgent.agentsList()).find((x) => x.id === waiting.agentId))?.cwd;
           if (cwd && !(group.worktree && reviewAgent.sameDir(group.worktree, expandHome(cwd)))) writeGroup(slug, { ...group, worktree: expandHome(cwd) });
         }
-        const suggestion = await suggestionOf(slug, ref, { ...waiting, cardPath: asked.map((a) => a.cardPath).findLast((f) => fs.existsSync(f)) || waiting.cardPath });
+        const card = ref.kind === 'decision' ? cardSuggestion(asked.map((a) => a.cardPath).findLast((f) => fs.existsSync(f)) || waiting.cardPath) : null;
         const lastAdded = added[added.length - 1];
-        if (suggestion && lastAdded) lastAdded.suggestion = suggestion;
-        else if (suggestion) added.push(message('agent', '', { ...by, suggestion }));
-        else if (!added.length) added.push(message('system', 'The agent ended its turn without writing a reply.', by));
-        const cwd = readGroup(slug, waiting.groupId)?.worktree;
-        if (suggestion?.kind === 'commit' && cwd && worktrees?.verify) {
-          const holder = added.findLast((m) => m.suggestion === suggestion);
-          suggestion.checks = { state: 'running', at: new Date().toISOString(), head: suggestion.commit };
-          if (holder) setImmediate(() => verifySuggestion(slug, key, holder.id, suggestion.commit, cwd).catch((e) => addNote(slug, key, `coco could not run the checks: ${errText(e)}`.slice(0, 500))));
-        }
+        if (card && lastAdded) lastAdded.suggestion = card;
+        else if (card) thread.messages.push(message('agent', '', { ...by, suggestion: card }));
+        const commits = group?.kind === 'code' ? await sweep(slug, group.id, waiting.sha, { key, thread }).catch(() => 0) : 0;
+        if (!card && !commits && !wrote) thread.messages.push(message('system', 'The agent ended its turn without writing a reply.', by));
       }
-      thread.messages.push(...added, ...notes);
+      thread.messages.push(...notes);
       thread.waiting = final ? null : { ...waiting, earlier: asked.slice(0, -1).filter((a) => !replied.includes(a)) };
       if (final) route(slug, waiting.groupId, key, null);
       return write(slug, thread);
@@ -886,7 +1018,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       if (v?.state !== 'failed') return write(slug, thread);
       const failed = v.results.filter((x) => x.state === 'failed').map((x) => x.label).join(', ');
       if (thread.sentBack || thread.waiting || !isOpenSuggestion(s)) {
-        thread.messages.push(message('system', `coco's checks still fail on ${commit.slice(0, 7)} (${failed}): waiting for ${Owner}. Approve stays possible.`));
+        thread.messages.push(message('system', `coco's checks ${thread.sentBack ? 'still ' : ''}fail on ${commit.slice(0, 7)} (${failed}): ${thread.waiting && !thread.sentBack ? 'the agent is still working' : `waiting for ${Owner}`}. Approve stays possible.`));
         return write(slug, thread);
       }
       thread.sentBack = true;
@@ -935,7 +1067,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const tip = (await branchHead(pr.head)) || pr.sha;
     const [cherry, same, shown, stat] = await Promise.all([
       git(REPO, ['cherry', tip, fix.commit]),
-      git(REPO, ['log', '-n1', '--format=%H', '-F', '--grep', `Cc-Comment: ${ref.id}`, tip]),
+      git(REPO, ['log', '-n1', '--format=%H', '-F', '-i', '--grep', `Cc-Comment: ${ref.id}`, tip]),
       git(REPO, ['show', '--no-patch', '--format=%s', fix.commit]),
       git(REPO, ['show', '--format=', '--shortstat', fix.commit]),
     ]);
@@ -1139,6 +1271,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const agents = await reviewAgent.agentsList();
     for (const work of works.list().filter((w) => !w.archived)) {
       for (const t of listThreads(work.slug)) if (t.waiting?.agentId === agentId) await ingest(work.slug, t.key, agents);
+      for (const g of listGroups(work.slug).filter((x) => x.agentId === agentId)) await sweep(work.slug, g.id).catch(() => {});
       await drainQueue(work.slug);
     }
   }
@@ -1188,7 +1321,11 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       const body = async () => JSON.parse((await readBody(req)) || '{}');
       if (b === 'groups') {
         if (key && sub === 'close' && req.method === 'POST') return send(res, 200, await closeGroup(slug, key));
-        return send(res, 200, listGroups(slug));
+        if (key && sub === 'link' && req.method === 'POST') {
+          const { commit, key: item } = await body();
+          return send(res, 200, await linkCommit(slug, key, commit, item ?? null));
+        }
+        return send(res, 200, listGroups(slug).map((g) => (g.kind === 'code' && g.status === 'active' ? { ...g, unlinked: readCommits(slug, g.id).unlinked ?? [] } : g)));
       }
       if (!key) {
         await drainQueue(slug);
@@ -1202,9 +1339,13 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       }
       if (req.method === 'POST') return send(res, 200, await post(slug, key, await body()));
       if (req.method === 'PUT') return send(res, 200, await regroup(slug, key, (await body()).groupId));
-      const thread = await ingest(slug, key);
+      let thread = await ingest(slug, key);
       follow(slug, key).catch(() => {});
       const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
+      if (group?.kind === 'code' && group.status === 'active') {
+        await sweep(slug, group.id).catch(() => 0);
+        thread = read(slug, key);
+      }
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
       const { work, ref } = check(slug, key);
       return send(res, 200, { ...thread, starting: starting.get(at(slug, key)) ?? null, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), persona: personaOf(slug, work, ref, group), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });

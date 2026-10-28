@@ -99,6 +99,8 @@ export const api = {
   verifyThread: (slug: string, key: string, commit?: string) => post<VerifyRun>(`${works(slug)}/threads/${key}/verify`, { commit }),
   groups: (slug: string) => get<ThreadGroup[]>(`${works(slug)}/groups`),
   closeGroup: (slug: string, id: string) => postEmpty<unknown>(`${works(slug)}/groups/${id}/close`),
+  // key null drops the commit
+  linkCommit: (slug: string, id: string, commit: string, key: string | null) => post<ThreadGroup>(`${works(slug)}/groups/${id}/link`, { commit, key }),
   findings: (slug: string, pr: string | null, fresh?: boolean, stale?: boolean) => get<FindingsResponse>(`${works(slug)}/findings?${new URLSearchParams({ ...(pr ? { pr } : {}), ...(fresh ? { fresh: '1' } : {}), ...(stale ? { stale: '1' } : {}) })}`),
   findingAction: (slug: string, body: FindingActionBody) => post<FindingsResponse>(`${works(slug)}/findings`, body),
   brief: (slug: string, n: string | number, handoff?: boolean) => get<BriefResponse>(`${works(slug)}/briefs/${encodeURIComponent(n)}${handoff ? '?handoff=1' : ''}`),

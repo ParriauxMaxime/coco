@@ -72,7 +72,15 @@ const parseJson = <T>(text: string, fallback: T): T => {
     return fallback;
   }
 };
-export const capitalize = (s: unknown) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+// the comment ids a commit message names on a `Cc-Comment: <id>` line anywhere in it, in any case: git reads trailers only in the last paragraph, coco reads them all
+export const commentIdsOf = (message: string) => [...new Set([...message.matchAll(/^[ \t>*-]*`?cc-comment[ \t]*:[ \t]*`?([0-9a-f]+)\b/gim)].map((m) => m[1].toLowerCase()))];
+// `git log --format=%H%n%B%x00` output: each commit with the comment ids its message names, newest first
+export const parseCommitLog = (stdout: string) =>
+  stdout.split('\0').flatMap((rec) => {
+    const [hash, ...rest] = rec.replace(/^\n+/, '').split('\n');
+    return /^[0-9a-f]{6,64}$/.test(hash || '') ? [{ commit: hash, ids: commentIdsOf(rest.join('\n')) }] : [];
+  });
+export const capitalize =(s: unknown) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 export const byFileThenLine = (a: Pick<Comment, 'path' | 'startLine' | 'endLine'>, b: Pick<Comment, 'path' | 'startLine' | 'endLine'>) => a.path.localeCompare(b.path) || a.startLine - b.startLine || a.endLine - b.endLine;
 export const listText = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0] || '');
 // a bare name is a skill ("the `x` skill"), anything else is quoted as written
@@ -413,14 +421,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
   }
   async function trailersBetween(cwd: string, from: string, to: string) {
     const r = await exec('git', ['-C', cwd, 'log', `${from}..${to}`, '--format=%H%n%B%x00']);
-    if (!r.ok) return [];
-    const found: { id: string; commit: string }[] = [];
-    for (const rec of r.stdout.split('\0')) {
-      const [hash, ...rest] = rec.replace(/^\n+/, '').split('\n');
-      if (!/^[0-9a-f]{40}$/.test(hash || '')) continue;
-      for (const m of rest.join('\n').matchAll(/^Cc-Comment:\s*([0-9a-f]+)\s*$/gm)) found.push({ id: m[1], commit: hash });
-    }
-    return found;
+    return r.ok ? parseCommitLog(r.stdout).flatMap(({ commit, ids }) => ids.map((id) => ({ id, commit }))) : [];
   }
 
   async function ingestRun(slug: string, n: RowKey, run: Run, running: PaseoAgentInfo[]) {

@@ -12,6 +12,7 @@ import { createUploads } from './uploads.ts';
 import type { Uploads } from './uploads.ts';
 import { DEFAULTS } from './config.ts';
 import { briefLines, readyText } from './agent-worktree.ts';
+import { commentIdsOf, parseCommitLog } from './review-agent.ts';
 import type { Readiness, Verification } from './agent-worktree.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
@@ -120,6 +121,12 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
   const decided: { id: string; choice: string; rationale: string }[] = [];
   const comment = (id: string, body: string) => ({ id, path: 'src/widgets.ts', startLine: 3, endLine: 4, side: 'head' as const, snippet: 'const w = null;', ctxBefore: [], ctxAfter: [], body, status: id === 'bb22' ? 'declined' : 'open' });
   const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async (_cwd: string, _from: string, to: string) => trailers(to), timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
+  // the group's commit log (`git log --no-merges <tip> --not ...`): what the test's exec answers, else the commits of `trailers` at that tip
+  const run: Exec = async (cmd, args) => {
+    const r = await exec(cmd, args);
+    if (!args.includes('--no-merges') || (r.ok && /^[0-9a-f]{6,}\n/.test(r.stdout))) return r;
+    return { ok: true, stdout: trailers(String(args[args.indexOf('--not') - 1])).map((t) => `${t.commit}\nFix\n\nCc-Comment: ${t.id}\n\0`).join(''), stderr: '' };
+  };
   const threads = createThreads({
     DATA,
     REPO,
@@ -128,7 +135,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
     comments: { list: () => ({ comments: [comment('aa11', 'Null check missing'), comment('bb22', 'Rename the helper')] }), update: async () => {} },
     reviewAgent,
     reviewPlan: { planOf: () => null },
-    exec,
+    exec: run,
     agents: createPaseoAgents({ APP, connect: daemon.connect }),
     uploads,
     worktrees,
@@ -727,4 +734,92 @@ test('post_reply checks the blocks like post_blocks, writes the reply file the t
   assert.deepEqual(JSON.parse(fs.readFileSync(a1.waiting.replyPath, 'utf8')), { blocks: [{ type: 'text', text: 'Null check added.' }] });
   assert.equal(read(A).waiting, null);
   assert.deepEqual(read(A).messages.map((m) => [m.role, m.text]), [['user', 'Add the null check'], ['agent', 'Null check added.']]);
+});
+
+test('a Cc-Comment line names its comment wherever it sits in the message and in any case; blank lines and other trailers do not hide it', () => {
+  assert.deepEqual(commentIdsOf('fix: guard the null\n\nBody.\n\nCc-Comment: daa6b3861438\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n'), ['daa6b3861438'], 'blank line before the last trailer paragraph');
+  assert.deepEqual(commentIdsOf('fix\n\nSigned-off-by: A <a@x.io>\nCc-Comment: aa11\nCo-Authored-By: Claude <noreply@anthropic.com>'), ['aa11'], 'among other trailers');
+  assert.deepEqual(commentIdsOf('fix\n\ncc-comment:AA11  \n'), ['aa11'], 'lowercase key, upper-case id, no space');
+  assert.deepEqual(commentIdsOf('fix\n\nCC-COMMENT : `bb22`\n- Cc-Comment: aa11\nCc-Comment: aa11\n'), ['bb22', 'aa11'], 'quoted, listed, repeated');
+  assert.deepEqual(commentIdsOf('fix the Cc-Comment: aa11 parsing'), [], 'only at the start of a line');
+  const a = 'a'.repeat(40);
+  const b = 'b'.repeat(40);
+  assert.deepEqual(parseCommitLog(`${a}\nfix\n\nCc-Comment: aa11\n\nCo-Authored-By: C <c@x.io>\n\0\n${b}\nno trailer\n\0\n`), [{ commit: a, ids: ['aa11'] }, { commit: b, ids: [] }]);
+});
+
+// a group branch whose log the test sets, each commit touching src/widgets.ts
+const gitLog = (log: () => { commit: string; message: string }[]): Exec => async (_cmd, args) => {
+  const out = (stdout: string) => ({ ok: true, stdout, stderr: '' });
+  if (args.includes('--no-merges')) return out(log().map((c) => `${c.commit}\n${c.message}\n\0`).join(''));
+  if (args.includes('--name-only')) return out('src/widgets.ts\n');
+  if (args.includes('--no-patch')) return out(`${new Date().toISOString()}\nGuard the null\n`);
+  if (args.includes('show')) return out('diff --git a/src/widgets.ts b/src/widgets.ts');
+  return { ok: false, stdout: '', stderr: '' };
+};
+const bash = (id: string, command: string): TimelineItem => ({ type: 'tool_call', callId: id, name: 'Bash', detail: { type: 'shell', command }, status: 'completed', error: null });
+
+test('a commit without a Cc-Comment line goes to the only item of its turn: seen as soon as it is made with the checks running, then under the reply of its turn', async () => {
+  let log: { commit: string; message: string }[] = [];
+  let pass: (v: Verification) => void = () => {};
+  const { post, daemon, read, reply } = setup(undefined, {
+    prepare: async () => ({ state: 'ready', root: '/wt/cc-group', deps: [], checks: [] }),
+    whenReady: () => {},
+    briefLines: (r) => briefLines(r),
+    verify: () => new Promise((ok) => (pass = ok)),
+  }, () => [], undefined, gitLog(() => log));
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  const agent = daemon.calls.created[0].id;
+  log = [{ commit: 'c0ffee1', message: 'fix: guard the null\n\nCo-Authored-By: Claude <noreply@anthropic.com>' }];
+  daemon.item(agent, bash('c1', 'git commit -m "fix: guard the null"'));
+  await until(() => read(A).messages.some((m) => m.suggestion), 'the commit seen mid-turn');
+  assert.ok(read(A).waiting, 'the agent still works');
+  assert.deepEqual(read(A).messages.at(-1)?.suggestion && [read(A).messages.at(-1)?.suggestion?.commit, read(A).messages.at(-1)?.suggestion?.checks?.state], ['c0ffee1', 'running']);
+
+  reply(a1.waiting.replyPath, 'Committed.');
+  daemon.finish(agent);
+  await until(() => !read(A).waiting, 'turn end');
+  assert.deepEqual(read(A).messages.map((m) => [m.role, m.text, m.suggestion?.commit]), [['user', 'Add the null check', undefined], ['agent', 'Committed.', 'c0ffee1']], 'the reply fills the bare suggestion');
+  pass({ state: 'passed', at: 'now', head: 'c0ffee1', files: ['src/widgets.ts'], results: [] });
+  await until(() => read(A).messages[1].suggestion?.checks?.state === 'passed', 'checks done');
+});
+
+test('a commit without a Cc-Comment line in a turn on two items goes to the item the agent answered last', async () => {
+  let log: { commit: string; message: string }[] = [];
+  const { post, daemon, read, reply } = setup(undefined, undefined, () => [], undefined, gitLog(() => log));
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  const b1 = await post(B, 'Rename the helper too');
+  await until(() => daemon.calls.sent.length === 2, 'steer');
+  log = [{ commit: 'c0ffee2', message: 'refactor: rename the helper' }];
+  reply(a1.waiting.replyPath, 'Null check: nothing to change.');
+  await new Promise((r) => setTimeout(r, 20));
+  reply(b1.waiting.replyPath, 'Renamed.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting && !read(B).waiting, 'turn end');
+  await until(() => read(B).messages.some((m) => m.suggestion), 'suggestion on B');
+  assert.equal(read(B).messages.find((m) => m.suggestion)?.text, 'Renamed.');
+  assert.ok(!read(A).messages.some((m) => m.suggestion));
+});
+
+test('a commit naming no item of the group waits on the group, not linked, until the owner links it to an item', async () => {
+  const log = [{ commit: 'c0ffee3', message: 'fix\n\nCc-Comment: ffff99' }];
+  const { threads, post, daemon, read, reply } = setup(undefined, undefined, () => [], undefined, gitLog(() => log));
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  reply(a1.waiting.replyPath, 'Committed.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  assert.ok(!read(A).messages.some((m) => m.suggestion));
+  const call = async (method: string, parts: string[], payload: object = {}) => {
+    let body: unknown = null;
+    const req = { method, url: `/api/works/${parts.join('/')}`, on: () => {} } as unknown as Req;
+    await threads.handle(req, {} as Res, ['works', SLUG, ...parts], async () => JSON.stringify(payload), (_res, _code, json) => void (body = json));
+    return body as { id: string; unlinked?: { commit: string; subject: string }[] }[] & { unlinked?: unknown[] };
+  };
+  const [group] = await call('GET', ['groups']);
+  assert.deepEqual(group.unlinked?.map((u) => [u.commit, u.subject]), [['c0ffee3', 'Guard the null']]);
+  const linked = await call('POST', ['groups', group.id, 'link'], { commit: 'c0ffee3', key: A });
+  assert.deepEqual(linked.unlinked, []);
+  assert.equal(read(A).messages.findLast((m) => m.suggestion)?.suggestion?.commit, 'c0ffee3');
 });

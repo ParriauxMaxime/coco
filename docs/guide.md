@@ -768,7 +768,8 @@ orchestration layer (`server/threads.ts`):
   --worktree-mode branch-off`); a decision group runs in the repo and
   touches no file.
 - Suggestions. For a comment the agent makes one commit per item with
-  `Cc-Comment: <comment id>`; its diff shows in the thread. Approve
+  `Cc-Comment: <comment id>`; it shows in the thread with Verify, Approve and
+  Dismiss. Approve
   cherry-picks it onto the PR branch, in the PR worktree (a temporary one
   when the branch is not checked out). While that worktree has tracked
   changes or an agent mid-turn, the approval is `queued` and lands when an
@@ -777,6 +778,23 @@ orchestration layer (`server/threads.ts`):
   applied commit turns the comment `fixed`. For a card the agent writes the
   fields to change as JSON; Approve writes them to the card (status, choice,
   rationale and decidedAt stay yours).
+- Which commit is whose. coco reads the group branch for the commits made
+  since it last looked (none of the PR branch's, local or `origin/`; merges
+  skipped): when the agent's Bash runs `git commit`, at the end of each reply
+  and turn, and when the thread is opened. A `Cc-Comment: <id>` line counts
+  anywhere in the message, in any case, quoted or listed (git itself only
+  reads trailers in the last paragraph; coco does not rely on that). A
+  commit without one goes to the only item the agent worked on in that turn
+  (the message that started it and those that steered it), else to the item
+  it answered last. It lands in the turn that made it: on that turn's reply,
+  or as a bare suggestion at the end while the agent still works, which the
+  reply then fills, so it reads before the turn's `ask` card. Once seen it
+  reads "commit seen · checks running" until coco's checks finish. A commit
+  no item takes (its `Cc-Comment` names no item of the group) stays on the
+  group: each thread of the group shows "commit abc1234 not linked to a
+  comment" with **Link to…** (an item of the group, which gets it as its
+  suggestion, or "Drop it"). The agent's brief says each commit shows by
+  itself, so it never re-commits to make Approve appear.
 - Ready commit. When the group agent's branch holds a commit with the
   thread's `Cc-Comment` trailer that is not on the PR branch yet (neither the
   same trailer nor the same patch-id there), the thread payload carries `ready`
@@ -838,8 +856,12 @@ orchestration layer (`server/threads.ts`):
   checked against `GET /api/models`, both used only when a new group starts), `PUT
   …/threads/<key>` (`{ groupId | 'new' }`), `POST
   …/threads/<key>/suggestions/<msg id>` (`{ action: approve|dismiss }`),
-  `GET …/groups`, `POST …/groups/<id>/close` (archives the group's Paseo
-  workspace, agent and worktree, and deletes its branch).
+  `GET …/groups` (a code group carries its `unlinked` commits), `POST
+  …/groups/<id>/link` (`{ commit, key | null }`: the commit becomes that
+  item's suggestion, or is dropped), `POST …/groups/<id>/close` (archives the
+  group's Paseo workspace, agent and worktree, and deletes its branch). A code
+  group's commit bookkeeping (head last read, PR branch, items of the current
+  turn, unlinked commits) is in `groups/<id>.commits.json`.
 
 ## Agent worktrees
 
