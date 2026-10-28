@@ -9,7 +9,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { keyLabel, parseKey, rowKey } from './stack.ts';
+import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, commentSection, fenced, sharedRules } from './review-agent.ts';
 import { findingLine, settledLines } from './briefs.ts';
 import { blocksToMarkdown, salvageBlocks, validateBlocks } from './blocks.ts';
@@ -214,6 +214,22 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return r?.ok ? r.stdout.trim() : null;
   };
   const groupTip = async (group: CodeGroup) => (await worktreeHead(group)) || `refs/heads/${group.branch}`;
+  // the PR's local head when it carries GitHub's (commits not pushed yet), else GitHub's
+  const prBase = async (pr: ThreadPr | null) => {
+    if (!pr) return null;
+    const local = pr.head ? await branchHead(pr.head) : null;
+    if (local && (!pr.sha || (await git(REPO, ['merge-base', '--is-ancestor', pr.sha, local])).ok)) return local;
+    return pr.sha || pr.head || null;
+  };
+  // a clean group worktree behind the PR head moves forward before a turn, so the agent never answers from old code
+  const catchUp = async (group: CodeGroup, pr: ThreadPr | null): Promise<string[]> => {
+    const [base, head] = [await prBase(pr), await worktreeHead(group)];
+    if (!group.worktree || !base || !head || base === head) return [];
+    if ((await git(group.worktree, ['status', '--porcelain'])).stdout.trim()) return [];
+    if (!(await git(group.worktree, ['merge-base', '--is-ancestor', head, base])).ok) return [];
+    if (!(await git(group.worktree, ['merge', '--ff-only', '-q', base])).ok) return [];
+    return [`- The PR moved since your last turn: coco fast-forwarded this worktree from \`${head.slice(0, 9)}\` to \`${base.slice(0, 9)}\`. Re-read the files you rely on.`, ''];
+  };
 
   function summaries(slug: string) {
     return Object.fromEntries(listThreads(slug).map((t) => [t.key, {
@@ -458,7 +474,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // the first dispatch of a group starts its agent, in a worktree branched off the PR head for code
   async function startSession(slug: string, group: Group, pr: ThreadPr | null) {
     const title = group.kind === 'code' ? `cc ${keyLabel(group.n)} · ${group.files[0]?.split('/').pop()}` : group.kind === 'plan' ? `cc plan ${keyLabel(group.n)}` : `cc decision ${group.decisionId}`;
-    const worktree = group.kind === 'code' ? { mode: 'branch-off', newBranch: group.branch, base: pr?.sha || pr?.head, slug: `cc-${group.id}` } : null;
+    const worktree = group.kind === 'code' ? { mode: 'branch-off', newBranch: group.branch, base: (await prBase(pr)) ?? undefined, slug: `cc-${group.id}` } : null;
     let s;
     try {
       const fileName = group.files?.[0]?.split('/').pop() || 'the PR';
@@ -468,7 +484,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
           ? await placement.sideWorkspace(slug, { branch: worktree.newBranch, base: String(worktree.base || ''), title: `Finding fixes on ${fileName}` })
           : await placement.place({ kind: 'work', slug });
       if (group.kind === 'code' && 'workspaceId' in where && where.cwd) group.worktree = expandHome(where.cwd);
-      s = await agents.session({ title, provider: MODELS[group.model] || group.model, thinking: group.thinking || 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id }, ...streamFor(slug, group.id) });
+      s = await agents.session({ title, provider: MODELS[group.model] || group.model, thinking: group.thinking || 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id, ...(group.kind === 'decision' ? {} : { pr: fileKey(group.n) }) }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
     }
@@ -567,6 +583,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const cardPath = path.join(dir(slug), `${key}-${msg.id}-card.json`);
     const busy = live && prior?.agentId === live.agentId ? prior : null;
     const seen = live && thread.messages.some((m) => m.agentId === live.agentId && m.role !== 'system');
+    const moved = live && !busy && group.kind === 'code' ? await catchUp(group, pr) : [];
     const sha = busy ? busy.sha : group.kind === 'code' ? (await worktreeHead(group)) || (await branchHead(group.branch)) || pr?.sha : null;
     const s = live || (await startSession(slug, group, pr));
     if (!live && group.kind === 'code') delete group.briefed;
@@ -600,7 +617,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     // deps still installing (or a first prompt of this agent still held back): return now, wait and send in the background
     let hold = () => {};
     const holding = new Promise<'hold'>((ok) => (hold = () => ok('hold')));
-    const setupP = setupOf(group, s, !seen, hold);
+    const setupP = setupOf(group, s, !seen, hold).then((lines) => [...moved, ...lines]);
     const ahead = delivering.get(s.agentId);
     const early = ahead ? 'hold' : await Promise.race([setupP, holding]);
     if (early !== 'hold') {
