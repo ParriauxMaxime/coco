@@ -145,8 +145,8 @@ when posted (a refusal names `options[i].effect`):
 
 | `effect.type` | Allowed on | Picking it |
 | --- | --- | --- |
-| `take_decision` | a decision thread, `option` a key of that decision (one without rows) | takes the decision on that option, rationale `Picked <label>` |
-| `dismiss_finding` | a finding (comment) thread | dismisses the finding, reason `Picked <label>` |
+| `take_decision` | a decision thread, `option` a key of that decision (one without rows) | takes the decision on that option, rationale `Picked <label>[: <details>]` |
+| `dismiss_finding` | a finding (comment) thread | dismisses the finding, reason `Picked <label>[: <details>]`, so the option's details carry the why later agents read |
 
 Effects need a single choice card. On answer the effect runs, leaves a
 system note in the thread (tagged with the card) and its outcome as
@@ -184,7 +184,9 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
   records the send. On a choice card the `ask` tool takes `recommended` (the
   option key, marked and pre-picked) and each option an optional
   `consequence`; agents give one recommendation, and a consequence when the
-  options differ in risk, so nobody types a question into "Other".
+  options differ in risk, so nobody types a question into "Other". Every
+  agent ends a turn that leaves the next move to the user with such a card of
+  next steps, never a plain answer.
 - Chat topic `agent-chat:<agentId>` of the page stream (`/api/events`, see the
   guide; also the SSE route `/api/agent-chat/<agentId>/events`) also emits
   `event: cards` with `data: Card[]` whenever a card of that agent changes.

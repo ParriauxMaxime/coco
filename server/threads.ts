@@ -275,7 +275,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const askRule = (key: string, kind: string) => [
     `To have ${OWNER} pick between options, call cocopilot \`ask\` (a choice card) with \`thread: "${key}"\`, never a list to answer in text; the pick comes back as a new message.`,
     ...(kind === 'decision' ? ['An option with `effect: { "type": "take_decision", "option": "<card option key>" }` takes the decision on that card option when picked, without a new turn: only keys the card has.'] : []),
-    ...(kind === 'comment' ? ['An option that leaves the code as is gets `effect: { "type": "dismiss_finding" }`: picking it dismisses the finding, without a new turn.'] : []),
+    ...(kind === 'comment' ? ['An option that leaves the code as is gets `effect: { "type": "dismiss_finding" }`: picking it dismisses the finding, without a new turn. Its `details` state the why in one sentence: it becomes the dismiss reason later agents read.'] : []),
+    `End every turn with an \`ask\` card of next steps, your recommendation marked, unless the item was just settled: never stop on a plain answer that leaves ${OWNER} to type the next move.`,
   ].join(' ');
   const replyRule = (replyPath: string, kind: string, key: string) => [
     `Last step of your turn: call cocopilot \`post_reply\` with \`{ "blocks": [...], "thread": "${key}" }\` (typed blocks, never markdown); a refusal names the bad field: fix it and call again. Only if the tool is missing or keeps failing, write the same JSON \`{ "blocks": [...] }\` to \`${replyPath}\`.`,
@@ -321,7 +322,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       ],
       comment: [
         `- You work in your own worktree on branch \`${group.branch}\`, branched off the PR head; stay on it. To suggest a change, make it and commit ONE commit with the trailer \`Cc-Comment: ${item.id}\`, self-contained. ${Owner} presses Approve, which cherry-picks that commit onto the PR worktree (\`${pr?.head}\`). Never cherry-pick, merge or push onto the PR branch yourself. A suggestion shown as "dismissed" is ${Owner}'s call, not a failure. When you disagree, say why instead of changing it.`,
-        `- When ${Owner}'s message is a question ("what do you recommend?", "why?", "options?"), answer it and, with options, offer an \`ask\` card with your recommendation marked. Do not commit.`,
+        `- When ${Owner}'s message is a question ("what do you recommend?", "why?", "options?"), answer it. Do not commit.`,
         ...SHARED_RULES,
       ],
     }[ref.kind];

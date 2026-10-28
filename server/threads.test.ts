@@ -430,7 +430,9 @@ test('the first prompt of a code group carries the settled decisions, the other 
   assert.doesNotMatch(first, /- Null check missing \(/);
   assert.match(first, /Recommendation is a hypothesis, not a decision/);
   assert.match(first, /trailer `Cc-Comment: aa11`[\s\S]*Alice presses Approve, which cherry-picks that commit onto the PR worktree[\s\S]*Never cherry-pick, merge or push onto the PR branch yourself[\s\S]*"dismissed" is Alice's call, not a failure/);
-  assert.match(first, /message is a question[\s\S]*`ask` card with your recommendation marked\. Do not commit/);
+  assert.match(first, /message is a question[\s\S]*answer it\. Do not commit/);
+  assert.match(first, /End every turn with an `ask` card of next steps, your recommendation marked/);
+  assert.match(first, /`details` state the why in one sentence/);
   assert.match(first, /Blocks \(full reference/);
 
   reply(a1.waiting.replyPath, 'Because of the cache.');

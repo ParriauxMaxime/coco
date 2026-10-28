@@ -385,7 +385,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     const o = c.options?.find((x) => x.effect && c.answer?.picked?.includes(x.key));
     if (!o?.effect || !c.thread || !threads) return false;
     try {
-      c.result = { at: now(), ...(await threads.effect(c, o.effect, o.label)) };
+      c.result = { at: now(), ...(await threads.effect(c, o.effect, o.details ? `${o.label}: ${o.details}` : o.label)) };
     } catch (e) {
       c.result = { at: now(), ok: false, detail: errorMessage(e).slice(0, 500) };
     }
