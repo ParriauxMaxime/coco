@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
+import { execFileSync } from 'node:child_process';
 import { createWorkspaceFiles, isBinary, MAX_READ } from './workspace-files.ts';
 import { HttpError } from './core-types.ts';
 import type { FilesApi } from './paseo-agent.ts';
@@ -133,6 +134,45 @@ test('a write needs the version read: it saves over it, refuses a file changed s
   assert.equal((await call(wf, 'POST', at('write'), 'not json')).status, 400);
   assert.equal((await call(wf, 'GET', `${at('write')}?path=README.md`)).status, 404);
   assert.equal(fs.existsSync(path.join(root, 'gone.txt')), false);
+});
+
+test('no write reaches the repo\'s git data: .GIT in any case, a symlink into .git, a separate git dir', async () => {
+  const wf = fsOnly();
+  const mtime = (f: string) => new Date(fs.statSync(f).mtimeMs).toISOString();
+  fs.symlinkSync('.git/config', path.join(root, 'cfg-link'));
+  try {
+    for (const p of ['.GIT/config', '.Git/config', 'cfg-link']) {
+      const r = await call(wf, 'POST', at('write'), { path: p, content: '[core]\n\thooksPath = /tmp/evil\n', expectedModifiedAt: mtime(path.join(root, '.git/config')) });
+      assert.equal(r.status, 403, `${p}: ${r.body.error}`);
+    }
+    assert.equal(fs.readFileSync(path.join(root, '.git/config'), 'utf8'), '[core]\n');
+  } finally {
+    fs.rmSync(path.join(root, 'cfg-link'));
+  }
+  // a checkout whose git dir lives in the workspace under another name
+  const wt = path.join(tmp, 'sep');
+  execFileSync('git', ['init', '-q', `--separate-git-dir=${path.join(wt, 'meta')}`, wt]);
+  const inSep = createWorkspaceFiles({ dirOf: async () => wt });
+  const head = path.join(wt, 'meta', 'HEAD');
+  const r = await call(inSep, 'POST', at('write'), { path: 'meta/HEAD', content: 'x', expectedModifiedAt: mtime(head) });
+  assert.equal(r.status, 403, r.body.error);
+  assert.match(fs.readFileSync(head, 'utf8'), /^ref: /);
+  fs.writeFileSync(path.join(wt, 'ok.txt'), 'one\n');
+  assert.equal((await call(inSep, 'POST', at('write'), { path: 'ok.txt', content: 'two\n', expectedModifiedAt: mtime(path.join(wt, 'ok.txt')) })).status, 200, 'a file of the checkout saves');
+});
+
+test('a file subscription Paseo answers too late is let go once the poll took over', async () => {
+  let unsubscribed = 0;
+  const paseo = {
+    subscribeFile: () => new Promise((resolve) => setTimeout(() => resolve({ initial: { status: 'missing' }, unsubscribe: async () => void unsubscribed++ }), 60)),
+  } as unknown as FilesApi;
+  const wf = createWorkspaceFiles({ dirOf, files: async () => paseo, pollMs: 20, sdkMs: 10 });
+  put('late.txt', 'one\n');
+  let close = () => {};
+  await wf.watch({ send: () => {}, onClose: (fn) => void (close = fn), closed: false }, 'ws', 'late.txt');
+  for (let i = 0; i < 50 && !unsubscribed; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(unsubscribed, 1);
+  close();
 });
 
 test('through Paseo: reads and writes take its answer, a conflict it reports is a 409', async () => {

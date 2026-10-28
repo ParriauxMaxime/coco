@@ -23,6 +23,7 @@ type Deps = {
   // the daemon's file calls while it is connected, else null: the file system does the work
   files?: () => Promise<FilesApi | null>;
   pollMs?: number;
+  sdkMs?: number;
 };
 
 const SDK_MS = 10000;
@@ -62,7 +63,17 @@ export async function inside(root: string, rel: unknown, allowRoot = false) {
   return { base, real, rel: p };
 }
 
-export function createWorkspaceFiles({ dirOf, files = async () => null, pollMs = POLL_MS }: Deps) {
+// a real path in the repo's git data: a .git segment in any case (a symlink to .git/config, .GIT on a case-insensitive disk), or under the
+// directories git itself names (a separate git dir, a worktree's common dir)
+async function inGitDir(base: string, real: string) {
+  if (path.relative(base, real).split(path.sep).some((s) => s.toLowerCase() === '.git')) return true;
+  const out = await new Promise<string>((resolve) => execFile('git', ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'], { cwd: base, env: launcherEnv(), timeout: 10000, encoding: 'utf8' }, (err, o) => resolve(err ? '' : o)));
+  const dirs = await Promise.all(out.split('\n').filter(Boolean).map((d) => fs.realpath(d).catch(() => d)));
+  const r = real.toLowerCase();
+  return dirs.some((d) => r === d.toLowerCase() || r.startsWith(d.toLowerCase() + path.sep));
+}
+
+export function createWorkspaceFiles({ dirOf, files = async () => null, pollMs = POLL_MS, sdkMs = SDK_MS }: Deps) {
   const sdk = () => within(files(), 2000).catch(() => null);
 
   async function list(root: string, rel: unknown) {
@@ -128,13 +139,14 @@ export function createWorkspaceFiles({ dirOf, files = async () => null, pollMs =
   // a save over the version the owner read: a file changed on disk since is a conflict, the owner decides
   async function write(root: string, body: Record<string, unknown>) {
     const p = checkPath(body.path);
-    if (p.split('/').includes('.git')) throw new HttpError(403, 'coco does not write inside .git');
+    if (p.split('/').some((s) => s.toLowerCase() === '.git')) throw new HttpError(403, 'coco does not write inside .git');
     const { content, expectedModifiedAt: expected, expectedRevision } = body;
     if (typeof content !== 'string' || content.length > MAX_READ) throw new HttpError(400, `content: a text of at most ${MAX_READ} characters`);
     if (typeof expected !== 'string' || !expected) throw new HttpError(400, 'expectedModifiedAt: the modifiedAt of the version read');
-    const { real } = await inside(root, p).catch((e) => {
+    const { base, real } = await inside(root, p).catch((e) => {
       throw errorStatus(e) === 404 ? new Conflict(null) : e;
     });
+    if (await inGitDir(base, real)) throw new HttpError(403, 'coco does not write inside .git');
     const st = await fs.stat(real);
     if (!st.isFile()) throw new HttpError(400, `${p} is not a file`);
     const c = await sdk();
@@ -194,13 +206,17 @@ export function createWorkspaceFiles({ dirOf, files = async () => null, pollMs =
     void (async () => {
       const c = await sdk();
       if (c) {
+        const sub = (async () => c.subscribeFile({ cwd: root, path: p }, (v) => emit(v)))();
         try {
-          const s = await within(c.subscribeFile({ cwd: root, path: p }, (v) => emit(v)), SDK_MS);
+          const s = await within(sub, sdkMs);
           w.stop = () => void s.unsubscribe().catch(() => {});
           if (w.done) w.stop();
           else emit(s.initial);
           return;
-        } catch {}
+        } catch {
+          // the poll takes over: a subscription that still comes through is let go
+          sub.then((s) => s.unsubscribe().catch(() => {}), () => {});
+        }
       }
       const onStat = (cur: Stats) => emit(cur.mtimeMs ? { status: 'ready', modifiedAt: iso(cur), size: cur.size } : { status: 'missing' });
       watchFile(real, { interval: pollMs, persistent: false }, onStat);
