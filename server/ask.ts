@@ -85,6 +85,8 @@ type Conv = {
   events: Event[];
   listeners: Set<Listener>;
   session: Promise<AgentSession | null> | null;
+  // a new agent is being placed and started: messages meanwhile queue for it
+  booting?: boolean;
   fresh: boolean;
   stream: ReturnType<typeof activityEvents> | null;
   onEnd?: (conv: Conv) => void;
@@ -306,7 +308,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         push(conv, { type: 'meta', text: `Paseo agent ${conv.agentId.slice(0, 8)} is gone: a new one starts with the conversation so far` });
       }
       if (!create) return null;
+      conv.booting = true;
+      push(conv, { type: 'step', text: conv.scope.kind === 'work' && conv.pr != null ? `Opening the worktree of ${keyLabel(conv.pr)} (a new one takes about 15 s)` : 'Finding the workspace' });
       const { workspaceId, cwd } = await where(conv.scope, conv.pr ?? null);
+      push(conv, { type: 'step', text: 'Starting the agent' });
       const s = await agents.session({
         title: `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${providerFor(conv.model)}${conv.thinking ? `, thinking ${conv.thinking}` : ''}.`,
@@ -323,8 +328,13 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       save(conv);
       return s;
     })().then(
-      (s) => (s || (conv.session = null), s),
+      (s) => {
+        conv.booting = false;
+        if (!s) conv.session = null;
+        return s;
+      },
       (e) => {
+        conv.booting = false;
         conv.session = null;
         throw e;
       },
@@ -333,9 +343,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   }
 
   // what a new agent reads when it replaces a gone one: the owner's messages and coco's answers, the latest part when long
-  function withHistory(conv: Conv, text: string) {
-    const events = conv.events[0]?.type === 'user' ? conv.events : [{ type: 'user', text: conv.prompt }, ...conv.events];
-    const said = events.slice(0, events.findLastIndex((e) => e.type === 'user')).filter((e) => e.type === 'user' || e.type === 'text');
+  // upTo: where the new message sits in the log; messages queued after it while the agent started are sent on their own
+  function withHistory(conv: Conv, text: string, upTo: number) {
+    const events = [...(conv.events[0]?.type === 'user' ? [] : [{ type: 'user', text: conv.prompt }]), ...conv.events.slice(0, upTo)];
+    const said = events.filter((e) => e.type === 'user' || e.type === 'text');
     if (!said.length) return text;
     const all = said.map((e) => `**${e.type === 'user' ? OWNER : 'coco'}:** ${e.text}`).join('\n\n');
     const p = conv.proposed;
@@ -391,7 +402,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   // a message opens a turn, or steers the turn in flight; a parked or closed conversation gets a new agent
   async function say(conv: Conv, text: string, { nonce = null, files = [] }: { nonce?: unknown; files?: Upload[] } = {}) {
     const steer = conv.status === 'running';
-    push(conv, { type: 'user', text, ts: now(), ...(steer ? { steer: true } : {}), ...(nonce ? { nonce: String(nonce).slice(0, 40) } : {}), ...(files.length ? { attachments: files.map(uploadRef) } : {}) });
+    // queued: written while the agent is still starting, it reaches the agent right after the first message, in order
+    const queued = Boolean(conv.booting);
+    const at = conv.events.length;
+    push(conv, { type: 'user', text, ts: now(), ...(queued ? { queued: true } : steer ? { steer: true } : {}), ...(nonce ? { nonce: String(nonce).slice(0, 40) } : {}), ...(files.length ? { attachments: files.map(uploadRef) } : {}) });
     if (!steer) {
       conv.status = 'running';
       save(conv);
@@ -407,7 +421,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     }
     if (!s) return;
     const turn = namesPrComment(text) ? `${text}\n\n(${PR_REPLY_HINT})` : text;
-    const prompt = conv.fresh ? withHistory(conv, turn) : turn;
+    const prompt = conv.fresh ? withHistory(conv, turn, at) : turn;
     conv.fresh = false;
     if (s.busy()) return s.say(prompt, { input }).catch((e) => push(conv, { type: 'stderr', text: `could not reach the agent: ${e instanceof Error ? e.message : String(e)}`.slice(0, 2000) }));
     if (conv.status !== 'running') {

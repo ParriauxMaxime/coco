@@ -7,7 +7,7 @@ import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { Avatar, diffText, num } from './parts.tsx';
 import { DevServerCell } from './widgets/DevServer.tsx';
-import { agentsOf, devOf, findingsOf, pendingOf, prKey, prState, prTitle } from './data.ts';
+import { agentsOf, devOf, findingsOf, prKey, prState, prTitle, waitingOf } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { usePrefs } from './prefs.ts';
 import { reloadOverview } from './overview.ts';
@@ -34,7 +34,7 @@ function CiCell({ pr }: { pr: WorkPr }) {
 
 function AgentsCell({ d, pr }: { d: PreviewData; pr: WorkPr }) {
   const agents = agentsOf(d, pr);
-  const waiting = pendingOf(d, pr).length;
+  const waiting = waitingOf(d, pr).length;
   const live = (id: string) => d.overview?.agents.find((a) => a.id === id)?.status === 'running';
   if (!pr.number && !agents.length) return <span className="dp-avs">{(pr.personas || []).slice(0, 3).map((p) => <Avatar key={p} login={p} />)}</span>;
   if (!agents.length) return <span className="dp-t4">–</span>;

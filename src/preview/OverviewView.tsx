@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Markdown from '../components/Markdown.tsx';
 import Blocks from '../components/Blocks.tsx';
-import { PendingPermissions } from './chat/Permission.tsx';
+import WaitingList from './WaitingList.tsx';
 import Icon from './Icon.tsx';
 import NewAgentMenu from './NewAgentMenu.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
@@ -59,8 +59,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
   const lead = w.summary || w.description;
   const next = isWhatsNext(w.next) && (w.next.summary || w.next.blocks?.length) ? w.next : null;
 
-  const agentIds = Array.from(new Set(d.agents.map((a) => a.agentId)));
-  const waiting = d.pending.filter((p) => agentIds.includes(p.agentId));
+  const waiting = d.waiting;
 
   const left = d.findings?.left || ['new', 'open', 'sent', 'outdated'];
   const openFindings = (d.findings?.rows || []).filter((r) => left.includes(r.status));
@@ -124,9 +123,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             {waiting.length > 0 && (
               <div className="dp-block">
                 <div className="dp-h2">Waiting on you<span className="dp-count dp-acc">{waiting.length}</span></div>
-                <div className="dp-ov-wait">
-                  {agentIds.filter((id) => waiting.some((p) => p.agentId === id)).map((id) => <PendingPermissions key={id} agentId={id} withWhere />)}
-                </div>
+                <div className="dp-ov-wait"><WaitingList items={waiting} /></div>
               </div>
             )}
 

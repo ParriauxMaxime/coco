@@ -6,7 +6,8 @@ import { cardEvents, useCardList } from './chat/cards.ts';
 import { subscribe, topic } from '../live.ts';
 import { Composer, Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
-import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import { PendingPermissions } from './chat/Permission.tsx';
+import { useWaitingByAgent } from './waiting.ts';
 import { nonceOf, useAskConversation } from './chat/conversation.ts';
 import { WorkContext, useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
@@ -87,7 +88,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const { run, events, pending, working, cards, mergeCard } = convo;
   const model = useAskModel(run);
   const listed = useWorkAgent(slug, tabId);
-  const { pending: asked } = usePendingPermissions();
+  const asked = useWaitingByAgent();
   useEffect(() => {
     api.askConversation(id).then(convo.open, (e) => toast.error(errorMessage(e)));
   }, [id]);
@@ -197,7 +198,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const { slug } = useWork();
   const agentId = tabId.slice(3);
   const listed = useWorkAgent(slug, tabId);
-  const { pending: asked } = usePendingPermissions();
+  const asked = useWaitingByAgent();
   const state = listed ? stateOf(listed, asked) : 'done';
   const { summaries, groups } = useThreadsOf(slug);
   const group = groups.find((g) => g.agentId === agentId);

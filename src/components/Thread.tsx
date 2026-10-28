@@ -20,7 +20,7 @@ import { useNow } from '../preview/subagents.ts';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { commitTabId } from '../workbench/code/ids.ts';
-import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
+import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadInbound, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
 import './thread.css';
 
 const POLL_MS = 10000;
@@ -178,18 +178,20 @@ function activityByMessage(events: ActivityEvent[]) {
 }
 
 // the thread's agent activity over SSE (stored, then live), and a fresh thread on every change the server reports
-function useThreadStream(slug: string, key: string, onChange: () => void, onStep: (step: ThreadStep | null) => void) {
+type Live = { starting?: ThreadStep | null; inbound?: ThreadInbound[] };
+function useThreadStream(slug: string, key: string, onChange: () => void, onLive: (live: Live) => void) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const changed = useRef(onChange);
   changed.current = onChange;
-  const stepped = useRef(onStep);
-  stepped.current = onStep;
+  const lived = useRef(onLive);
+  lived.current = onLive;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const off = subscribe(topic('thread', slug, key), {
       open: () => setEvents([]),
-      message: (ev: ActivityEvent & { step?: ThreadStep | null }) => {
-        if (ev.type === 'step') return stepped.current(ev.step ?? null);
+      message: (ev: ActivityEvent & { step?: ThreadStep | null; inbound?: ThreadInbound[] }) => {
+        if (ev.type === 'step') return lived.current({ starting: ev.step ?? null });
+        if (ev.type === 'inbound') return lived.current({ inbound: ev.inbound ?? [] });
         if (ev.type !== 'thread') return setEvents((prev) => [...prev, ev]);
         clearTimeout(timer);
         timer = setTimeout(() => changed.current?.(), 100);
@@ -225,6 +227,38 @@ function EarlierTurns({ hidden, onMore }: { hidden: number; onMore: () => void }
   return <button ref={ref} type="button" className="dp-btn dp-sm dp-ghost dp-thr-more" onClick={onMore}><Icon name="history" size={12} />{hidden} earlier message{hidden > 1 ? 's' : ''}</button>;
 }
 
+// what a message waits on before its agent exists, step by step: the done ones ticked with their time, the current one live
+function StartSteps({ step, now }: { step: ThreadStep; now: number }) {
+  const steps = step.steps?.length ? step.steps : [step];
+  const secs = (from: string, to: number) => Math.max(0, Math.round((to - Date.parse(from)) / 1000));
+  return (
+    <ol className="dp-thr-steps" aria-label="Starting the agent">
+      {steps.map((s, i) => {
+        const next = steps[i + 1];
+        return (
+          <li key={`${s.at}-${i}`} className={next ? '' : 'dp-on'}>
+            {next ? <Icon name="check" size={12} /> : <span className="dp-ag-dot dp-ag-running dp-thr-spin" aria-hidden />}
+            <span className="dp-ell">{s.text}</span>
+            <span className="dp-num">{secs(s.at, next ? Date.parse(next.at) : now)} s</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// what was posted and is not stored yet: the server's list (other tabs and a reload included), then this tab's posts it has not heard of yet
+function inboundOf(server: ThreadInbound[], local: Sent[]) {
+  const left = [...server];
+  const mine = local.filter((p) => {
+    const i = left.findIndex((s) => s.text === p.text);
+    if (i < 0) return true;
+    left.splice(i, 1);
+    return false;
+  });
+  return [...server.map((s) => ({ key: s.id, text: s.text, files: s.files ?? [] })), ...mine.map((p) => ({ key: p.nonce, text: p.text, files: p.files }))];
+}
+
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
   const { groups, summaries } = useThreadsOf(slug);
   const [thread, setThread] = useState<ThreadData | null>(null);
@@ -251,7 +285,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     refreshThreads(slug);
     if (answered) settled.current?.();
   }, () => {});
-  const activity = useThreadStream(slug, key, reload, (step) => setThread((prev) => prev && { ...prev, starting: step }));
+  const activity = useThreadStream(slug, key, reload, (live) => setThread((prev) => prev && { ...prev, ...live }));
   const now = useNow(1000, Boolean(thread?.starting || thread?.waiting?.deps));
   const secs = (since: string) => Math.max(0, Math.round((now - Date.parse(since)) / 1000));
   useEffect(() => {
@@ -313,16 +347,20 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const cardsAt = (i: number) => slots.get(i)?.map((c) => <CardView key={c.id} card={c} onCard={onCard} focus={c.id === newest} />);
   const others = groups.filter((g) => g.status === 'active' && g.id !== thread.groupId && g.kind === kind && (decision || String(g.n).replaceAll(':', '~') === prPart));
   const asks = thread.messages.flatMap((m, i) => (m.role === 'user' ? [i] : []));
+  const posted = inboundOf(thread.inbound ?? [], sending);
+  // no live agent yet: the first message starts one, the others wait for it
+  const booting = posted.length > 0 && !thread.agent?.live && (Boolean(thread.starting) || !group);
   const from = asks.length > turns ? asks[asks.length - turns] : 0;
   return (
     <div className="dp-thr">
       <div className="dp-thr-h">
-        <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : sending.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
+        <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : posted.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (
           <span className={`dp-chip${thread.agent.live ? ' dp-ok' : ''}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
             <span className="dp-d" />{thread.waiting?.deps ? `waiting for deps (${secs(thread.waiting.deps.since)} s)` : thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
           </span>
         )}
+        {thread.agent?.live && thread.agent.deps === 'installing' && <span className="dp-chip dp-warn" title="coco installs this worktree's dependencies: the agent reads and changes the code meanwhile and hears when its checks work">installing deps</span>}
         <span className="dp-thr-hx">
         {!waiting && (group || others.length > 0) && (
           <select className="dp-inp" value="" disabled={busy} aria-label="Regroup" onChange={(e) => act('regroup', () => api.regroup(slug, key, e.target.value))}>
@@ -382,7 +420,14 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         );
       })}
       {cardsAt(thread.messages.length)}
-      {sending.map((p) => <div key={p.nonce} className="dp-msg-u dp-cv-u dp-cv-sending"><div className="dp-cv-unote">sending…</div>{p.files.length > 0 && <SentFiles files={p.files} />}<Markdown text={p.text} /></div>)}
+      {thread.starting && <StartSteps step={thread.starting} now={now} />}
+      {posted.map((p, i) => (
+        <div key={p.key} className={`dp-msg-u dp-cv-u dp-cv-sending${booting && i > 0 ? ' dp-cv-queued' : ''}`}>
+          <div className="dp-cv-unote">{!booting ? 'sending…' : i === 0 ? 'sending · starts the agent' : 'queued · reaches the agent once it is ready'}</div>
+          {p.files.length > 0 && <SentFiles files={p.files} />}
+          <Markdown text={p.text} />
+        </div>
+      ))}
       <ThreadComposer
         draft={`thread:${slug}:${key}`}
         busy={false}

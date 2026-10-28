@@ -36,7 +36,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
     const place = new URLSearchParams(a.split('?')[1] || '').get('place');
     return { crumbs: [page('Agents', '#/agents'), page('New agent')], node: <NewAgentPage key={place || ''} place={place} /> };
   }
-  if (root === 'agents' && a) return { crumbs: [page('Agents', '#/agents'), page(ov?.agents.find((x) => x.id === id)?.name || id.slice(0, 8))], node: <AgentPage key={id} agentId={id} /> };
+  if (root === 'agents' && a) return { crumbs: [page('Agents', '#/agents'), page(ov?.agents.find((x) => x.id === id)?.name || id.slice(0, 8))], node: <AgentPage key={id} agentId={id} toWaiting={b === 'waiting'} /> };
   if (root === 'agents') return { crumbs: [page('Agents')], node: <AgentsPage /> };
   if (root === 'projects') return { crumbs: [page('Projects')], node: <ProjectsPage /> };
   if (root === 'rules') return { crumbs: [page('Rules')], node: <RulesPage /> };

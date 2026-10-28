@@ -650,6 +650,45 @@ test('two first messages on different comments of one file land in one group and
   assert.equal(daemon.calls.created.length, 1);
 });
 
+test('messages written while the agent starts show at once, queued in order, and reach it in order once it exists; the start steps stream live', async () => {
+  const { threads, daemon, read } = setup();
+  const client = await daemon.connect();
+  let open = () => {};
+  const gate = new Promise<void>((ok) => (open = ok));
+  const create = client.workspaces.create;
+  client.workspaces.create = async (opts) => (await gate, create(opts));
+  type Ev = { type: string; step?: { text: string; steps?: { text: string }[] } | null; inbound?: { text: string }[] };
+  const seen: Ev[] = [];
+  const stream = { method: 'GET', url: `/api/works/${SLUG}/threads/${A}/events`, on: () => {} } as unknown as Req;
+  await threads.handle(stream, { writeHead: () => {}, write: (chunk: string) => seen.push(JSON.parse(chunk.slice('data: '.length))) } as unknown as Res, ['works', SLUG, 'threads', A, 'events'], async () => '', () => assert.fail('no JSON answer on the stream'));
+  const get = async () => {
+    let body: { inbound?: { text: string }[]; starting?: { steps?: { text: string }[] } | null } = {};
+    const req = { method: 'GET', url: `/api/works/${SLUG}/threads/${A}`, on: () => {} } as unknown as Req;
+    await threads.handle(req, {} as Res, ['works', SLUG, 'threads', A], async () => '', (_res, _status, json) => void (body = json as typeof body));
+    return body;
+  };
+
+  const one = threads.post(SLUG, A, { text: 'Add the null check' });
+  await until(() => seen.some((e) => e.type === 'step' && e.step?.text === 'Creating a worktree'), 'worktree step');
+  const two = threads.post(SLUG, A, { text: 'And a test for it' });
+  const three = threads.post(SLUG, A, { text: 'Name it null.test.ts' });
+  await until(() => seen.some((e) => e.type === 'inbound' && e.inbound?.length === 3), 'all three shown');
+  const mid = await get();
+  assert.deepEqual(mid.inbound?.map((m) => m.text), ['Add the null check', 'And a test for it', 'Name it null.test.ts']);
+  assert.deepEqual(mid.starting?.steps?.map((s) => s.text), ['Finding the agent', 'Creating a worktree', 'Starting the agent']);
+  assert.equal(daemon.calls.sent.length, 0, 'nothing reaches an agent that does not exist yet');
+
+  open();
+  await Promise.all([one, two, three]);
+  await until(() => daemon.calls.sent.length === 3, 'all three delivered');
+  assert.deepEqual(read(A).messages.filter((m) => m.role === 'user').map((m) => m.text), ['Add the null check', 'And a test for it', 'Name it null.test.ts']);
+  assert.ok(daemon.calls.sent[1].text.includes('And a test for it') && daemon.calls.sent[2].text.includes('Name it null.test.ts'));
+  assert.equal(daemon.calls.created.length, 1, 'one agent takes them all');
+  assert.ok(seen.some((e) => e.type === 'step' && e.step?.steps?.map((s) => s.text).join(' > ') === 'Finding the agent > Creating a worktree > Starting the agent'));
+  const after = await get();
+  assert.deepEqual([after.inbound, after.starting], [[], null]);
+});
+
 test('a commit on whatever branch Paseo checked the group out on becomes an approvable suggestion', async () => {
   const exec: Exec = async (_cmd, args) => {
     if (args[1] === '/wt/cc-group' && args.includes('rev-parse')) return { ok: true, stdout: 'c0ffee\n', stderr: '' };

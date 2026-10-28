@@ -29,7 +29,8 @@ export type PermissionClient = {
   };
 };
 export type Where = { label: string; href: string };
-export type Pending = { agentId: string; agentTitle: string | null; request: PermissionRequest; since: string; where: Where | null };
+// work, pr: from the agent's labels, the PR as a row key
+export type Pending = { agentId: string; agentTitle: string | null; request: PermissionRequest; since: string; where: Where | null; work: string | null; pr: string | null };
 
 export const isCocoAgent = (a: AgentSnapshot) => SOURCES.includes(a.labels?.source ?? '') || Boolean(a.title?.startsWith(TITLE_PREFIX));
 
@@ -122,7 +123,9 @@ export function createPermissions({ client, locate = () => null, waitMs = WAIT_M
   function list(): Pending[] {
     return [...held.values()].flatMap(({ agent, since }) => {
       const where = locate(agent);
-      return (agent.pendingPermissions || []).map((request) => ({ agentId: agent.id, agentTitle: agent.title ?? null, request, since: since.get(request.id) || '', where }));
+      const work = agent.labels?.work || null;
+      const pr = agent.labels?.pr ? agent.labels.pr.replaceAll('~', ':') : null;
+      return (agent.pendingPermissions || []).map((request) => ({ agentId: agent.id, agentTitle: agent.title ?? null, request, since: since.get(request.id) || '', where, work, pr }));
     });
   }
 

@@ -4,7 +4,8 @@ import { api } from '../api.ts';
 import DispatchMenu from '../components/DispatchMenu.tsx';
 import Markdown from '../components/Markdown.tsx';
 import { CodeRefRoot } from '../components/CodeRefs.tsx';
-import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import { PendingPermissions } from './chat/Permission.tsx';
+import { useWaitingByAgent } from './waiting.ts';
 import { focusOldestCard } from './chat/Card.tsx';
 import { PersonaChip } from '../components/PersonaChip.tsx';
 import GateRail, { ReviewSplit, useGates } from '../workbench/tabs/Gates.tsx';
@@ -217,9 +218,9 @@ function ReviewBody({ d, n, host }: { d: PreviewData; n: PrKey; host?: string })
 function AgentBody({ d, tabId }: { d: PreviewData; tabId: string }) {
   const agent = useWorkAgent(d.slug, tabId);
   const serverId = useServerId(d.slug);
-  const { pending } = usePendingPermissions();
+  const waiting = useWaitingByAgent();
   if (!agent) return <div className="dp-ins-empty">This agent is not listed in the work yet</div>;
-  const state = stateOf(agent, pending);
+  const state = stateOf(agent, waiting);
   const paseo = d.overview?.agents.find((a) => a.id === agent.agentId);
   const model = paseo ? [paseo.provider, paseo.thinking].filter(Boolean).join(' · ') : '';
   const usage = usageLine(agent);
@@ -249,7 +250,7 @@ function AgentBody({ d, tabId }: { d: PreviewData; tabId: string }) {
             </dd>
           </dl>
         </Sec>
-        <Sec title="Questions" aside={agent.openCards ? <span className="dp-count">{agent.openCards}</span> : <span className="dp-t4" style={{ fontWeight: 400 }}>none waiting</span>}>
+        <Sec title="Waiting on you" aside={agent.agentId && waiting[agent.agentId] ? <span className="dp-count">{waiting[agent.agentId]}</span> : <span className="dp-t4" style={{ fontWeight: 400 }}>nothing</span>}>
           {agent.openCards > 0 && <button type="button" className="dp-btn dp-sm dp-ins-oldest" onClick={() => focusOldestCard(tabId)}><span className="dp-ag-dot dp-ag-waiting" />Jump to the oldest<Icon name="chevron-down" size={12} /></button>}
         </Sec>
       </div>

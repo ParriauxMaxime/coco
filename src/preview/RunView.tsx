@@ -5,7 +5,7 @@ import { useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { findRun, putRuns, reviewApi, useReviewStore } from '../workbench/code/use-comments.ts';
 import { AgentTranscript, Header } from './AgentTab.tsx';
-import { usePendingPermissions } from './chat/Permission.tsx';
+import { useWaitingByAgent } from './waiting.ts';
 import { stateOf, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
 import Icon from './Icon.tsx';
@@ -22,9 +22,9 @@ export const useTabActive = (tabId: string) => useWorkbench((s) => s.groups.some
 // the run's agent as the work lists it (usage included), else its state from the run
 export function useRunAgent(slug: string, agentId: string | undefined, status: string) {
   const listed = useWorkAgent(slug, agentId ? `ag-${agentId}` : '');
-  const { pending } = usePendingPermissions();
-  if (listed) return { listed, state: stateOf(listed, pending) };
-  const state: AgentState = status === 'running' ? (pending.some((p) => p.agentId === agentId) ? 'waiting' : 'running') : status === 'failed' ? 'failed' : 'done';
+  const waiting = useWaitingByAgent();
+  if (listed) return { listed, state: stateOf(listed, waiting) };
+  const state: AgentState = status === 'running' ? (agentId && waiting[agentId] ? 'waiting' : 'running') : status === 'failed' ? 'failed' : 'done';
   return { listed, state };
 }
 

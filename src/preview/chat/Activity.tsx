@@ -87,6 +87,7 @@ export function defaultEvent(e: ActivityEvent) {
   if (e.type === 'text') return <div className="dp-cv-text"><Markdown text={e.text} /></div>;
   if (e.type === 'stderr') return <div className="dp-cv-note dp-cv-bad">{e.text}</div>;
   if (e.type === 'meta') return <div className="dp-cv-note dp-cv-faint">{e.text}</div>;
+  if (e.type === 'step') return <div className="dp-cv-note dp-cv-faint dp-cv-step"><Icon name="clock" size={12} />{e.text}…</div>;
   if (e.type === 'end') return <div className="dp-cv-end"><span>{e.status}</span>{e.cost != null && <span className="dp-num">${Number(e.cost).toFixed(3)}</span>}{e.error && <span className="dp-cv-bad">{e.error}</span>}</div>;
   if (e.type === 'closed') return <div className="dp-cv-end"><span>{(e.reason && END_NOTE[e.reason]) || e.reason}</span></div>;
   return null;

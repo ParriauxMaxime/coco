@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import WaitingList from './WaitingList.tsx';
 import { setThemeMode, useTheme } from '../theme.ts';
 import { useConfig } from '../config.ts';
 import Icon from './Icon.tsx';
@@ -184,9 +184,8 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const prefs = usePrefs();
   const theme = useTheme();
   const { open: controls, toggle: toggleControls } = useBetaPanel();
-  const { pending } = usePendingPermissions();
   const queue = useWaiting();
-  const owed = (queue?.count || 0) + pending.length;
+  const owed = queue?.count || 0;
   useEffect(() => desktop?.setWaiting(owed), [owed]);
   const hasRituals = useConfig((s) => s.rituals.length > 0);
   const [palette, setPalette] = useState(false);
@@ -226,7 +225,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
     { id: 'theme', label: `Theme: ${theme.resolved === 'dark' ? 'light' : 'dark'}`, hint: '⌘⇧L', icon: theme.resolved === 'dark' ? 'sun' : 'moon', run: () => setThemeMode(theme.resolved === 'dark' ? 'light' : 'dark') },
   ];
 
-  const waiting = slug ? pending.filter((p) => !p.where || p.where.href.includes(slug)) : pending;
+  const waiting = (queue?.items ?? []).filter((i) => !slug || i.work === slug);
   const navLink = (n: NavItem, withLabel: boolean) => (
     <a key={n.href} className={withLabel ? `dp-sb-nav${root === n.root ? ' dp-on' : ''}` : `dp-ibtn${root === n.root ? ' dp-on' : ''}`} href={n.href} title={n.label}>
       <Icon name={n.icon} />{withLabel && <span>{n.label}</span>}
@@ -326,8 +325,8 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
 
         {waitOpen && (
           <div className="dp-pop dp-on dp-waitpop">
-            <div className="dp-pop-h"><b>Waiting on you</b><span className="dp-count dp-acc">{waiting.length}</span><span className="dp-sp" /><button type="button" className="dp-ibtn" onClick={() => setWaitOpen(false)}><Icon name="x" size={14} /></button></div>
-            <div className="dp-pop-s dp-waitpop-s"><PendingPermissions withWhere /></div>
+            <div className="dp-pop-h"><b>Waiting on you</b><span className="dp-count dp-acc">{waiting.length}</span><span className="dp-sp" /><a className="dp-btn dp-ghost dp-sm" href="#/waiting" onClick={() => setWaitOpen(false)}>All</a><button type="button" className="dp-ibtn" onClick={() => setWaitOpen(false)}><Icon name="x" size={14} /></button></div>
+            <div className="dp-pop-s dp-waitpop-s"><WaitingList items={waiting} /></div>
           </div>
         )}
         {palette && <Palette commands={all} onClose={() => setPalette(false)} />}

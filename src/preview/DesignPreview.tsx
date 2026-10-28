@@ -40,7 +40,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const repoName = ov?.repos.find((r) => r.id === repoId)?.name;
   const tabDetails = narrow || prefs.shell === 'C' || prefs.details === 'tab';
   const showInspector = !tabDetails && inspector;
-  const waiting = d.pending.filter((p) => !p.where || p.where.href.includes(slug));
+  const waiting = d.waiting;
   const counts = useMemo(() => {
     const by: Record<string, number> = {};
     d.prs.forEach((p) => { const s = prState(p); by[s] = (by[s] || 0) + 1; });

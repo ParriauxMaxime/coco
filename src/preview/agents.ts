@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { api } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
 import { prKey, prTitle } from './data.ts';
-import type { PendingPermission, WorkAgent, WorkAgentStatus, WorkAgents } from '../types.ts';
+import type { WorkAgent, WorkAgentStatus, WorkAgents } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
 
 export type AgentState = 'waiting' | WorkAgentStatus;
@@ -36,15 +36,16 @@ export const useWorkAgent = (slug: string, id: string) => useAgents((s) => find(
 export const useAgentList = (slug: string) => useAgents((s) => s.by[slug]?.agents);
 export const useServerId = (slug: string) => useAgents((s) => s.by[slug]?.serverId ?? null);
 
-export const stateOf = (a: WorkAgent, pending: PendingPermission[]): AgentState => (a.agentId && a.status !== 'archived' && (a.openCards > 0 || pending.some((p) => p.agentId === a.agentId)) ? 'waiting' : a.status);
+// waiting: the waiting queue's count per agent (useWaitingByAgent), the one source of "waiting on you"
+export const stateOf = (a: WorkAgent, waiting: Record<string, number>): AgentState => (a.agentId && a.status !== 'archived' && waiting[a.agentId] ? 'waiting' : a.status);
 export const paseoLink = (serverId: string | null, agentId: string | null) => (serverId && agentId ? `paseo://h/${encodeURIComponent(serverId)}/agent/${encodeURIComponent(agentId)}` : null);
 export const prLabel = (key: string) => (/^\d+$/.test(key) ? `#${key}` : key.replace(/^b:/, '').replaceAll(':', '/'));
 
 const byState = (a: ListedAgent, b: ListedAgent) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || (b.updatedAt || '').localeCompare(a.updatedAt || '');
 
 // Work first, then the PRs in stack order, then rows the stack no longer holds; groups with no agent are left out
-export function groupAgents(agents: WorkAgent[], pending: PendingPermission[], prs: WorkPr[]): AgentGroup[] {
-  const listed = agents.map((a) => ({ ...a, state: stateOf(a, pending) })).sort(byState);
+export function groupAgents(agents: WorkAgent[], waiting: Record<string, number>, prs: WorkPr[]): AgentGroup[] {
+  const listed = agents.map((a) => ({ ...a, state: stateOf(a, waiting) })).sort(byState);
   const keys = [null, ...prs.map(prKey), ...listed.map((a) => a.pr).filter((k): k is string => k !== null && !prs.some((p) => prKey(p) === k))];
   return [...new Set(keys)].flatMap((key) => {
     const mine = listed.filter((a) => a.pr === key);

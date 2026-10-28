@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toHash } from '../../workbench/hash.ts';
-import { PendingPermissions, usePendingPermissions } from '../chat/Permission.tsx';
+import WaitingList from '../WaitingList.tsx';
+import { useWaiting } from '../waiting.ts';
 import Icon from '../Icon.tsx';
 import { usageLine, usageTitle } from '../format.ts';
 import { ContextRing } from '../Ring.tsx';
@@ -11,10 +12,12 @@ import type { AgentsResponse, LinkedAgent, PaseoAgent, PaseoWorkspace } from '..
 import './agents-page.css';
 
 type GroupBy = 'workspace' | 'status';
-type Row = { a: PaseoAgent; state: string; ws?: PaseoWorkspace; link?: LinkedAgent };
+// waiting: the agent's items of the waiting queue
+type Row = { a: PaseoAgent; state: string; waiting: number; ws?: PaseoWorkspace; link?: LinkedAgent };
 type Group = { key: string; title: React.ReactNode; hint?: string; chip?: string; rows: Row[] };
 
 const WS_SHOWN = 8;
+const WAIT_SHOWN = 6;
 const ORDER = ['waiting', 'running', 'error', 'idle', 'closed'];
 const DOT: Record<string, string> = { waiting: 'dp-ag-waiting', running: 'dp-ag-running', idle: 'dp-ag-done', error: 'dp-ag-failed' };
 const LABEL: Record<string, string> = { waiting: 'Waiting on you', running: 'Running', error: 'Failed', idle: 'Idle', closed: 'Closed' };
@@ -41,6 +44,7 @@ function AgentRow({ r, open, log, where, onToggle }: { r: Row; open: boolean; lo
         <span className="dp-chip dp-agp-prov" title={a.provider}>{a.provider}</span>
         {a.thinking && <span className="dp-chip">{a.thinking}</span>}
         {usage && a.usage && <span className="dp-xs dp-t3 dp-agp-usage" title={usageTitle(a.usage)}>{usage}</span>}
+        {r.waiting > 0 && <a className="dp-chip dp-warn dp-agp-wait" href={`#/agents/${encodeURIComponent(a.id)}/waiting`} title="Open the agent at the first thing it waits on you for" onClick={(e) => e.stopPropagation()}>{r.waiting} waiting on you</a>}
         {r.state !== 'closed' && <span className="dp-xs dp-t3"><ContextRing used={a.usage?.contextTokens} max={a.usage?.contextMax} label /></span>}
         <span className="dp-rowi-m dp-agp-ago">{a.created}</span>
         <a className="dp-btn dp-sm dp-agp-open" href={`#/agents/${encodeURIComponent(a.id)}`} title="Its transcript, cards and a composer to message it" onClick={(e) => e.stopPropagation()}><Icon name="message-square" size={12} />Chat</a>
@@ -60,9 +64,8 @@ export default function AgentsPage() {
   const [logs, setLogs] = useState<Record<string, string>>({});
   const [group, setGroup] = useState<GroupBy>('workspace');
   const [filter, setFilter] = useState('live');
-  const [asked, setAsked] = useState(false);
   const [allWs, setAllWs] = useState(false);
-  const { pending } = usePendingPermissions();
+  const queue = useWaiting();
   const refresh = () => {
     setBusy(true);
     api.linkedAgents().then((all) => setLinks(Object.fromEntries(all.map((l) => [l.agentId, l]))), () => setLinks({}));
@@ -73,7 +76,6 @@ export default function AgentsPage() {
     const t = setInterval(refresh, 15000);
     return () => clearInterval(t);
   }, []);
-  useEffect(() => { if (pending.length) setAsked(true); }, [pending.length]);
   const toggle = async (id: string) => {
     if (open === id) return setOpen(null);
     setOpen(id);
@@ -97,8 +99,11 @@ export default function AgentsPage() {
 
   const workspaces = data.workspaces || [];
   const byWs = new Map(workspaces.map((w) => [w.cwd, w]));
-  const waiting = new Set(pending.map((p) => p.agentId));
-  const rows: Row[] = (data.agents || []).map((a) => ({ a, ws: byWs.get(a.cwd), link: links[a.id], state: waiting.has(a.id) && a.status !== 'closed' ? 'waiting' : a.status }));
+  const owed = queue?.count ?? 0;
+  const waitingOf = (id: string) => queue?.byAgent[id] ?? 0;
+  const rows: Row[] = (data.agents || []).map((a) => ({ a, ws: byWs.get(a.cwd), link: links[a.id], waiting: waitingOf(a.id), state: waitingOf(a.id) ? 'waiting' : a.status }));
+  // an item of an agent Paseo no longer lists (a parked Ask chat's archived agent) counts in the tile but has no row
+  const listedOwed = rows.reduce((n, r) => n + r.waiting, 0);
   const count = (s: string) => rows.filter((r) => r.state === s).length;
   const states = [...new Set(rows.map((r) => r.state))].sort((x, y) => rank(x) - rank(y));
   const live = rows.filter((r) => r.state !== 'closed').length;
@@ -121,16 +126,16 @@ export default function AgentsPage() {
     <Page>
       {head}
       <Tiles items={[
-        { label: 'Waiting on you', value: pending.length, hint: 'agent questions', tone: pending.length ? 'acc' : undefined },
+        { label: 'Waiting on you', value: owed, hint: listedOwed === owed ? 'questions, permissions, approvals' : `${listedOwed} on agents listed here, ${owed - listedOwed} on agents Paseo no longer lists`, tone: owed ? 'acc' : undefined, href: '#/waiting' },
         { label: 'Running', value: count('running'), hint: 'mid-turn', tone: count('running') ? 'ok' : undefined },
         { label: 'Idle', value: count('idle'), hint: 'live, between turns' },
         { label: 'Closed', value: other, hint: count('error') ? `${count('error')} failed` : 'or archived', tone: count('error') ? 'bad' : undefined },
         { label: 'Workspaces', value: workspaces.length, hint: `${rows.length} agents` },
       ]} />
 
-      {(asked || pending.length > 0) && (
-        <Section title="Waiting on you" count={pending.length}>
-          <PendingPermissions withWhere />
+      {owed > 0 && (
+        <Section title="Waiting on you" count={owed} action={owed > WAIT_SHOWN ? <a className="dp-lnk" href="#/waiting">All {owed}<Icon name="chevron-right" size={12} /></a> : undefined}>
+          <WaitingList items={(queue?.items ?? []).slice(0, WAIT_SHOWN)} />
         </Section>
       )}
 

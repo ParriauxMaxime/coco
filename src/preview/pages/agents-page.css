@@ -32,6 +32,8 @@
 .dp-agp-cwd { width: auto; font: 11.5px var(--dp-mono); color: var(--dp-t3); }
 .dp-agp-cwd .dp-ell { display: block; }
 .dp-agp-open { flex: none; }
+.dp a.dp-agp-wait { flex: none; color: var(--dp-st); }
+.dp a.dp-agp-wait:hover { background: color-mix(in srgb, var(--dp-st) 18%, transparent); }
 .dp-page.dp-agpage { display: flex; flex-direction: column; overflow: hidden; }
 .dp-agpage > .dp-perr, .dp-agpage > .dp-ploading { margin: 24px; }
 .dp-agpage-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; container: ag-tab / inline-size; }

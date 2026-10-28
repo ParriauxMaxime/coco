@@ -4,12 +4,13 @@ import { pendingClass, useAction } from '../../components/action.ts';
 import { toast } from '../../components/Toast.tsx';
 import { prLabel } from '../agents.ts';
 import { forget, useWaiting } from '../waiting.ts';
+import PermissionCard, { usePendingPermissions } from '../chat/Permission.tsx';
 import Icon from '../Icon.tsx';
 import { Empty, Loading, Page, PageHead, Section } from './Page.tsx';
 import type { Overview, WaitingAction, WaitingItem } from '../../types.ts';
 import './waiting.css';
 
-const KIND: Record<WaitingItem['kind'], string> = { card: 'question', approve: 'approve', thread: 'thread', ask: 'ask' };
+const KIND: Record<WaitingItem['kind'], string> = { card: 'question', permission: 'permission', approve: 'approve', thread: 'thread', ask: 'ask' };
 const when = (iso: string) => iso.slice(0, 16).replace('T', ' ');
 // what Dismiss selected does to an item: its own dismiss, else the ack that hides it
 const dismissOf = (i: WaitingItem) => i.actions.find((a) => a.kind === 'dismiss') || i.actions.find((a) => a.kind === 'ack');
@@ -17,6 +18,9 @@ const replyOf = (i: WaitingItem) => i.actions.find((a) => a.kind === 'reply');
 
 function Row({ item, on, onTick, run, pending }: { item: WaitingItem; on: boolean; onTick: () => void; run: (a: WaitingAction, text?: string) => void; pending: string | null }) {
   const [text, setText] = useState('');
+  const { pending: asked } = usePendingPermissions();
+  // a Paseo permission is answered here, in its own card
+  const permission = item.kind === 'permission' ? asked.find((p) => `perm:${p.agentId}:${p.request.id}` === item.id) : null;
   const reply = replyOf(item);
   const key = (a: WaitingAction) => `${item.id}:${a.id}`;
   const send = () => {
@@ -46,6 +50,7 @@ function Row({ item, on, onTick, run, pending }: { item: WaitingItem; on: boolea
             </span>
           )}
         </div>
+        {permission && <PermissionCard agentId={permission.agentId} request={permission.request} />}
       </div>
     </div>
   );
@@ -93,7 +98,7 @@ export default function WaitingPage({ ov }: { ov: Overview | null }) {
 
   return (
     <Page>
-      <PageHead icon="clock" title="Waiting on you" sub="Open questions, agents that finished their turn and wait for your word, and suggestions with an Approve. Nothing here acts until you click." />
+      <PageHead icon="clock" title="Waiting on you" sub="Open questions, permissions agents wait on, suggestions with an Approve, and agents that finished their turn and wait for your word: every waiting count in coco counts these. Nothing here acts until you click." />
       {mine.length > 0 && (
         <div className="dp-wt-batch">
           <b>{mine.length} selected</b>

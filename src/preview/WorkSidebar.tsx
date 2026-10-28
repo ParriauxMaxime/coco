@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { usePendingPermissions } from './chat/Permission.tsx';
+import { itemsOf, useWaiting } from './waiting.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import { AgentList, agentCounts, ago, useArchive } from './AgentsSection.tsx';
@@ -64,10 +64,12 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
   const live = Boolean(open);
   const go = (id: string) => (open ? open(id) : (location.hash = `${workHref(w.slug)}/${id}`));
   const data = useWorkAgents(w.slug, live);
-  const { pending } = usePendingPermissions();
+  const queue = useWaiting();
   const arc = useArchive(w.slug);
-  const groups = groupAgents(data?.agents || [], pending, prs);
+  const groups = groupAgents(data?.agents || [], queue?.byAgent ?? {}, prs);
   const byPr = new Map<string | null, AgentGroup>(groups.map((g) => [g.pr, g]));
+  // agents working from the agent list, what waits on you from the waiting queue, by PR (null: the work itself)
+  const countsAt = (key: string | null) => ({ running: agentCounts(byPr.get(key)).running, waiting: itemsOf(queue, w.slug, key).length });
   const jobs = useJobs(w.slug);
   const working = new Set(jobs.filter(isLive).map((j) => j.pr));
   // agents already list themselves; commands, syncs and setup steps show while they run or after they failed
@@ -99,7 +101,7 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
   const caret = (id: string, on: boolean) => (
     <button type="button" className={`dp-caret${on ? ' dp-open' : ''}`} aria-label={on ? 'Collapse' : 'Expand'} onClick={(e) => { e.stopPropagation(); flip(id); }}><Icon name="chevron-right" size={12} /></button>
   );
-  const sum = (rs: Row[]) => rs.reduce((a, r) => { const c = agentCounts(byPr.get(r.key)); return { running: a.running + c.running, waiting: a.waiting + c.waiting, job: a.job || working.has(r.key) }; }, { running: 0, waiting: 0, job: false });
+  const sum = (rs: Row[]) => rs.reduce((a, r) => { const c = countsAt(r.key); return { running: a.running + c.running, waiting: a.waiting + c.waiting, job: a.job || working.has(r.key) }; }, { running: 0, waiting: 0, job: false });
 
   const prRow = (r: Row) => {
     const on = list.includes(r.key);
@@ -115,7 +117,7 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
           <span className={`dp-pr-n${r.pr?.number ? '' : ' dp-ell'}`}>{r.label}</span>
           <span className="dp-ell dp-grow">{r.title}</span>
           {step && <span className={`dp-ms-chip dp-ms-${step}`} title={`Current milestone: ${step}`}>{step}</span>}
-          <Counts {...agentCounts(g)} job={working.has(r.key)} />
+          <Counts {...countsAt(r.key)} job={working.has(r.key)} />
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}>
           <div className="dp-pr-kids">
@@ -152,7 +154,7 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
       <div className={`dp-view dp-ov-head${isOpen('plan') ? ' dp-open' : ''}`} onClick={() => go('plan')}>
         {caret(OVERVIEW, ovOn)}
         <Icon name="home" size={14} /><span className="dp-grow">Overview</span>
-        {!ovOn && <Counts {...agentCounts(byPr.get(null))} job={commands.some(isLive)} />}
+        {!ovOn && <Counts {...countsAt(null)} job={commands.some(isLive)} />}
       </div>
       <div className={`dp-collapse${ovOn ? ' dp-open' : ''}`}>
         <div className="dp-ov-kids">

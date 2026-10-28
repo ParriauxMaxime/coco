@@ -121,7 +121,7 @@ function fakeDaemon() {
 const works = { get: () => undefined, save: () => {}, prInfo: async () => null };
 const setup = (DATA = tmpDir(), daemon = fakeDaemon(), opts: { idleMs?: number } = {}) => ({ DATA, daemon, ask: createAsk({ DATA, APP, REPO, config, works, agents: createPaseoAgents({ APP, connect: daemon.connect }), ...opts }) });
 type Events = { events: { type: string }[] };
-const types = (conv: Events) => conv.events.filter((e) => e.type !== 'meta').map((e) => e.type);
+const types = (conv: Events) => conv.events.filter((e) => e.type !== 'meta' && e.type !== 'step').map((e) => e.type);
 const ends = (conv: Events) => conv.events.filter((e) => e.type === 'end').length;
 
 test('a follow-up goes to the same agent as a new turn, with only the new message', async () => {
@@ -149,6 +149,28 @@ test('a follow-up goes to the same agent as a new turn, with only the new messag
   const saved = JSON.parse(fs.readFileSync(path.join(DATA, 'asks', `${conv.id}.json`), 'utf8'));
   assert.equal(saved.agentId, agent.id);
   assert.equal(saved.status, 'idle');
+});
+
+test('messages written while the agent is placed and started are queued in order, then reach it in order; the start shows its steps', async () => {
+  const daemon = fakeDaemon();
+  let open = () => {};
+  const gate = new Promise<void>((ok) => (open = ok));
+  const ask = createAsk({ DATA: tmpDir(), APP, REPO, config, works, agents: createPaseoAgents({ APP, connect: daemon.connect }), place: async () => (await gate, { workspaceId: 'wks_repo', cwd: REPO }) });
+  const conv = ask.start({ prompt: 'Scaffold the widgets export', workSlug: 'w', pr: 12 });
+  const said = [ask.say(conv.id, 'Keep it to two PRs.'), ask.say(conv.id, 'API first.')];
+  const users = () => conv.events.filter((e) => e.type === 'user') as { text?: string; queued?: boolean; steer?: boolean }[];
+  assert.deepEqual(users().map((u) => [u.text, Boolean(u.queued), Boolean(u.steer)]), [['Scaffold the widgets export', false, false], ['Keep it to two PRs.', true, false], ['API first.', true, false]]);
+  assert.deepEqual(conv.events.filter((e) => e.type === 'step').map((e) => e.text), ['Opening the worktree of #12 (a new one takes about 15 s)']);
+  assert.equal(daemon.calls.sent.length, 0);
+
+  open();
+  await Promise.all(said);
+  await until(() => daemon.calls.sent.length === 3, 'all three sent');
+  assert.deepEqual(daemon.calls.sent.map((s) => s.text), ['Scaffold the widgets export', 'Keep it to two PRs.', 'API first.']);
+  assert.deepEqual(conv.events.filter((e) => e.type === 'step').map((e) => e.text), ['Opening the worktree of #12 (a new one takes about 15 s)', 'Starting the agent']);
+  assert.equal(daemon.calls.created.length, 1);
+  await ask.say(conv.id, 'Thanks.');
+  assert.equal(users().at(-1)?.queued, undefined, 'once the agent exists nothing queues');
 });
 
 test('a message while the agent works steers its turn instead of interrupting it, and the turn ends once', async () => {

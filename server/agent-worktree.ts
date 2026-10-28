@@ -392,7 +392,8 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     return r.ok ? r.output.split('\n')[0].trim() : null;
   };
 
-  return { prepare, whenReady, ownDeps, verify, head, briefLines: (r: Readiness) => briefLines(r, devConfigured && (!devServersUp || devUp.on), devNow.get(r.root) ?? null) };
+  // installing: coco is still installing this worktree's own dependencies
+  return { prepare, whenReady, ownDeps, verify, head, installing: (root: string) => jobs.has(root), briefLines: (r: Readiness) => briefLines(r, devConfigured && (!devServersUp || devUp.on), devNow.get(r.root) ?? null) };
 }
 export type AgentWorktrees = ReturnType<typeof createAgentWorktrees>;
 

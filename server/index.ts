@@ -209,8 +209,8 @@ permissions.onAgent((a, removed) => {
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), models, subagents });
-const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
-for (const on of [cards.onChange, threads.onChange, ask.onChange]) on(() => waiting.touch());
+const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, permissions, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
+for (const on of [cards.onChange, threads.onChange, ask.onChange, permissions.onChange]) on(() => waiting.touch());
 const events = createHub();
 events.topic('waiting', waiting.watch);
 events.topic('permissions', permissions.watch);

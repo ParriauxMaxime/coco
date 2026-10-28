@@ -276,7 +276,7 @@ test('Ask coco streams deltas to watchers only, records text and tool calls with
 
   assert.equal(run.status, 'idle');
   assert.equal(run.text, 'Here is the scaffold.');
-  assert.deepEqual(run.events.filter((e) => e.type !== 'meta').map((e) => e.type), ['user', 'tool', 'text', 'tool', 'end']);
+  assert.deepEqual(run.events.filter((e) => e.type !== 'meta' && e.type !== 'step').map((e) => e.type), ['user', 'tool', 'text', 'tool', 'end']);
   assert.equal(run.events.at(-1)?.status, 'done');
   assert.equal(run.events.find((e) => e.type === 'tool')?.name, 'mcp__cocopilot__list_works');
   assert.deepEqual(run.events.find((e) => e.type === 'tool'), { type: 'tool', id: 'c1', name: 'mcp__cocopilot__list_works', kind: 'unknown', summary: '{}', input: '{}', output: '[{"slug":"widgets"}]', status: 'completed' });

@@ -345,6 +345,8 @@ export type ActivityEvent = {
   conversation?: string;
   nonce?: string;
   steer?: boolean;
+  // a message written while its agent was still starting: it reaches the agent once the agent exists
+  queued?: boolean;
   agentId?: string;
   request?: PermissionRequest;
   requestId?: string;
@@ -359,7 +361,7 @@ export type PermissionRequest = { id: string; provider?: string; name: string; k
 export type PermissionResponse =
   | { behavior: 'allow'; selectedActionId?: string; updatedInput?: Record<string, unknown>; updatedPermissions?: Record<string, unknown>[] }
   | { behavior: 'deny'; selectedActionId?: string; message?: string; interrupt?: boolean };
-export type PendingPermission = { agentId: string; agentTitle: string | null; request: PermissionRequest; since: string; where: { label: string; href: string } | null };
+export type PendingPermission = { agentId: string; agentTitle: string | null; request: PermissionRequest; since: string; where: { label: string; href: string } | null; work?: string | null; pr?: string | null };
 
 export type Suggestion = {
   state: string;
@@ -393,15 +395,21 @@ export type ThreadMessage = {
   files?: UploadRef[];
 };
 export type ThreadChoice = { label: string; text: string; change: boolean; option?: string };
-export type ThreadStep = { text: string; at: string };
+// steps: the current one and those before it, oldest first
+export type ThreadStep = { text: string; at: string; steps?: { text: string; at: string }[] };
+// a message posted and not stored yet: the first may be starting the agent, the others queue behind it
+export type ThreadInbound = { id: string; text: string; at: string; files?: UploadRef[] };
 export type Thread = {
   messages: ThreadMessage[];
   waiting?: { msgId: string; agentId?: string; deps?: { since: string } } | null;
   groupId?: string | null;
   newGroup?: boolean;
-  agent?: { live: boolean; status: string } | null;
+  // deps: 'installing' while coco installs the worktree's own dependencies
+  agent?: { live: boolean; status: string; deps?: string | null } | null;
   // what a message waits on before it is stored (a worktree, the agent's start); also streamed as `step` events
   starting?: ThreadStep | null;
+  // also streamed as `inbound` events
+  inbound?: ThreadInbound[];
   // the best-mapped persona of the commented file: the "Ask <persona>" chip prefills the box
   persona?: string | null;
   cards?: Card[];
@@ -603,5 +611,6 @@ export type RitualLaunchBody = { kind: string; login?: string; pr?: string; path
 export type RitualLaunchResult = RitualRun | { ok: false; error: string };
 
 export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' | 'reply' | 'ack' | 'open'; label: string; url: string; body?: Record<string, unknown>; field?: string };
-export type WaitingItem = { id: string; kind: 'card' | 'approve' | 'thread' | 'ask'; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[] };
-export type WaitingView = { items: WaitingItem[]; count: number };
+export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[] };
+// byAgent, byWork: how many items each Paseo agent id and each work slug holds
+export type WaitingView = { items: WaitingItem[]; count: number; byAgent: Record<string, number>; byWork: Record<string, number> };

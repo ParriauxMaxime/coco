@@ -874,6 +874,22 @@ orchestration layer (`server/threads.ts`):
   once, with a note in the thread and no new turn of the agent. The thread
   button says when a question waits on you. Replies from before cards keep
   their options, shown read-only.
+- Talking before the agent is ready. A first message opens the thread at
+  once, and the box stays usable while coco finds the group, takes a spare
+  worktree or creates one (about 15 s) and starts the Paseo agent: the steps
+  show live as a list (done ones ticked with their time, the current one
+  counting). The first message reads "sending · starts the agent", any
+  message written meanwhile "queued · reaches the agent once it is ready";
+  they reach the agent in the order written once it exists (the first as
+  its brief, the next ones steering that turn). The server keeps the posted
+  messages not stored yet (`inbound` on the thread payload and an `inbound`
+  event on its stream; the steps as `starting.steps` and `step` events), so
+  another tab or a reload shows them too. While coco installs the worktree's
+  own dependencies the header shows "installing deps"; the agent reads and
+  changes the code meanwhile and hears when its checks work. An Ask chat
+  does the same: its new agent's steps ("Opening the worktree of #12",
+  "Starting the agent") show in the chat, and a message written meanwhile is
+  marked queued and goes to the agent right after the first, in order.
 - Attachments. The thread composer is the agent composer: paste, drop or
   pick images and files; they go with the message to the group agent and
   stay on it in the thread.
@@ -1031,9 +1047,13 @@ did it; the new head then flows through re-anchoring.
 
 ## Waiting on you
 
-`#/waiting` (sidebar, count badge) lists everything that stops until you answer, grouped by work then PR: open cards (a choice's options and a confirm's Approve / Reject as buttons), Ask chats and cc-group threads whose agent ended its turn with the last word, and suggestions with an open Approve (a ready commit names its subject). Each row shows the agent's last message, a one-line reply box that goes to the agent, and Dismiss. Tick rows for **Dismiss selected** or **Send 'go' to selected**; a row without that action is skipped. Dismissing a chat or thread question only hides it until the agent speaks again (`data/waiting-acks.json`); dismissing a card or an Approve is the usual dismiss. Nothing acts without a click.
+`#/waiting` (sidebar, count badge) lists everything that stops until you answer, grouped by work then PR: open cards (a choice's options and a confirm's Approve / Reject as buttons), Paseo permissions of coco's agents (a tool to allow, a plan, a question; answered in place), suggestions with an open Approve (a ready commit names its subject), and Ask chats and cc-group threads whose agent ended its turn with the last word. Each row shows the agent's last message, a one-line reply box that goes to the agent, and Dismiss. Tick rows for **Dismiss selected** or **Send 'go' to selected**; a row without that action is skipped. Dismissing a chat or thread question only hides it until the agent speaks again (`data/waiting-acks.json`); dismissing a card or an Approve is the usual dismiss. Nothing acts without a click.
 
-`server/waiting.ts`: `GET /api/waiting`, `GET /api/works/<slug>/waiting` (items `{ id, kind, work, pr, key, title, excerpt, at, link, actions[] }`; an action is the endpoint a button calls), `POST /api/waiting/ack { ids }`, and the SSE topic `waiting` (recomputed on card, thread and Ask changes, cached like `swr.ts`). Finished dispatch agents are not listed: coco keeps no acknowledged state for them.
+One definition, every count. This list is the only source of "waiting on you": the sidebar badge, the status bar's "N waiting on you" (in a work, that work's items; its popover answers permissions in place and opens the rest), the dock and menu bar badge of the desktop app, the Dashboard and Agents page tiles, a work's Overview block, Waiting tab and tree counts (per PR), the Stack's agents column, and an agent's "waiting on you" state (its dot, tab icon, header and inspector) all read it. Each item names its agent and work. One thing counts once: a question an agent asks through Paseo (AskUserQuestion, or its `ask` call held for approval) while it has a card open is the card; an agent held on a permission or a card is not also listed as waiting for your word on its last turn; a thread with an open card is the card.
+
+On the Agents page (`#/agents`) the Waiting on you tile is that count, the section under it shows the first items, and each agent row with items carries "N waiting on you": a click opens `#/agents/<id>/waiting`, the agent's page scrolled to its first open card or permission.
+
+`server/waiting.ts`: `GET /api/waiting`, `GET /api/works/<slug>/waiting` (`{ items, count, byAgent, byWork }`; items `{ id, kind: card | permission | approve | thread | ask, agentId, work, pr, key, title, excerpt, at, link, actions[] }`; an action is the endpoint a button calls; `byAgent` and `byWork` count the items per Paseo agent id and per work), `POST /api/waiting/ack { ids }`, and the SSE topic `waiting` (recomputed on card, thread, Ask and permission changes, cached like `swr.ts`). Finished dispatch agents are not listed: coco keeps no acknowledged state for them.
 
 ## Navigation
 

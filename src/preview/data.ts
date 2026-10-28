@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.ts';
 import { usePendingPermissions } from './chat/Permission.tsx';
+import { itemsOf, useWaiting } from './waiting.ts';
 import { stateKey } from '../components/PrBadge.tsx';
 import { useWorkData } from '../workbench/use-work.ts';
 import { useOverview } from './overview.ts';
 import { useDevServers } from '../workbench/tabs/DevServers.tsx';
 import type { LoadedWork } from '../workbench/use-work.ts';
-import type { FindingsResponse, LinkedAgent, Overview, PendingPermission } from '../types.ts';
+import type { FindingsResponse, LinkedAgent, Overview, PendingPermission, WaitingItem } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
 
 export type PreviewData = {
@@ -17,6 +18,8 @@ export type PreviewData = {
   findings: FindingsResponse | null;
   agents: LinkedAgent[];
   pending: PendingPermission[];
+  // the work's items of the waiting queue
+  waiting: WaitingItem[];
   dev: ReturnType<typeof useDevServers>;
 };
 
@@ -33,10 +36,13 @@ export const pendingOf =(d: PreviewData, pr: WorkPr) => {
   const ids = new Set(agentsOf(d, pr).map((a) => a.agentId));
   return d.pending.filter((p) => ids.has(p.agentId));
 };
+export const waitingOf = (d: PreviewData, pr: WorkPr) => d.waiting.filter((i) => i.pr === prKey(pr));
 
 export function usePreviewData(slug: string): PreviewData {
   const work = useWorkData(slug);
   const { pending } = usePendingPermissions();
+  const queue = useWaiting();
+  const waiting = useMemo(() => itemsOf(queue, slug), [queue, slug]);
   const { ov: overview } = useOverview();
   const [findings, setFindings] = useState<FindingsResponse | null>(null);
   const [agents, setAgents] = useState<LinkedAgent[]>([]);
@@ -50,5 +56,5 @@ export function usePreviewData(slug: string): PreviewData {
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [slug]);
-  return { slug, work, prs: work.prs, overview, findings, agents, pending, dev };
+  return { slug, work, prs: work.prs, overview, findings, agents, pending, waiting, dev };
 }

@@ -102,7 +102,7 @@ type ThreadsOptions = {
   chatted?: (slug: string, key: string) => unknown;
   jobs?: Pick<Jobs, 'start'>;
   // readies a code group's worktree before each turn and checks its commits
-  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify' | 'head'>>;
+  worktrees?: Pick<AgentWorktrees, 'prepare' | 'whenReady' | 'briefLines'> & Partial<Pick<AgentWorktrees, 'verify' | 'head' | 'installing'>>;
   // where group agents run: plan and decision groups in the work's root workspace, code groups on a scratch branch in the work's project
   placement?: {
     place(scope: { kind: 'work'; slug: string }): Promise<{ workspaceId: string; cwd: string }>;
@@ -455,13 +455,27 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   function notify(slug: string, key: string, ev: ThreadEvent) {
     for (const l of listeners.get(at(slug, key)) || []) l(ev);
   }
-  // what a message waits on until it is stored (the agent group, a worktree, the agent's start): the thread header shows it, nothing keeps it
-  const starting = new Map<string, { text: string; at: string }>();
+  // what a message waits on until it is stored (the agent group, a worktree, the agent's start): the current step and the ones before it,
+  // shown live in the thread, nothing keeps them
+  type Step = { text: string; at: string; steps: { text: string; at: string }[] };
+  const starting = new Map<string, Step>();
   const stepTo = (slug: string, key: string, text: string | null) => {
-    const step = text ? { text, at: new Date().toISOString() } : null;
-    if (step) starting.set(at(slug, key), step);
-    else starting.delete(at(slug, key));
+    const k = at(slug, key);
+    const now = new Date().toISOString();
+    const step = text ? { text, at: now, steps: [...(starting.get(k)?.steps ?? []), { text, at: now }] } : null;
+    if (step) starting.set(k, step);
+    else starting.delete(k);
     notify(slug, key, { type: 'step', step });
+  };
+  // the owner's messages posted and not stored yet, in order: the first may be starting the agent, the others queue behind it; nothing keeps them
+  type Inbound = { id: string; text: string; at: string; files?: ReturnType<typeof uploadRef>[] };
+  const inbound = new Map<string, Inbound[]>();
+  const setInbound = (slug: string, key: string, edit: (list: Inbound[]) => Inbound[], tell = true) => {
+    const k = at(slug, key);
+    const list = edit(inbound.get(k) ?? []);
+    if (list.length) inbound.set(k, list);
+    else inbound.delete(k);
+    if (tell) notify(slug, key, { type: 'inbound', inbound: list });
   };
   const activityFile = (slug: string, key: string) => path.join(dir(slug), `${key}.activity.jsonl`);
   const readActivity = (slug: string, key: string): ThreadEvent[] => (fs.existsSync(activityFile(slug, key)) ? fs.readFileSync(activityFile(slug, key), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
@@ -576,10 +590,14 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (model && !short && !models) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
     const picked = models && (thinking || (model && !short)) ? await models.check({ provider: short ? MODELS[model || ''] : model, thinking }, MODELS[model || 'sonnet']) : {};
     const chosen = short ? model : picked.provider || model;
-    const send = () => withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files })).then((t) => {
+    // shown in the thread at once, "queued" behind a message still starting the agent, until dispatch stores it
+    const inboundId = crypto.randomUUID();
+    setInbound(slug, key, (l) => [...l, { id: inboundId, text: said, at: new Date().toISOString(), ...(files.length ? { files: files.map(uploadRef) } : {}) }]);
+    const unqueue = () => inbound.get(at(slug, key))?.some((x) => x.id === inboundId) && setInbound(slug, key, (l) => l.filter((x) => x.id !== inboundId));
+    const send = () => withLock(`${slug}:${key}`, () => dispatch(slug, work, ref, key, { text: said, model: chosen, thinking: picked.thinking, groupId, role: 'user', files, inboundId })).then((t) => {
       chatted?.(slug, key);
       return t;
-    });
+    }).finally(unqueue);
     if (!jobs) return send();
     // each message is its own job: a thread takes a second message while its agent still works
     const label = `Thread: ${said.split('\n')[0].slice(0, 50)}`;
@@ -592,7 +610,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
 
   // a message (the owner's, a card answer, or cocopilot's own after a failed apply) goes to the item's group agent; while it works, it steers the turn in flight;
   // a card answer only reaches the agent that asked it, never a new one
-  type Sending = { text: string; model?: string | null; thinking?: string | null; groupId?: string | null; role: string; files?: Upload[]; card?: Card };
+  type Sending = { text: string; model?: string | null; thinking?: string | null; groupId?: string | null; role: string; files?: Upload[]; card?: Card; inboundId?: string };
   // one group picked and written at a time per file, so two first messages on different comments of a file land in one group
   const acquire = (lockKey: string) => {
     let release = () => {};
@@ -614,7 +632,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       stepTo(slug, key, null);
     }
   }
-  async function dispatchIn(slug: string, work: Work, ref: Ref, key: string, { text, model, thinking, groupId, role, files = [], card }: Sending, release: () => void): Promise<Thread> {
+  async function dispatchIn(slug: string, work: Work, ref: Ref, key: string, { text, model, thinking, groupId, role, files = [], card, inboundId }: Sending, release: () => void): Promise<Thread> {
     const thread = read(slug, key);
     const item = itemOf(slug, work, ref);
     if (!item) throw new HttpError(404, `no such ${ref.kind}`);
@@ -649,6 +667,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     delete thread.newGroup;
     const earlier = busy ? [...(busy.earlier || []), { msgId: busy.msgId, replyPath: busy.replyPath, cardPath: busy.cardPath }] : [];
     thread.waiting = { msgId: msg.id, groupId: group.id, agentId: s.agentId, sentAt: msg.ts, replyPath, cardPath, sha, earlier };
+    // stored: it leaves the inbound list quietly, the thread's own change event brings it back as a message
+    if (inboundId) setInbound(slug, key, (l) => l.filter((x) => x.id !== inboundId), false);
     write(slug, thread);
     if (prior && prior.groupId !== group.id) route(slug, prior.groupId, key, null);
     route(slug, group.id, key, msg.id);
@@ -1043,6 +1063,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       return [{
         key: t.key,
         pr: ref.kind === 'decision' ? null : String(ref.n),
+        agentId: group.agentId,
         title: ref.kind === 'comment' ? item.title || `${item.path?.split('/').pop()} L${item.startLine}` : ref.kind === 'plan' ? 'Review plan' : item.title || 'Decision',
         link: threadLink(slug, t.key),
         busy: Boolean(t.waiting),
@@ -1348,7 +1369,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       }
       const s = group?.agentId && group.status === 'active' ? await groupSession(slug, group) : null;
       const { work, ref } = check(slug, key);
-      return send(res, 200, { ...thread, starting: starting.get(at(slug, key)) ?? null, cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), persona: personaOf(slug, work, ref, group), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null } : null });
+      const deps = group?.kind === 'code' && group.worktree && worktrees?.installing?.(group.worktree) ? 'installing' : null;
+      return send(res, 200, { ...thread, starting: starting.get(at(slug, key)) ?? null, inbound: inbound.get(at(slug, key)) ?? [], cards: cardsOf(slug, key), ready: await readyOf(slug, work, ref, thread).catch(() => null), persona: personaOf(slug, work, ref, group), agent: group?.agentId ? { id: group.agentId, live: Boolean(s), status: s ? (thread.waiting || s.busy() ? 'running' : 'idle') : null, deps } : null });
     } catch (e) {
       return send(res, httpStatus(e), { error: errText(e) });
     }

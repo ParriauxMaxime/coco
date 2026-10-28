@@ -25,12 +25,13 @@ function AgentTurn({ parts, active, who, onCard, newest }: { parts: Part[]; acti
   );
 }
 
-function UserMessage({ e, sending }: { e: { text?: string; steer?: boolean; attachments?: UploadRef[] }; sending?: boolean }) {
+// held: written while its agent was starting and that agent is not there yet
+function UserMessage({ e, sending, held }: { e: { text?: string; steer?: boolean; queued?: boolean; attachments?: UploadRef[] }; sending?: boolean; held?: boolean }) {
   const text = e.text ?? '';
   const [first, ...rest] = text.split('\n');
-  const note = [e.steer && 'while it worked', sending && 'sending…'].filter(Boolean).join(' · ');
+  const note = [e.steer && 'while it worked', e.queued && (held ? 'queued · reaches the agent once it is ready' : 'queued while the agent started'), sending && 'sending…'].filter(Boolean).join(' · ');
   return (
-    <div className={`dp-msg-u dp-cv-u${sending ? ' dp-cv-sending' : ''}`}>
+    <div className={`dp-msg-u dp-cv-u${sending || held ? ' dp-cv-sending' : ''}`}>
       {note && <div className="dp-cv-unote">{note}</div>}
       {e.attachments?.length ? <SentFiles files={e.attachments} /> : null}
       {rest.length && text.length > 400 ? <details className="dp-cv-long"><summary>{first}</summary><Markdown text={rest.join('\n')} /></details> : <Markdown text={text} />}
@@ -39,6 +40,8 @@ function UserMessage({ e, sending }: { e: { text?: string; steer?: boolean; atta
 }
 
 export const CARD_MSG = /^\[coco card (\S+) (\w+)\]/;
+// the note coco logs once a conversation's new agent exists
+const STARTED = /^Paseo agent \S+ in workspace /;
 
 export function CardMessage({ verb, title }: { verb: string; title?: string }) {
   return <div className="dp-cd-sent"><Icon name="send" size={12} />{verb === 'answered' ? 'Answer sent' : `Card ${verb}`}{title ? `: ${title}` : ''}</div>;
@@ -71,6 +74,10 @@ type Props = { run: Run; events: ActivityEvent[]; pending?: Pending[]; working: 
 export default function Conversation({ run, events, pending = [], working, who = 'coco', cards = [], onCard }: Props) {
   const all: ActivityEvent[] = events[0]?.type === 'user' || !run.prompt ? events : [{ type: 'user', text: run.prompt }, ...events];
   const { at, tail, calls } = anchors(all, cards);
+  // the last agent start the log records: a message queued after it still waits for that agent
+  const started = all.findLastIndex((e) => e.type === 'meta' && STARTED.test(e.text ?? ''));
+  const stepped = all.findLastIndex((e) => e.type === 'step');
+  const booting = stepped > started && !all.slice(stepped).some((e) => e.type === 'end' || e.type === 'stderr');
   const titles = new Map(cards.map((c) => [c.id, c.title]));
   const newest = cards.findLast((c) => c.status === 'open' && c.kind !== 'post')?.id;
   const turns: Turn[] = [];
@@ -111,7 +118,7 @@ export default function Conversation({ run, events, pending = [], working, who =
       {turns.map((t, i) => {
         if (t.user) {
           const m = CARD_MSG.exec(t.user.text ?? '');
-          return m ? <CardMessage key={t.key} verb={m[2]} title={titles.get(m[1])} /> : <UserMessage key={t.key} e={t.user} />;
+          return m ? <CardMessage key={t.key} verb={m[2]} title={titles.get(m[1])} /> : <UserMessage key={t.key} e={t.user} held={booting && t.user.queued} />;
         }
         return <AgentTurn key={t.key} parts={t.parts ?? []} active={working && i === turns.length - 1} who={who} onCard={onCard} newest={newest} />;
       })}

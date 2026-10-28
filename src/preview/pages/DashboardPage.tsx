@@ -1,7 +1,7 @@
 import React from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { ritualFields, useConfig } from '../../config.ts';
-import { usePendingPermissions } from '../chat/Permission.tsx';
+import { useWaiting } from '../waiting.ts';
 import Onboarding from '../widgets/Onboarding.tsx';
 import TeamPack from '../widgets/TeamPack.tsx';
 import Icon from '../Icon.tsx';
@@ -35,7 +35,7 @@ function WorkCard({ w, repo }: { w: WorkSummary; repo?: string }) {
 
 export default function DashboardPage() {
   const { ov, err } = useOverview();
-  const { pending } = usePendingPermissions();
+  const owed = useWaiting()?.count ?? 0;
   const rituals = useConfig((s) => s.rituals);
   if (!ov) return <Page>{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Loading your works…" />}</Page>;
 
@@ -64,7 +64,7 @@ export default function DashboardPage() {
       <Tiles items={[
         { label: 'Works', value: live.length, hint: `${ov.repos.length} repo${ov.repos.length === 1 ? '' : 's'}`, href: '#/projects' },
         { label: 'Open PRs', value: openPrs, hint: attention ? `${attention} need attention` : 'all calm', tone: attention ? 'warn' : undefined },
-        { label: 'Waiting on you', value: pending.length, hint: 'agent questions', tone: pending.length ? 'acc' : undefined, href: '#/agents' },
+        { label: 'Waiting on you', value: owed, hint: 'questions, permissions, approvals', tone: owed ? 'acc' : undefined, href: '#/waiting' },
         { label: 'Agents running', value: running.length, hint: `${ov.agents.length} known`, tone: running.length ? 'ok' : undefined, href: '#/agents' },
         { label: 'Personas', value: ov.personas.length, hint: stale ? `${stale} stale (>60d)` : 'all fresh', tone: stale ? 'bad' : undefined },
         { label: 'Skills', value: ov.skills.length, hint: `${ov.feedbackCount} feedback` },

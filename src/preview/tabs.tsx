@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState } from 'react';
-import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
+import WaitingList from './WaitingList.tsx';
+import { itemsOf, useWaiting, useWaitingByAgent } from './waiting.ts';
 import RulesLedger from './widgets/Rules.tsx';
 import { Empty } from './pages/Page.tsx';
 import './widgets/widgets.css';
@@ -76,7 +77,10 @@ function PrTab({ tabId }: { tabId: string }) {
   const { d } = usePreview();
   return <div className="dp-tabview"><aside className="dp-inspector dp-as-tab"><PrDetails d={d} prKey={tabId.slice(3)} asTab /></aside></div>;
 }
-const WaitingTab = () => <PendingPermissions withWhere />;
+function WaitingTab() {
+  const items = itemsOf(useWaiting(), useWork().slug);
+  return <Doc><WaitingList items={items} empty={<Empty icon="check">Nothing in this work waits on you.</Empty>} /></Doc>;
+}
 
 const Doc = ({ children }: { children: React.ReactNode }) => <div className="dp-tabview"><div className="dp-doc"><div className="dp-doc-in">{children}</div></div></div>;
 function RulesTab() {
@@ -111,8 +115,8 @@ function TimelineTab() {
 
 function AgentTabIcon({ id }: { id: string }) {
   const agent = useWorkAgent(useWork().slug, id);
-  const { pending } = usePendingPermissions();
-  return agent ? <AgentDot state={stateOf(agent, pending)} /> : <Icon name="bot" size={14} />;
+  const waiting = useWaitingByAgent();
+  return agent ? <AgentDot state={stateOf(agent, waiting)} /> : <Icon name="bot" size={14} />;
 }
 const agentTitle = (slug: string, id: string) => agentOf(slug, id)?.title || 'Agent';
 

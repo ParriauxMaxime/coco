@@ -10,14 +10,17 @@ const card = (id: string, extra: Partial<Card> = {}): Card => ({ id, agentId: `a
 const queued = (key: string, extra: Record<string, unknown> = {}) => ({ key, pr: '7', title: `thread ${key}`, link: `#/t/${key}`, busy: false, agentLast: true, code: false, at: '2026-10-20T11:00:00Z', text: 'Done: want me to dismiss it?', asks: 0, suggestion: null, ...extra });
 const conv = (id: string, extra: Record<string, unknown> = {}) => ({ id, prompt: `question ${id}\nmore`, workSlug: 'w', pr: null, kind: 'ask', status: 'idle', turns: 2, text: 'Shall I go on?', agentIds: [`agent-${id}`], lastActivity: '2026-10-20T12:00:00Z', ...extra });
 
-type Setup = { cards?: Card[]; queue?: ReturnType<typeof queued>[]; asks?: ReturnType<typeof conv>[]; ready?: { commit: string; subject: string; stat: string } | null; DATA?: string; archived?: boolean };
-const make = ({ cards = [], queue = [], asks = [], ready = null, DATA, archived }: Setup = {}) =>
+const perm = (agentId: string, id: string, extra: Record<string, unknown> = {}) => ({ agentId, agentTitle: `coco · ${agentId}`, request: { id, kind: 'tool', name: 'Bash', title: 'npm test' }, since: '2026-10-20T09:00:00Z', where: null, work: 'w', pr: '7', ...extra });
+
+type Setup = { cards?: Card[]; queue?: ReturnType<typeof queued>[]; asks?: ReturnType<typeof conv>[]; perms?: ReturnType<typeof perm>[]; ready?: { commit: string; subject: string; stat: string } | null; DATA?: string; archived?: boolean };
+const make = ({ cards = [], queue = [], asks = [], perms = [], ready = null, DATA, archived }: Setup = {}) =>
   createWaiting({
     DATA,
     works: { list: () => [{ slug: 'w', title: 'W', archived }, { slug: 'other', title: 'Other' }] },
     cards: { open: () => cards.filter((c) => c.status === 'open') },
     threads: { queue: (slug) => (slug === 'w' ? queue : []), ready: async () => ready },
     ask: { list: () => asks },
+    permissions: { list: () => perms },
   });
 const ids = async (w: ReturnType<typeof make>, slug?: string) => (await w.view(slug)).items.map((i) => i.id);
 
@@ -137,4 +140,41 @@ test('the queue is cached until something touches it, and a watcher hears the ch
   for (let i = 0; i < 100 && sent.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
   assert.equal(JSON.parse(sent[1]).count, 1);
   closers.forEach((f) => f());
+});
+
+test('a pending Paseo permission is an item of its agent and work, opened where the agent shows; byAgent and byWork count every kind', async () => {
+  const w = make({
+    cards: [card('c1', { agentId: 'A' })],
+    perms: [perm('B', 'r1'), perm('C', 'r2', { work: null, pr: null }), perm('D', 'r3', { work: 'gone' })],
+    queue: [queued('c.7.aa11', { agentId: 'A', suggestion: { msg: 'm1', kind: 'card' } })],
+    asks: [conv('a1')],
+  });
+  const v = await w.view();
+  const p = v.items.find((i) => i.id === 'perm:B:r1');
+  assert.deepEqual([p?.kind, p?.agentId, p?.work, p?.pr, p?.title, p?.excerpt, p?.link], ['permission', 'B', 'w', '7', 'Allow Bash', 'coco · B · npm test', '#/agents/B/waiting']);
+  assert.equal(v.items.find((i) => i.id === 'perm:C:r2')?.work, null);
+  assert.ok(!v.items.some((i) => i.id === 'perm:D:r3'), 'a permission of a work no longer live is left out');
+  assert.equal(v.count, 5);
+  assert.deepEqual(v.byAgent, { A: 2, B: 1, C: 1, 'agent-a1': 1 });
+  assert.deepEqual(v.byWork, { w: 4 });
+  assert.deepEqual((await w.view('w')).byAgent, { A: 2, B: 1, 'agent-a1': 1 });
+});
+
+test('one thing counts once: a question asked both as a card and through Paseo is the card; an agent held on a permission is not also waiting for your word', async () => {
+  const w = make({
+    cards: [card('c1', { agentId: 'A' })],
+    perms: [
+      perm('A', 'q1', { request: { id: 'q1', kind: 'question', name: 'AskUserQuestion' } }),
+      perm('A', 'q2', { request: { id: 'q2', kind: 'tool', name: 'mcp__cocopilot__ask' } }),
+      perm('A', 't1'),
+      perm('B', 'q3', { request: { id: 'q3', kind: 'question', name: 'AskUserQuestion', title: 'Which base?' } }),
+      perm('T', 't2'),
+    ],
+    asks: [conv('a1', { agentIds: ['B'] })],
+    queue: [queued('c.7.aa11', { agentId: 'T' }), queued('c.7.bb22', { agentId: 'U' })],
+  });
+  const v = await w.view();
+  assert.deepEqual(v.items.map((i) => i.id).sort(), ['card:c1', 'perm:A:t1', 'perm:B:q3', 'perm:T:t2', 'thread:w:c.7.bb22']);
+  assert.equal(v.items.find((i) => i.id === 'perm:B:q3')?.title, 'Which base?');
+  assert.deepEqual(v.byAgent, { A: 2, B: 1, T: 1, U: 1 });
 });
