@@ -670,7 +670,11 @@ orchestration layer (`server/threads.ts`):
   open group of its PR whose files include the comment's file (files grow
   with each suggested commit), a card joins its card's group, else a new
   group starts. "regroup…" on a thread moves it to another open group or to
-  a new one on its next dispatch. A code group gets its own Paseo worktree,
+  a new one on its next dispatch. One live agent per comment: the group
+  that already holds a comment takes its messages back whatever model is
+  picked, and only "regroup… new" starts another; a fresh agent whose
+  comment has a `Cc-Comment` commit on an earlier group's branch is told
+  "an earlier agent already committed <sha>: <subject>". A code group gets its own Paseo worktree,
   branch `cocopilot/<group id>` branched off the PR head (`paseo run
   --worktree-mode branch-off`); a decision group runs in the repo and
   touches no file.
@@ -716,8 +720,10 @@ orchestration layer (`server/threads.ts`):
   a marked recommendation, not a commit. A follow-up turn is a delta: what
   changed since the last answer, the reply file and "same rules as your first
   turn".
-- Replies. The agent writes typed blocks to `threads/<key>-<msg>-reply.json`
-  (see the Findings board above); cocopilot reads it on the thread poll (3 s while waiting) and when the
+- Replies. The agent calls the cocopilot `post_reply({ blocks, thread })`
+  tool (blocks checked like `post_blocks`, a refusal names the field), which
+  writes `threads/<key>-<msg>-reply.json` for it; writing that file itself
+  stays the fallback. Typed blocks (see the Findings board above); cocopilot reads it on the thread poll (3 s while waiting) and when the
   Paseo plugin reports the agent's turn ended. One message at a time per
   thread.
 - Questions. To have you pick, the agent asks with `cocopilot.ask` and the
@@ -765,6 +771,14 @@ config (docs/configuration.md); without it nothing changes.
   `install` command, run in the folder's parent. The lockfile it was
   installed for is kept in the worktree's git dir, so a later lockfile
   change reinstalls and an install cut short is retried.
+- First prompt hold: a code group's first prompt waits (90 s, polling every
+  2 s) while the worktree installs its own copy, in the background: the
+  owner's POST returns once the message is stored, the thread shows "waiting
+  for deps (n s)" and no lock is held while it waits. Past the timeout the prompt says the checks are not ready and to run
+  no install, and the agent gets "checks are available now: <commands>" when
+  they work. Check commands are to be run from the worktree root as written
+  (a `cd` is part of the command, file paths relative to it), never after a
+  `cd` of the agent's own.
 - `own_deps`: an agent that must add, upgrade or remove a package calls this
   cocopilot tool first; coco turns the linked folders into the worktree's
   own copy and messages the agent once installed.

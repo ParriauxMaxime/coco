@@ -11,7 +11,7 @@ import { createCards } from './cards.ts';
 import { createUploads } from './uploads.ts';
 import type { Uploads } from './uploads.ts';
 import { DEFAULTS } from './config.ts';
-import { briefLines } from './agent-worktree.ts';
+import { briefLines, readyText } from './agent-worktree.ts';
 import type { Readiness, Verification } from './agent-worktree.ts';
 
 type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
@@ -104,7 +104,7 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: () => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models'], exec: Exec = async () => ({ ok: false, stdout: '', stderr: '' })) {
+function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: (to: string) => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models'], exec: Exec = async () => ({ ok: false, stdout: '', stderr: '' }), hold?: Parameters<typeof createThreads>[0]['hold']) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
   const work = {
@@ -119,7 +119,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
   };
   const decided: { id: string; choice: string; rationale: string }[] = [];
   const comment = (id: string, body: string) => ({ id, path: 'src/widgets.ts', startLine: 3, endLine: 4, side: 'head' as const, snippet: 'const w = null;', ctxBefore: [], ctxAfter: [], body, status: id === 'bb22' ? 'declined' : 'open' });
-  const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async () => trailers(), timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
+  const reviewAgent = { rowPr: async () => ({ number: 7, head: 'feat/widgets', sha: 'abc123', url: '' }), agentsList: async () => [], trailersBetween: async (_cwd: string, _from: string, to: string) => trailers(to), timeline: () => {}, worktreeFor: async () => null, sameDir: () => false };
   const threads = createThreads({
     DATA,
     REPO,
@@ -133,6 +133,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
     uploads,
     worktrees,
     models,
+    hold,
   });
   const file = (key: string) => path.join(DATA, 'works', SLUG, 'threads', `${key}.json`);
   const read = (key: string): ThreadFile => JSON.parse(fs.readFileSync(file(key), 'utf8'));
@@ -438,7 +439,7 @@ test('the first prompt of a code group carries the settled decisions, the other 
   const a2 = await post(A, 'Options?');
   await until(() => daemon.calls.sent.length === 2, 'follow-up');
   const next = daemon.calls.sent[1].text;
-  assert.match(next, /Same rules as your first turn\. Write your reply to `[^`]+-reply\.json` as JSON/);
+  assert.match(next, /Same rules as your first turn\. Reply with cocopilot `post_reply`[^\n]*fallback: the same JSON written to `[^`]+-reply\.json`/);
   assert.ok(next.includes(a2.waiting.replyPath));
   assert.doesNotMatch(next, /Blocks \(full reference|Settled, don't revisit/);
   assert.ok(next.length < first.length / 2, `follow-up ${next.length} vs first ${first.length}`);
@@ -499,7 +500,7 @@ test("the owner's Verify runs the checks on the ready commit in the group worktr
     briefLines: (r) => briefLines(r),
     verify: async (root, { head }) => (ran.push(`${root} ${head}`), ok(head)),
     head: async () => commit,
-  }, () => [{ id: 'aa11', commit }], undefined, exec);
+  }, () => [{ id: 'aa11', commit }], undefined, exec, { ms: 0, pollMs: 1 });
   const call = async (method: string, payload: object = {}, sub = 'verify') => {
     let out: { code: number; body: Record<string, unknown> } = { code: 0, body: {} };
     const req = { method, url: `/api/works/${SLUG}/threads/${A}/${sub}`, on: () => {} } as unknown as Req;
@@ -615,4 +616,97 @@ test('a double click on Verify starts one run, and a commit that is not a sha is
   let code = 0;
   await threads.handle(bad, {} as Res, ['works', SLUG, 'threads', A, 'verify'], async () => JSON.stringify({ commit: 'zzzzzzz' }), (_res, c) => void (code = c));
   assert.equal(code, 400);
+});
+
+test('one live agent per comment: a message with another model goes to the group that holds the comment, not to a new agent', async () => {
+  const { threads, post, daemon, read, reply } = setup();
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'first dispatch');
+  const agent = daemon.calls.created[0].id;
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(agent);
+  await until(() => !read(A).waiting, 'turn end');
+  const a2 = await threads.post(SLUG, A, { text: 'Redo it with opus', model: 'opus' });
+  await until(() => daemon.calls.sent.length === 2, 'second dispatch');
+  assert.equal(a2.groupId, a1.groupId);
+  assert.equal(daemon.calls.created.length, 1, 'no second agent');
+  assert.equal(daemon.calls.sent[1].agentId, agent);
+  assert.equal(daemon.calls.worktrees.length, 1, 'no second worktree');
+});
+
+test('two first messages on different comments of one file land in one group and one agent', async () => {
+  const { threads, daemon } = setup();
+  const [a, b] = await Promise.all([threads.post(SLUG, A, { text: 'one' }), threads.post(SLUG, B, { text: 'two' })]);
+  assert.equal(a.groupId, b.groupId);
+  assert.equal(daemon.calls.created.length, 1);
+});
+
+test('a fresh agent for a comment whose earlier group already committed is told the sha and subject', async () => {
+  let committed = false;
+  const exec: Exec = async (_cmd, args) => ({ ok: args.includes('--format=%s'), stdout: args.includes('--format=%s') ? 'Add the null check\n' : '', stderr: '' });
+  const { threads, post, daemon, read, reply } = setup(undefined, undefined, (to) => (committed && to.endsWith(`cocopilot/${groupOne}`) ? [{ id: 'aa11', commit: 'deadbeef1234567890' }] : []), undefined, exec);
+  let groupOne = '';
+  const a1 = await post(A, 'Add the null check');
+  groupOne = a1.groupId ?? '';
+  await until(() => daemon.calls.sent.length === 1, 'first dispatch');
+  reply(a1.waiting.replyPath, 'Done.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  committed = true;
+  await threads.regroup(SLUG, A, 'new');
+  const a2 = await post(A, 'Try again');
+  await until(() => daemon.calls.sent.length === 2, 'second dispatch');
+  assert.notEqual(a2.groupId, groupOne);
+  assert.equal(daemon.calls.created.length, 2);
+  assert.match(daemon.calls.sent[1].text, /an earlier agent already committed deadbee: Add the null check/);
+  assert.doesNotMatch(daemon.calls.sent[0].text, /earlier agent already committed/);
+});
+
+test('the first prompt of a code agent waits for the worktree deps; past the timeout it says so and the ready message follows', async () => {
+  const wt = (state: Readiness['state']): Readiness => ({ state, root: '/wt/cc-group', deps: [{ path: 'node_modules', mode: state === 'ready' ? 'linked' : 'installing' }], checks: [{ id: 'lint', label: 'Lint', command: 'lint <changed files>', available: state === 'ready', why: 'coco is installing the dependencies' }] });
+  let installed = false;
+  const held = setup(undefined, { prepare: async () => wt(installed ? 'ready' : 'preparing'), whenReady: () => {}, briefLines: (r) => briefLines(r) }, undefined, undefined, undefined, { ms: 5000, pollMs: 5 });
+  const a1 = await held.threads.post(SLUG, A, { text: 'Add the null check' });
+  assert.equal(held.daemon.calls.sent.length, 0, 'the POST returned before the deps are ready; nothing sent');
+  assert.equal(held.read(A).messages[0].text, 'Add the null check', 'the owner sees their message at once');
+  assert.ok((held.read(A).waiting as { deps?: unknown }).deps, 'the thread says it waits for deps');
+  await held.threads.ingest(SLUG, A);
+  assert.ok(held.read(A).waiting, 'ingest does not end a thread whose prompt is held');
+  installed = true;
+  await until(() => held.daemon.calls.sent.length === 1, 'prompt after the deps');
+  await until(() => !(held.read(A).waiting as { deps?: unknown } | null)?.deps, 'status cleared');
+  assert.doesNotMatch(held.daemon.calls.sent[0].text, /Not available yet|coco waited/);
+  assert.match(held.daemon.calls.sent[0].text, /Lint: `lint <changed files>`/);
+  assert.ok(a1.waiting);
+
+  const heard: [string, string][] = [];
+  const slow = setup(undefined, { prepare: async () => wt('preparing'), whenReady: (root, agentId) => void heard.push([root, agentId]), briefLines: (r) => briefLines(r) }, undefined, undefined, undefined, { ms: 30, pollMs: 5 });
+  await slow.threads.post(SLUG, A, { text: 'Add the null check' });
+  await until(() => slow.daemon.calls.sent.length === 1, 'prompt after the timeout');
+  const agent = slow.daemon.calls.created[0].id;
+  assert.match(slow.daemon.calls.sent[0].text, /coco waited 0s for the dependencies[\s\S]*checks are available now/);
+  assert.deepEqual(heard, [['/wt/cc-group', agent]]);
+  assert.equal(await slow.threads.steerAgent(agent, readyText(wt('ready'))), true);
+  await until(() => slow.daemon.calls.sent.length === 2, 'ready message');
+  assert.match(slow.daemon.calls.sent[1].text, /checks are available now[\s\S]*Lint: `lint <changed files>`/);
+});
+
+test('post_reply checks the blocks like post_blocks, writes the reply file the thread waits on and lands the reply', async () => {
+  const { threads, post, daemon, read } = setup();
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  const agent = daemon.calls.created[0].id;
+  assert.match(daemon.calls.sent[0].text, /call cocopilot `post_reply`/);
+  await assert.rejects(threads.postReply(agent, { blocks: [{ type: 'table', columns: ['a'], rows: [['x', 'y']] }], thread: A }), /blocks\[0\]/);
+  await assert.rejects(threads.postReply(agent, { blocks: [{ type: 'nope' }] }), /blocks\[0\]\.type must be one of/);
+  await assert.rejects(threads.postReply(agent, { blocks: [{ type: 'text', text: 'x' }], thread: B }), /no thread "c\.7\.bb22" waits on this agent/);
+  await assert.rejects(threads.postReply('other-agent', { blocks: [{ type: 'text', text: 'x' }] }), /no thread waits on this agent/);
+  assert.equal(fs.existsSync(a1.waiting.replyPath), false, 'a refusal writes nothing');
+  assert.ok(read(A).waiting);
+
+  const out = await threads.postReply(agent, { blocks: [{ type: 'text', text: 'Null check added.' }], thread: A });
+  assert.deepEqual(out, { ok: true, thread: A, blocks: 1 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(a1.waiting.replyPath, 'utf8')), { blocks: [{ type: 'text', text: 'Null check added.' }] });
+  assert.equal(read(A).waiting, null);
+  assert.deepEqual(read(A).messages.map((m) => [m.role, m.text]), [['user', 'Add the null check'], ['agent', 'Null check added.']]);
 });

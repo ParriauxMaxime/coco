@@ -54,7 +54,7 @@ const tail = (raw: string) => {
   const text = raw.replace(/\x1b\[[0-9;]*m/g, '');
   return text.length > OUTPUT_TAIL ? `…${text.slice(-OUTPUT_TAIL)}` : text;
 };
-const shown = (argv: string[]) => argv.map((a) => (a === '{files}' ? '<changed files>' : a === '{tests}' ? '<tests next to them>' : /\s/.test(a) ? `'${a}'` : a)).join(' ');
+const shown = (argv: string[], from = '') => argv.map((a) => (a === '{files}' ? `<changed files${from}>` : a === '{tests}' ? '<tests next to them>' : /\s/.test(a) ? `'${a}'` : a)).join(' ');
 const sameReal = (a: string, b: string) => {
   try {
     return fs.realpathSync(a) === fs.realpathSync(b);
@@ -271,7 +271,8 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
 
   function checkState(root: string, c: CheckDef, state: Readiness['state'], error?: string): CheckState {
     const at = c.cwd && path.normalize(c.cwd) !== '.' ? `cd ${c.cwd} && ` : '';
-    const base = { id: c.id, label: c.label, command: `${at}${shown(c.command)}`, ...(c.fix ? { fix: `${at}${shown(c.fix)}` } : {}) };
+    const from = at ? `, paths relative to ${path.normalize(c.cwd || '.')}` : '';
+    const base = { id: c.id, label: c.label, command: `${at}${shown(c.command, from)}`, ...(c.fix ? { fix: `${at}${shown(c.fix, from)}` } : {}) };
     if (state !== 'ready') return { ...base, available: false, why: state === 'preparing' ? 'coco is installing the dependencies' : error || 'the dependencies are not ready' };
     const bin = c.command[0];
     if (bin.includes('/') && !fs.existsSync(path.join(root, c.cwd || '.', bin))) return { ...base, available: false, why: `${bin} is not in this worktree` };
@@ -385,7 +386,7 @@ export function briefLines(r: Readiness, devServers = false): string[] {
     ...(linked.length ? [`- ${listPaths(linked)}: linked to the main checkout, shared. Never run \`npm install\`, \`npm ci\`, \`npm add\` or \`npm uninstall\` here (a hook refuses them): call the cocopilot \`own_deps\` tool first; it gives this worktree its own copy and a message tells you when it is ready.`] : []),
     ...(own.length ? [`- ${listPaths(own)}: this worktree's own copy.`] : []),
     ...(installing.length ? [`- ${listPaths(installing)}: coco is installing this worktree's own copy (${installing.map((d) => d.note).filter(Boolean).join('; ') || 'asked for'}).`] : []),
-    ...(usable.length ? ['- Before you commit, run these from the worktree root on your changes and fix what they report:', ...usable.map((c) => `  - ${c.label}: \`${c.command}\`${c.fix ? ` (fix with \`${c.fix}\`)` : ''}`), '- After your commit coco runs them again; a failure comes back to you once.'] : []),
+    ...(usable.length ? ['- Before you commit, run these on your changes and fix what they report. Always from the worktree root, exactly as written (a `cd` inside a command is part of it): never `cd` into a subfolder first, and give files as the command says (repo-relative):', ...usable.map((c) => `  - ${c.label}: \`${c.command}\`${c.fix ? ` (fix with \`${c.fix}\`)` : ''}`), '- After your commit coco runs them again; a failure comes back to you once.'] : []),
     ...(unusable.length ? [`- Not available yet: ${unusable.map((c) => c.label).join(', ')} (${unusable[0].why}). coco keeps preparing the worktree and a message tells you once they work. Never borrow tools from another checkout or \`npx\` a package in the meantime; commit, and coco checks your commit once it can.`] : []),
     ...(devServers ? ['- Dev server: only when the change has UI or runtime behavior to see. Use the dev-servers tools: `dev_server_start`, then `dev_server_status` until ready, `dev_server_login` to open it logged in, `dev_server_logs` when it misbehaves, `dev_server_stop` once done. At most 3 run at once: never start one for what lint, types and tests show.'] : []),
     '',
@@ -395,8 +396,8 @@ export function briefLines(r: Readiness, devServers = false): string[] {
 export function readyText(r: Readiness, why = 'checks') {
   const usable = r.checks.filter((c) => c.available);
   return [
-    why === 'own' ? `[coco] This worktree's own dependency folders are installed (${listPaths(r.deps.filter((d) => d.mode === 'own'))}): installs work now.` : '[coco] The checks now work in your worktree.',
-    ...(usable.length ? ['Run them on your changes before your next commit:', ...usable.map((c) => `- ${c.label}: \`${c.command}\``)] : []),
+    why === 'own' ? `[coco] This worktree's own dependency folders are installed (${listPaths(r.deps.filter((d) => d.mode === 'own'))}): installs work now.` : '[coco] checks are available now in your worktree.',
+    ...(usable.length ? ['Run them on your changes before your next commit, from the worktree root, never after a `cd`:', ...usable.map((c) => `- ${c.label}: \`${c.command}\``)] : []),
   ].join('\n');
 }
 

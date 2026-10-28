@@ -55,7 +55,7 @@ import { createPrReply } from './pr-reply.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createAgentChecks } from './agent-checks.ts';
 import { allowedHosts, guard } from './guard.ts';
-import { errorMessage } from './core-types.ts';
+import { errorMessage, httpStatus } from './core-types.ts';
 import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
@@ -475,6 +475,13 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'stack-keeper') return stackKeeper.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
     if (root === 'cards' || (root === 'agent-chat' && b === 'cards')) return cards.handle(req, res, parts, readBody, send);
+    if (root === 'agent-chat' && b === 'reply' && req.method === 'POST') {
+      try {
+        return send(res, 200, await threads.postReply(a, JSON.parse((await readBody(req)) || '{}')));
+      } catch (e) {
+        return send(res, httpStatus(e), { error: errorMessage(e) });
+      }
+    }
     if (root === 'agent-chat' && b === 'subagents') return subagents.handle(req, res, parts, send);
     if ((root === 'works' && b === 'agents') || root === 'agent-chat') return workAgents.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
