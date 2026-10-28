@@ -118,6 +118,18 @@ test('one hand-off per agent; an agent Paseo does not know is refused', async ()
   await assert.rejects(setup({ known: false }).handoff.begin(OLD, {}), (e: Error & { status?: number }) => e.status === 404);
 });
 
+test('two hand-offs asked at once start one agent; a refused one lets the next try', async () => {
+  const { handoff, started } = setup({ reply: '<handoff>## Task\nDo the thing, all of it, carefully.</handoff>' });
+  const [a, b] = await Promise.allSettled([handoff.begin(OLD, {}), handoff.begin(OLD, {})]);
+  assert.equal(a.status, 'fulfilled');
+  assert.ok(b.status === 'rejected' && (b.reason as { status?: number }).status === 409);
+  if (a.status === 'fulfilled') await a.value.done;
+  assert.equal(started.length, 1);
+  const unknown = setup({ known: false });
+  await assert.rejects(unknown.handoff.begin(OLD, {}), (e: Error & { status?: number }) => e.status === 404);
+  await assert.rejects(unknown.handoff.begin(OLD, {}), (e: Error & { status?: number }) => e.status === 404);
+});
+
 test('a hand-off cut short by a restart reads as failed', async () => {
   const { DATA } = setup();
   fs.writeFileSync(path.join(DATA, 'handoffs.json'), JSON.stringify([{ from: OLD, fromTitle: 'x', to: null, toTitle: null, step: 'summary', source: null, note: '', file: null, error: null, archived: false, at: '2026-10-01', doneAt: null }]));

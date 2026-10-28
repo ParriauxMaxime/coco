@@ -123,6 +123,8 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
     save();
   };
   const of = (agentId: string) => ({ to: list.findLast((h) => h.from === agentId) ?? null, from: list.findLast((h) => h.to === agentId) ?? null });
+  // agents whose hand-off is being set up, before its record is listed
+  const opening = new Set<string>();
 
   // the model, thinking and mode picked, else the old agent's own
   async function setupOf(found: Snapshot, input: HandoffInput) {
@@ -191,20 +193,27 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
 
   // starts the hand-off and returns at once; done() resolves when it ends (tests)
   async function begin(from: string, input: HandoffInput) {
-    const was = of(from).to;
-    if (was && BUSY.includes(was.step)) throw new HttpError(409, 'this agent is already handing off');
-    if (was?.step === 'done') throw new HttpError(409, `this agent was already handed off to ${was.toTitle ?? was.to}`);
-    const agent = (await client()).agents.ref(from);
-    const found = (await agent.refresh())?.agent as Snapshot | undefined;
-    if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
-    const note = typeof input.note === 'string' ? input.note.trim().slice(0, NOTE_MAX) : '';
-    const setup = await setupOf(found, input);
-    const h: Handoff = { from, fromTitle: titleOf(found.title, from), to: null, toTitle: null, step: 'summary', source: null, note, file: null, error: null, archived: false, at: new Date().toISOString(), doneAt: null };
-    if (was) list.splice(list.indexOf(was), 1);
-    list.push(h);
-    save();
-    const done = run(h, agent, found, setup);
-    return { handoff: { ...h }, done };
+    const prior = of(from).to;
+    if (opening.has(from) || (prior && BUSY.includes(prior.step))) throw new HttpError(409, 'this agent is already handing off');
+    if (prior?.step === 'done') throw new HttpError(409, `this agent was already handed off to ${prior.toTitle ?? prior.to}`);
+    // held from here until the record is listed, so a second click during the awaits below cannot start a second agent
+    opening.add(from);
+    try {
+      const agent = (await client()).agents.ref(from);
+      const found = (await agent.refresh())?.agent as Snapshot | undefined;
+      if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
+      const note = typeof input.note === 'string' ? input.note.trim().slice(0, NOTE_MAX) : '';
+      const setup = await setupOf(found, input);
+      const h: Handoff = { from, fromTitle: titleOf(found.title, from), to: null, toTitle: null, step: 'summary', source: null, note, file: null, error: null, archived: false, at: new Date().toISOString(), doneAt: null };
+      const was = of(from).to;
+      if (was) list.splice(list.indexOf(was), 1);
+      list.push(h);
+      save();
+      const done = run(h, agent, found, setup);
+      return { handoff: { ...h }, done };
+    } finally {
+      opening.delete(from);
+    }
   }
 
   // GET /api/agent-chat/<agentId>/handoff · POST /api/agent-chat/<agentId>/handoff {note, provider, thinking, mode}
