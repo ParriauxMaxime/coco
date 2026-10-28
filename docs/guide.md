@@ -1102,14 +1102,15 @@ Go to definition, find references and hover on `.ts`, `.tsx` and `.js` files
 of the PR head. `server/lang.ts` runs a TypeScript language service in a
 child process (`server/lang-worker.ts`, `--max-old-space-size=4096`, so 4 GB
 at most and a blow-up never takes the server down) over the head tree read
-with `git show`/`git ls-tree`, with the `paths` of `repo.tsconfig`.
-One service lives at a time, for the last head used; it starts on the first
+with `git show`/`git ls-tree`, with the `paths` of `repo.tsconfig`. It uses
+the repo's own `node_modules/typescript`, else coco's, so a clone without
+`npm install` still navigates. One service lives at a time, for the last head used; it starts on the first
 open of a file (about 7 s of indexing, RSS 2.6 to 3 GB), is replaced when
 another head is asked for, and is killed after 15 minutes idle. A crash puts
 that sha on a 60 s cooldown.
 
 The `nav` chip in a code tab shows `indexing…`, `nav ready`, `nav idle` or
-`nav error` (hover for the reason). While the service is not ready, or when
+`nav error` (hover for the reason, files named from the repo root). While the service is not ready, or when
 `findReferences` has no answer, references fall back to a `git grep -F`
 text search over the head (`/api/code/pr/<n>/search`). Targets inside
 `node_modules` open as a peek only. Other file types have no navigation.

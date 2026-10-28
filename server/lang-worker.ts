@@ -1,5 +1,6 @@
 // TypeScript language service over a git sha. JSON lines on stdin/stdout. Run with --max-old-space-size.
 import { execFileSync, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -308,9 +309,20 @@ function grepCandidates(word: string) {
 
 type Position = { path: string; line: number; col: number };
 
+// the reviewed repo's typescript, else coco's own, so a repo without node_modules still navigates
+async function loadTs(repo: string, tsPath?: string): Promise<TSModule & TsInternals> {
+  const own = path.join(repo, 'node_modules/typescript/lib/typescript.js');
+  const file = tsPath || (existsSync(own) ? own : null);
+  try {
+    return (await (file ? import(pathToFileURL(file).href) : import('typescript'))).default;
+  } catch {
+    throw new Error('code navigation needs typescript: none in the repo’s node_modules nor in coco’s');
+  }
+}
+
 const ops = {
   async init({ sha, repo, tsPath, tsconfig }: { sha: string; repo: string; tsPath?: string; tsconfig?: string }) {
-    ts = (await import(pathToFileURL(tsPath || path.join(repo, 'node_modules/typescript/lib/typescript.js')).href)).default;
+    ts = await loadTs(repo, tsPath);
     S = createState({ repo, sha, tsconfig });
     const tPrefetch = Date.now();
     S.blobs = await prefetch(S.R, S.tree.files);

@@ -22,6 +22,8 @@ export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 
   let seq = 0;
   let exited: Exited | null = null;
   let stderr = '';
+  // errors name files from the repo root, never by their absolute path
+  const rel = (s: string) => s.replaceAll(`${path.resolve(repo)}${path.sep}`, '');
   child.stderr.on('data', (c) => (stderr = (stderr + c).slice(-4000)));
   readline.createInterface({ input: child.stdout }).on('line', (line) => {
     let msg;
@@ -34,10 +36,10 @@ export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 
     if (!p) return;
     pending.delete(msg.id);
     clearTimeout(p.timer);
-    p.resolve(msg.error ? { error: msg.error } : { result: msg.result });
+    p.resolve(msg.error ? { error: rel(String(msg.error)) } : { result: msg.result });
   });
   child.on('exit', (code, signal) => {
-    exited = { code, signal, stderr: stderr.trim().split('\n').slice(-3).join('\n') };
+    exited = { code, signal, stderr: rel(stderr.trim().split('\n').slice(-3).join('\n')) };
     for (const p of pending.values()) {
       clearTimeout(p.timer);
       p.resolve({ error: `worker exited (${signal || code})` });

@@ -11,15 +11,19 @@ import { fileURLToPath } from 'node:url';
 import { createLang } from './lang.ts';
 import { loadConfig } from './config.ts';
 
-// typescript from the app's deps, else from the configured repo
-const findTs = () => {
+const ownTs = (() => {
   try {
     return createRequire(import.meta.url).resolve('typescript');
   } catch {
-    const repo = loadConfig({ APP: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..') }).repo.path;
-    const file = repo && path.join(repo, 'node_modules/typescript/lib/typescript.js');
-    return file && fs.existsSync(file) ? file : null;
+    return null;
   }
+})();
+// typescript from the app's deps, else from the configured repo
+const findTs = () => {
+  if (ownTs) return ownTs;
+  const repo = loadConfig({ APP: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..') }).repo.path;
+  const file = repo && path.join(repo, 'node_modules/typescript/lib/typescript.js');
+  return file && fs.existsSync(file) ? file : null;
 };
 const TS = findTs();
 let dir = '';
@@ -57,7 +61,8 @@ before(async () => {
   git('add', '.');
   git('commit', '-q', '-m', 'init');
   sha = git('rev-parse', 'HEAD');
-  lang = createLang({ REPO: dir, tsPath: TS ?? undefined });
+  // the repo has no node_modules: coco's own typescript serves it
+  lang = createLang({ REPO: dir, tsPath: ownTs ? undefined : TS ?? undefined });
   const first = await call('definition', { path: 'a.ts', line: '3', col: '18' });
   assert.equal(first.status, 202);
   assert.equal(first.body.status, 'indexing');
