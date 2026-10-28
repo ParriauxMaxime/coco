@@ -34,7 +34,8 @@ export type AgentFacts = { kind: 'agent'; status: string; pending: number; activ
 export type WorktreeFacts = { kind: 'worktree'; main: boolean; self: boolean; dirty: number; unpushed: number; error?: string; liveAgents: number; work: WorkRef | null; pr: PrRef | null; onRemote: boolean | null; activityAt: string | null };
 export type WorkspaceFacts = { kind: 'workspace'; dirExists: boolean; agents: number; liveAgents: number; duplicate: boolean };
 // a dev server is judged by its worktree: gone, or up for purge itself (merged PR, archived work)
-export type DevServerFacts = { kind: 'devserver'; state: string; running: boolean; pinned: boolean; leases: number; worktreeExists: boolean; worktree: Verdict | null };
+// openRow: the open PR of a live work its worktree serves; a stopped server outside one is forgotten, its build cache stays on disk
+export type DevServerFacts = { kind: 'devserver'; state: string; running: boolean; pinned: boolean; leases: number; worktreeExists: boolean; worktree: Verdict | null; openRow: string | null };
 export type Facts = AgentFacts | DevServerFacts | WorktreeFacts | WorkspaceFacts;
 
 export type Fact = { text: string; tone?: 'ok' | 'warn' | 'bad' | 'info' };
@@ -126,7 +127,8 @@ export function recommend(f: Facts, now = Date.now()): Verdict {
     if (f.pinned) return keep('pinned');
     if (!f.worktreeExists) return purge('its worktree is gone');
     if (f.worktree?.recommendation === 'purge') return purge(`its worktree is up for purge: ${f.worktree.reason}`);
-    return keep(f.worktree ? `its worktree stays: ${f.worktree.reason}` : 'its worktree stays');
+    if (f.openRow) return keep(`stopped, serves ${f.openRow}`);
+    return purge('stopped, and its worktree serves no open PR of a live work; the build cache stays on disk');
   }
   const along = f.agents ? `; its ${plural(f.agents, 'agent')} ${f.agents === 1 ? 'is' : 'are'} up for purge too` : '';
   if (f.liveAgents) return keep(plural(f.liveAgents, 'live agent'));
@@ -322,7 +324,7 @@ export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, r
     const servers = devServers ? await devServers.records().catch((e: unknown) => { fail('dev servers')(e); return null; }) : null;
     for (const s of servers || []) {
       const tree = treeBase.find((b) => samePath(b.t.path, s.worktree));
-      const facts: DevServerFacts = { kind: 'devserver', state: s.state, running: s.running, pinned: s.pinned, leases: s.leases, worktreeExists: fs.existsSync(s.worktree), worktree: tree ? treeVerdicts.get(tree.t.path) || null : null };
+      const facts: DevServerFacts = { kind: 'devserver', state: s.state, running: s.running, pinned: s.pinned, leases: s.leases, worktreeExists: fs.existsSync(s.worktree), worktree: tree ? treeVerdicts.get(tree.t.path) || null : null, openRow: tree?.work && !tree.work.archived && tree.pr?.state === 'OPEN' ? `PR ${tree.pr.label} of “${tree.work.title}”` : null };
       const v = recommend(facts, at);
       const shown: Fact[] = [
         { text: s.port ? `${s.state} :${s.port}` : s.state, tone: s.running ? 'info' : undefined },
