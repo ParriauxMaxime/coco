@@ -2,14 +2,15 @@ import type { FileGroup, PlanBody, Proposal, RefFile } from '../types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
 
-// Reading groups: coco's plan steps (with the files pushed since, placed by the server) then Skim
+// Reading groups: coco's plan steps (with the files pushed since, placed by the server) then Skim.
+// A step's key holds its place, so two steps with one title keep their own fold
 export function orderGroups(files: RefFile[], plan: PlanBody, placedAt: Record<string, number> = {}): FileGroup[] {
   const byPath = new Map(files.map((f) => [f.filename, f]));
   const used = new Set<string>();
   const pick = (paths: string[]) => paths.filter((p) => byPath.has(p) && !used.has(p) && used.add(p)).flatMap((p) => byPath.get(p) ?? []);
   const placed = Object.entries(placedAt);
   const groups: FileGroup[] = [
-    ...plan.steps.map((s, i) => ({ key: `step:${s.title}`, title: `${i + 1}. ${s.title}`, why: s.why, files: pick([...s.files.map((x) => x.path), ...placed.filter(([, at]) => at === i).map(([p]) => p)]) })),
+    ...plan.steps.map((s, i) => ({ key: `step:${i}:${s.title}`, title: `${i + 1}. ${s.title}`, why: s.why, files: pick([...s.files.map((x) => x.path), ...placed.filter(([, at]) => at === i).map(([p]) => p)]) })),
     { key: 'skim', title: 'Skim', why: 'coco says a glance is enough', files: pick(plan.skim.map((x) => x.path)) },
   ];
   const rest = files.filter((f) => !used.has(f.filename));
