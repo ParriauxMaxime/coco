@@ -8,6 +8,7 @@ import RulesLedger from '../widgets/Rules.tsx';
 import Icon from '../Icon.tsx';
 import { SegBar, workDot } from '../Shell.tsx';
 import { workHref } from '../prefs.ts';
+import { launcherHref } from '../launcher.ts';
 import { reloadOverview } from '../overview.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { AddRepoResult, JudgeStat, LoosePr, RepoPage as RepoData } from '../../types.ts';
@@ -176,7 +177,10 @@ export default function RepoPage({ id }: { id: string }) {
           <span className="dp-t4">·</span><span className="dp-row dp-g6"><Icon name="git-branch" size={12} />{data.defaultBranch}</span>
         </>}
         sub={<code className="dp-repop-path">{data.path}</code>}
-        actions={!creating && <button type="button" className="dp-btn dp-primary" onClick={() => setCreating(true)}><Icon name="plus" size={14} />New work</button>}
+        actions={<>
+          <a className="dp-btn" href={launcherHref(`repo:${data.id}`)} title="Start a free agent in this repo's clone or a fresh worktree of it, as in Paseo"><Icon name="bot" size={14} />New agent</a>
+          {!creating && <button type="button" className="dp-btn dp-primary" onClick={() => setCreating(true)}><Icon name="plus" size={14} />New work</button>}
+        </>}
       />
       {err && <div className="dp-repop-gap"><ErrorNote>{err}</ErrorNote></div>}
       <Tiles items={[

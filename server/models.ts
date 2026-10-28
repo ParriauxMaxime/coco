@@ -5,7 +5,9 @@ import type { DaemonClient } from './paseo-agent.ts';
 
 export type Thinking = { id: string; label: string };
 export type ModelEntry = { id: string; label: string; description: string | null; aliases: string[]; thinking: Thinking[]; defaultThinking: string | null };
-export type ProviderEntry = { id: string; models: ModelEntry[]; error: string | null };
+export type Mode = { id: string; label: string; description: string | null; tier: string | null };
+// modes and defaultMode: what Paseo's new-agent screen offers for the provider, when its snapshot lists them
+export type ProviderEntry = { id: string; models: ModelEntry[]; error: string | null; modes?: Mode[]; defaultMode?: string | null };
 export type Catalog = { mode: string; defaults: { default: string; fast: string }; providers: ProviderEntry[] };
 export type ModelPick = { provider?: unknown; thinking?: unknown };
 export type Picked = { provider?: string; thinking?: string };
@@ -50,19 +52,34 @@ export function checkPick(catalog: Catalog, pick: ModelPick, fallback?: string |
   return { ...(provider ? { provider: `${family(provider)}/${model?.id}` } : {}), ...(thinking ? { thinking } : {}) };
 }
 
+// a mode pick for the provider's family: one of the modes Paseo lists for it; none picked is its default (undefined: Paseo's or coco's own)
+export function checkMode(catalog: Catalog, provider: string, mode: unknown): string | undefined {
+  const entry = catalog.providers.find((p) => p.id === family(provider));
+  if (mode == null || mode === '') return entry?.defaultMode || undefined;
+  if (typeof mode !== 'string') throw new HttpError(400, 'mode must be a string');
+  if (!entry?.modes?.length) throw new HttpError(400, `no mode list from Paseo for ${family(provider)}`);
+  if (!entry.modes.some((m) => m.id === mode)) throw new HttpError(400, `${family(provider)} has no mode ${mode}: pick one of ${entry.modes.map((m) => m.id).join(', ')}`);
+  return mode;
+}
+
 export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_MS }: Options) {
   let cached: { at: number; ttl: number; value: Promise<Catalog> } | null = null;
   const families = () => [...new Set([config.models.default, config.models.fast].filter(Boolean).map(family))];
 
   async function load(): Promise<Catalog> {
     const c = await client();
+    const snapshot = c.providers?.snapshot ? await c.providers.snapshot().then((s) => s.entries, () => []) : [];
+    const modesOf = (id: string) => {
+      const s = snapshot.find((e) => e.provider === id);
+      return s?.modes?.length ? { modes: s.modes.map((m) => ({ id: m.id, label: m.label || m.id, description: m.description || null, tier: m.colorTier || null })), defaultMode: s.defaultModeId || null } : {};
+    };
     const providers = await Promise.all(
       families().map(async (id): Promise<ProviderEntry> => {
         try {
           if (!c.providers) throw new Error('this Paseo client cannot list models');
           const r = await c.providers.listModels(id);
           const models = (r.models || []).filter((m) => m.isSelectable !== false).map(entryOf);
-          return { id, models, error: models.length ? null : r.error || 'no model listed' };
+          return { id, models, error: models.length ? null : r.error || 'no model listed', ...modesOf(id) };
         } catch (e) {
           return { id, models: [], error: errorMessage(e) };
         }
@@ -82,6 +99,7 @@ export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_M
   }
 
   const check = async (pick: ModelPick, fallback?: string | null) => checkPick(await list(), pick, fallback);
+  const mode = async (provider: string, picked: unknown) => checkMode(await list(), provider, picked);
 
   // changes a live agent's model and thinking in place; a pick of another provider cannot apply to it
   async function apply(agentId: string, pick: ModelPick): Promise<Applied> {
@@ -105,6 +123,6 @@ export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_M
     return now;
   }
 
-  return { list, check, apply };
+  return { list, check, mode, apply };
 }
 export type Models = ReturnType<typeof createModels>;

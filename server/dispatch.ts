@@ -86,13 +86,13 @@ export const workFacts = (work: Work) => {
   return [`# ${work.title}`, '', ...(work.description ? [work.description.trim(), ''] : []), `Work \`${work.slug}\`; its PRs in merge order: ${prs.join(', ') || 'none yet'}. The cocopilot MCP get_work ${work.slug} has the rest.`].join('\n');
 };
 
-// the dispatched agent's first message: its task, then its brief as context
-export function firstMessage({ title, task, edits, brief, read }: { title: string; task: string; edits: boolean; brief: string | null; read?: { head: string; base: string; n: RowKey } | null }) {
+// the dispatched agent's first message: its task, then its brief as context; no title: the owner's own words come first
+export function firstMessage({ title, task, edits, brief, read }: { title: string | null; task: string; edits: boolean; brief: string | null; read?: { head: string; base: string; n: RowKey } | null }) {
   const ref = (branch: string) => (read && isLocal(read.n) ? branch : `origin/${branch}`);
   const readOnly = !edits && read
     ? [`Read-only: do not edit files, commit or push. The PR's branch is not checked out here: \`git fetch origin\`, then read the change with \`git diff ${ref(read.base)}...${ref(read.head)}\`${isLocal(read.n) ? '' : ` or \`gh pr diff ${read.n}\``}, and a file with \`git show "${ref(read.head)}:<path>"\` (quoted: zsh reads \`$var:l\` as a modifier).`, '']
     : !edits ? ['Read-only: do not edit files, commit or push.', ''] : [];
-  return [`# ${title}`, '', task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
+  return [...(title ? [`# ${title}`, ''] : []), task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
 export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models, preflight, jobs }: Deps) {

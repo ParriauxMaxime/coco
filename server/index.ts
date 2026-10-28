@@ -25,6 +25,7 @@ import { createBriefs, renderBrief } from './briefs.ts';
 import { createRules } from './rules.ts';
 import { createGates, runSkill } from './gates.ts';
 import { createDispatch } from './dispatch.ts';
+import { createNewAgent } from './new-agent.ts';
 import { createPreflight, isVideoEntry } from './preflight.ts';
 import { parseKey } from './stack.ts';
 import { createBriefWriter } from './brief-writer.ts';
@@ -206,6 +207,7 @@ permissions.onAgent((a, removed) => {
   else if (removed && cards.openCount(removed)) void archivedAgent(removed).then((gone) => gone && cards.agentArchived(removed), () => {});
 });
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
+const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), models, subagents });
 const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
 for (const on of [cards.onChange, threads.onChange, ask.onChange]) on(() => waiting.touch());
@@ -502,6 +504,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'paseo') return send(res, 200, await works.paseo());
     if (root === 'waiting' || (root === 'works' && b === 'waiting')) return waiting.handle(req, res, parts, readBody, send);
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
+    if (root === 'new-agent') return newAgent.handle(req, res, parts, readBody, send);
     if (root === 'uploads') return uploads.handle(req, res, parts, send);
     if (root === 'paseo-attachments') return servePaseoAttachment(req, res, parts, send, os.tmpdir());
     if (root === 'inbox') return inbox.handle(req, res, parts, readBody, send);

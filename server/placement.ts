@@ -267,6 +267,15 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', base, '--title', title], title);
   }
 
+  // a new branch off the repo's default branch for an agent the owner starts on nothing yet, in the repo's project: a spare worktree when one is ready
+  async function freshWorkspace(repoId: string, { branch, title }: { branch: string; title: string }): Promise<Placed> {
+    const repo = repoById(repoId);
+    const p = await projectAt(repo.path);
+    const dir = claimSpare ? await claimSpare(repo.id, { branch, base: `origin/${repo.defaultBranch}` }).catch(() => null) : null;
+    if (dir) return workspaceOn(p.projectId, dir, title);
+    return createWorkspace(['--isolation', 'worktree', '--path', repo.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', repo.defaultBranch, '--title', title], title);
+  }
+
   // the Paseo workspace an agent of this scope runs in; read-only row agents share the work's, read-only agents on a PR outside any work the repo's
   async function place(scope: Scope): Promise<Placed> {
     if (scope.kind === 'global') return repoPlace(appRepo());
@@ -278,5 +287,5 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     return workPlace(work);
   }
 
-  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace, repoProject, forgetWork };
+  return { projects, isRepoProject, syncProjectNames, place, sideWorkspace, freshWorkspace, repoProject, forgetWork, appRepoId: () => appRepo()?.id ?? null };
 }

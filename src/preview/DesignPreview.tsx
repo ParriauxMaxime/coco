@@ -66,8 +66,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
 
   const commands: Command[] = [
     ...VIEWS.map((v) => ({ id: `v-${v.id}`, label: v.label, hint: 'view', icon: v.icon, run: () => open(v.id) })),
-    { id: 'new-agent', label: 'New agent', hint: 'agents', icon: 'bot', run: () => open('ask') },
-    ...d.prs.map((p) => ({ id: `new-agent-${prKey(p)}`, label: `New agent on ${p.number ? `#${p.number}` : prLabel(prKey(p))} ${prTitle(p)}`, hint: 'agents', icon: 'bot' as const, run: () => open(`ask-new-${prKey(p)}`) })),
+    { id: 'new-agent', label: 'Ask coco', hint: 'agents', icon: 'bot', run: () => open('ask') },
+    ...d.prs.map((p) => ({ id: `new-agent-${prKey(p)}`, label: `Ask coco on ${p.number ? `#${p.number}` : prLabel(prKey(p))} ${prTitle(p)}`, hint: 'agents', icon: 'bot' as const, run: () => open(`ask-new-${prKey(p)}`) })),
     ...agents.map((a) => ({ id: `agent-${a.id}`, label: `Agent: ${a.title}`, hint: a.status, icon: 'bot' as const, run: () => open(a.id) })),
     ...layouts.list.map((l, i) => ({ id: `l-${l.id}`, label: `Layout: ${l.name}`, hint: i < 9 ? `⌥${i + 1}` : 'layout', icon: 'columns' as const, run: () => applyLayout(l) })),
     { id: 'split', label: 'Move the tab to the other pane', hint: '⌘\\', icon: 'columns', run: split },

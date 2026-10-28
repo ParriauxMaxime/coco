@@ -564,7 +564,20 @@ export type AskStartBody = { prompt: string; workSlug?: string | null; pr?: stri
 export type ModelChoice = { provider?: string; thinking?: string };
 export type ModelThinking = { id: string; label: string };
 export type ModelEntry = { id: string; label: string; description: string | null; aliases: string[]; thinking: ModelThinking[]; defaultThinking: string | null };
-export type ModelCatalog = { mode: string; defaults: { default: string; fast: string }; providers: { id: string; models: ModelEntry[]; error: string | null }[] };
+// modes: what Paseo's new-agent screen offers for the provider, defaultMode the one it starts in
+export type AgentMode = { id: string; label: string; description: string | null; tier: string | null };
+export type ModelCatalog = { mode: string; defaults: { default: string; fast: string }; providers: { id: string; models: ModelEntry[]; error: string | null; modes?: AgentMode[]; defaultMode?: string | null }[] };
+// where a new agent can run (GET /api/new-agent); rows: the open PRs of the work asked for
+export type NewAgentPlaces = {
+  app: string | null;
+  appNote: string;
+  repos: { id: string; name: string; defaultBranch: string; app: boolean }[];
+  works: { slug: string; title: string; repo: string | null }[];
+  rows: { key: string; label: string; title: string }[];
+};
+export type NewAgentPlace = { kind: 'repo'; repoId: string } | { kind: 'fresh'; repoId: string } | { kind: 'work'; slug: string } | { kind: 'row'; slug: string; key: string };
+export type NewAgentBody = { place: NewAgentPlace; prompt: string; attachments?: string[]; mode?: string } & ModelChoice;
+export type NewAgentStarted = { agentId: string; workspaceId: string; cwd: string; title: string };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;

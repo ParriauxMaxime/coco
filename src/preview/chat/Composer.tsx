@@ -41,6 +41,9 @@ type ComposerProps = {
   // false: no text box, only the footer and its Send (the action takes no words)
   withText?: boolean;
   initial?: string;
+  // the text held by the caller, which may rewrite it (a prefilled note)
+  value?: string;
+  onValue?: (text: string) => void;
   // Esc when no agent runs to stop
   onCancel?: () => void;
   // where the unsent text is kept for this tab (sessionStorage), so a reload onto a new coco build loses no words
@@ -62,16 +65,21 @@ const keepDraft = (key: string, text: string) => {
   } catch {}
 };
 
-export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', onCancel, draft }: ComposerProps) {
-  const [text, setText] = useState(() => readDraft(draft) ?? initial);
-  const [draftOf, setDraftOf] = useState(draft);
-  if (draftOf !== draft) {
-    setDraftOf(draft);
-    setText(readDraft(draft) ?? initial);
+// a text held by the caller (value) is the caller's alone: no draft is read into it or kept from it
+export function Composer({ placeholder, note, disabled = false, busy = false, sending = false, sendLabel = 'Send', autoFocus = false, className = '', tools, actions, onSend, onStop, allowEmpty = false, attach = true, withText = true, initial = '', value, onValue, onCancel, draft }: ComposerProps) {
+  const controlled = value !== undefined;
+  const kept = controlled ? undefined : draft;
+  const [own, setOwn] = useState(() => readDraft(kept) ?? initial);
+  const [draftOf, setDraftOf] = useState(kept);
+  if (draftOf !== kept) {
+    setDraftOf(kept);
+    setOwn(readDraft(kept) ?? initial);
   }
+  const text = controlled ? value : own;
+  const setText = onValue ?? setOwn;
   useEffect(() => {
-    if (draft) keepDraft(draft, text);
-  }, [draft, text]);
+    if (kept) keepDraft(kept, text);
+  }, [kept, text]);
   const [stopping, setStopping] = useState(false);
   const stop = () => {
     if (!onStop || stopping) return;

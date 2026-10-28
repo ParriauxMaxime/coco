@@ -14,6 +14,7 @@ import ServerStatus from './ServerStatus.tsx';
 import Quota from './Quota.tsx';
 import PaseoStatus from './PaseoStatus.tsx';
 import WorkMenu from './WorkMenu.tsx';
+import { openLauncher } from './launcher.ts';
 import { desktop } from '../desktop.ts';
 import cocoMark from '../coco-mark.svg';
 import './preview.css';
@@ -213,6 +214,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
 
   const go = (href: string) => () => { location.hash = href; };
   const all: Command[] = [
+    { id: 'launch-agent', label: 'New agent…', hint: slug ? 'in this work' : 'agents', icon: 'bot', run: () => openLauncher({ place: slug ? `work:${slug}` : null }) },
     ...commands,
     ...nav.map((n) => ({ id: `nav-${n.root || 'home'}`, label: n.label, hint: 'page', icon: n.icon, run: go(n.href) })),
     { id: 'new-repo', label: 'New repo', hint: 'page', icon: 'plus', run: go('#/repos/new') },

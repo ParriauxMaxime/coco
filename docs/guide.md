@@ -1288,7 +1288,8 @@ of each family (Opus, Sonnet, Fable, Haiku…), plus the defaults and your
 current pick even when older; **Show all models** at its foot adds the older
 releases and the 1M-context variants, and is remembered in this browser. The mode is not a choice: every coco
 agent runs in Paseo's auto mode, and a brief saying not to touch code is what
-keeps one read-only.
+keeps one read-only. The one exception is the New agent launcher (below),
+whose mode chip is a menu of Paseo's own modes for the provider.
 
 - Starting an agent (a new-agent tab, the Ask page and panels, Dispatch, a
   thread's first message): the pick goes with the start. Unpicked, Ask and
@@ -1309,6 +1310,44 @@ keeps one read-only.
 - The Ask agent's system prompt tells it to hand focused subtasks (a
   single-file read, a search, a per-file review) to subagents on the fast
   model.
+
+## New agent (a free agent, as in Paseo)
+
+`#/agents/new` starts any agent the way Paseo's new-agent screen does, so a
+free Claude Code session no longer needs the Paseo app: a composer (paste or
+drop screenshots and files), the model and thinking pickers, and a mode menu
+with the modes Paseo lists for the provider (Claude: Plan, Always Ask, Accept
+File Edits, Auto, Bypass), starting on the provider's own default (Claude:
+Auto; Bypass is never preselected). **Runs in** picks where:
+
+- a repo's clone, on the branch it is on (coco's own workspace there);
+- a fresh worktree of a repo on a new `agent/<words>-<id>` branch off its
+  default branch (a spare worktree when one is ready);
+- a work's Plan workspace: the first message carries the work's facts after
+  your words, and the agent lists among the work's agents;
+- one of the work's open PRs (**Workspace**): its own worktree, the PR's brief
+  in the first message, linked to the row like an agent started there in
+  Paseo (counted as briefed).
+
+On coco's own checkout the composer gets a short note, in plain sight and
+editable, on this repo's workflow: commit on main, restart coco with
+`POST /api/server/restart`, check the UI with the cocopilot screenshot tool.
+**Start** shows the agent at once as starting, then becomes its page
+`#/agents/<agentId>`. The last place and mode per provider are remembered in
+this browser (`cc.newagent`), the model like any other composer.
+
+Open it from ⌘K **New agent…** (in a work: on its Plan), the work Overview's
+**New agent** menu (**Ask coco** as before, or **Agent**), a repo page, the
+Agents page, or **Start an agent on it** under a coco issue Ask coco flagged
+(`flag_coco_issue`): the launcher opens on coco's checkout with the issue as
+the task, and you still press Start.
+
+Routes: `GET /api/new-agent[?work=<slug>]` lists the places (with that work's
+open PRs); `POST /api/new-agent` takes `place` (`{kind: 'repo'|'fresh', repoId}`,
+`{kind: 'work', slug}`, `{kind: 'row', slug, key}`), `prompt`, `attachments`,
+`provider`, `thinking` and `mode`, refuses an unknown place, an empty message,
+an unknown model or a mode Paseo does not list, and answers `{agentId,
+workspaceId, cwd, title}`.
 
 ## Subagents (what an agent starts itself)
 

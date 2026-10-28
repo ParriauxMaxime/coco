@@ -6,10 +6,36 @@ import type { IconName } from '../Icon.tsx';
 import PermissionCard from './Permission.tsx';
 import SubagentCallRow from './SubagentCall.tsx';
 import { isSubagentCall } from '../subagents.ts';
+import { openLauncher } from '../launcher.ts';
 import type { ActivityEvent } from '../../types.ts';
 import './chat.css';
 
 const OUTPUT_MAX = 1500;
+
+// a coco issue an agent flagged (cocopilot flag_coco_issue): its title, ask and the owner's words, and the finding's link once filed
+type CocoIssue = { title: string; summary: string; quote: string; url: string | null };
+export function cocoIssueOf(c: ActivityEvent): CocoIssue | null {
+  if (!/(^|__)flag_coco_issue$/.test(c.name || '') || c.status !== 'completed') return null;
+  let input: Partial<CocoIssue> = {};
+  try {
+    input = JSON.parse(c.input || c.summary || '{}');
+  } catch {
+    input = { title: /"title":"((?:[^"\\]|\\.)*)"/.exec(c.input || '')?.[1] };
+  }
+  const url = /"url":"([^"]+)"/.exec(c.output || '')?.[1] ?? null;
+  return input.title ? { title: input.title, summary: input.summary || '', quote: input.quote || '', url } : null;
+}
+export const issueTask = (i: CocoIssue) => [`Fix this coco issue: ${i.title}`, i.summary, i.quote && `> ${i.quote.replace(/\n/g, '\n> ')}`, i.url && `Finding: ${i.url}`].filter(Boolean).join('\n\n');
+
+function IssueRow({ issue }: { issue: CocoIssue }) {
+  return (
+    <div className="dp-cv-issue">
+      <Icon name="flag" size={12} />
+      <span className="dp-ell">Flagged on coco: {issue.url ? <a href={issue.url} title="Open the finding">{issue.title}</a> : issue.title}</span>
+      <button type="button" className="dp-btn dp-sm" title="Open the New agent launcher on coco's checkout with this issue as its task; you still press Start" onClick={() => openLauncher({ place: 'app', text: issueTask(issue) })}><Icon name="bot" size={12} />Start an agent on it</button>
+    </div>
+  );
+}
 const Spin = () => <span className="dp-ag-dot dp-ag-running dp-cv-spin" aria-label="in progress" />;
 
 type RowProps = { icon: IconName; label: string; running: boolean; open?: boolean; onToggle: () => void; children?: React.ReactNode };
@@ -68,12 +94,17 @@ export function defaultEvent(e: ActivityEvent) {
 
 // one agent's activity, Paseo style: a row per run of tool calls or thinking (expandable), its text rendered.
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
-type Props = { events: ActivityEvent[]; active?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode };
-export default function Activity({ events, active = false, renderEvent = defaultEvent }: Props) {
+// issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
+type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode };
+export default function Activity({ events, active = false, issues: offer = false, renderEvent = defaultEvent }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const items = groupActivity(events, { active });
   const toggle = (i: number | string) => setOpen((o) => ({ ...o, [i]: !o[i] }));
-  const tools = (calls: ActivityEvent[], key: number | string, label: string, running: boolean) => <Row key={key} icon="wrench" label={label} running={running} open={open[key]} onToggle={() => toggle(key)}>{calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
+  const tools = (calls: ActivityEvent[], key: number | string, label: string, running: boolean) => {
+    const issues = offer ? calls.flatMap((c) => cocoIssueOf(c) ?? []) : [];
+    const row = <Row key={key} icon="wrench" label={label} running={running} open={open[key]} onToggle={() => toggle(key)}>{calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
+    return issues.length ? <React.Fragment key={key}>{row}{issues.map((x) => <IssueRow key={x.title} issue={x} />)}</React.Fragment> : row;
+  };
   const last = items.at(-1);
   const settled = !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined);
   return (

@@ -69,9 +69,11 @@ export function useAskModel(run: { model?: string | null; thinking?: string | nu
 const MODE_TITLE = 'Every coco agent runs in Paseo\'s auto mode: it works on its own, and a brief that says not to touch code is what keeps one read-only';
 
 // the composer's model and thinking pickers, then the mode chip; hint says when a pick applies
-export function ModelControls({ choice, onPick, hint, disabled = false }: { choice: Choice | null; onPick: (c: Choice) => void; hint: string; disabled?: boolean }) {
+// mode: a new agent's own pick among the provider's Paseo modes (null: the provider's default), instead of coco's fixed auto chip
+type ModePick = { value: string | null; onPick: (id: string | null) => void };
+export function ModelControls({ choice, onPick, hint, disabled = false, mode }: { choice: Choice | null; onPick: (c: Choice) => void; hint: string; disabled?: boolean; mode?: ModePick }) {
   const { catalog, error } = useModelCatalog();
-  const [open, setOpen] = useState<'model' | 'thinking' | null>(null);
+  const [open, setOpen] = useState<'model' | 'thinking' | 'mode' | null>(null);
   const box = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -94,7 +96,11 @@ export function ModelControls({ choice, onPick, hint, disabled = false }: { choi
   const tag = (id: string) => (catalog?.defaults.default === id ? 'default' : catalog?.defaults.fast === id ? 'fast' : null);
   const level = (id: string | null | undefined) => model?.thinking.find((t) => t.id === id)?.label ?? id;
   const thinkingLabel = choice?.thinking ? level(choice.thinking) : model?.defaultThinking ? level(model.defaultThinking) : 'default';
-  const toggle = (which: 'model' | 'thinking') => setOpen((o) => (o === which ? null : which));
+  const entry = choice ? catalog?.providers.find((p) => p.id === family(choice.provider)) : null;
+  const modes = mode ? entry?.modes ?? [] : [];
+  const modeId = mode?.value ?? entry?.defaultMode ?? null;
+  const shown = modes.find((m) => m.id === modeId);
+  const toggle = (which: 'model' | 'thinking' | 'mode') => setOpen((o) => (o === which ? null : which));
   const choose = (c: Choice) => {
     onPick(c);
     setOpen(null);
@@ -107,7 +113,28 @@ export function ModelControls({ choice, onPick, hint, disabled = false }: { choi
       <button type="button" className={`dp-btn dp-ghost dp-sm dp-mdl-btn dp-mdl-th${open === 'thinking' ? ' dp-on' : ''}`} disabled={disabled || !choice} aria-haspopup="menu" aria-expanded={open === 'thinking'} title={`Thinking: ${choice?.thinking ?? 'the model default'}`} onClick={() => toggle('thinking')}>
         <Icon name="brain" size={12} /><span className="dp-mdl-v">{thinkingLabel}</span><Icon name="chevron-down" size={12} />
       </button>
-      <span className="dp-chip dp-mdl-mode" title={MODE_TITLE}>auto</span>
+      {mode && modes.length ? (
+        <button type="button" className={`dp-btn dp-ghost dp-sm dp-mdl-btn dp-mdl-md${shown?.tier === 'dangerous' ? ' dp-mdl-danger' : ''}${open === 'mode' ? ' dp-on' : ''}`} disabled={disabled} aria-haspopup="menu" aria-expanded={open === 'mode'} title={`Mode: ${shown?.label ?? modeId ?? 'the provider default'}${shown?.description ? ` · ${shown.description}` : ''}`} onClick={() => toggle('mode')}>
+          <Icon name="settings" size={12} /><span className="dp-mdl-v">{shown?.label ?? 'default'}</span><Icon name="chevron-down" size={12} />
+        </button>
+      ) : <span className="dp-chip dp-mdl-mode" title={MODE_TITLE}>{mode ? 'default' : 'auto'}</span>}
+      {open === 'mode' && mode && (
+        <div className="dp-pop dp-on dp-mdl-pop dp-mdl-mpop" role="menu">
+          <div className="dp-pop-h"><b>Mode</b><span className="dp-xs dp-t3 dp-ell">{entry?.id}</span></div>
+          <div className="dp-pop-s">
+            {modes.map((m) => (
+              <div key={m.id} role="menuitemradio" aria-checked={m.id === modeId} className={`dp-mi${m.id === modeId ? ' dp-hl' : ''}`} title={m.description ?? m.label} onClick={() => { mode.onPick(m.id === entry?.defaultMode ? null : m.id); setOpen(null); }}>
+                {m.id === modeId ? <Icon name="check" size={14} /> : <span className="dp-mdl-sp" />}
+                <span className="dp-ell">{m.label}</span>
+                {m.id === entry?.defaultMode && <span className="dp-chip dp-mdl-tag">default</span>}
+                {m.tier === 'dangerous' && <span className="dp-chip dp-bad dp-mdl-tag">no prompts</span>}
+                <span className="dp-r dp-ell">{m.description ?? ''}</span>
+              </div>
+            ))}
+          </div>
+          <div className="dp-pop-s dp-mdl-foot dp-xs dp-t3">Paseo's modes for {entry?.id}; the agent starts in this one</div>
+        </div>
+      )}
       {open === 'model' && (
         <div className="dp-pop dp-on dp-mdl-pop" role="menu">
           <div className="dp-pop-h"><b>Model</b><span className="dp-xs dp-t3 dp-ell">{hint}</span></div>

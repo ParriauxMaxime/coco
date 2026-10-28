@@ -18,6 +18,10 @@ button.dp-cv-actrow:focus-visible { box-shadow: 0 0 0 2px var(--dp-focus); }
 span.dp-cv-actrow { cursor: default; }
 .dp-cv-actl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dp-cv-caret { color: var(--dp-t4); }
+.dp-cv-issue { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 2px 0; padding: 6px 8px 6px 10px; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-subtle); font-size: 12.5px; color: var(--dp-t2); }
+.dp-cv-issue > svg.dp-i { color: var(--dp-accent); flex: none; }
+.dp-cv-issue > .dp-ell { flex: 1; }
+.dp-cv-issue > .dp-btn { flex: none; }
 .dp-cv-act.dp-open .dp-cv-caret { transform: rotate(90deg); color: var(--dp-t2); }
 .dp-ag-dot.dp-cv-spin { width: 10px; height: 10px; }
 .dp-cv-actb { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 8px 1px; padding: 4px 0 2px 12px; border-left: 1px solid var(--dp-line); }

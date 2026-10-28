@@ -62,7 +62,8 @@ export type ProviderUsage = { providerId: string; displayName: string; status: '
 // coco's one connection to the daemon (server/paseo-health.ts): the SDK reconnects by itself and re-attaches every subscription
 export type ConnectionState = { status: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'disposed'; reason?: string; nextRetryAt?: string; attempt?: number };
 export type DaemonConnection = { state(): ConnectionState; onChange(l: (s: ConnectionState) => void): () => void; lastError(): string | null; version(): string | null; reconnect(): void };
-export type ProviderEntry = { provider: string; status: string; enabled?: boolean; label?: string; source?: string; error?: string | null };
+// modes and defaultModeId: what Paseo's own new-agent screen offers for the provider, and the mode it starts in
+export type ProviderEntry = { provider: string; status: string; enabled?: boolean; label?: string; source?: string; error?: string | null; modes?: { id: string; label: string; description?: string; colorTier?: string }[]; defaultModeId?: string | null };
 export type WorkspaceHandle ={ id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
 export type DaemonClient = {
   workspaces: {
@@ -339,7 +340,8 @@ export async function timelineOf(agent: Pick<DaemonAgent, 'timeline'>, maxPages 
 export type AgentHistory = { status: string | null; archived: boolean; updatedAt: string | null; userMessages: { text: string; at: string | null }[] };
 export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
-type AgentConfig = { provider?: string; thinking?: string; systemPrompt?: string; mcp?: boolean };
+// mode: a Paseo mode of the provider the owner picked; without it a Claude agent runs in AGENT_MODE, another provider in its own default
+type AgentConfig = { provider?: string; thinking?: string; mode?: string; systemPrompt?: string; mcp?: boolean };
 // every coco agent works on its own; a brief saying not to touch code is what keeps one read-only
 export const AGENT_MODE = 'auto';
 // files sent with a message: images inline, other files by path (Paseo's uploaded_file attachment)
@@ -393,12 +395,12 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     return { workspace, created: true };
   }
 
-  const configFor = ({ provider, thinking, systemPrompt, mcp = true }: AgentConfig) => {
+  const configFor = ({ provider, thinking, mode, systemPrompt, mcp = true }: AgentConfig) => {
     const system = mcp ? [systemPrompt, CARDS_LINE].filter(Boolean).join('\n') : systemPrompt;
     return {
       provider,
       // auto is a Claude mode: another provider (opencode, pi, codex) starts in its own default mode
-      ...(!provider || provider.startsWith('claude') ? { modeId: AGENT_MODE } : {}),
+      ...(mode ? { modeId: mode } : !provider || provider.startsWith('claude') ? { modeId: AGENT_MODE } : {}),
       ...(thinking ? { thinkingOptionId: thinking } : {}),
       ...(system ? { systemPrompt: system } : {}),
       ...(mcp

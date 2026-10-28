@@ -3,6 +3,7 @@ import Markdown from '../components/Markdown.tsx';
 import Blocks from '../components/Blocks.tsx';
 import { PendingPermissions } from './chat/Permission.tsx';
 import Icon from './Icon.tsx';
+import NewAgentMenu from './NewAgentMenu.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prState, prTitle } from './data.ts';
@@ -86,7 +87,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             <h1 className="dp-h1">{w.title}</h1>
           </div>
           <button type="button" className="dp-btn dp-sm" onClick={() => onOpenTab('stack')}><Icon name="layers" size={14} />Stack</button>
-          <button type="button" className="dp-btn dp-sm" onClick={() => onOpenTab('ask')}><Icon name="bot" size={14} />New agent</button>
+          <NewAgentMenu onAsk={() => onOpenTab('ask')} place={`work:${w.slug}`} />
         </div>
         {lead && <div className="dp-lead"><Markdown text={lead} /></div>}
         {w.summary && w.description && w.description !== w.summary && (

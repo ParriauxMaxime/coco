@@ -35,6 +35,16 @@
 .dp-page.dp-agpage { display: flex; flex-direction: column; overflow: hidden; }
 .dp-agpage > .dp-perr, .dp-agpage > .dp-ploading { margin: 24px; }
 .dp-agpage-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; container: ag-tab / inline-size; }
+.dp-newag .dp-na-hello { max-width: 620px; width: 100%; }
+.dp-newag .dp-bot.dp-na-av { width: 32px; height: 32px; border-radius: 9px; }
+.dp-newag .dp-bot.dp-na-av svg.dp-i { width: 16px; height: 16px; }
+.dp-na-where { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; margin-top: 10px; }
+.dp-na-f { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; flex: 1 1 240px; min-width: 0; max-width: 340px; text-align: left; }
+.dp-na-f .dp-inp { width: 100%; }
+.dp-newag .dp-ag-hello .dp-na-what { margin-top: 4px; max-width: 560px; line-height: 17px; }
+.dp-na-err { max-width: 720px; width: 100%; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
+.dp-na-comp textarea { min-height: 120px; max-height: 45vh; overflow: auto; }
+.dp-na-starting { display: flex; align-items: center; gap: 8px; max-width: 720px; margin: 4px auto 0; padding: 0 16px; font-size: 12.5px; color: var(--dp-t3); }
 @container (max-width: 760px) {
   .dp-agp-prov, .dp-agp-path, .dp-agp-usage { display: none; }
   .dp-agp-filters { display: none; }

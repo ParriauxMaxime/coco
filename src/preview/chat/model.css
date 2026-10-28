@@ -5,6 +5,9 @@
 .dp-mdl-mode { flex: none; height: 18px; font-size: 11px; margin-left: 2px; cursor: default; }
 .dp-mdl-pop { left: 0; bottom: calc(100% + 6px); width: 340px; max-height: min(420px, 60vh); overflow: auto; }
 .dp-mdl-tpop { width: 240px; }
+.dp-mdl-mpop { width: 400px; max-width: calc(100vw - 32px); }
+.dp-mdl-mpop .dp-mi .dp-r { max-width: 220px; }
+.dp-comp-f .dp-btn.dp-mdl-btn.dp-mdl-danger, .dp-mdl-danger .dp-i { color: var(--dp-bad); }
 .dp-mdl-pop .dp-pop-h { position: sticky; top: 0; background: var(--dp-panel); z-index: 1; }
 .dp-mdl-pop .dp-pop-h b { flex: none; }
 .dp-mdl-pop .dp-pop-h .dp-ell { min-width: 0; margin-left: auto; }

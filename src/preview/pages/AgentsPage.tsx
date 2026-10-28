@@ -5,6 +5,7 @@ import { PendingPermissions, usePendingPermissions } from '../chat/Permission.ts
 import Icon from '../Icon.tsx';
 import { usageLine, usageTitle } from '../format.ts';
 import { ContextRing } from '../Ring.tsx';
+import { launcherHref } from '../launcher.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import type { AgentsResponse, LinkedAgent, PaseoAgent, PaseoWorkspace } from '../../types.ts';
 import './agents-page.css';
@@ -86,7 +87,10 @@ export default function AgentsPage() {
       icon="bot"
       title="Agents"
       sub={<>From <code>paseo ls --json</code>, refreshed every 15 s. Open an agent for its recent log, or Chat to message it; questions it waits on show first.</>}
-      actions={<button type="button" className="dp-btn" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} className={busy ? 'dp-spin' : undefined} />Refresh</button>}
+      actions={<>
+        <button type="button" className="dp-btn" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} className={busy ? 'dp-spin' : undefined} />Refresh</button>
+        <a className="dp-btn dp-primary" href={launcherHref()} title="Start a free agent in a repo, a work or a PR, as in Paseo"><Icon name="plus" size={14} />New agent</a>
+      </>}
     />
   );
   if (!data) return <Page>{head}{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Reading Paseo agents…" />}</Page>;

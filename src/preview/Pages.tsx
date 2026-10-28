@@ -9,6 +9,7 @@ import WaitingPage from './pages/WaitingPage.tsx';
 import ArchivePage from './pages/ArchivePage.tsx';
 import AgentsPage from './pages/AgentsPage.tsx';
 import AgentPage from './pages/AgentPage.tsx';
+import NewAgentPage from './pages/NewAgentPage.tsx';
 import ProjectsPage from './pages/ProjectsPage.tsx';
 import RepoPage, { NewRepoPage } from './pages/RepoPage.tsx';
 import NewWorkPage from './pages/NewWorkPage.tsx';
@@ -31,6 +32,10 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (root === 'waiting') return { crumbs: [page('Waiting on you')], node: <WaitingPage ov={ov} /> };
   if (root === 'archive') return { crumbs: [page('Archive')], node: <ArchivePage /> };
   if (root === 'purge') return { crumbs: [page('Purge')], node: <PurgePage /> };
+  if (root === 'agents' && a?.split('?')[0] === 'new') {
+    const place = new URLSearchParams(a.split('?')[1] || '').get('place');
+    return { crumbs: [page('Agents', '#/agents'), page('New agent')], node: <NewAgentPage key={place || ''} place={place} /> };
+  }
   if (root === 'agents' && a) return { crumbs: [page('Agents', '#/agents'), page(ov?.agents.find((x) => x.id === id)?.name || id.slice(0, 8))], node: <AgentPage key={id} agentId={id} /> };
   if (root === 'agents') return { crumbs: [page('Agents')], node: <AgentsPage /> };
   if (root === 'projects') return { crumbs: [page('Projects')], node: <ProjectsPage /> };
