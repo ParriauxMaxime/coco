@@ -413,7 +413,8 @@ Buckets Open, Accepted, Resolved and Dismissed with their counts, a PR strip
 strip lists who raised something by trigger: personas, me, agents, team
 (GitHub humans), one per bot group, ci; a click hides a reviewer or a whole
 group. CI failures are hidden by default (`cc.fd.hidden`). Each row: a
-checkbox and its number, severity, claim, file:line, reviewer, age. Tick rows,
+checkbox and its number, severity, the claim across the list's width (two
+lines, then an ellipsis), and under it file:line, reviewer, age. Tick rows,
 or type "pick 1-3, 5, 7" above the list, for a bulk Accept or Dismiss…; the
 header checkbox ticks every row shown. `J` and `K` move, `X` ticks, `A`
 accepts, `D` dismisses. Accept turns a finding into an open local comment at

@@ -3,12 +3,18 @@ button.dp-prb { cursor: pointer; }
 .dp-fi-prs { flex: none; padding: 6px 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-panel); overflow-x: auto; }
 .dp-fi-prs .dp-filters { flex-wrap: nowrap; }
 .dp-fx .dp-flist.dp-fi-list { width: 560px; max-width: 55%; }
-.dp-frow.dp-fi-row { display: flex; align-items: center; gap: 8px; }
+.dp-frow.dp-fi-row { display: flex; align-items: flex-start; gap: 8px; height: auto; min-height: 44px; padding-top: 6px; padding-bottom: 6px; }
 .dp-fi-row > * { flex: none; }
-.dp-fi-claim { flex: 1 1 auto; }
-.dp-fi-loc { flex: none; max-width: 150px; }
-.dp-fi-by { flex: none; width: 64px; text-align: right; }
-.dp-fi-age { flex: none; width: 38px; text-align: right; }
+.dp-fi-row > .dp-fi-cb { margin-top: -2px; }
+.dp-fi-row > .dp-fi-num, .dp-fi-row > .dp-sev { height: 18px; line-height: 18px; }
+.dp-fi-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 18px; }
+.dp-fi-claim { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.dp-fi-meta { display: flex; align-items: center; gap: 8px; min-width: 0; line-height: 16px; }
+.dp-fi-meta > * { flex: none; }
+.dp-fi-meta .dp-prb { height: 16px; }
+.dp-fi-loc { flex: 0 1 auto; }
+.dp-fi-by { flex: 0 1 auto; max-width: 96px; }
+.dp-fi-age { margin-left: auto; }
 .dp-fi-none { padding: 16px 12px; font-size: 12.5px; }
 .dp-h1.dp-fi-title { font-size: 16px; line-height: 24px; margin: 10px 0 2px; }
 .dp-fi-place { font-size: 11px; }
@@ -49,10 +55,6 @@ button.dp-fi-place:hover { color: var(--dp-accent); text-decoration: underline; 
 .dp-sf-i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--dp-line-2); font-size: 11px; color: var(--dp-t2); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .dp-sf-opts { display: flex; flex-wrap: wrap; gap: 8px; }
 .dp-sf-run .dp-chip { height: 18px; }
-@container (min-width: 761px) and (max-width: 1100px) {
+@container (max-width: 420px) {
   .dp-fi-by { display: none; }
-  .dp-fi-loc { max-width: 110px; }
-}
-@container (max-width: 520px) {
-  .dp-fi-by, .dp-fi-loc { display: none; }
 }

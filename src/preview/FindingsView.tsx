@@ -440,11 +440,15 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
                         <Picker on={on} label={`Pick ${i}`} onToggle={() => togglePick([r.key])} />
                         <span className="dp-xs dp-t4 dp-num dp-fi-num">{i}</span>
                         <span className={`dp-sev ${sevClass(r.severity)}`} title={r.severity || 'unrated'}><i /></span>
-                        {group === 'severity' && (p ? <PrChip pr={p} onOpen={onOpenPr} /> : r.n != null ? <span className="dp-prb">#{r.n}</span> : null)}
-                        <span className="dp-ell dp-fi-claim" title={titleOf(r)}>{titleOf(r)}</span>
-                        {loc(r) && <span className="dp-mono dp-xs dp-t3 dp-ell dp-fi-loc" title={r.path}>{loc(r)}</span>}
-                        <span className="dp-xs dp-t3 dp-ell dp-fi-by">{byName(r)}</span>
-                        <span className="dp-xs dp-t4 dp-num dp-fi-age">{ago(r.ts)}</span>
+                        <span className="dp-fi-main">
+                          <span className="dp-fi-claim" title={titleOf(r)}>{titleOf(r)}</span>
+                          <span className="dp-fi-meta dp-xs dp-t3">
+                            {group === 'severity' && (p ? <PrChip pr={p} onOpen={onOpenPr} /> : r.n != null ? <span className="dp-prb">#{r.n}</span> : null)}
+                            {loc(r) && <span className="dp-mono dp-ell dp-fi-loc" title={r.path}>{loc(r)}</span>}
+                            <span className="dp-ell dp-fi-by">{byName(r)}</span>
+                            <span className="dp-t4 dp-num dp-fi-age">{ago(r.ts)}</span>
+                          </span>
+                        </span>
                       </div>
                     );
                   })}
