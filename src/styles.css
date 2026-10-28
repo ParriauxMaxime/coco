@@ -4,7 +4,8 @@
 html[data-theme="dark"] { color-scheme: dark; background: #0e0e10; }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-feature-settings: 'cv11', 'ss01'; }
+/* the shell (.dp, 100vh) scrolls inside its panes; the page itself never does */
+body { margin: 0; overflow: hidden; font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-feature-settings: 'cv11', 'ss01'; }
 
 h1 { font-size: 22px; margin: 6px 0 12px; letter-spacing: -.02em; font-weight: 700; }
 h2 { font-size: 16px; margin: 20px 0 8px; letter-spacing: -.01em; }
