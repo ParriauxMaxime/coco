@@ -32,6 +32,14 @@ const toneNodes = (root: HTMLElement) => Array.from(root.querySelectorAll('g.nod
   .filter((g) => g.classList.length <= 2 && !/fill/.test(g.querySelector('.label-container')?.getAttribute('style') || ''))
   .forEach((g, i) => g.classList.add(`tone-${i % 6}`));
 
+// a wide diagram in a narrow pane scrolls sideways at a readable scale instead of shrinking to a strip
+const MIN_SCALE = 0.7;
+const keepScale = (root: HTMLElement) => {
+  const svg = root.querySelector('svg');
+  const w = svg?.viewBox?.baseVal?.width;
+  if (svg && w) svg.style.minWidth = `${Math.round(w * MIN_SCALE)}px`;
+};
+
 export default function Markdown({ text }: { text?: string | null }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => marked.parse(text || '', { renderer, async: false }), [text]);
@@ -51,7 +59,7 @@ export default function Markdown({ text }: { text?: string | null }) {
     // mermaid sizes labels with the font loaded at run time; Inter arrives later from a webfont and clips them
     Promise.all([loadMermaid(), fontsReady])
       .then(([mermaid]) => { initMermaid(mermaid, resolved); return mermaid.run({ nodes }); })
-      .then(() => nodes.forEach(toneNodes))
+      .then(() => nodes.forEach((n) => { toneNodes(n); keepScale(n); }))
       .catch(() => {});
   }, [html, resolved]);
   useEffect(() => {
