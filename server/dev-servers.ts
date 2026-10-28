@@ -167,7 +167,8 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
       const placement = row.worktree ? await placementOf(row.worktree) : null;
       // a row with no server of its own rides the stack top's when that one runs: what an agent starting here gets
       const shared = placement && !samePath(placement.servedFrom, row.worktree) ? servers.find((s) => s.running && samePath(s.worktree.path, placement.servedFrom)) : null;
-      const server = serverFor({ ...row, holder }, servers) || (shared && { ...shared, leases: shared.leases.map((lease) => ({ ...lease, mine: false })) }) || null;
+      const own = serverFor({ ...row, holder }, servers);
+      const server = (!own?.running && shared && { ...shared, leases: shared.leases.map((lease) => ({ ...lease, mine: false })) }) || own || null;
       const queued = row.worktree ? queue.findIndex((p) => samePath(p.worktree, row.worktree)) : -1;
       return { ...row, holderId: holder.id, server, servedFrom: server && row.worktree && !samePath(server.worktree.path, row.worktree) ? server.worktree.path : null, placement, prebuildQueued: queued < 0 ? null : queued };
     }));
