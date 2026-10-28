@@ -91,14 +91,14 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const model = useAskModel(run);
   const listed = useWorkAgent(slug, tabId);
   const asked = useWaitingByAgent();
-  useSeen(`ask:${id}`);
+  const seen = useSeen(`ask:${id}`);
   useEffect(() => {
     api.askConversation(id).then(convo.open, (e) => toast.error(errorMessage(e)));
   }, [id]);
   const base = listed ? stateOf(listed, asked) : 'done';
   const state = working && base !== 'waiting' ? 'running' : base;
   return (
-    <div className="dp-tabview dp-agtab">
+    <div ref={seen} className="dp-tabview dp-agtab">
       <Header title={listed?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
       <SubagentParent.Provider value={run?.agentId ?? listed?.agentId ?? null}>
         <Log size={events.length + pending.length + cards.length}>

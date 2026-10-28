@@ -262,7 +262,7 @@ function inboundOf(server: ThreadInbound[], local: Sent[]) {
 
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
   const { groups, summaries } = useThreadsOf(slug);
-  useSeen(`thread:${slug}:${key}`);
+  const seen = useSeen(`thread:${slug}:${key}`);
   const [thread, setThread] = useState<ThreadData | null>(null);
   const [error, setError] = useState('');
   // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
@@ -337,7 +337,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     return true;
   };
 
-  if (!thread) return <div className={`dp-thr ${error ? 'dp-thr-err' : 'dp-thr-load'}`}>{error || 'Loading thread…'}</div>;
+  if (!thread) return <div ref={seen} className={`dp-thr ${error ? 'dp-thr-err' : 'dp-thr-load'}`}>{error || 'Loading thread…'}</div>;
   const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
   const cards = thread.cards ?? [];
@@ -354,7 +354,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const booting = posted.length > 0 && !thread.agent?.live && (Boolean(thread.starting) || !group);
   const from = asks.length > turns ? asks[asks.length - turns] : 0;
   return (
-    <div className="dp-thr">
+    <div ref={seen} className="dp-thr">
       <div className="dp-thr-h">
         <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : posted.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
         {group?.status === 'active' && thread.agent && (

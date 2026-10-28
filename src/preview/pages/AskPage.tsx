@@ -47,7 +47,7 @@ function ConvRow({ h, on, live }: { h: AskRun; on: boolean; live?: string | null
 export default function AskPage({ convId }: { convId?: string }) {
   const convo = useAskConversation('ask', { kind: 'global' });
   const { run, events, pending, working, state, history: past, open, reset, send, cards, mergeCard } = convo;
-  useSeen(convId ? `ask:${convId}` : null);
+  const seen = useSeen(convId ? `ask:${convId}` : null);
   const [closing, setClosing] = useState(false);
   useEffect(() => {
     if (convId && run?.id !== convId) api.askConversation(convId).then(open, (e) => toast.error(errorMessage(e)));
@@ -76,7 +76,7 @@ export default function AskPage({ convId }: { convId?: string }) {
   const list: AskRun[] = run && !past.some((h) => h.id === run.id) ? [{ ...run, prompt: run.prompt ?? '', startedAt: run.startedAt ?? '', status: state ?? 'running' }, ...past] : past;
 
   return (
-    <div className="dp-page dp-askp" role="main">
+    <div ref={seen} className="dp-page dp-askp" role="main">
       <PageHead
         icon="message-square"
         title="Ask coco"

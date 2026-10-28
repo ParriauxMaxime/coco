@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { api } from '../api.ts';
 import { subscribe } from '../live.ts';
@@ -43,13 +43,39 @@ const viewOf = (items: WaitingItem[]): WaitingView => {
 // an item the owner just handled leaves the list at once; the next push confirms it
 export const forget = (ids: string[]) => useStore.setState((s) => (s.view ? { view: viewOf(s.view.items.filter((i) => !ids.includes(i.id))) } : s));
 
-// a reply open in front of the owner is read: it stops waiting on them until the agent speaks again
+// whether the element is on screen: not in a hidden tab or pane (the workbench keeps inactive tabs mounted), nor in a hidden browser tab
+function useShown() {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!el) return undefined;
+    let inView = false;
+    const update = () => setShown(inView && !document.hidden);
+    const io = new IntersectionObserver((entries) => {
+      inView = entries[entries.length - 1].isIntersecting;
+      update();
+    });
+    io.observe(el);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      io.disconnect();
+      document.removeEventListener('visibilitychange', update);
+      setShown(false);
+    };
+  }, [el]);
+  return [setEl, shown] as const;
+}
+
+// a reply open in front of the owner is read: it stops waiting on them until the agent speaks again.
+// Returns the ref of the element that shows it: only while it is on screen does it count as read
 export function useSeen(id: string | null) {
   useEffect(connect, []);
   const there = useStore((s) => Boolean(id && s.view?.items.some((i) => i.id === id)));
+  const [ref, shown] = useShown();
   useEffect(() => {
-    if (!id || !there || document.hidden) return;
+    if (!id || !there || !shown) return;
     forget([id]);
     api.ackWaiting([id]).catch(() => {});
-  }, [id, there]);
+  }, [id, there, shown]);
+  return ref;
 }
