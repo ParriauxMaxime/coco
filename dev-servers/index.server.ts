@@ -145,7 +145,14 @@ export default function contribute(server: PluginServerContext) {
       if (typeof body.cwd !== "string" || !body.cwd) return send(res, 400, { error: { code: "invalid_input", message: "cwd is required" } });
       send(res, 200, await prebuilds.enqueue(body.cwd));
     };
-    const http = createHttpApi({ service, present, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }), "/api/prebuilds": prebuildMount } });
+    // coco's purge: a server of a worktree gone or done is stopped, its port released and its record forgotten, unless held, pinned or external
+    const forgetMount: Mount = async (req, res) => {
+      if (req.method !== "POST") return send(res, 405, { error: { code: "method_not_allowed", message: "POST /api/forget with { cwd }" } });
+      const body = JSON.parse((await readJsonText(req)) || "{}") as { cwd?: unknown };
+      if (typeof body.cwd !== "string" || !body.cwd) return send(res, 400, { error: { code: "invalid_input", message: "cwd is required" } });
+      send(res, 200, await service!.archive(body.cwd));
+    };
+    const http = createHttpApi({ service, present, ...api, mounts: { [MCP_PATH]: createMcpHandler({ service, leases, present }), "/api/prebuilds": prebuildMount, "/api/forget": forgetMount } });
     const up = { load, apiPort: values.apiPort, stores, supervisor, leases, service, workspaces, close };
     try {
       const { bind, port } = await http.listen();

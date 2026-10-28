@@ -168,6 +168,7 @@ const purge = createPurge({
   works,
   prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)),
   linked: () => paseoLink.linked(),
+  devServers: { records: () => devServers.records(), forget: (worktree) => devServers.forget(worktree) },
   selfAgentId: process.env.PASEO_AGENT_ID || null,
 });
 const permissions = createPermissions({

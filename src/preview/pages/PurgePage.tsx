@@ -6,7 +6,7 @@ import { workHref } from '../prefs.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
 import './purge.css';
 
-type Kind = 'agent' | 'worktree' | 'workspace';
+type Kind = 'agent' | 'devserver' | 'worktree' | 'workspace';
 type Fact = { text: string; tone?: 'ok' | 'warn' | 'bad' | 'info' };
 type Item = {
   id: string;
@@ -25,6 +25,7 @@ type Result = { kind: Kind; id: string; ok: boolean; error?: string; note?: stri
 
 const KINDS: { kind: Kind; title: string; icon: IconName; act: string; empty: string }[] = [
   { kind: 'agent', title: 'Agents', icon: 'bot', act: 'archived in Paseo', empty: 'No Paseo agent left to sort.' },
+  { kind: 'devserver', title: 'Dev servers', icon: 'terminal', act: 'stopped if needed, their port released and their record forgotten by the dev-servers plugin', empty: 'No dev server known to the dev-servers plugin.' },
   { kind: 'worktree', title: 'Worktrees', icon: 'git-branch', act: 'removed with git worktree remove (never forced), then their Paseo workspaces archived', empty: 'No git worktree besides the main checkouts.' },
   { kind: 'workspace', title: 'Workspaces', icon: 'folder', act: 'archived in Paseo', empty: 'No Paseo workspace.' },
 ];

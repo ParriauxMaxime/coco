@@ -14,7 +14,8 @@ type ExecResult = { ok: boolean; stdout: string; stderr: string };
 type Exec = (cmd: string, args: string[]) => Promise<ExecResult>;
 type DevServersConfig = { devServers?: { api?: { bind?: string; port?: number }; projects?: { warm?: { clone?: string[] } }[] } } | null;
 type Lease = { kind: string; holderId: string | null };
-type PluginServer = { running: boolean; state?: string; buildSeconds?: number; lastError?: string; leases: Lease[]; worktree: { path: string; branch?: string | null } };
+export type DevServerRecord = { id: string; worktree: string; branch: string | null; state: string; running: boolean; pinned: boolean; leases: number; port: number | null };
+type PluginServer = { id?: string; port?: number; pinned?: boolean; running: boolean; state?: string; buildSeconds?: number; lastError?: string; leases: Lease[]; worktree: { path: string; branch?: string | null } };
 type Placement = { mode: string; servedFrom: string; because: string[] };
 type ApiBody = { servers?: PluginServer[]; prebuilds?: { worktree: string }[]; placement?: Placement; error?: { code?: string; message?: string; details?: Record<string, unknown> } };
 type Reply = { status: number; body?: ApiBody } | { down: string };
@@ -276,5 +277,21 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     }
   }
 
-  return { handle, workView, rowsOf, up, lineFor };
+  // the purge page's view: every server record the plugin keeps, and forgetting one by its worktree
+  async function records(): Promise<DevServerRecord[] | null> {
+    const reply = await boardReply();
+    if ('down' in reply || reply.status !== 200 || !reply.body?.servers) return null;
+    return reply.body.servers.map((s) => ({ id: s.id || s.worktree.path, worktree: s.worktree.path, branch: s.worktree.branch || null, state: s.state || 'unknown', running: s.running, pinned: Boolean(s.pinned), leases: s.leases.length, port: s.port ?? null }));
+  }
+  async function forget(worktree: string): Promise<string> {
+    const reply = await call('POST', '/api/forget', { cwd: worktree }, ACTION_MS);
+    lastBoard = null;
+    if ('down' in reply) throw new Error(reply.down);
+    if (reply.status >= 400) throw new Error(reply.body?.error?.message || `the dev servers API answered ${reply.status}`);
+    const r = reply.body as { kept?: string; stopped?: boolean } | undefined;
+    if (r?.kept) throw new Error(`kept: ${r.kept}`);
+    return r?.stopped ? 'stopped and forgotten' : 'forgotten';
+  }
+
+  return { handle, workView, rowsOf, up, lineFor, records, forget };
 }

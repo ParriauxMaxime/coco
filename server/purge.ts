@@ -11,6 +11,7 @@ import type { Exec } from './placement.ts';
 import type { WorkspaceEntry } from './paseo-agent.ts';
 import type { AgentSnapshot, PermissionClient } from './permissions.ts';
 import type { RepoConfig } from './config.ts';
+import type { DevServerRecord } from './dev-servers.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 
 const HOUR = 3600 * 1000;
@@ -22,9 +23,9 @@ const GH_TTL_MS = 5 * 60 * 1000;
 const PARALLEL = 6;
 const HELPERS = /^(brief-writer|brief-lessons|review-plan|notion-.+|gate)$/;
 const RUNNING = ['running', 'initializing'];
-const ORDER: PurgeKind[] = ['agent', 'worktree', 'workspace'];
+const ORDER: PurgeKind[] = ['agent', 'devserver', 'worktree', 'workspace'];
 
-export type PurgeKind = 'agent' | 'worktree' | 'workspace';
+export type PurgeKind = 'agent' | 'devserver' | 'worktree' | 'workspace';
 export type Recommendation = 'purge' | 'keep';
 export type Verdict = { recommendation: Recommendation; reason: string };
 type PrRef = { number: number | null; state: string; label: string; headOid?: string | null };
@@ -32,7 +33,9 @@ type WorkRef = { slug: string; title: string; archived: boolean };
 export type AgentFacts = { kind: 'agent'; status: string; pending: number; activityAt: string | null; helper: string | null; self: boolean; work: WorkRef | null; pr: PrRef | null };
 export type WorktreeFacts = { kind: 'worktree'; main: boolean; self: boolean; dirty: number; unpushed: number; error?: string; liveAgents: number; work: WorkRef | null; pr: PrRef | null; onRemote: boolean | null; activityAt: string | null };
 export type WorkspaceFacts = { kind: 'workspace'; dirExists: boolean; agents: number; liveAgents: number; duplicate: boolean };
-export type Facts = AgentFacts | WorktreeFacts | WorkspaceFacts;
+// a dev server is judged by its worktree: gone, or up for purge itself (merged PR, archived work)
+export type DevServerFacts = { kind: 'devserver'; state: string; running: boolean; pinned: boolean; leases: number; worktreeExists: boolean; worktree: Verdict | null };
+export type Facts = AgentFacts | DevServerFacts | WorktreeFacts | WorkspaceFacts;
 
 export type Fact = { text: string; tone?: 'ok' | 'warn' | 'bad' | 'info' };
 export type PurgeItem = Verdict & {
@@ -61,6 +64,8 @@ type Deps = {
   works: { list(): Work[] };
   prInfo: (work: Work, n: number) => Promise<PrInfo | null | undefined>;
   linked?: () => Linked[];
+  // the dev-servers plugin's records, null when it is off; forget stops one and drops its record
+  devServers?: { records(): Promise<DevServerRecord[] | null>; forget(worktree: string): Promise<string> };
   selfAgentId?: string | null;
   now?: () => number;
   ttlMs?: number;
@@ -114,6 +119,15 @@ export function recommend(f: Facts, now = Date.now()): Verdict {
     if (idle >= WORKTREE_STALE) return purge(`no activity for ${ago(idle)}, in no live work`);
     return keep(`last active ${ago(idle)} ago`);
   }
+  if (f.kind === 'devserver') {
+    if (f.state === 'external') return keep('started by hand');
+    if (f.running) return keep(`running (${f.state})`);
+    if (f.leases) return keep(`held by ${plural(f.leases, 'agent')}`);
+    if (f.pinned) return keep('pinned');
+    if (!f.worktreeExists) return purge('its worktree is gone');
+    if (f.worktree?.recommendation === 'purge') return purge(`its worktree is up for purge: ${f.worktree.reason}`);
+    return keep(f.worktree ? `its worktree stays: ${f.worktree.reason}` : 'its worktree stays');
+  }
   const along = f.agents ? `; its ${plural(f.agents, 'agent')} ${f.agents === 1 ? 'is' : 'are'} up for purge too` : '';
   if (f.liveAgents) return keep(plural(f.liveAgents, 'live agent'));
   if (!f.dirExists) return purge(`its folder is gone${along}`);
@@ -138,7 +152,7 @@ type Scan = PurgeList & { acts: Map<string, Act> };
 type Tree = { path: string; branch: string; main: boolean; repo: { name: string; path: string; github: string | null } };
 const keyOf = (kind: PurgeKind, id: string) => `${kind}:${id}`;
 
-export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, repos, extraDirs = () => [], works, prInfo, linked = () => [], selfAgentId = null, now = Date.now, ttlMs = TTL_MS }: Deps) {
+export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, repos, extraDirs = () => [], works, prInfo, linked = () => [], devServers, selfAgentId = null, now = Date.now, ttlMs = TTL_MS }: Deps) {
   let cached: { at: number; scan: Promise<Scan> } | null = null;
   const ghCache = new Map<string, { at: number; pr: Promise<PrRef | null> }>();
 
@@ -276,6 +290,7 @@ export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, r
       acts.set(keyOf('agent', a.id), async () => void (await (await client()).agents.ref(a.id).archive()));
     }
 
+    const treeVerdicts = new Map<string, Verdict>();
     const live = (a: AgentSnapshot) => verdicts.get(a.id)?.recommendation === 'keep';
     const agentDir = (a: AgentSnapshot) => a.cwd || (a.workspaceId ? spaceDir.get(a.workspaceId) : null) || null;
     for (const b of treeBase) {
@@ -284,6 +299,7 @@ export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, r
       const liveAgents = agents.filter((a) => live(a) && treeOf(agentDir(a))?.t.path === t.path).length;
       const facts: WorktreeFacts = { kind: 'worktree', main: t.main, self: isSelf, ...state, liveAgents, work: b.work, pr: b.pr, onRemote: b.onRemote, activityAt: b.activityAt };
       const v = recommend(facts, at);
+      treeVerdicts.set(t.path, v);
       const ids = spaces.filter((w) => samePath(w.workspaceDirectory, t.path)).map((w) => w.id);
       const shown: Fact[] = [
         { text: t.branch || 'detached' },
@@ -301,6 +317,22 @@ export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, r
         if (!r.ok) throw new Error(r.why);
         return r.unarchived.length ? `workspaces left: ${r.unarchived.map((u) => `${u.workspaceId} (${u.why})`).join(', ')}` : undefined;
       });
+    }
+
+    const servers = devServers ? await devServers.records().catch((e: unknown) => { fail('dev servers')(e); return null; }) : null;
+    for (const s of servers || []) {
+      const tree = treeBase.find((b) => samePath(b.t.path, s.worktree));
+      const facts: DevServerFacts = { kind: 'devserver', state: s.state, running: s.running, pinned: s.pinned, leases: s.leases, worktreeExists: fs.existsSync(s.worktree), worktree: tree ? treeVerdicts.get(tree.t.path) || null : null };
+      const v = recommend(facts, at);
+      const shown: Fact[] = [
+        { text: s.port ? `${s.state} :${s.port}` : s.state, tone: s.running ? 'info' : undefined },
+        ...(s.branch ? [{ text: s.branch }] : []),
+        ...(!facts.worktreeExists ? [{ text: 'worktree gone', tone: 'bad' as const }] : []),
+        ...(s.leases ? [{ text: plural(s.leases, 'lease'), tone: 'info' as const }] : []),
+        ...(s.pinned ? [{ text: 'pinned' }] : []),
+      ];
+      items.push({ id: s.worktree, kind: 'devserver', title: path.basename(s.worktree), status: s.state, activityAt: tree?.activityAt || null, where: { ...(tree ? { repo: tree.t.repo.name } : {}), ...(tree?.work ? { work: { slug: tree.work.slug, title: tree.work.title } } : {}), ...(tree?.pr ? { pr: tree.pr.label } : {}), path: s.worktree }, facts: shown, locked: s.state === 'external', ...v });
+      if (s.state !== 'external') acts.set(keyOf('devserver', s.worktree), () => devServers!.forget(s.worktree));
     }
 
     // on a folder several workspaces share, the one with live agents (else the latest active) stays; the others are duplicates
@@ -385,7 +417,7 @@ export function createPurge({ APP, exec = defaultExec, client, listWorkspaces, r
     if (!raw?.length) throw new HttpError(400, 'items required: [{ kind, id }]');
     return raw.map((x: unknown) => {
       const o = (typeof x === 'object' && x !== null ? x : {}) as Record<string, unknown>;
-      if (!ORDER.includes(o.kind as PurgeKind) || typeof o.id !== 'string' || !o.id) throw new HttpError(400, 'each item needs a kind (agent, worktree, workspace) and an id');
+      if (!ORDER.includes(o.kind as PurgeKind) || typeof o.id !== 'string' || !o.id) throw new HttpError(400, 'each item needs a kind (agent, devserver, worktree, workspace) and an id');
       return { kind: o.kind as PurgeKind, id: o.id, force: o.force === true };
     });
   };
