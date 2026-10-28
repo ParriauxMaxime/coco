@@ -516,6 +516,7 @@ export type DispatchEntry = { id: string; kind: string; label: string; edits: bo
 export type PreflightResult = { checks: { name: string; ok: boolean; detail: string; fix: string }[]; at?: string };
 export type DispatchBody ={ entry: string; key?: string | number | null; prompt?: string; persona?: string; args?: string; edits?: boolean; commentIds?: string[] } & ModelChoice;
 export type JobState = 'running' | 'needs-you' | 'done' | 'failed' | 'lost';
+export type ServerInfo = { running: string | null; head: string | null; behind: number; dirty: boolean; startedAt: string };
 export type Job = { id: string; work: string | null; pr: string | null; action: string; label: string; kind: 'agent' | 'command' | 'sync' | 'setup'; state: JobState; agentId: string | null; startedAt: string; endedAt: string | null; output: string; error: string };
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };

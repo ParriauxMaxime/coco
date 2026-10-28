@@ -6,7 +6,7 @@ import type {
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
 } from './types.ts';
-import type { Card, CardAnswerBody, DriftResponse, Job } from './types.ts';
+import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { ModelCatalog, ModelChoice } from './types.ts';
 
@@ -50,6 +50,8 @@ const rulesBase = (slug: string | null | undefined) => (slug ? `${works(slug)}/r
 
 export const api = {
   config: () => get<Partial<Config>>('/api/config'),
+  server: () => get<ServerInfo>('/api/server'),
+  restartServer: () => postEmpty<{ restarting: boolean }>('/api/server/restart'),
   overview: () => get<Overview>('/api/overview'),
   saveLayout: (body: { repos: string[] } | { repo: string; works: string[] }) => send<unknown>('PUT', '/api/layout', body),
   addRepo: (source: string) => postJson('/api/repos', { source }).then(jsonOrError<AddRepoResult>),

@@ -49,6 +49,7 @@ import { createSubagents } from './subagents.ts';
 import { createModels } from './models.ts';
 import { createHub } from './events.ts';
 import { createJobs } from './jobs.ts';
+import { createSelf } from './self.ts';
 import { SKIPPED, createCards } from './cards.ts';
 import { createStackEdit } from './stack-edit.ts';
 import { createStackSplit } from './stack-split.ts';
@@ -70,6 +71,7 @@ const REPO = config.repo.path;
 const REVIEWS = REPO ? path.join(REPO, config.repo.reviewsDir) : '';
 const DATA = config.dataDir;
 const DIST = path.join(APP, 'dist');
+const self = createSelf({ APP, DATA });
 const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
@@ -452,6 +454,7 @@ async function api(req: Req, res: Res, url: URL) {
   const [root, a, b, c] = parts;
   try {
     if (root === 'models') return send(res, 200, await models.list());
+    if (root === 'server') return self.handle(req, res, parts, send);
     if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider), cloneDir: config.cloneDir });
     if (root === 'client-error' && req.method === 'POST') {
       const line = `${new Date().toISOString()} ${(await readBody(req)).slice(0, 20000)}\n`;

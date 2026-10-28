@@ -10,6 +10,7 @@ import { WorkViews } from './WorkSidebar.tsx';
 import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './prefs.ts';
 import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
+import ServerStatus from './ServerStatus.tsx';
 import './preview.css';
 
 export type Command = { id: string; label: string; hint?: string; icon: IconName; run: () => void };
@@ -306,6 +307,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
           <span className="dp-sp" />
           {waiting.length > 0 && <span className="dp-sbi dp-wait" onClick={() => (prefs.questions === 'tab' && onWaitingTab ? onWaitingTab() : setWaitOpen((w) => !w))}><Icon name="message-square" />{waiting.length} waiting on you</span>}
           {statusRight}
+          <ServerStatus />
           <span className="dp-sbi" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
           <span className="dp-sbi" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>
         </footer>
