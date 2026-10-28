@@ -123,7 +123,7 @@ export const kitOf = (work: Pick<Work, 'links' | 'slug'>, row: StackRow, config:
   const skill = (gate: string) => config.gateSkills?.[gate]?.[0];
   return [
     kit.body && `PR body${skill('kit-body') ? ` drafted with the \`${skill('kit-body')}\` skill` : ''}, product effect first.`,
-    kit.diagram && `Mermaid diagram in the body${skill('kit-diagram') ? `, \`${skill('kit-diagram')}\` house style` : ''}.`,
+    kit.diagram && `Mermaid diagram in the body${skill('kit-diagram') ? `, drawn by invoking the \`${skill('kit-diagram')}\` skill (never from memory: its init line and new/same/rm classes)` : ''}.`,
     kinds.includes('video') && (kit.video ? `Demo video${skill('kit-video') ? ` (\`${skill('kit-video')}\`)` : ''} when a user sees the change.` : 'No demo video for this PR.'),
     ...kinds.filter((k) => !CORE_KIT.includes(k) && kit[k]).map((k) => `${capitalize(k)} companion PR updated for the surface this PR changes.`),
     `Hand each kit file to cocopilot so it keeps the head it was made for: \`cocopilot.import_artifact\` with \`{ path, pr: "${rowKey(row)}", kind: "${kinds.join('|')}" }\`, or without that MCP \`curl -s -X POST ${config.baseUrl}/api/works/${work.slug}/artifacts -H 'Content-Type: application/json' -d '{"path":"<file>","pr":"${rowKey(row)}","kind":"${kinds.join('|')}"}'\`.`,

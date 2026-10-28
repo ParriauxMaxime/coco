@@ -108,6 +108,46 @@ in-memory sort differently; that contrast is the reason for this diagram.
 branch adds. Take the layers from the repo rules (`AGENTS.md`, `CLAUDE.md`,
 architecture docs) and say plainly when an arrow points against them.
 
+## 5b. Product variant
+
+Use it when a product manager reads the diagram (a work description, a
+decision page) or when the brief asks for plain product words. It replaces
+§2's real-symbol naming and §4's legend line; the init and the classes stay.
+
+- Nodes say what the user does and sees, a permission by its UI name. No
+  class, function, error code or table.
+- A choice is the question a product manager would ask:
+  `{"Owns the invoice?"}`.
+- No legend: `flowchart LR` with `subgraph Before` and `subgraph After`
+  (`direction TB` inside) carries the comparison. The line above the
+  diagram states the point plus the one colour rule that matters.
+- `rm` on the outcome the PR stops, `new` on the check and the answer it
+  adds, `same` on what stays as it was.
+- Under ~8 nodes.
+
+```text
+%%{init: {'flowchart': {'curve': 'linear', 'rankSpacing': 45}}}%%
+flowchart LR
+  subgraph Before
+    direction TB
+    U1["Support agent"] -->|"exports invoices"| S1["Every invoice<br/>of the account"]
+  end
+  subgraph After
+    direction TB
+    U2["Support agent"] --> Q2{"Can read invoices?"}
+    Q2 -->|yes| S2["Invoices exported"]
+    Q2 -->|no| N2["Export refused"]
+  end
+  Before ~~~ After
+  class U1,U2,S2 same
+  class S1 rm
+  class Q2,N2 new
+
+classDef new fill:#d3f9d8,stroke:#2f9e44,stroke-width:2px,color:#1b4332
+classDef same fill:#e9ecef,stroke:#868e96,color:#343a40
+classDef rm fill:#ffd8d8,stroke:#e03131,stroke-width:2px,color:#6a1212
+```
+
 ## 6. Verify
 
 Render each block before handing it over. When `npx -y
