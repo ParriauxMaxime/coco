@@ -1,6 +1,8 @@
 /* Monaco host */
 .cc-editor-wrap { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 .cc-editor { flex: 1; min-height: 240px; width: 100%; }
+/* Monaco's diff editor reads className as a string on mouseup: an icon's svg there threw, so the click goes to the button around it */
+.cc-editor svg { pointer-events: none; }
 .cc-editor-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dp-t3); font-size: 13px; pointer-events: none; }
 
 /* status of a comment: line tint in the editor, stripe on its card */
