@@ -69,9 +69,9 @@ import { createPrReply } from './pr-reply.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createSpares } from './spares.ts';
 import { createScreenshots } from './screenshot.ts';
-import { createBrowserHost, createBrowserTabs, daemonLink } from './browser-host.ts';
+import { cocoOrigins, createBrowserHost, createBrowserTabs, daemonLink } from './browser-host.ts';
 import { createAgentChecks } from './agent-checks.ts';
-import { allowedHosts, guard, guarded } from './guard.ts';
+import { VITE_PORT, allowedHosts, guard, guarded } from './guard.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
@@ -93,7 +93,9 @@ const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
 const HOSTS = allowedHosts(PORT, config.baseUrl, config.hosts);
 const screenshots = createScreenshots({ chromePath: config.screenshot.chrome, origin: `http://${BIND === '0.0.0.0' || BIND === '::' ? '127.0.0.1' : BIND}:${PORT}`, hosts: [...config.hosts, ...config.screenshot.hosts] });
-const browserHost = createBrowserHost({ mode: config.browserHost === 'off' ? 'off' : 'auto', tabs: createBrowserTabs({ hold: screenshots.hold }), connect: async () => daemonLink(await daemonUrl(), process.env.PASEO_PASSWORD || undefined) });
+// agents' tabs get a Chrome of their own: every request it makes to coco fails, which the screenshots of coco cannot have
+const agentChrome = createScreenshots({ chromePath: config.screenshot.chrome, origin: `http://127.0.0.1:${PORT}` });
+const browserHost = createBrowserHost({ mode: config.browserHost === 'off' ? 'off' : 'auto', tabs: createBrowserTabs({ hold: agentChrome.hold, block: cocoOrigins([PORT, 8777, VITE_PORT], [config.baseUrl, ...config.hosts]) }), connect: async () => daemonLink(await daemonUrl(), process.env.PASEO_PASSWORD || undefined) });
 
 interface FeedbackItem {
   node?: unknown;
@@ -761,3 +763,5 @@ http
     browserHost.start();
   });
 process.once('exit', () => browserHost.stop());
+// a promise nobody awaited fails: logged, the server stays up (Node's default would exit)
+process.on('unhandledRejection', (e) => console.error('cocopilot: unhandled rejection:', e instanceof Error ? e.stack || e.message : e));

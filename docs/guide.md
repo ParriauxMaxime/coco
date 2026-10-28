@@ -1486,11 +1486,18 @@ type, keypress, screenshot, evaluate, logs…), run by a browser host: normally
 the Paseo desktop app, so with the app closed they fail with "no browser
 automation host". With `browserHost: "auto"` (the default) coco checks every
 15 s: while no Paseo app process runs, it registers itself as the host on its
-own daemon connection and runs every command in the screenshot Chrome above,
-one tab per `browser_new_tab`, kept per workspace (an agent sees only its
-workspace's tabs), refs `@e1…` from the latest snapshot. Only http(s) pages
-open (no `file://`, `chrome://`); dialogs are accepted and reported with the
-command. The daemon sends a new tab to the most recently registered host, so
+own daemon connection and runs every command in a headless Chrome of its own
+(not the screenshot one), one tab per `browser_new_tab`, kept per workspace (an
+agent sees only its workspace's tabs; a request with no workspace reaches
+none) in one browser context per workspace (cookies and storage apart, dropped
+with the workspace's last tab), refs `@e1…` from the latest snapshot. Only
+http(s) pages open (no `file://`, `chrome://`), never coco itself: every
+request that Chrome makes to coco's hosts (127.0.0.1, localhost, [::1], 0.0.0.0
+on coco's port, 8777 and 8778; `baseUrl` and `hosts` on any port) fails,
+redirects, frames, popups and workers included, and coco's API refuses a
+request carrying the `CocoAgentBrowser` User-Agent its tabs send. `upload` takes
+files inside the agent's workspace only (symlinks followed). Dialogs are
+accepted and reported with the command. The daemon sends a new tab to the most recently registered host, so
 coco never registers while the app runs: once the app is back coco keeps
 serving its open tabs, then steps down when they are closed. Tabs untouched
 for 30 min close. One coco server hosts at a time (a pid lock in the temp

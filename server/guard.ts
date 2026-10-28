@@ -1,5 +1,7 @@
 // CSRF / DNS rebinding guard for /api/ and /works/: only our own hosts, and a browser Origin only from them. Clients with no Origin (mcp, plugins, curl) pass.
-const VITE_PORT = 8778;
+export const VITE_PORT = 8778;
+// the User-Agent mark of agents' browser tabs (browser-host.ts): a page an agent drives never reaches coco's API
+export const AGENT_UA = 'CocoAgentBrowser';
 // a shell's input and output (a workspace's terminals, the event stream carrying them): a foreign Origin is refused on a read too
 const SHELL = /^\/api\/(events(\/|\?|$)|workspaces\/[^/]+\/(terminals|scripts)(\/|\?|$))/;
 
@@ -17,8 +19,9 @@ export function allowedHosts(port: number, baseUrl: string, extra: string[] = []
 export const guarded = (pathname: string) => pathname.startsWith('/api/') || pathname.startsWith('/works/');
 
 // null when allowed, else the reason
-export function guard(hosts: Set<string>, req: { method?: string; url?: string; headers: { host?: string; origin?: string } }): string | null {
+export function guard(hosts: Set<string>, req: { method?: string; url?: string; headers: { host?: string; origin?: string; 'user-agent'?: string } }): string | null {
   if (!hosts.has(String(req.headers.host || '').toLowerCase())) return 'host not allowed';
+  if (String(req.headers['user-agent'] || '').includes(AGENT_UA)) return 'refused from an agent\'s browser tab';
   const m = req.method || 'GET';
   const origin = req.headers.origin;
   const originHost = origin?.match(/^https?:\/\/(.+)$/i)?.[1].toLowerCase();

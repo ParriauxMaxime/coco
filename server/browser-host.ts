@@ -8,6 +8,9 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { DaemonClient as RawDaemon } from '@getpaseo/client/internal/daemon-client';
 import type { BrowserAutomationExecuteRequestMessage as ExecRequest, BrowserAutomationExecuteResponseMessage as ExecResponse } from '@getpaseo/client/internal/daemon-client';
+import { AGENT_UA } from './guard.ts';
+import { inside } from './workspace-files.ts';
+import { errorMessage, errorStatus } from './core-types.ts';
 import type { Cdp, ChromeHold, Msg } from './screenshot.ts';
 import type { Req, Res, Send } from './core-types.ts';
 
@@ -45,8 +48,24 @@ class Fail extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const stale = (ref: string) => new Fail('browser_stale_ref', `Browser element reference ${ref} is stale. Take a new snapshot and try again.`);
 
-// http(s) only: no file://, chrome://, data: or javascript: in coco's Chrome
-export function pageUrl(raw: string): string {
+// coco's own origins: an agent's page reaching them could drive coco's API as the owner. Loopback names on coco's ports, its other hosts on any port.
+export type Block = (u: URL) => boolean;
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '0.0.0.0']);
+export function cocoOrigins(ports: number[], hosts: string[]): Block {
+  const at = new Set(ports.map(String));
+  const named = new Set<string>();
+  for (const h of hosts) {
+    try {
+      const u = new URL(h.includes('://') ? h : `http://${h}`);
+      if (LOOPBACK.has(u.hostname)) at.add(u.port || (u.protocol === 'https:' ? '443' : '80'));
+      else named.add(u.hostname);
+    } catch {}
+  }
+  return (u) => named.has(u.hostname) || (LOOPBACK.has(u.hostname) && at.has(u.port || (u.protocol === 'https:' ? '443' : '80')));
+}
+
+// http(s) only: no file://, chrome://, data: or javascript: in coco's Chrome, nor coco itself
+export function pageUrl(raw: string, block?: Block): string {
   let u: URL;
   try {
     u = new URL(raw);
@@ -54,7 +73,22 @@ export function pageUrl(raw: string): string {
     throw new Fail('browser_denied', `not a URL: ${raw}`);
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Fail('browser_denied', `only http(s) pages open in coco's browser, not ${u.protocol}`);
+  if (block?.(u)) throw new Fail('browser_denied', `${u.host} is coco itself: an agent's browser tab cannot open it`);
   return u.href;
+}
+
+// a file an agent uploads: only from its own workspace, symlinks followed
+export async function workspaceFile(cwd: string | null | undefined, p: string): Promise<string> {
+  if (!cwd) throw new Fail('browser_denied', 'uploads come from the agent\'s workspace: this agent has none');
+  const abs = path.resolve(cwd, p);
+  const base = await fs.promises.realpath(cwd).catch(() => cwd);
+  const rel = [cwd, base].map((d) => path.relative(d, abs)).find((r) => r && !r.startsWith('..') && !path.isAbsolute(r));
+  if (!rel) throw new Fail('browser_denied', `${p} is outside the workspace ${cwd}`);
+  try {
+    return (await inside(cwd, rel.split(path.sep).join('/'))).real;
+  } catch (e) {
+    throw new Fail(errorStatus(e) === 404 ? 'browser_unknown_error' : 'browser_denied', `${p}: ${errorMessage(e)}`);
+  }
 }
 
 const KEYS: Record<string, [string, number, string?]> = {
@@ -186,38 +220,105 @@ const consoleEntry = (m: Msg): ConsoleEntry | null => {
   return null;
 };
 
-// the tabs agents keep in coco's Chrome, and each command run on them
-export function createBrowserTabs({ hold, idleMs = TAB_IDLE_MS, now = Date.now }: { hold: () => ChromeHold; idleMs?: number; now?: () => number }) {
+// the tabs agents keep in coco's Chrome, and each command run on them. block: coco's origins, failed for every request of that Chrome (pages,
+// redirects, frames, popups, workers), so the Chrome must be the agents' own, never the one screenshotting coco
+export function createBrowserTabs({ hold, block, idleMs = TAB_IDLE_MS, now = Date.now }: { hold: () => ChromeHold; block?: Block; idleMs?: number; now?: () => number }) {
   const tabs = new Map<string, Tab>();
   let chrome: ChromeHold | null = null;
+  // new_tab calls still opening: they keep the Chrome and their workspace's context
+  let opening = 0;
+  let armed: { cdp: Cdp; ready: Promise<void> } | null = null;
+  // one browser context (cookies, storage) per workspace, disposed with its last tab
+  const contexts = new Map<string, { cdp: Cdp; id: Promise<string>; opening: number }>();
 
+  const idle = () => {
+    if (tabs.size || opening || !chrome) return;
+    chrome.release();
+    chrome = null;
+  };
+  const forget = (workspaceId: string) => {
+    const c = contexts.get(workspaceId);
+    if (!c || c.opening || [...tabs.values()].some((t) => t.workspaceId === workspaceId)) return;
+    contexts.delete(workspaceId);
+    c.id.then((browserContextId) => c.cdp.send('Target.disposeBrowserContext', { browserContextId })).catch(() => {});
+  };
   const drop = (tab: Tab) => {
     tab.off();
     tabs.delete(tab.browserId);
-    if (!tabs.size && chrome) {
-      chrome.release();
-      chrome = null;
-    }
+    forget(tab.workspaceId);
+    idle();
   };
   const close = (tab: Tab) => {
     drop(tab);
     tab.cdp.send('Target.closeTarget', { targetId: tab.targetId }).catch(() => {});
   };
 
+  // the whole Chrome: a request to coco fails, any other goes on; one that is never answered stays blocked
+  function arm(cdp: Cdp) {
+    if (!block || armed?.cdp === cdp) return armed?.ready;
+    const off = cdp.on((m) => {
+      if (m.method !== 'Fetch.requestPaused' || m.sessionId) return;
+      let hit = true;
+      try {
+        hit = block(new URL(String(m.params?.request?.url)));
+      } catch {}
+      cdp.send(hit ? 'Fetch.failRequest' : 'Fetch.continueRequest', { requestId: m.params?.requestId, ...(hit ? { errorReason: 'BlockedByClient' } : {}) }).catch(() => {});
+    });
+    const a = { cdp, ready: cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] }).then(() => {}) };
+    a.ready.catch(() => {
+      off();
+      if (armed === a) armed = null;
+    });
+    armed = a;
+    return a.ready;
+  }
+
+  function contextOf(cdp: Cdp, workspaceId: string) {
+    let c = contexts.get(workspaceId);
+    if (!c || c.cdp !== cdp) {
+      const entry = { cdp, id: cdp.send('Target.createBrowserContext', {}).then((r) => String(r.browserContextId)), opening: 0 };
+      entry.id.catch(() => contexts.get(workspaceId) === entry && contexts.delete(workspaceId));
+      contexts.set(workspaceId, (c = entry));
+    }
+    return c;
+  }
+
   function find(browserId: string, workspaceId: string | undefined) {
     const tab = tabs.get(browserId);
-    if (!tab || (workspaceId && tab.workspaceId !== workspaceId)) throw new Fail('browser_tab_not_found', `No browser tab found for ID: ${browserId}`);
+    if (!tab || !workspaceId || tab.workspaceId !== workspaceId) throw new Fail('browser_tab_not_found', `No browser tab found for ID: ${browserId}`);
     return tab;
   }
 
   async function open(req: ExecRequest, url: string | undefined): Promise<Tab> {
     if (!req.workspaceId) throw new Fail('browser_denied', 'browser tabs belong to a workspace: this agent has none');
-    const target = url ? pageUrl(url) : undefined;
+    const workspaceId = req.workspaceId;
+    const target = url ? pageUrl(url, block) : undefined;
     chrome ??= hold();
-    const cdp = await chrome.browser();
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
-    const tab: Tab = { browserId: randomUUID(), targetId, sessionId, cdp, workspaceId: req.workspaceId, agentId: req.agentId ?? null, url: 'about:blank', title: '', usedAt: now(), ...VIEWPORT, console: [], dialogs: [], shot: null, off: () => {} };
+    opening++;
+    let ctx: ReturnType<typeof contextOf> | null = null;
+    let cdp!: Cdp;
+    let targetId = '';
+    let sessionId = '';
+    try {
+      cdp = await chrome.browser();
+      await arm(cdp);
+      ctx = contextOf(cdp, workspaceId);
+      ctx.opening++;
+      ({ targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId: await ctx.id }));
+      ({ sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true }));
+    } catch (e) {
+      if (targetId) cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+      throw e;
+    } finally {
+      opening--;
+      if (ctx) ctx.opening--;
+      // a failed open lets its context and the Chrome go when nothing else holds them
+      if (!sessionId) {
+        forget(workspaceId);
+        idle();
+      }
+    }
+    const tab: Tab = { browserId: randomUUID(), targetId, sessionId, cdp, workspaceId, agentId: req.agentId ?? null, url: 'about:blank', title: '', usedAt: now(), ...VIEWPORT, console: [], dialogs: [], shot: null, off: () => {} };
     const s = (method: string, params?: Record<string, unknown>) => cdp.send(method, params, sessionId);
     tab.off = cdp.on((m) => {
       if (m.method === 'Target.detachedFromTarget' && m.params?.sessionId === sessionId) return void drop(tab);
@@ -234,7 +335,8 @@ export function createBrowserTabs({ hold, idleMs = TAB_IDLE_MS, now = Date.now }
     });
     tabs.set(tab.browserId, tab);
     try {
-      await Promise.all([s('Page.enable'), s('Runtime.enable'), s('Log.enable')]);
+      const { userAgent } = await cdp.send('Browser.getVersion');
+      await Promise.all([s('Page.enable'), s('Runtime.enable'), s('Log.enable'), s('Emulation.setUserAgentOverride', { userAgent: `${userAgent || 'Mozilla/5.0'} ${AGENT_UA}` })]);
       await s('Emulation.setDeviceMetricsOverride', { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
       if (target) await goto(tab, target);
     } catch (e) {
@@ -302,7 +404,8 @@ export function createBrowserTabs({ hold, idleMs = TAB_IDLE_MS, now = Date.now }
 
   async function run(req: ExecRequest, command: Command): Promise<Result> {
     if (command.command === 'list_tabs') {
-      const mine = [...tabs.values()].filter((t) => !req.workspaceId || t.workspaceId === req.workspaceId);
+      if (!req.workspaceId) throw new Fail('browser_denied', 'browser tabs belong to a workspace: this agent has none');
+      const mine = [...tabs.values()].filter((t) => t.workspaceId === req.workspaceId);
       const active = mine.reduce<Tab | null>((a, t) => (!a || t.usedAt > a.usedAt ? t : a), null);
       const list = await Promise.all(mine.map(async (t) => ({ browserId: t.browserId, workspaceId: t.workspaceId, url: (await info(t)).url, title: t.title, isActive: t === active, isLoading: false, ...(({ canGoBack, canGoForward }) => ({ canGoBack, canGoForward }))(await history(t)) })));
       return { command: 'list_tabs', tabs: list };
@@ -409,7 +512,7 @@ export function createBrowserTabs({ hold, idleMs = TAB_IDLE_MS, now = Date.now }
         }
       }
       case 'navigate': {
-        await goto(tab, pageUrl(command.args.url));
+        await goto(tab, pageUrl(command.args.url, block));
         return { command: 'navigate', browserId, url: (await info(tab)).url };
       }
       case 'back':
@@ -435,9 +538,7 @@ export function createBrowserTabs({ hold, idleMs = TAB_IDLE_MS, now = Date.now }
       }
       case 'upload': {
         const { ref, filePaths } = command.args;
-        const files = filePaths.map((p) => path.resolve(req.cwd || os.homedir(), p));
-        const missing = files.find((f) => !fs.existsSync(f));
-        if (missing) throw new Fail('browser_unknown_error', `no such file: ${missing}`);
+        const files = await Promise.all(filePaths.map((p) => workspaceFile(req.cwd, p)));
         await s('DOM.setFileInputFiles', { files, objectId: await element(tab, ref) });
         return { command: 'upload', browserId, ref, filePaths };
       }
@@ -605,9 +706,18 @@ export function createBrowserHost({ mode, tabs, connect, appRunning = paseoAppRu
     });
     link = l;
     try {
+      const failed = (req: ExecRequest) => (e: unknown) => log(`browser host: cannot answer ${req?.requestId}: ${e instanceof Error ? e.message : String(e)}`);
       await l.register((req) => {
-        if (req.command.command === 'list_tabs' && req.requestId.includes(':')) other = true;
-        tabs.execute(req).then((payload) => link === l && l.respond({ type: 'browser.automation.execute.response', payload }));
+        try {
+          if (req.command.command === 'list_tabs' && req.requestId.includes(':')) other = true;
+          // the link may have dropped meanwhile: respond throws then, and an unhandled rejection would take the server down
+          tabs
+            .execute(req)
+            .then((payload) => void (link === l && l.respond({ type: 'browser.automation.execute.response', payload })))
+            .catch(failed(req));
+        } catch (e) {
+          failed(req)(e);
+        }
       });
     } catch (e) {
       if (link === l) down(`the daemon refused the registration: ${e instanceof Error ? e.message : String(e)}`);

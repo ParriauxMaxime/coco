@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBrowserHost, createBrowserTabs, keyEvents, pageUrl } from './browser-host.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { cocoOrigins, createBrowserHost, createBrowserTabs, keyEvents, pageUrl, workspaceFile } from './browser-host.ts';
 import type { HostLink } from './browser-host.ts';
 import type { Cdp, Msg } from './screenshot.ts';
 
@@ -11,10 +14,13 @@ function fakeChrome(answers: Record<string, (p: Record<string, any>) => Record<s
   const calls: Call[] = [];
   const listeners = new Set<(m: Msg) => void>();
   let targets = 0;
+  let contexts = 0;
   const cdp: Cdp = {
     async send(method, params = {}, sessionId) {
       calls.push({ method, params, sessionId });
       if (answers[method]) return answers[method](params);
+      if (method === 'Target.createBrowserContext') return { browserContextId: `C${++contexts}` };
+      if (method === 'Browser.getVersion') return { userAgent: 'Mozilla/5.0 HeadlessChrome/150.0.0.0' };
       if (method === 'Target.createTarget') return { targetId: `T${++targets}` };
       if (method === 'Target.attachToTarget') return { sessionId: `S-${params.targetId}` };
       if (method === 'Target.getTargetInfo') return { targetInfo: { url: 'http://localhost:3000/', title: 'Dev' } };
@@ -35,9 +41,11 @@ function fakeChrome(answers: Record<string, (p: Record<string, any>) => Record<s
 
 const req = (command: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ type: 'browser.automation.execute.request' as const, requestId: 'browser_1', agentId: 'agent-1', workspaceId: 'ws-1', cwd: '/tmp', command, ...extra }) as never;
 
+const block = cocoOrigins([8790, 8777, 8778], ['http://127.0.0.1:8790', 'coco.local']);
+
 async function withTab(answers?: Parameters<typeof fakeChrome>[0]) {
   const chrome = fakeChrome(answers);
-  const tabs = createBrowserTabs({ hold: chrome.hold });
+  const tabs = createBrowserTabs({ hold: chrome.hold, block });
   const r = await tabs.execute(req({ command: 'new_tab', args: { url: 'http://localhost:3000/' } }));
   assert.equal(r.ok, true, JSON.stringify(r));
   const browserId = r.ok && r.result.command === 'new_tab' ? r.result.browserId : '';
@@ -87,6 +95,101 @@ test('navigate refuses file:// and chrome:// pages; an unknown tab is not found'
   const r = await tabs.execute(req({ command: 'reload', args: { browserId: '11111111-1111-4111-8111-111111111111' } }));
   assert.equal(!r.ok && r.error.code, 'browser_tab_not_found');
   assert.throws(() => pageUrl('javascript:alert(1)'), /only http/);
+});
+
+test('coco\'s own origins never open in an agent\'s tab, whatever the spelling; dev servers do', async () => {
+  for (const url of ['http://127.0.0.1:8777/', 'http://localhost:8778/#/work/x', 'HTTP://LOCALHOST:8790/api/works', 'http://u:p@127.0.0.1:8790/api/agents', 'http://[::1]:8777/', 'http://0.0.0.0:8790/', 'http://127.1:8790/', 'http://2130706433:8777/', 'https://coco.local/', 'http://coco.local:9000/api']) {
+    assert.throws(() => pageUrl(url, block), /coco itself/, url);
+  }
+  for (const url of ['http://localhost:3000/', 'http://127.0.0.1:8000/', 'https://example.com/', 'http://coco.local.example.com/']) assert.equal(pageUrl(url, block), new URL(url).href, url);
+  const { tabs, browserId } = await withTab();
+  const r = await tabs.execute(req({ command: 'navigate', args: { browserId, url: 'http://localhost:8790/' } }));
+  assert.equal(!r.ok && r.error.code, 'browser_denied');
+  const n = await tabs.execute(req({ command: 'new_tab', args: { url: 'http://127.0.0.1:8777/' } }));
+  assert.equal(!n.ok && n.error.code, 'browser_denied');
+});
+
+test('the whole Chrome fails every request to coco (redirects, frames, popups, workers) before a tab opens, and marks its tabs\' User-Agent', async () => {
+  const { chrome } = await withTab();
+  const fetchOn = chrome.calls.findIndex((c) => c.method === 'Fetch.enable');
+  assert.ok(fetchOn >= 0 && fetchOn < chrome.calls.findIndex((c) => c.method === 'Target.createTarget'));
+  assert.equal(chrome.calls[fetchOn].sessionId, undefined, 'on the browser session, not a tab\'s');
+  chrome.emit({ method: 'Fetch.requestPaused', params: { requestId: 'r1', request: { url: 'http://u@localhost:8777/api/agents/a/mode' } } });
+  chrome.emit({ method: 'Fetch.requestPaused', params: { requestId: 'r2', request: { url: 'http://localhost:3000/app.js' } } });
+  const answer = (id: string) => chrome.calls.find((c) => c.method.startsWith('Fetch.') && c.params.requestId === id);
+  assert.deepEqual([answer('r1')?.method, answer('r1')?.params.errorReason], ['Fetch.failRequest', 'BlockedByClient']);
+  assert.equal(answer('r2')?.method, 'Fetch.continueRequest');
+  assert.equal(chrome.calls.find((c) => c.method === 'Emulation.setUserAgentOverride')?.params.userAgent, 'Mozilla/5.0 HeadlessChrome/150.0.0.0 CocoAgentBrowser');
+  const again = createBrowserTabs({ hold: chrome.hold, block });
+  await again.execute(req({ command: 'new_tab', args: {} }));
+  assert.equal(chrome.calls.filter((c) => c.method === 'Fetch.enable').length, 2, 'each tab set arms its Chrome once');
+});
+
+test('a Chrome that cannot block coco opens no tab', async () => {
+  const chrome = fakeChrome({ 'Fetch.enable': () => {
+    throw new Error('no Fetch');
+  } });
+  const tabs = createBrowserTabs({ hold: chrome.hold, block });
+  const r = await tabs.execute(req({ command: 'new_tab', args: { url: 'http://localhost:3000/' } }));
+  assert.equal(r.ok, false);
+  assert.ok(!chrome.calls.some((c) => c.method === 'Target.createTarget'));
+  assert.equal(chrome.released(), 1, 'the Chrome is let go');
+});
+
+test('each workspace browses in its own browser context, disposed with its last tab; a failed open lets Chrome go', async () => {
+  const { chrome, tabs, browserId } = await withTab();
+  const second = await tabs.execute(req({ command: 'new_tab', args: {} }));
+  const other = await tabs.execute(req({ command: 'new_tab', args: {} }, { workspaceId: 'ws-2' }));
+  assert.deepEqual(chrome.calls.filter((c) => c.method === 'Target.createTarget').map((c) => c.params.browserContextId), ['C1', 'C1', 'C2']);
+  await tabs.execute(req({ command: 'close_tab', args: { browserId } }));
+  assert.ok(!chrome.calls.some((c) => c.method === 'Target.disposeBrowserContext'), 'ws-1 still has a tab');
+  await tabs.execute(req({ command: 'close_tab', args: { browserId: second.ok && second.result.command === 'new_tab' ? second.result.browserId : '' } }));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(chrome.calls.filter((c) => c.method === 'Target.disposeBrowserContext').map((c) => c.params.browserContextId), ['C1']);
+  await tabs.execute(req({ command: 'close_tab', args: { browserId: other.ok && other.result.command === 'new_tab' ? other.result.browserId : '' } }, { workspaceId: 'ws-2' }));
+  assert.equal(chrome.released(), 1);
+
+  const broken = fakeChrome({ 'Target.createTarget': () => {
+    throw new Error('Chrome said no');
+  } });
+  const t2 = createBrowserTabs({ hold: broken.hold, block });
+  const r = await t2.execute(req({ command: 'new_tab', args: {} }));
+  assert.equal(!r.ok && r.error.message, 'Chrome said no');
+  assert.equal(broken.released(), 1, 'the hold is released');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(broken.calls.some((c) => c.method === 'Target.disposeBrowserContext'));
+});
+
+test('a request with no workspace reaches no tab', async () => {
+  const { tabs, browserId } = await withTab();
+  const list = await tabs.execute(req({ command: 'list_tabs', args: {} }, { workspaceId: null }));
+  assert.equal(!list.ok && list.error.code, 'browser_denied');
+  const snap = await tabs.execute(req({ command: 'snapshot', args: { browserId } }, { workspaceId: undefined }));
+  assert.equal(!snap.ok && snap.error.code, 'browser_tab_not_found');
+});
+
+test('upload takes files of the agent\'s workspace only, symlinks followed', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-upload-'));
+  const ws = path.join(root, 'ws');
+  fs.mkdirSync(path.join(ws, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(ws, 'sub', 'a.png'), 'x');
+  fs.writeFileSync(path.join(root, 'secret'), 'x');
+  fs.symlinkSync(path.join(root, 'secret'), path.join(ws, 'link'));
+  try {
+    const real = fs.realpathSync(path.join(ws, 'sub', 'a.png'));
+    assert.equal(await workspaceFile(ws, 'sub/a.png'), real);
+    assert.equal(await workspaceFile(ws, path.join(ws, 'sub', 'a.png')), real);
+    assert.equal(await workspaceFile(ws, path.join(fs.realpathSync(ws), 'sub', 'a.png')), real);
+    for (const p of ['../secret', path.join(root, 'secret'), 'link', '/etc/hosts', os.homedir() + '/.ssh/id_rsa']) await assert.rejects(workspaceFile(ws, p), (e: { code?: string }) => e.code === 'browser_denied', p);
+    await assert.rejects(workspaceFile(ws, 'nope.png'), /no nope.png/);
+    await assert.rejects(workspaceFile(undefined, 'sub/a.png'), (e: { code?: string }) => e.code === 'browser_denied');
+    const { tabs, browserId, chrome } = await withTab();
+    const r = await tabs.execute(req({ command: 'upload', args: { browserId, ref: '@e1', filePaths: ['/etc/hosts'] } }, { cwd: ws }));
+    assert.equal(!r.ok && r.error.code, 'browser_denied');
+    assert.ok(!chrome.calls.some((c) => c.method === 'DOM.setFileInputFiles'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('screenshot returns the PNG, keeps it as the tab\'s last shot, and close_tab lets Chrome go', async () => {
@@ -187,6 +290,27 @@ test('with the app closed coco registers, answers requests, and steps down once 
   assert.equal(host.state().registered, false);
   assert.equal(f.closed(), 1);
   assert.equal(lock.take(), true, 'the lock is released');
+});
+
+test('an answer the daemon link cannot send is logged, not an unhandled rejection', async () => {
+  const f = fakeLink();
+  f.link.respond = () => {
+    throw new Error('not connected');
+  };
+  const lines: string[] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: unknown) => void unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const host = createBrowserHost({ mode: 'auto', tabs: createBrowserTabs({ hold: fakeChrome().hold }), connect: async () => f.link, appRunning: async () => false, lock: memLock(), log: (l) => void lines.push(l) });
+    await host.tick();
+    f.request(req({ command: 'list_tabs', args: {} }));
+    for (let i = 0; i < 20 && !lines.some((l) => l.includes('cannot answer')); i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(lines.some((l) => l.includes('cannot answer browser_1: not connected')), lines.join('\n'));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
 });
 
 test('"off", another coco holding the lock, and a dropped daemon connection', async () => {
