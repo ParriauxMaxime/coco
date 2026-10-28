@@ -8,9 +8,13 @@ export const reportError = (kind: string, error: unknown, extra: Record<string, 
   void fetch('/api/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
 };
 
+// Monaco's diff worker answers a diff editor already disposed (a card shut or a tab switched mid-compute)
+const MONACO_NOISE = /no diff result available/;
+const noise = (e: Event, error: unknown) => MONACO_NOISE.test(error instanceof Error ? error.message : String(error)) && (e.preventDefault(), true);
+
 export function watchErrors() {
-  addEventListener('error', (e) => reportError('window', e.error ?? e.message));
-  addEventListener('unhandledrejection', (e) => reportError('promise', e.reason));
+  addEventListener('error', (e) => noise(e, e.error ?? e.message) || reportError('window', e.error ?? e.message));
+  addEventListener('unhandledrejection', (e) => noise(e, e.reason) || reportError('promise', e.reason));
 }
 
 type Props = { children: ReactNode; label?: string; inline?: boolean };
