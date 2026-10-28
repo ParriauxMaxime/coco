@@ -8,6 +8,8 @@ import { isLocalKey, keyLabel, reviewKeyOfTab } from '../code/ids.ts';
 import ReviewSidebar, { TONE } from '../code/ReviewSidebar.tsx';
 import ReviewFileCard from '../code/ReviewFileCard.tsx';
 import ReviewActivity from '../code/ReviewActivity.tsx';
+import { openCommentThread } from '../code/CommentZone.tsx';
+import { threadKey } from '../../components/Thread.tsx';
 import Fold from '../code/Fold.tsx';
 import { useInspector } from '../../preview/inspector-state.ts';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
@@ -280,6 +282,7 @@ export default function Review({ tabId }: { tabId: string }) {
     if (!asked || !opened) return;
     useInspector.setState({ jump: null });
     jump(asked.c);
+    openCommentThread(threadKey.comment(n, asked.c.id), asked.c.id);
   }, [asked, Boolean(opened)]);
 
   useEffect(() => {

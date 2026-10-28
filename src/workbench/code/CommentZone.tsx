@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { FindingBody } from '../../components/Blocks.tsx';
@@ -58,6 +58,13 @@ function VerdictRow({ onJump, verdicts, extra }: { onJump?: () => void; verdicts
 // a coco watch point: ✓ accept, ✕ dismiss, or talk it over: Dispatch accepts it as a comment and sends the text to a scoped agent,
 // thread keys shown open in the diff: survives a dispatched proposal turning into a comment and windowed card unmounts
 const openThreads = new Set<string>();
+const openers = new Map<string, () => void>();
+// unfold a comment card and open its thread, mounted now or once it scrolls into view
+export function openCommentThread(key: string, id: string) {
+  openThreads.add(key);
+  foldedCards.delete(id);
+  openers.get(key)?.();
+}
 
 // Accept / Dismiss in the box keep the text as the reason (work notes). onDispatched(threadKey) once the agent has it
 export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; rv: ReviewHandle; onJump?: (c: ReviewComment) => void; onDispatched?: (key: string) => void }) {
@@ -175,12 +182,12 @@ export function ProposalZone({ comment, rv }: { comment: Proposal; rv: ReviewHan
 
 // comment cards folded down to their head line, to read the code under them; kept across windowed unmounts
 const foldedCards = new Set<string>();
-function useFolded(id: string): [boolean, () => void] {
+function useFolded(id: string): [boolean, () => void, (on: boolean) => void] {
   const [folded, setFolded] = useState(() => foldedCards.has(id));
   return [folded, () => {
     foldedCards[folded ? 'delete' : 'add'](id);
     setFolded(!folded);
-  }];
+  }, setFolded];
 }
 const FoldCaret = ({ folded, onClick }: { folded: boolean; onClick: () => void }) => (
   <button type="button" className={`dp-caret${folded ? '' : ' dp-open'}`} aria-expanded={!folded} title={folded ? 'Expand the comment' : 'Collapse the comment to its head line'} onClick={onClick}><Icon name="chevron-right" size={12} /></button>
@@ -204,9 +211,15 @@ type CommentZoneProps = {
 // onSave(comment, body) · onDelete(comment) (also cancels a draft) · onStatus(comment, status) · thread: { slug, n, onSettled } to talk with the PR agent
 export default function CommentZone({ comment, onSave, onDelete, onStatus, draft = false, thread }: CommentZoneProps) {
   const [editing, setEditing] = useState(false);
-  const [folded, toggleFold] = useFolded(comment.id);
+  const [folded, toggleFold, setFolded] = useFolded(comment.id);
   const key = thread?.slug ? threadKey.comment(thread.n, comment.id) : null;
   const [talking, setTalking] = useState(() => Boolean(key && openThreads.has(key)));
+  useEffect(() => {
+    if (!key) return undefined;
+    const open = () => { setFolded(false); setTalking(true); };
+    openers.set(key, open);
+    return () => { if (openers.get(key) === open) openers.delete(key); };
+  }, [key]);
   const toggleTalking = () => {
     if (key) openThreads[talking ? 'delete' : 'add'](key);
     setTalking(!talking);
