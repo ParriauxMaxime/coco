@@ -754,8 +754,14 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
   type Found = Awaited<ReturnType<typeof commitOf>>;
   // the suggestion goes in the thread with coco's checks running, started once the thread is written
-  function addCommit(slug: string, key: string, thread: Thread, group: CodeGroup, found: Found) {
+  async function addCommit(slug: string, key: string, thread: Thread, group: CodeGroup, found: Found) {
     if (thread.messages.some((m) => m.suggestion?.kind === 'commit' && m.suggestion.commit === found.commit)) return null;
+    // an amended or re-made commit replaces the pending one it rewrote; one the new commit builds on stays, as Approve picks commits one by one
+    for (const m of thread.messages) {
+      const old = m.suggestion;
+      if (old?.kind !== 'commit' || old.state !== 'pending') continue;
+      if (!(await git(REPO, ['merge-base', '--is-ancestor', old.commit, found.commit])).ok) old.state = 'superseded';
+    }
     const s: CommitSuggestion = { kind: 'commit', commit: found.commit, files: found.files, diff: found.diff, state: 'pending' };
     const cwd = group.worktree;
     if (cwd && worktrees?.verify) s.checks = { state: 'running', at: new Date().toISOString(), head: s.commit };
@@ -811,16 +817,16 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const later: Promise<unknown>[] = [];
     for (const { key, found: f } of found.out) {
       if (held?.key === key) {
-        const start = addCommit(slug, key, held.thread, found.group, f);
+        const start = await addCommit(slug, key, held.thread, found.group, f);
         if (start) {
           mine++;
           start();
         }
         continue;
       }
-      later.push(withLock(`${slug}:${key}`, () => {
+      later.push(withLock(`${slug}:${key}`, async () => {
         const thread = read(slug, key);
-        const start = addCommit(slug, key, thread, found.group, f);
+        const start = await addCommit(slug, key, thread, found.group, f);
         if (!start) return;
         write(slug, thread);
         start();
@@ -838,9 +844,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (key != null && !group.items.includes(String(key))) throw new HttpError(400, 'that item is not in this group');
     if (key != null) {
       const info = await commitOf(String(commit));
-      await withLock(`${slug}:${key}`, () => {
+      await withLock(`${slug}:${key}`, async () => {
         const thread = read(slug, String(key));
-        const start = addCommit(slug, String(key), thread, group, info);
+        const start = await addCommit(slug, String(key), thread, group, info);
         write(slug, thread);
         if (start) start();
       });

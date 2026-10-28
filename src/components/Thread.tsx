@@ -30,7 +30,7 @@ const SHOWN_TURNS = 3;
 const MORE_TURNS = 3;
 const OPEN = ['pending', 'queued', 'conflict'];
 const STATE_CHIP: Record<string, string> = { pending: 'dp-info', queued: 'dp-warn', conflict: 'dp-bad', applied: 'dp-ok', dismissed: '' };
-const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch' };
+const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch', superseded: 'the agent rewrote this commit: approve the newer one' };
 
 type ThreadsOf = { summaries: Record<string, ThreadSummary>; groups: ThreadGroup[] };
 export type Verdict = { label: string; title?: string; on: (text: string) => void; allowEmpty?: boolean; className?: string; pending?: boolean };
