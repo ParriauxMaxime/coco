@@ -23,7 +23,7 @@ import { createFindings } from './findings.ts';
 import { createMedia } from './media.ts';
 import { createBriefs, renderBrief } from './briefs.ts';
 import { createRules } from './rules.ts';
-import { createGates, gatesFor, skillName } from './gates.ts';
+import { createGates, runSkill } from './gates.ts';
 import { createDispatch } from './dispatch.ts';
 import { createPreflight, isVideoEntry } from './preflight.ts';
 import { parseKey } from './stack.ts';
@@ -127,12 +127,12 @@ threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
-const gates = createGates({ DATA, config, works, reviewAgent, reviewPlan, agents: paseoAgents });
+const kit = createKit({ REPO, DATA, config, works, betaFlags });
+const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents });
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }) });
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent });
-const kit = createKit({ REPO, DATA, config, works, betaFlags });
 // the directory of the workspace remembered for a row, which its agents run in
 const rowDir = async (slug: string, key: RowKey) => {
   const id = works.get(slug)?.stack?.find((s) => rowKey(s) === key)?.workspaceId;
@@ -169,7 +169,7 @@ permissions.onAgent((a) => {
   if (a?.lastUsage && isCocoAgent(a)) agentUsage.record(a.id, fromPaseo(a.lastUsage));
 });
 const bodyGate = () => {
-  const skill = skillName(gatesFor(config).find((g) => g.id === 'kit-body')?.skills?.[0]);
+  const skill = runSkill(config, 'kit-body');
   return skill ? `gate:kit-body:${skill}` : null;
 };
 // an Ask agent's answer goes through its conversation and a thread agent's through its thread, so the turn it opens is logged there; a one-shot run is not reopened for it
@@ -368,7 +368,10 @@ function workProgress(w: Work) {
     else out.ready += 1;
     if (st && (st.reviewDecision === 'CHANGES_REQUESTED' || st.ci === 'failure')) out.attention = true;
   }
-  return out;
+  // open PRs by current milestone, as the stack view last computed them
+  const milestones: Record<string, number> = {};
+  for (const r of gates.lastSummary(w.slug) || []) if (r.current) milestones[r.current] = (milestones[r.current] || 0) + 1;
+  return { ...out, milestones };
 }
 
 const summarize = (w: Work) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null });

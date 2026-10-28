@@ -86,7 +86,7 @@ The server port and bind address are command-line arguments, not config:
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `kitKinds` | `["body", "diagram", "video"]` | Kit pieces a PR is expected to ship with (PR body, diagram, demo video), tracked fresh or stale per head. Add your own kinds, e.g. `"docs"` for a companion docs PR. |
-| `gateSkills` | every gate `[]` | Skills each checklist gate starts in the PR agent, by gate id: `self-review`, `history`, `kit-body`, `kit-diagram`, `kit-video`, `review-pr`. An empty list leaves the gate as a manual tick. The first `kit-diagram` skill is also named to Ask runs. |
+| `gateSkills` | every key `[]` | Skills started in the PR agent, by key: `self-review` and `review-pr` (the self-reviewed milestone and the Review code chevron), `history` (Tidy history on the commits badge), `kit-<kind>` (redo a stale kit piece). Each one is also an Agent menu entry. The first `kit-diagram` skill is also named to Ask runs. |
 
 ### Review
 

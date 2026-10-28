@@ -55,22 +55,38 @@ const HEAD_BADGE: Record<DriftHead['state'], { tone: string; icon: IconName; tex
   remote: { tone: '', icon: 'git-branch', text: () => 'On GitHub only: no local branch' },
 };
 
-// the PR's local head against GitHub, with the push one click away when local commits are ahead
-export function PushBadge({ slug, prKey }: { slug: string; prKey: string }) {
+const TIDY_RED = 15;
+const commitsTone = (n: number) => (n >= TIDY_RED ? 'dp-bad' : n > 5 ? 'dp-warn' : 'dp-ok');
+
+// the PR's local head against GitHub with the push one click away, and its own commits with a tidy once there are too many
+export function HeadBadges({ slug, prKey }: { slug: string; prKey: string }) {
   const { data, failed, pending, busy, go } = useDrift(slug);
   const head = data?.heads?.find((h) => String(h.key) === prKey);
   if (!head) return null;
   const badge = HEAD_BADGE[head.state];
-  const item = data?.drift.find((i) => i.id === `${prKey}:unpushed`);
+  const push = data?.drift.find((i) => i.id === `${prKey}:unpushed`);
+  const tidy = data?.drift.find((i) => i.id === `${prKey}:history`);
+  const button = (it: DriftItem, a: DriftAction | null | undefined, primary: boolean) => a && <button type="button" className={`dp-btn dp-sm${primary ? ' dp-primary' : ''}${pendingClass(primary && pending === it.id)}`} disabled={busy} title={a.type === 'run' || a.type === 'copy' ? a.command : undefined} onClick={() => go(it, a)}>{a.label}</button>;
   return (
-    <div className={`dp-push ${badge.tone}`}>
-      <div className="dp-push-row">
-        <Icon name={badge.icon} size={16} />
-        <span className="dp-grow">{badge.text(head)}</span>
-        {item?.also && <button type="button" className="dp-btn dp-sm" disabled={busy} title={item.also.type === 'copy' ? item.also.command : undefined} onClick={() => go(item, item.also as DriftAction)}>{item.also.label}</button>}
-        {item?.action?.type === 'run' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === item.id)}`} disabled={busy} title={item.action.command} onClick={() => go(item, item.action as DriftAction)}>{item.action.label}</button>}
+    <div className="dp-push-strip">
+      <div className={`dp-push ${badge.tone}`}>
+        <div className="dp-push-row">
+          <Icon name={badge.icon} size={16} />
+          <span className="dp-grow">{badge.text(head)}</span>
+          {push && button(push, push.also, false)}
+          {push?.action?.type === 'run' && button(push, push.action, true)}
+        </div>
+        {push && failed[push.id] && <pre className="dp-cmdline">{failed[push.id]}</pre>}
       </div>
-      {item && failed[item.id] && <pre className="dp-cmdline">{failed[item.id]}</pre>}
+      {head.commits !== undefined && (
+        <div className={`dp-push dp-push-commits ${commitsTone(head.commits)}`} title="Commits of this PR on top of its base">
+          <div className="dp-push-row">
+            <Icon name="git-fork" size={16} />
+            <span className="dp-grow">{plural(head.commits)}</span>
+            {tidy && button(tidy, tidy.action, true)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

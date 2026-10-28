@@ -3,7 +3,7 @@
 // Unpushed commits, kit pieces older than the head (kit.ts), a GitHub stack that differs from the work's, and two suggestions: update the body after a newer video, review a pushed head.
 import { cacheFile, swrCache } from './swr.ts';
 import { sameSha } from './kit.ts';
-import { gatesFor, skillName } from './gates.ts';
+import { runSkill } from './gates.ts';
 import { keyLabel, rowKey } from './stack.ts';
 import { gitWorktrees } from './worktrees.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
@@ -14,17 +14,19 @@ import type { Change } from './works.ts';
 const TTL_MS = 30000;
 const PUSH_MS = 600000;
 const TAIL = 8000;
+// more own commits than this asks for a history tidy
+const TIDY_FROM = 5;
 const BRANCH = /^[\w][\w./-]*$/;
 
 export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'run'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
 // what a `run` action does, kept as data: the command is built from it on the server
 export type DriftRun = { type: 'push'; branch: string } | { type: 'base'; number: number; base: string };
 export type DriftItem = { id: string; key: RowKey | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction; run?: DriftRun };
-// a PR's local branch tip against GitHub's head; remote: no local branch
-export type DriftHead = { key: RowKey; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number };
+// a PR's local branch tip against GitHub's head (remote: no local branch), and its own commits on top of its base
+export type DriftHead = { key: RowKey; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number; commits?: number };
 export type Drift = { drift: DriftItem[]; next: DriftItem[]; heads: DriftHead[]; at: string };
 
-type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
+type KitPiece = { id: string; label: string; state: string; expected?: boolean; madeFor: string | null; at: string | null; source: string | null };
 type Rows = { key: RowKey; number: number | null; pr: PrInfo | null; branch: string | null; tip: string | null; personas: string[]; gates: Work['stack'][number]['gates'] };
 type Deps = {
   config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: { path?: string; github?: string; defaultBranch?: string } };
@@ -40,7 +42,6 @@ type Deps = {
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 
 export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir }: Deps) {
-  const GATES = gatesFor(config);
   const DEFAULT = config.repo.defaultBranch || 'main';
   const GH = config.repo.github || '';
   const cached = swrCache<Drift>(TTL_MS, cacheFile(DATA, 'drift'));
@@ -67,7 +68,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
   }
 
   const skillEntry = (gate: string) => {
-    const skill = skillName(GATES.find((g) => g.id === gate)?.skills?.[0]);
+    const skill = runSkill(config, gate);
     return skill ? `gate:${gate}:${skill}` : null;
   };
 
@@ -92,7 +93,10 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       const pr = r.pr as PrInfo;
       const remote = pr.headOid || null;
       const head = remote ? await headOf(r.tip, remote) : null;
-      if (head) heads.push({ key: r.key, ...head });
+      const own = pr.base && BRANCH.test(pr.base) ? await commits(`origin/${pr.base}..${r.tip || remote}`) : undefined;
+      if (head) heads.push({ key: r.key, ...head, ...(own === undefined ? {} : { commits: own }) });
+      const tidy = skillEntry('history');
+      if (own && own > TIDY_FROM) add(drift, r.key, 'history', `${own} commits on top of ${pr.base}: tidy the history`, tidy ? { type: 'dispatch', entry: tidy, label: 'Tidy history' } : null);
       const count = head?.state === 'diverged' ? -1 : head?.state === 'ahead' ? head.count : 0;
       if (count) {
         const push = count > 0 && r.branch && BRANCH.test(r.branch) && !pr.isCrossRepository ? toRun({ type: 'push', branch: r.branch }, 'Push', 'Copy push') : null;
@@ -101,7 +105,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
 
       const pieces = await kit.view(slug, String(r.key)).then((v) => v.pieces, () => []);
       // a companion PR in another repo (a link) only has dates, too weak to call it stale
-      const stale = pieces.filter((p) => p.state === 'stale' && p.id !== 'notion' && !/^https?:/.test(p.source || ''));
+      const stale = pieces.filter((p) => p.state === 'stale' && p.expected !== false && p.id !== 'notion' && !/^https?:/.test(p.source || ''));
       for (const p of stale) {
         const entry = skillEntry(`kit-${p.id}`);
         add(drift, r.key, `kit-${p.id}`, `${p.label} is older than the head${p.madeFor ? ` (made for ${p.madeFor.slice(0, 7)})` : ''}`, entry ? { type: 'dispatch', entry, label: p.id === 'body' ? 'Update PR body' : `Redo ${p.id}` } : { type: 'tab', tab: 'artifacts', label: 'Artifacts' });

@@ -445,5 +445,5 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return act(slug, { action, keys: [row.key], reason, pr: String(n) });
   }
 
-  return { handle, collect, act, actOnComment };
+  return { handle, collect, act, actOnComment, snapshot };
 }

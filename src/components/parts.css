@@ -54,7 +54,14 @@
 @media (prefers-reduced-motion: no-preference) { .dp-tst { animation: dp-rise-in .18s ease-out; } }
 
 .dp-gt { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.dp-gt-rail { display: flex; flex-wrap: wrap; gap: 4px; }
+.dp-gt-rail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dp-gt-sep { color: var(--dp-t4); font-size: 12px; }
+.dp-split-wrap { position: relative; display: inline-flex; }
+.dp-split-wrap .dp-split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.dp-split-wrap .dp-split-more { padding: 0 6px; margin-left: 1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.dp-split-pop { top: calc(100% + 4px); left: 0; padding: 4px 0; }
+.dp-split-pop .dp-mi { all: unset; box-sizing: border-box; display: flex; align-items: center; width: calc(100% - 8px); height: 26px; padding: 0 10px; margin: 0 4px; border-radius: var(--dp-r1); font: 500 12.5px/1 var(--dp-mono, monospace); color: var(--dp-t1); cursor: pointer; }
+.dp-split-pop .dp-mi:hover { background: var(--dp-hover); }
 .dp-gt-p { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid var(--dp-line); border-radius: 999px; color: var(--dp-t3); font: 500 11.5px/1 var(--dp-f); white-space: nowrap; cursor: pointer; }
 .dp-gt-p:hover { background: var(--dp-hover); color: var(--dp-t1); }
 .dp-gt-p:focus-visible { box-shadow: 0 0 0 2px var(--dp-focus); }
@@ -76,6 +83,9 @@
 .dp-kl { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .dp-kl + .dp-kl { margin-top: 6px; }
 .dp-kl-t { margin-right: 2px; font-size: 12px; color: var(--dp-t3); }
+.dp-kl-p { cursor: pointer; font-family: inherit; }
+.dp-kl-p:hover { filter: brightness(1.15); }
+.dp-kl-p.dp-kl-out { color: var(--dp-t4); background: transparent; border-style: dashed; }
 
 .dp-dsp { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-subtle); }
 .dp-dsp-pre { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--dp-t2); }

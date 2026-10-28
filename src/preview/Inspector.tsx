@@ -7,15 +7,16 @@ import { CodeRefRoot } from '../components/CodeRefs.tsx';
 import { PendingPermissions, usePendingPermissions } from './chat/Permission.tsx';
 import { focusOldestCard } from './chat/Card.tsx';
 import { PersonaChip } from '../components/PersonaChip.tsx';
-import GateRail from '../workbench/tabs/Gates.tsx';
+import GateRail, { ReviewSplit, useGates } from '../workbench/tabs/Gates.tsx';
 import KitLine from '../workbench/tabs/KitLine.tsx';
-import { PushBadge } from '../workbench/tabs/DriftPanel.tsx';
+import { HeadBadges } from '../workbench/tabs/DriftPanel.tsx';
 import { briefKeyOfTab } from './BriefView.tsx';
 import { openCodeAt } from '../workbench/tabs/Code.tsx';
 import ReviewActivity from '../workbench/code/ReviewActivity.tsx';
 import { useComments } from '../workbench/code/use-comments.ts';
 import { findingsKeyOfTab, isLocalKey, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
 import type { PrKey, WorkPr } from '../workbench/types.ts';
+import type { Gate } from '../types.ts';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { AgentDot } from './AgentsSection.tsx';
@@ -58,6 +59,7 @@ function Sec({ title, aside, wide, children }: { title?: string; aside?: ReactNo
 export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: string | null; asTab?: boolean }) {
   const [dispatching, setDispatching] = useState(false);
   const pr = key === null ? undefined : d.prs.find((p) => prKey(p) === key);
+  const gates = useGates(d.slug, pr?.number ? key : null);
   if (!pr || key === null) return <div className="dp-ins-empty">Select a PR</div>;
   const state = prState(pr);
   const numbered = Boolean(pr.number);
@@ -86,12 +88,13 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
         {branch && <div className="dp-row dp-g4 dp-xs dp-t3"><Icon name="git-branch" size={12} /><span className="dp-ell dp-mono">{branch}</span>{pr.base && <span>→ {pr.base}</span>}</div>}
         {numbered && (
           <div className="dp-row dp-g4" style={{ marginTop: 8 }}>
-            <button type="button" className="dp-btn dp-sm dp-primary" onClick={() => openTab(`review-${pr.number}`)}><Icon name="file" size={14} />Review code</button>
+            <ReviewSplit gates={gates} onReview={() => openTab(`review-${pr.number}`)} />
             <button type="button" className="dp-btn dp-sm" onClick={() => openTab(`findings-${pr.number}`)}><Icon name="flag" size={14} />Findings</button>
             {!asTab && <button type="button" className="dp-btn dp-sm dp-ghost" title="Open as a tab  ⌘↵" onClick={() => openTab(`pr-${key}`)}>Open as tab</button>}
           </div>
         )}
-        {numbered && <PushBadge slug={d.slug} prKey={key} />}
+        {numbered && <div className="dp-ins-steps"><GateRail gates={gates} n={key} onOpen={openTab} /></div>}
+        {numbered && <HeadBadges slug={d.slug} prKey={key} />}
       </div>
       <div className="dp-ins-scroll">
         {summary && <Sec title="Summary" wide><div className="dp-md"><Markdown text={summary} /></div></Sec>}
@@ -105,7 +108,6 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
           </Sec>
         )}
         {numbered && <Sec title="Review kit"><div className="dp-kit-box"><KitLine slug={d.slug} n={key} /></div></Sec>}
-        {numbered && <Sec title="Gates"><div className="dp-gates-box"><GateRail slug={d.slug} n={key} onOpen={openTab} /></div></Sec>}
         {dev && <Sec title="Dev server"><DevServerPanel key={key} slug={d.slug} row={dev} onChange={d.dev.reload} /></Sec>}
         <Sec title="Owners" aside={owners.length + reviewers.length ? undefined : <span className="dp-t4" style={{ fontWeight: 400 }}>nobody yet</span>}>
           {owners.length > 0 && <div className="dp-row" style={{ flexWrap: 'wrap', marginBottom: reviewers.length ? 6 : 0 }}>{owners.map((p) => <PersonaChip key={p} login={p} href={null} />)}</div>}
@@ -168,18 +170,18 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
   );
 }
 
-function useGateCount(slug: string, n: PrKey) {
-  const [count, setCount] = useState<{ done: number; total: number } | null>(null);
+function useCurrentMilestone(slug: string, n: PrKey) {
+  const [current, setCurrent] = useState<Gate | 'clear' | null>(null);
   useEffect(() => {
-    setCount(null);
-    api.gates(slug, n).then((r) => setCount({ done: r.gates.filter((g) => g.state === 'done' || g.state === 'skipped').length, total: r.gates.length }), () => {});
+    setCurrent(null);
+    api.gates(slug, n).then((r) => setCurrent(r.gates.find((g) => g.id === r.current) || 'clear'), () => {});
   }, [slug, n]);
-  return count;
+  return current;
 }
 
 function PrLine({ d, n }: { d: PreviewData; n: PrKey }) {
   const pr = d.prs.find((p) => prKey(p) === String(n));
-  const gates = useGateCount(d.slug, n);
+  const step = useCurrentMilestone(d.slug, n);
   const ci = pr?.ci ? CI_CHIP[pr.ci] : undefined;
   const details = () => openTab(`pr-${n}`);
   return (
@@ -187,7 +189,7 @@ function PrLine({ d, n }: { d: PreviewData; n: PrKey }) {
       {pr ? <PrChip pr={pr} onOpen={details} /> : <span className="dp-prb">{keyLabel(n)}</span>}
       {pr && <span className={`dp-chip dp-tone dp-st-${prState(pr)}`}><span className="dp-d" />{stateLabel(pr)}</span>}
       {ci && <span className={`dp-chip ${ci.tone}`}>{ci.label}</span>}
-      {gates && gates.total > 0 && <span className={`dp-chip${gates.done === gates.total ? ' dp-ok' : ''}`} title="Gates cleared: done or skipped">{gates.done}/{gates.total} gates</span>}
+      {step && <span className={`dp-chip${step === 'clear' ? ' dp-ok' : ' dp-acc'}`} title={step === 'clear' ? 'Every milestone done or skipped' : `Current milestone${step.detail ? `: ${step.detail}` : ''}`}>{step === 'clear' ? 'all clear' : step.label}</span>}
       <span className="dp-sp" />
       <button type="button" className="dp-linkbtn dp-ins-details" title="The PR's details in a tab" onClick={details}>Details</button>
     </div>

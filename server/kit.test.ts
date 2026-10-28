@@ -21,7 +21,7 @@ test('a kit piece made for an older head is stale; a GitHub piece edited after t
 });
 
 const BODY_AT = '2026-10-22T19:00:00Z';
-const work = { slug: 'w', stack: [{ number: 7 }], links: [] };
+const work = { slug: 'w', stack: [{ number: 7, kitScope: { by: 'agent' as const, at: 'x' } }], links: [] };
 // pr: { sha, commits: [[authoredDate, committedDate]] }; patchIds: { [sha]: patch-id }, none = the sha is not in the clone
 type KitPr = { sha: string; commits: string[][] };
 const kitFor = (DATA: string, pr: KitPr, patchIds: Record<string, string>, artifacts: { name: string; meta: { pr: string; kind: string; headSha: string; at: string } }[] = []) =>
@@ -53,6 +53,25 @@ test('a commit that changes the PR own diff after the body makes it stale, even 
   await states(kitFor(DATA, { sha: 'old1', commits: [['2026-10-22T18:00:00Z', '2026-10-22T18:00:00Z']] }, { old1: 'P' }));
   const moved = { sha: 'new2', commits: [['2026-10-22T18:00:00Z', '2026-10-23T10:00:00Z'], ['2026-10-23T09:00:00Z', '2026-10-23T10:00:00Z']] };
   assert.deepEqual(await states(kitFor(DATA, moved, { new2: 'Q' })), { body: 'stale', diagram: 'stale', video: 'missing', notion: 'off' });
+});
+
+test('an unscoped PR expects the body alone; the agent scopes every kind, an owner flip keeps the rest of the scope', async () => {
+  const w: { slug: string; stack: { number: number; kitScope?: { by: string } }[]; links: never[] } = { slug: 'w', stack: [{ number: 7 }], links: [] };
+  let saved = 0;
+  const kit = createKit({
+    REPO: '/repo',
+    DATA: tmp(),
+    config: { repo: { github: 'o/r' }, kitKinds: ['body', 'diagram', 'video', 'docs'] },
+    works: { get: () => w as never, listArtifacts: () => [], save: () => void (saved += 1) },
+    exec: async () => ({ ok: true, stdout: JSON.stringify({ data: { repository: { pullRequest: { body: 'text', createdAt: BODY_AT, headRefOid: 's', baseRefOid: 'b', commits: { nodes: [] } } } } }) }),
+  });
+  const expected = async () => (await kit.view('w', '7')).pieces.filter((p) => p.expected).map((p) => p.id);
+  assert.deepEqual(await expected(), ['body']);
+  await kit.setScope('w', '7', { pieces: { video: true }, by: 'owner' });
+  assert.deepEqual([await expected(), w.stack[0].kitScope?.by], [['body', 'video'], 'owner']);
+  await kit.setScope('w', '7', { pieces: { body: true, diagram: true, video: false, docs: true }, why: 'API change', by: 'agent' });
+  assert.deepEqual([await expected(), saved], [['body', 'diagram', 'docs'], 2]);
+  assert.throws(() => kit.setScope('w', '7', { pieces: { mintlify: true }, by: 'agent' }), /pieces maps kit kinds/);
 });
 
 test('without a patch-id, a piece is compared to the last authored commit, not the last committed one', async () => {

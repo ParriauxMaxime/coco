@@ -4,12 +4,11 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { kitFlags } from './briefs.ts';
+import { kitScope } from './briefs.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import { branchOf, isLocal, parseKey, rowKey } from './stack.ts';
-import { httpStatus, errorMessage } from './core-types.ts';
-import type { ArtifactMeta, ReadBody, Req, Res, Send, StackRow, Work } from './core-types.ts';
-import type { FeatureFlags } from './feature-flags.ts';
+import { HttpError, httpStatus, errorMessage } from './core-types.ts';
+import type { ArtifactMeta, ReadBody, Req, Res, Send, StackRow, Work } from './core-types.ts';import type { FeatureFlags } from './feature-flags.ts';
 
 const TTL_MS = 60000;
 const VIDEO = /user-attachments\/assets|\.(mp4|webm|mov)\b/i;
@@ -65,6 +64,7 @@ type KitWork = Pick<Work, 'slug' | 'stack' | 'links' | 'notion'>;
 interface KitWorks {
   get(slug: string): KitWork | null | undefined;
   listArtifacts(slug: string): KitArtifact[];
+  save?(work: KitWork): unknown;
 }
 
 interface KitRecord {
@@ -127,8 +127,9 @@ export function kitPieces({ kinds = ['body', 'diagram', 'video'], flags, artifac
   const inBody = (test: (body: string) => boolean): Piece | null => (body.trim() && test(body) ? { at: bodyAt, source: 'PR body', patchId: bodyPatchId } : null);
   const pieces: [string, string, Piece | null | undefined][] = [...kinds.map((k): [string, string, Piece | null | undefined] => [k, k, fromArtifact(k) || (IN_BODY[k] ? inBody(IN_BODY[k]) : links[k] || null)]), ['notion', 'Notion', notion]];
   return pieces.map(([id, label, piece]) => {
-    const off = id !== 'notion' && !flags[id] && !piece;
-    return { id, label, state: off ? 'off' : id === 'notion' && !piece ? 'off' : freshness(piece, head), madeFor: piece?.headSha || null, at: piece?.at || null, source: piece?.source || null };
+    const expected = id !== 'notion' && Boolean(flags[id]);
+    const off = id !== 'notion' && !expected && !piece;
+    return { id, label, expected, state: off ? 'off' : id === 'notion' && !piece ? 'off' : freshness(piece, head), madeFor: piece?.headSha || null, at: piece?.at || null, source: piece?.source || null };
   });
 }
 
@@ -220,16 +221,42 @@ export function createKit({ REPO, DATA, config, works, betaFlags, exec = default
     // the feature flags a tester needs for this PR, and whether its body already names each one
     const betas = (betaFlags?.forRow(work, n) || []).map((f) => ({ ...f, inBody: facts.body.includes(f.code) }));
     const links = Object.fromEntries(await Promise.all(extraKinds.map(async (k): Promise<[string, Piece | null]> => [k, await linkOf(work, k)])));
-    return { key: n, head: facts.head, betaFlags: betas, pieces: kitPieces({ kinds: config.kitKinds, flags: kitFlags(work, row, config.kitKinds), artifacts, n, body: facts.body, bodyAt: facts.bodyAt, bodyPatchId, patchIds, head, links, notion }) };
+    return { key: n, head: facts.head, betaFlags: betas, scope: row.kitScope || null, pieces: kitPieces({ kinds: config.kitKinds, flags: kitScope(work, row, config.kitKinds), artifacts, n, body: facts.body, bodyAt: facts.bodyAt, bodyPatchId, patchIds, head, links, notion }) };
   }
 
-  async function handle(_req: Req, res: Res, parts: string[], _readBody: ReadBody, send: Send) {
+  // the review-plan agent scopes every kind at once; the owner flips one, the others keep the scope they had
+  function setScope(slug: string, raw: string, { pieces, why, by }: { pieces?: unknown; why?: unknown; by?: unknown }) {
+    const work = works.get(slug);
+    if (!work) throw new HttpError(404, 'no such work');
+    const n = parseKey(raw);
+    const index = (work.stack || []).findIndex((s) => rowKey(s) === n);
+    if (n === null || index < 0) throw new HttpError(404, `${raw} is not in this work`);
+    if (by !== 'agent' && by !== 'owner') throw new HttpError(400, 'by must be agent or owner');
+    if (!pieces || typeof pieces !== 'object' || Object.entries(pieces).some(([k, v]) => !config.kitKinds.includes(k) || typeof v !== 'boolean')) throw new HttpError(400, `pieces maps kit kinds (${config.kitKinds.join(', ')}) to true or false`);
+    const row = work.stack[index];
+    const kit = { ...kitScope(work, row, config.kitKinds), ...(pieces as Record<string, boolean>) };
+    work.stack[index] = { ...row, kit, kitScope: { by, at: new Date().toISOString(), ...(typeof why === 'string' && why.trim() ? { why: why.trim().slice(0, 400) } : {}) } };
+    works.save?.(work);
+    return view(slug, raw);
+  }
+
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     try {
-      return send(res, 200, await view(parts[1], decodeURIComponent(parts[3] || '')));
+      const raw = decodeURIComponent(parts[3] || '');
+      if (req.method === 'POST') {
+        let body: Record<string, unknown>;
+        try {
+          body = JSON.parse((await readBody(req)) || '{}') || {};
+        } catch {
+          throw new HttpError(400, 'the body is not JSON');
+        }
+        return send(res, 200, await setScope(parts[1], raw, body));
+      }
+      return send(res, 200, await view(parts[1], raw));
     } catch (e) {
       return send(res, httpStatus(e), { error: errorMessage(e) });
     }
   }
 
-  return { handle, view };
+  return { handle, view, setScope };
 }

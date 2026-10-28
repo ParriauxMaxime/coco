@@ -3,6 +3,7 @@ import { api } from '../../api.ts';
 import { subscribe, topic } from '../../live.ts';
 import type { KitPiece, KitResponse } from '../../types.ts';
 import type { PrKey } from '../types.ts';
+import { pendingClass, useAction } from '../../components/action.ts';
 import '../../components/parts.css';
 
 const POLL_MS = 60000;
@@ -20,15 +21,22 @@ export default function KitLine({ slug, n }: { slug: string; n: PrKey }) {
     const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(load, 50); } });
     return () => { clearInterval(t); clearTimeout(soon); off(); };
   }, [slug, n]);
-  const shown = data?.pieces.filter((p) => p.state !== 'off') || [];
+  const { pending, busy, run } = useAction();
+  const pieces = data?.pieces.filter((p) => p.id !== 'notion' || p.state !== 'off') || [];
   const betas = data?.betaFlags || [];
-  if (!shown.length && !betas.length) return null;
+  if (!pieces.length && !betas.length) return null;
+  const scope = data?.scope ? `scoped by ${data.scope.by === 'agent' ? 'the review plan' : 'you'}${data.scope.why ? `: ${data.scope.why}` : ''}` : 'not scoped yet: the body alone counts';
+  const flip = (p: KitPiece) => run(p.id, async () => setData(await api.kitScope(slug, n, { [p.id]: !p.expected })));
   return (
     <>
-      {shown.length > 0 && (
+      {pieces.length > 0 && (
         <div className="dp-kl">
-          <span className="dp-kl-t">Kit</span>
-          {shown.map((p) => <span key={p.id} className={`dp-chip ${CHIP[p.state]}`} title={data ? tip(p, data.head) : undefined}>{p.label}{p.state === 'fresh' || p.state === 'present' ? '' : ` ${p.state}`}</span>)}
+          <span className="dp-kl-t" title={scope}>Kit</span>
+          {pieces.map((p) => (p.id === 'notion'
+            ? <span key={p.id} className={`dp-chip ${CHIP[p.state]}`} title={data ? tip(p, data.head) : undefined}>{p.label}</span>
+            : <button key={p.id} type="button" className={`dp-chip dp-kl-p ${p.expected ? CHIP[p.state] : 'dp-kl-out'}${pendingClass(pending === p.id)}`} disabled={busy} title={[p.expected ? 'in scope' : 'not needed for this PR', data && tip(p, data.head), `${scope}. Click to ${p.expected ? 'drop it from' : 'add it to'} the scope`].filter(Boolean).join(' · ')} onClick={() => flip(p)}>
+                {p.expected ? '' : '+ '}{p.label}{!p.expected || p.state === 'fresh' || p.state === 'present' ? '' : ` ${p.state}`}
+              </button>))}
         </div>
       )}
       {betas.length > 0 && (

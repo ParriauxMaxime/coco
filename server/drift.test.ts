@@ -56,6 +56,8 @@ test('each open PR reports its local head against GitHub: pushed, commits ahead 
   assert.deepEqual(await heads({ b1: 'tip1' }, { tip1: 2 }), [['behind', 2]]);
   assert.deepEqual(await heads({ b1: 'tip1' }, { remote1: 'diverged' }), [['diverged', undefined]]);
   assert.deepEqual(await heads({}), [['remote', undefined]]);
+  const [h] = (await make({ tips: { b1: 'tip1' }, ahead: { 'origin/main': 16 } }).view('w', true)).heads;
+  assert.equal(h.commits, 16);
 });
 
 test('run pushes the branch from the repo clone or its worktree, built here, and tells the page what changed', async () => {

@@ -463,9 +463,15 @@ Routes: `GET /api/works/<slug>/briefs/<n>`, `POST …/briefs/<n>/save|start|hand
 Each PR card shows a `kit:` line (`server/kit.ts`, `GET
 /api/works/<slug>/kit/<n>`): one piece per `kitKinds` entry (body, diagram,
 video by default) plus Notion, each fresh (green), stale (orange, the head
-moved since it was made), missing, or present (made, head unknown); a piece
-the row does not expect (`stack[i].kit`, no Notion page) is hidden. Hover
+moved since it was made), missing, or present (made, head unknown). Hover
 shows where it comes from, the head it was made for and the current head.
+
+The kit scope says which pieces the PR needs, and the kit milestone counts
+only those. Unscoped, the body alone counts. The review-plan agent scopes
+every kind at once through the MCP `set_kit_scope` (`stack[i].kit` and
+`stack[i].kitScope { by, why, at }`); a click on a piece flips it, dashed
+"+ piece" when out of scope (`POST /api/works/<slug>/kit/<n> { pieces, by,
+why }`). Briefs keep naming the pieces of `stack[i].kit` over the defaults.
 
 - An artifact imported with `{ pr, kind: <one of kitKinds> }`
   (`POST /api/works/<slug>/artifacts` or the cocopilot MCP
@@ -522,34 +528,40 @@ persona) for a pushed head with no `as-<login>` finding, review-pr plan or
 ticked review-pr gate at that head. They are computed, not written to
 `next`.
 
-## Checklist rail
+## Milestones
 
-Each PR card carries the gates in order (`server/gates.ts`): self review,
-fixes picked, manual test, history tidy, kit (one gate per kit kind), push,
-ready for review, review-pr, triage, merged. A pill per
-gate (○ todo, ● running, ✓ done, struck through when skipped); the next
-todo is outlined. Once a PR-branch agent committed, a "checks" pill leads
-the rail with coco's last run of the repo checks on its commits (✓ passed,
-✕ failed, – unavailable; see "Agent worktrees"). Click a pill for its detail:
+Each PR header carries six milestones in order (`server/gates.ts`):
+self-reviewed › kit › pushed › ready › approved › merged. A pill each (○ todo,
+● running, ✓ done, struck through when skipped); the current one, the first
+not done or skipped, is outlined and open with its action. Once a PR-branch
+agent committed, a "checks" pill leads the rail with coco's last run of the
+repo checks on its commits (✓ passed, ✕ failed, – unavailable; see "Agent
+worktrees"). Each is derived:
 
-- skill gates start their skill in the PR agent through the review runner
-  (`send` to the agent of the PR worktree, else a new agent there or a
-  checkout). The skills per gate come from `gateSkills` (`self-review`,
-  `history`, `kit-body`, `kit-diagram`, `kit-video`, `review-pr`); a gate
-  with no skill is a manual tick. A mid-turn agent is refused. The gate shows running and turns done once the
-  agent is idle, with a `gate` timeline entry.
-- push and ready for review have no button: the command to copy
-  (`git push --force-with-lease origin <branch>`, `gh pr ready <n>`) and a
-  done tick. Nothing in cocopilot pushes.
-- fixes picked and triage open the Findings tab.
-- ✓ done, skip… (one-line reason) and ↺ reset on every gate.
+- self-reviewed: a review ran at the head (a `self-review` or `review-pr`
+  skill run that finished there, or an `as-<login>` persona finding at that
+  sha) and no finding is open. Its skills (`gateSkills` `self-review`, then
+  `review-pr`) run from the chevron of the header's Review code button or the
+  milestone, through the review runner (`send` to the agent of the PR
+  worktree, else a new agent there); a mid-turn agent is refused. A run shows
+  running and settles once the agent is idle, keeping the head it left.
+- kit: every piece in the PR's kit scope is fresh or present, and the body
+  fits `kitBody`. See "Kit freshness" for the scope.
+- pushed: the local branch tip is GitHub's head, or there is no local branch.
+- ready: out of draft. Once self-reviewed, kit and pushed are done or
+  skipped, "Mark ready for review" runs `gh pr ready <n>` from the server.
+- approved: GitHub approved with no unresolved thread; it opens the Review tab.
+- merged: from GitHub.
 
-Derived when nothing is ticked: merged and ready from GitHub, push from the
-local branch tip against the remote head, kit body from a PR body that fits
-`kitBody` (length, required pattern), kit diagram from a mermaid block, review-pr
-from a coco review plan at the current head. Stored on `stack[i].gates`
-(optional). Routes: `GET /api/works/<slug>/gates/<n>`, `POST …/gates/<n>/<gate>
-{ action: run | done | skipped | todo, skill, args, reason }`.
+✓ done, skip… (one-line reason) and ↺ reset work on every milestone; a tick
+or a skip wins over what is derived. Stored on `stack[i].gates` (optional).
+Under the milestones, two badges: the push badge (see "Drift") and the PR's
+own commits on top of its base, orange above 5 and red from 15, with "Tidy
+history" (the `history` gate skill) above 5. The Stack view shows each row's
+current milestone, and the sidebar bar colors open PRs by it once the Stack
+view computed them. Routes: `GET /api/works/<slug>/gates` (each row's current
+milestone), `GET /api/works/<slug>/gates/<n>`, `POST …/gates/<n>/<milestone>
+{ action: run | ready | done | skipped | todo, skill, args, reason }`.
 
 ## Stack keeper
 
@@ -1251,8 +1263,8 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
     `cc.wb.<slug>`; the older two-group format is migrated on load.
   - Inspector (right panel, `Cmd/Ctrl+I` or × hides it): it follows the
     focused group's active tab, its bar naming what it shows. `review-<n>`:
-    a one-line PR header (#n, state and CI chips, gates cleared as "3/12
-    gates", Details opens `pr-<n>`) over the review plan and activity feed,
+    a one-line PR header (#n, state and CI chips, the current milestone or
+    "all clear", Details opens `pr-<n>`) over the review plan and activity feed,
     and the Review tab drops its own activity pane so the diff takes the
     width; a location in the feed opens that Review tab at the line.
     `pr-<n>` (the details already fill the tab): the same plan and feed, the

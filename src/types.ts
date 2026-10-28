@@ -79,7 +79,8 @@ export type PaseoProject = {
 };
 export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgent & { cwdAbs: string })[]; error: string | null };
 
-export type WorkProgress = { merged: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean };
+// milestones: open PRs by current milestone, missing until the stack view computed them once
+export type WorkProgress = { merged: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean; milestones?: Record<string, number> };
 export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null };
 export type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
 // a repo's page: its live works in sidebar order with their what's-next line, the owner's open PRs no work holds, its brief lessons and rule files
@@ -443,29 +444,33 @@ export type Gate = {
   label: string;
   skills: (string | { name: string; ask?: string })[];
   tab: string | null;
-  command: string | null;
   state: string;
   derived: boolean | null;
+  // why a derived milestone is not done yet
+  detail: string;
   reason: string;
   at: string | null;
   skill: string | null;
   agentId: string | null;
+  canRun: boolean;
 };
-export type GatesResponse = { key: string | number; branch: string | null; gates: Gate[]; agentChecks?: (CheckRun & { agentId: string }) | null };
-export type GateActionBody = { action: 'run' | 'done' | 'skipped' | 'todo'; skill?: string; args?: string; reason?: string };
+export type GatesResponse = { key: string | number; branch: string | null; current: string | null; gates: Gate[]; agentChecks?: (CheckRun & { agentId: string }) | null };
+export type GateActionBody = { action: 'run' | 'ready' | 'done' | 'skipped' | 'todo'; skill?: string; args?: string; reason?: string };
+export type RowMilestone = { key: string | number; current: string | null; done: number };
 
 export type BriefResponse = { text: string; worktree: string | null; agent: PaseoAgent | null; stored: string[] };
 export type BriefActionResult = { name?: string; path?: string; agentId?: string; mode?: string };
 
-export type KitPiece = { id: string; label: string; state: string; madeFor: string | null; at: string | null; source: string | null };
+export type KitPiece = { id: string; label: string; state: string; expected: boolean; madeFor: string | null; at: string | null; source: string | null };
+export type KitScope = { by: 'agent' | 'owner'; why?: string; at: string };
 export type KitBetaFlag = { code: string; name?: string; why?: string; enable?: string; inBody?: boolean; mode?: string };
 export type DriftAction = { type: 'dispatch'; entry: string; label: string; persona?: string } | { type: 'copy'; command: string; label: string } | { type: 'run'; command: string; label: string } | { type: 'tab'; tab: string; label: string };
 export type DriftItem = { id: string; key: string | number | null; kind: string; text: string; action: DriftAction | null; also?: DriftAction };
 export type DriftRunResult = { ok: boolean; id: string; command: string; stdout: string; stderr: string };
-export type DriftHead = { key: string | number; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number };
+export type DriftHead = { key: string | number; state: 'pushed' | 'ahead' | 'behind' | 'diverged' | 'remote'; count?: number; commits?: number };
 // heads is missing from a drift cached on disk before it existed
 export type DriftResponse = { drift: DriftItem[]; next: DriftItem[]; heads?: DriftHead[]; at: string };
-export type KitResponse ={ key: string | number; head: { sha: string | null; at: string | null }; betaFlags: KitBetaFlag[]; pieces: KitPiece[] };
+export type KitResponse = { key: string | number; head: { sha: string | null; at: string | null }; betaFlags: KitBetaFlag[]; scope: KitScope | null; pieces: KitPiece[] };
 
 export type KeepStep = {
   key: string | number;

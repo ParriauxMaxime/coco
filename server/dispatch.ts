@@ -2,7 +2,7 @@
 // Placement decides where: read-only kinds in the work's Plan workspace, editing kinds in the PR row's own workspace.
 // Its first message is its task, then the brief the brief writer wrote for it (the template brief when the writer fails).
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
-import { gatesFor, skillName } from './gates.ts';
+import { skillName, skillRuns } from './gates.ts';
 import { repoSetting } from './config.ts';
 import { findingLine, renderBrief } from './briefs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
@@ -41,21 +41,17 @@ type Deps = {
 const PROMPT_MAX = 8000;
 const TITLE_TASK = 40;
 
-// what can be dispatched for a repo: the fixed kinds, then one gate run per gate skill, manual test always
+// what can be dispatched for a repo: the fixed kinds, then one run per configured gate skill
 export function catalog(config: Config, repo?: RepoConfig | null): CatalogEntry[] {
-  const gateSkills = repoSetting(config, repo, 'gateSkills');
-  const gates = gatesFor({ ...config, gateSkills, kitKinds: repoSetting(config, repo, 'kitKinds') });
-  const runs = gates.flatMap((g) => (g.skills || []).map((s): CatalogEntry => {
+  const runs = skillRuns({ ...config, gateSkills: repoSetting(config, repo, 'gateSkills'), kitKinds: repoSetting(config, repo, 'kitKinds') }).flatMap((g) => g.skills.map((s): CatalogEntry => {
     const name = skillName(s) || '';
     return { id: `gate:${g.id}:${name}`, kind: 'gate', label: `${g.label}: /${name}`, edits: true, needsPr: true, gate: g.id, skill: name, ...(typeof s === 'object' && s.ask ? { ask: s.ask } : {}) };
   }));
-  const manual = skillName(gateSkills['manual-test']?.[0]);
   return [
     { id: 'ask', kind: 'ask', label: 'Ask on this PR', edits: false, needsPr: true, needsPrompt: true },
     { id: 'persona-review', kind: 'persona-review', label: 'Persona review', edits: false, needsPr: true, needsPersona: true },
     { id: 'fix-findings', kind: 'fix-findings', label: 'Fix findings', edits: true, needsPr: true },
     ...runs,
-    { id: 'gate:manual-test', kind: 'gate', label: `manual test${manual ? `: /${manual}` : ''}`, edits: true, needsPr: true, gate: 'manual-test', ...(manual ? { skill: manual } : {}) },
     { id: 'prompt', kind: 'prompt', label: 'Free prompt', edits: false, needsPr: false, needsPrompt: true },
   ];
 }
@@ -108,10 +104,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
       const known = key === null ? [] : (comments.list(slug, key).comments || []).map(findingLine);
       return `${review}\n${known.length ? `Already raised on this PR (title, where, status):\n${known.join('\n')}\n` : ''}Before reviewing, call get_pr_findings with pr "${String(key)}" and work "${slug}" for their resolutions and threads. Never raise again what it lists, even reworded or on moved lines: open and sent findings are already raised; declined findings and dismissed watch points are ${owner}'s call; fixed findings are settled. Raise one again only when the code it judged changed since in a way that reopens it, and say what changed and which finding it reopens.`;
     }
-    if (entry.kind === 'gate') {
-      if (!entry.skill) return `Test this PR by hand: run it locally, exercise every surface it changes, and report pass or fail per scenario with what you saw.${prompt ? `\n\n${prompt}` : ''}`;
-      return `/${entry.skill} ${args || pr}`.trim() + (prompt ? `\n\n${prompt}` : '');
-    }
+    if (entry.kind === 'gate') return `/${entry.skill} ${args || pr}`.trim() + (prompt ? `\n\n${prompt}` : '');
     return prompt;
   }
 

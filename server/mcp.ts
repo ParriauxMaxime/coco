@@ -451,6 +451,19 @@ server.tool('get_drift', `What moved on the work's PRs since they were last push
   return r.ok ? text(r.data) : refused(`drift refused: ${r.error}`);
 });
 
+server.tool('set_kit_scope', `Say which kit pieces a PR needs (${config.kitKinds.join(', ')}), so its kit milestone counts only those. Body always; diagram when a flow or data path changes; video when a user sees the change; a companion kind only when the PR changes what it documents. ${OWNER} can flip a piece after.`, {
+  work: workArg,
+  pr: rowArg.optional().describe("default this agent's row"),
+  pieces: z.record(z.string(), z.boolean()).describe(`every kit kind (${config.kitKinds.join(', ')}) to true or false`),
+  why: z.string().max(400).describe('one plain sentence: what the PR changes that calls for these pieces'),
+}, async ({ work: slugIn, pr: prIn, pieces, why }) => {
+  const t = await target(slugIn, prIn);
+  if (!t.slug) return refused(NO_WORK);
+  if (!t.pr) return refused(NO_PR);
+  const r = await coco('POST', `/api/works/${t.slug}/kit/${encodeURIComponent(t.pr)}`, { pieces, why, by: 'agent' });
+  return r.ok ? text({ scope: r.data.scope }) : refused(`kit scope refused: ${r.error}`);
+});
+
 server.tool('set_next', `Write the work's "What's next": ${OWNER}'s to-do as of now (review, merge, answer, push), shown first on the Plan tab. Not what agents are doing. clear: true removes it.`, {
   work: workArg,
   summary: z.string().max(400).optional().describe('one plain sentence'),

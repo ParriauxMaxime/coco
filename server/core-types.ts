@@ -49,6 +49,8 @@ export interface GateRecord {
   skill?: string;
   agentId?: string | null;
   reason?: string;
+  // a finished skill run: the head it ran on
+  sha?: string | null;
 }
 
 export interface StackRow {
@@ -59,6 +61,8 @@ export interface StackRow {
   rules?: Rule[];
   gates?: Record<string, GateRecord>;
   kit?: Record<string, boolean>;
+  // who scoped the kit (row.kit then lists every kind); unscoped, the kit milestone counts the body alone
+  kitScope?: { by: 'agent' | 'owner'; why?: string; at: string };
   precedents?: string[];
   forbidden?: string[];
   scope?: string;

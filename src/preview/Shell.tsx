@@ -60,9 +60,23 @@ const usePersistedList = (key: string, initial: (saved: string[]) => string[]) =
   return { list, toggle };
 };
 
+// open PRs by current milestone, furthest first
+export const MILESTONE_ORDER = ['approved', 'ready', 'pushed', 'kit', 'self-review'];
+
 export function SegBar({ w, thin = true }: { w: WorkSummary; thin?: boolean }) {
   const p = w.progress;
-  const segs = SEGMENTS.flatMap(([k, state]) => Array.from({ length: Number(p[k]) || 0 }, (_, i) => <i key={`${state}-${i}`} className={`dp-st-${state}`} />));
+  const open = p.ready + p.draft;
+  const steps = MILESTONE_ORDER.flatMap((id) => Array<string>(p.milestones?.[id] || 0).fill(id)).slice(0, open);
+  const seg = (cls: string, title: string) => (_: unknown, i: number) => <i key={`${cls}-${i}`} className={cls} title={title} />;
+  const segs = steps.length
+    ? [
+        ...Array.from({ length: p.merged }, seg('dp-st-merged', 'merged')),
+        ...steps.map((id, i) => seg(`dp-ms-${id}`, `next: ${id}`)(null, i)),
+        ...Array.from({ length: open - steps.length }, seg('dp-st-draft', 'open')),
+        ...Array.from({ length: p.planned }, seg('dp-st-planned', 'planned')),
+        ...Array.from({ length: p.closed }, seg('dp-st-closed', 'closed')),
+      ]
+    : SEGMENTS.flatMap(([k, state]) => Array.from({ length: Number(p[k]) || 0 }, (_, i) => <i key={`${state}-${i}`} className={`dp-st-${state}`} />));
   return <span className={`dp-segs${thin ? ' dp-thin' : ''} dp-grow`}>{segs.length ? segs : <i className="dp-st-planned" />}</span>;
 }
 export const workDot = (w: WorkSummary) => (w.progress.attention ? 'dp-st-changes' : w.progress.ready + w.progress.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow');

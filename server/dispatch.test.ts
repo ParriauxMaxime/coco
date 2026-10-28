@@ -49,9 +49,9 @@ function setup({ contextFails = false, writerFails = false, models = undefined a
   return { dispatch, placed, started, fixes, timeline, writes, tracked, work: () => work };
 }
 
-test('the catalog lists the fixed kinds, one gate run per gate skill, and manual test', () => {
+test('the catalog lists the fixed kinds and one gate run per gate skill', () => {
   const ids = catalog(config).map((e) => e.id);
-  assert.deepEqual(ids, ['ask', 'persona-review', 'fix-findings', 'gate:self-review:code-review', 'gate:kit-diagram:coco-diagram', 'gate:manual-test', 'prompt']);
+  assert.deepEqual(ids, ['ask', 'persona-review', 'fix-findings', 'gate:self-review:code-review', 'gate:kit-diagram:coco-diagram', 'prompt']);
   const byId = Object.fromEntries(catalog(config).map((e) => [e.id, e]));
   assert.equal(byId.ask.edits, false);
   assert.equal(byId['persona-review'].edits, false);

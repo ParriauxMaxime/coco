@@ -115,6 +115,8 @@ export const kitFlags = (work: Pick<Work, 'links'>, row: StackRow, kinds = CORE_
   ...Object.fromEntries(kinds.map((k) => [k, CORE_KIT.includes(k) || (work.links || []).some((l) => new RegExp(k.replace(/[^\w-]/g, ''), 'i').test(`${l.label} ${l.url}`))])),
   ...(row.kit || {}),
 });
+// the pieces the kit milestone counts
+export const kitScope = (work: Pick<Work, 'links'>, row: StackRow, kinds = CORE_KIT): Record<string, boolean> => (row.kitScope ? kitFlags(work, row, kinds) : Object.fromEntries(kinds.map((k) => [k, k === 'body'])));
 export const kitOf = (work: Pick<Work, 'links' | 'slug'>, row: StackRow, config: Pick<Config, 'kitKinds' | 'gateSkills' | 'baseUrl'>) => {
   const kinds = config.kitKinds || CORE_KIT;
   const kit = kitFlags(work, row, kinds);
