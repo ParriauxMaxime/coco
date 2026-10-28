@@ -26,6 +26,7 @@ import type { Choice } from './chat/ModelPicker.tsx';
 import { useOverview } from './overview.ts';
 import { SubagentBar } from './Subagents.tsx';
 import { SubagentParent } from './subagents.ts';
+import { GitPanel, openWorkspaceCommit, useAgentWorkspace } from './GitPanel.tsx';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -213,18 +214,34 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   const { summaries, groups } = useThreadsOf(slug);
   const group = groups.find((g) => g.agentId === agentId);
   const keys = group ? Object.keys(summaries).filter((k) => summaries[k].groupId === group.id).sort((a, b) => (summaries[b].lastTs ?? '').localeCompare(summaries[a].lastTs ?? '')) : [];
-  const [raw, setRaw] = useState(false);
-  const toggle = keys.length > 0 && (
-    <span className="dp-seg" role="tablist">
-      <button type="button" role="tab" aria-selected={!raw} className={raw ? '' : 'dp-on'} title="Each item this agent works on, as its thread: blocks, suggestions, Approve" onClick={() => setRaw(false)}>{keys.length > 1 ? <>Threads<span className="dp-t3">{keys.length}</span></> : 'Thread'}</button>
-      <button type="button" role="tab" aria-selected={raw} className={raw ? 'dp-on' : ''} title="The agent's raw Paseo transcript: coco's prompts, thinking, tool calls" onClick={() => setRaw(true)}>Transcript</button>
-    </span>
-  );
+  const wsId = useAgentWorkspace(agentId);
+  const [picked, setPicked] = useState<AgentView>(null);
+  const shown = picked && (picked !== 'changes' || wsId) && (picked !== 'thread' || keys.length);
+  const view: AgentView = shown ? picked : keys.length ? 'thread' : 'transcript';
+  const views: ViewDef[] = [
+    ...(keys.length ? [{ id: 'thread' as const, label: keys.length > 1 ? <>Threads<span className="dp-t3">{keys.length}</span></> : 'Thread', title: 'Each item this agent works on, as its thread: blocks, suggestions, Approve' }] : []),
+    { id: 'transcript', label: 'Transcript', title: "The agent's raw Paseo transcript: coco's prompts, thinking, tool calls" },
+    ...(wsId ? [CHANGES] : []),
+  ];
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={toggle} handoff />
-      {keys.length && !raw ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} handoff />
+      {view === 'changes' && wsId ? <GitPanel wsId={wsId} onOpenCommit={openWorkspaceCommit(wsId)} />
+        : view === 'thread' ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
     </div>
+  );
+}
+
+// the views of an agent under its header: its threads, its transcript, its workspace's Changes
+type AgentView = 'thread' | 'transcript' | 'changes' | null;
+type ViewDef = { id: Exclude<AgentView, null>; label: React.ReactNode; title: string };
+export const CHANGES: ViewDef = { id: 'changes', label: 'Changes', title: "Its workspace's git: uncommitted changes, unpushed commits; commit, pull, push, create a PR" };
+export function ViewSeg({ views, value, onPick }: { views: ViewDef[]; value: AgentView; onPick: (v: AgentView) => void }) {
+  if (views.length < 2) return null;
+  return (
+    <span className="dp-seg" role="tablist">
+      {views.map((v) => <button key={v.id} type="button" role="tab" aria-selected={value === v.id} className={value === v.id ? 'dp-on' : ''} title={v.title} onClick={() => onPick(v.id)}>{v.label}</button>)}
+    </span>
   );
 }
 

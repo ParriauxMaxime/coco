@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
-import { AgentTranscript, Header } from '../AgentTab.tsx';
+import { AgentTranscript, CHANGES, Header, ViewSeg } from '../AgentTab.tsx';
+import { GitPanel } from '../GitPanel.tsx';
 import { focusCard } from '../chat/Card.tsx';
 import { useSeen, useWaitingByAgent } from '../waiting.ts';
 import Icon from '../Icon.tsx';
@@ -22,7 +23,8 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   const [err, setErr] = useState('');
   const waiting = useWaitingByAgent();
   const seen = useSeen(`agent:${agentId}`);
-  const load = () => api.agentInfo(agentId).then((i) => { setInfo(i); setErr(''); }, (e) => setErr(errorMessage(e)));
+  const [changes, setChanges] = useState(false);
+  const load =() => api.agentInfo(agentId).then((i) => { setInfo(i); setErr(''); }, (e) => setErr(errorMessage(e)));
   useEffect(() => {
     void load();
     const t = setInterval(load, POLL_MS);
@@ -42,11 +44,14 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   if (!info) return <div className="dp-page dp-agpage" role="main">{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Reading the agent…" />}</div>;
   const state: AgentState = info.status !== 'archived' && waiting[agentId] ? 'waiting' : info.status;
   const inWork = info.work && <a className="dp-btn dp-sm" href={`#/work/${encodeURIComponent(info.work)}/ag-${agentId}`} title="Open it among its work's tabs"><Icon name="layers" size={14} />In its work</a>;
+  const wsId = info.workspaceId;
+  const git = Boolean(changes && wsId);
+  const views = <ViewSeg views={wsId ? [{ id: 'transcript', label: 'Transcript', title: "The agent's chat" }, CHANGES] : []} value={git ? 'changes' : 'transcript'} onPick={(v) => setChanges(v === 'changes')} />;
   return (
     <div ref={seen} className="dp-page dp-agpage" role="main">
       <section className="dp-agpage-chat">
-        <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={inWork} handoff onRenamed={() => void load()} />
-        <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />
+        <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={<>{views}{inWork}</>} handoff onRenamed={() => void load()} />
+        {git && wsId ? <GitPanel wsId={wsId} /> : <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />}
       </section>
     </div>
   );

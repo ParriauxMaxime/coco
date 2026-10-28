@@ -15,7 +15,8 @@ import { briefKeyOfTab } from './BriefView.tsx';
 import { openCodeAt } from '../workbench/tabs/Code.tsx';
 import ReviewActivity from '../workbench/code/ReviewActivity.tsx';
 import { useComments } from '../workbench/code/use-comments.ts';
-import { findingsKeyOfTab, isLocalKey, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
+import { changesTabId, findingsKeyOfTab, isLocalKey, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
+import { GitSummary, useRowWorkspace } from './GitPanel.tsx';
 import type { PrKey, WorkPr } from '../workbench/types.ts';
 import type { Gate } from '../types.ts';
 import Icon from './Icon.tsx';
@@ -62,6 +63,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
   const [dispatching, setDispatching] = useState(false);
   const pr = key === null ? undefined : d.prs.find((p) => prKey(p) === key);
   const gates = useGates(d.slug, pr?.number ? key : null);
+  const wsId = useRowWorkspace(d.slug, pr ? key : null);
   if (!pr || key === null) return <div className="dp-ins-empty">Select a PR</div>;
   const state = prState(pr);
   const numbered = Boolean(pr.number);
@@ -110,6 +112,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
           </Sec>
         )}
         {numbered && <Sec title="Review kit"><div className="dp-kit-box"><KitLine slug={d.slug} n={key} /></div></Sec>}
+        {wsId && <Sec title="Changes"><GitSummary wsId={wsId} onOpen={() => openTab(changesTabId(wsId))} /></Sec>}
         {dev && <Sec title="Dev server"><DevServerPanel key={key} slug={d.slug} row={dev} onChange={d.dev.reload} /></Sec>}
         <Sec title="Owners" aside={owners.length + reviewers.length ? undefined : <span className="dp-t4" style={{ fontWeight: 400 }}>nobody yet</span>}>
           {owners.length > 0 && <div className="dp-row" style={{ flexWrap: 'wrap', marginBottom: reviewers.length ? 6 : 0 }}>{owners.map((p) => <PersonaChip key={p} login={p} href={null} />)}</div>}

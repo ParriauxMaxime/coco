@@ -10,6 +10,7 @@ import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './typ
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
+import type { GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
 
 export type * from './types.ts';
 
@@ -48,6 +49,27 @@ type RowActionResult = { start: StartResult; stop: StopResult; pin: PinResult; w
 
 const works = (slug: string) => `/api/works/${slug}`;
 const rulesBase = (slug: string | null | undefined) => (slug ? `${works(slug)}/rules` : '/api/rules');
+
+// a workspace's git (server/workspace-git.ts): wsId is a Paseo workspace id, or `p.<base64url path>` for a worktree no workspace holds
+const gitBase = (wsId: string) => `/api/workspaces/${encodeURIComponent(wsId)}/git`;
+const getOrError = <T>(url: string) => fetch(url).then(jsonOrError<T>);
+const gitPost = <T = { ok: boolean }>(wsId: string, action: string, body?: unknown) => postJson(`${gitBase(wsId)}/${action}`, body).then(jsonOrError<T>);
+export const gitApi = {
+  base: gitBase,
+  status: (wsId: string) => getOrError<GitStatus>(`${gitBase(wsId)}/status`),
+  diff: (wsId: string) => getOrError<{ files: GitFile[]; via: string }>(`${gitBase(wsId)}/diff`),
+  texts: (wsId: string, path: string, previous?: string, unified = false) => getOrError<GitTexts>(`${gitBase(wsId)}/diff/file?${new URLSearchParams({ path, ...(previous ? { previous } : {}), ...(unified ? { unified: '1' } : {}) })}`),
+  commits: (wsId: string) => getOrError<{ commits: GitCommit[] }>(`${gitBase(wsId)}/commits`),
+  pr: (wsId: string, fresh = false) => getOrError<{ pr: GitPr | null }>(`${gitBase(wsId)}/pr${fresh ? '?fresh=1' : ''}`),
+  commit: (wsId: string, message: string, paths?: string[]) => gitPost<{ ok: boolean; sha: string }>(wsId, 'commit', { message, ...(paths ? { paths } : {}) }),
+  pull: (wsId: string) => gitPost(wsId, 'pull'),
+  push: (wsId: string) => gitPost(wsId, 'push'),
+  createPr: (wsId: string, body: { title: string; body: string; draft: boolean }) => gitPost<{ ok: boolean; url: string | null; number: number | null }>(wsId, 'pr', body),
+  discard: (wsId: string, paths: string[]) => gitPost(wsId, 'discard', { paths }),
+  stash: (wsId: string, action: 'save' | 'pop') => gitPost(wsId, 'stash', { action }),
+};
+// a worktree with no Paseo workspace, by its path
+export const pathWsId = (dir: string) => `p.${btoa(String.fromCharCode(...new TextEncoder().encode(dir))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 
 export const api = {
   config: () => get<Partial<Config>>('/api/config'),

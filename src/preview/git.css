@@ -1,0 +1,45 @@
+/* a workspace's Changes panel (GitPanel.tsx): actions bar, files + commit box + unpushed commits on the side, the picked diff in the main column */
+.gp { display: flex; flex-direction: column; flex: 1; min-height: 0; container: gp / inline-size; }
+.dp-tabview.gp-tab { overflow: hidden; }
+.gp-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); }
+.gp-branch { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--dp-t2); }
+.gp-branch code { max-width: 260px; font-size: 12px; color: var(--dp-t1); }
+.gp-branch a.dp-chip { text-decoration: none; }
+.gp-body { flex: 1; min-height: 0; display: flex; }
+.gp-side { flex: none; width: 320px; display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--dp-line); padding-bottom: 12px; }
+.gp-main { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.gp-main > .cm-tab { height: 100%; }
+.gp-diff { padding: 12px 16px; }
+.gp-sec-t { display: flex; align-items: center; gap: 6px; padding: 10px 12px 4px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--dp-t3); }
+.gp-sec-t .dp-linkbtn { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.gp-sec-t .dp-linkbtn.dp-danger { color: var(--dp-bad); }
+.gp-none { padding: 2px 12px 6px; font-size: 12px; color: var(--dp-t3); }
+.gp-file { display: flex; align-items: center; gap: 2px; padding: 0 6px 0 10px; height: 26px; font-size: 12px; }
+.gp-file:hover, .gp-file.dp-on { background: var(--dp-hover); }
+.gp-file.dp-on { box-shadow: inset 2px 0 0 var(--dp-accent); }
+.gp-pick { display: inline-flex; align-items: center; padding: 4px 4px 4px 0; cursor: pointer; }
+.gp-file-b { all: unset; flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; cursor: pointer; height: 100%; }
+.gp-st { flex: none; width: 12px; font: 600 11px var(--dp-mono, ui-monospace, monospace); color: var(--dp-st); }
+.gp-st.dp-ok { --dp-st: var(--dp-ok); } .gp-st.dp-warn { --dp-st: var(--dp-warn); } .gp-st.dp-bad { --dp-st: var(--dp-bad); } .gp-st.dp-info { --dp-st: var(--dp-info); }
+.gp-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-path b { font-weight: 500; }
+.gp-num { flex: none; font-size: 11px; font-variant-numeric: tabular-nums; }
+.gp-x { width: 20px; height: 20px; opacity: 0; }
+.gp-file:hover .gp-x, .gp-x:focus-visible { opacity: 1; }
+.gp-x:hover { color: var(--dp-bad); }
+.gp-commit { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 8px 12px 4px; }
+.gp-commit textarea { min-height: 60px; }
+.gp-cm { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 26px; font-size: 12px; cursor: pointer; color: var(--dp-t2); }
+.gp-cm:hover, .gp-cm.dp-on { background: var(--dp-hover); color: var(--dp-t1); }
+.gp-cm code { flex: none; font-size: 11px; color: var(--dp-t3); }
+.gp-cm .dp-ell { flex: 1; min-width: 0; }
+.gp-form { display: flex; flex-direction: column; gap: 8px; min-width: min(560px, 80vw); }
+.gp-tick { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.gp-back { transform: rotate(180deg); }
+.gp-sum { display: flex; flex-direction: column; gap: 6px; }
+.gp-sum .gp-branch { flex-wrap: wrap; }
+@container gp (max-width: 720px) {
+  .gp-body { flex-direction: column; overflow: auto; }
+  .gp-side { width: auto; overflow: visible; border-right: 0; border-bottom: 1px solid var(--dp-line); }
+  .gp-main { overflow: visible; }
+}

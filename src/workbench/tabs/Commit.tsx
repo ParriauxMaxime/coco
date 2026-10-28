@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand';
 import type { editor } from 'monaco-editor/editor/editor.api';
 import { useWork } from '../use-work.ts';
-import { commitApi, isDesktop } from '../code/code-api.ts';
-import { parseCommitTab } from '../code/ids.ts';
+import { commitApi, isDesktop, workspaceCommitApi } from '../code/code-api.ts';
+import { parseCommitTab, parseWorkspaceCommitTab } from '../code/ids.ts';
 import { CommentBox, lineSpan } from '../code/CommentZone.tsx';
 import DiffView from '../code/DiffView.tsx';
 import LiteDiff from '../code/LiteDiff.tsx';
@@ -44,19 +44,24 @@ const reviewMessage =(sha: string, notes: ReviewComment[], note: string) => [
   ...(note ? ['', note] : []),
 ].join('\n');
 
-type Texts = { loading?: boolean; error?: string; original?: string; modified?: string; unified?: string; binary?: boolean; tooLarge?: boolean };
-function useCommitTexts(sha: string, file: RefFile, desktop: boolean) {
+export type Texts = { loading?: boolean; error?: string; original?: string; modified?: string; unified?: string; binary?: boolean; tooLarge?: boolean };
+// a file's two sides (desktop) or its unified diff (phone); a new `version` loads them again
+export type TextsOf = (file: RefFile, desktop: boolean) => Promise<Texts>;
+type CommitApi = Pick<typeof commitApi, 'file' | 'diff'>;
+export const commitTexts = (sha: string, from: CommitApi = commitApi): TextsOf => (file, desktop) => {
+  const blank = Promise.resolve({ text: '' });
+  return desktop
+    ? Promise.all([file.status === 'added' ? blank : from.file(sha, 'base', file.previous || file.filename), file.status === 'removed' ? blank : from.file(sha, 'head', file.filename)])
+      .then(([b, h]) => ({ original: b.text, modified: h.text, binary: b.binary || h.binary, tooLarge: b.tooLarge || h.tooLarge }))
+    : from.diff(sha, file.filename, file.previous).then((d) => ({ unified: d.unified }));
+};
+function useTexts(textsOf: TextsOf, scope: string, file: RefFile, desktop: boolean, version: number) {
   const [texts, setTexts] = useState<Texts>({ loading: true });
   useEffect(() => {
     let live = true;
-    const blank = Promise.resolve({ text: '' });
-    const job: Promise<Texts> = desktop
-      ? Promise.all([file.status === 'added' ? blank : commitApi.file(sha, 'base', file.previous || file.filename), file.status === 'removed' ? blank : commitApi.file(sha, 'head', file.filename)])
-        .then(([b, h]) => ({ original: b.text, modified: h.text, binary: b.binary || h.binary, tooLarge: b.tooLarge || h.tooLarge }))
-      : commitApi.diff(sha, file.filename, file.previous).then((d) => ({ unified: d.unified }));
-    job.then((t) => live && setTexts(t), (e: Error) => live && setTexts({ error: e.message }));
+    textsOf(file, desktop).then((t) => live && setTexts(t), (e: Error) => live && setTexts({ error: e.message }));
     return () => { live = false; };
-  }, [sha, file.filename, desktop]);
+  }, [scope, file.filename, file.previous, desktop, version]);
   return texts;
 }
 
@@ -94,9 +99,11 @@ function NoteZone({ note, onSave, onDelete }: NoteProps) {
   );
 }
 
-type FileProps = { sha: string; file: RefFile; notes: ReviewComment[]; desktop: boolean; sbs: boolean; onCreate: (range: LineRange & { side: Side }) => void; zone: (c: ReviewComment) => React.ReactNode };
-function CommitFile({ sha, file, notes, desktop, sbs, onCreate, zone }: FileProps) {
-  const texts = useCommitTexts(sha, file, desktop);
+// one file of a commit or of a working tree as a diff card at its full height; scope: the DiffView model scope (a sha, a workspace)
+// aside: header controls after the counts; with no onCreate, lines take no comments
+type FileProps = { scope: string; file: RefFile; textsOf: TextsOf; version?: number; notes?: ReviewComment[]; desktop: boolean; sbs: boolean; onCreate?: (range: LineRange & { side: Side }) => void; zone?: (c: ReviewComment) => React.ReactNode; aside?: React.ReactNode };
+export function DiffCard({ scope, file, textsOf, version = 0, notes = NO_NOTES, desktop, sbs, onCreate, zone, aside }: FileProps) {
+  const texts = useTexts(textsOf, scope, file, desktop, version);
   const { mod } = useMonaco();
   const [diff, setDiff] = useState<editor.IStandaloneDiffEditor | null>(null);
   const [height, setHeight] = useState(0);
@@ -130,7 +137,7 @@ function CommitFile({ sha, file, notes, desktop, sbs, onCreate, zone }: FileProp
     if (!desktop) return <div className="rv-lite"><LiteDiff unified={texts.unified} comments={notes} onCreateComment={onCreate} renderZone={zone} /></div>;
     return (
       <div className="rv-diff" style={{ height: height || estimateHeight(file) }}>
-        <DiffView scope={sha.slice(0, 12)} original={texts.original} modified={texts.modified} path={file.filename} sideBySide={sbs} comments={notes} onCreateComment={onCreate} renderZone={zone} options={CARD_OPTIONS} onEditor={setDiff} />
+        <DiffView scope={scope} original={texts.original} modified={texts.modified} path={file.filename} sideBySide={sbs} comments={notes} onCreateComment={onCreate} renderZone={zone} options={CARD_OPTIONS} onEditor={setDiff} />
       </div>
     );
   };
@@ -147,6 +154,7 @@ function CommitFile({ sha, file, notes, desktop, sbs, onCreate, zone }: FileProp
         <span className="rv-stat"><span className="dp-add">+{file.additions}</span> <span className="dp-del">−{file.deletions}</span></span>
         <span className="dp-sp" />
         {notes.length > 0 && <span className="dp-chip">{notes.length} comment{notes.length > 1 ? 's' : ''}</span>}
+        {aside}
       </header>
       {open && body()}
     </section>
@@ -174,6 +182,7 @@ export default function CommitTab({ tabId }: { tabId: string }) {
   const s = at >= 0 ? thread?.messages[at].suggestion : undefined;
   const sha = s?.kind === 'commit' ? s.commit : '';
   const newer = at >= 0 ? thread?.messages.slice(at + 1).findLast((m) => m.suggestion?.kind === 'commit') : undefined;
+  const textsOf = useMemo(() => commitTexts(sha), [sha]);
   useEffect(() => {
     if (!sha) return;
     commitApi.refs(sha).then(setRefs, (e: Error) => setError(e.message));
@@ -237,7 +246,7 @@ export default function CommitTab({ tabId }: { tabId: string }) {
       </div>
       <div className="cm-files">
         {refs ? refs.files.map((f) => (
-          <CommitFile key={f.filename} sha={sha} file={f} notes={notesOf(f.filename)} desktop={desktop} sbs={sbs} onCreate={onCreate(f.filename)} zone={zone} />
+          <DiffCard key={f.filename} scope={sha.slice(0, 12)} file={f} textsOf={textsOf} notes={notesOf(f.filename)} desktop={desktop} sbs={sbs} onCreate={onCreate(f.filename)} zone={zone} />
         )) : <div className="rv-note">Loading the commit…</div>}
       </div>
       {isOpenSuggestion(s) && (
@@ -254,4 +263,43 @@ export default function CommitTab({ tabId }: { tabId: string }) {
       )}
     </div>
   );
+}
+
+// a commit of an agent's workspace (one of its unpushed commits), file by file; onBack: shown inline in a Changes panel outside a work's tabs
+export function WorkspaceCommit({ wsId, sha, onBack }: { wsId: string; sha: string; onBack?: () => void }) {
+  const desktop = useMemo(isDesktop, []);
+  const [sbs, setSbs] = useLocal('cc.sbs', innerWidth >= 1300);
+  const from = useMemo(() => workspaceCommitApi(wsId), [wsId]);
+  const textsOf = useMemo(() => commitTexts(sha, from), [sha, from]);
+  const [refs, setRefs] = useState<(Refs & { subject?: string }) | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    from.refs(sha).then(setRefs, (e: Error) => setError(e.message));
+  }, [from, sha]);
+  const adds = refs?.files.reduce((n, f) => n + f.additions, 0) ?? 0;
+  const dels = refs?.files.reduce((n, f) => n + f.deletions, 0) ?? 0;
+  return (
+    <div className="cm-tab">
+      <div className="cm-head">
+        <div className="cm-head-r">
+          {onBack && <button type="button" className="dp-btn dp-sm dp-ghost" title="Back to the working tree" onClick={onBack}><Icon name="chevron-right" size={12} className="gp-back" />Changes</button>}
+          <code>{sha.slice(0, 7)}</code>
+          {refs?.subject && <span className="dp-ell" title={refs.subject}>{refs.subject}</span>}
+          {refs && <span className="rv-stat">{refs.files.length} file{refs.files.length > 1 ? 's' : ''} · <span className="dp-add">+{adds}</span> <span className="dp-del">−{dels}</span></span>}
+          <span className="dp-sp" />
+          {desktop && <button type="button" className={`dp-btn dp-sm dp-ghost${sbs ? ' dp-on' : ''}`} onClick={() => setSbs(!sbs)}><Icon name="columns" size={12} />Side by side</button>}
+        </div>
+      </div>
+      <div className="cm-files">
+        {error ? <div className="rv-note">{error}</div> : refs ? refs.files.map((f) => (
+          <DiffCard key={f.filename} scope={sha.slice(0, 12)} file={f} textsOf={textsOf} desktop={desktop} sbs={sbs} />
+        )) : <div className="rv-note">Loading the commit…</div>}
+      </div>
+    </div>
+  );
+}
+
+export function WorkspaceCommitTab({ tabId }: { tabId: string }) {
+  const at = parseWorkspaceCommitTab(tabId);
+  return at ? <WorkspaceCommit wsId={at.wsId} sha={at.sha} /> : <div className="dp-empty">Unknown commit.</div>;
 }

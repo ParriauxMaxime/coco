@@ -16,12 +16,14 @@ export const codeApi = {
   search: (n: PrKey, q: string) => fetch(`${base(n)}/search?${qs({ q })}`).then(json),
 };
 
-const commitBase = (sha: string) => `/api/code/commit/${sha}`;
-export const commitApi = {
+// one commit against its parent: from the configured repo, or from a workspace's own checkout
+const commitApiAt = (commitBase: (sha: string) => string) => ({
   refs: (sha: string) => fetch(`${commitBase(sha)}/refs`).then(json),
   file: (sha: string, ref: 'base' | 'head', path: string) => fetch(`${commitBase(sha)}/file?${qs({ ref, path })}`).then(json),
   diff: (sha: string, path: string, previous?: string) => fetch(`${commitBase(sha)}/diff?${qs(previous ? { path, previous } : { path })}`).then(json),
-};
+});
+export const commitApi = commitApiAt((sha) => `/api/code/commit/${sha}`);
+export const workspaceCommitApi = (wsId: string) => commitApiAt((sha) => `/api/workspaces/${encodeURIComponent(wsId)}/git/commit/${sha}`);
 
 export const isDesktop = () => typeof matchMedia === 'function' && matchMedia('(min-width: 900px) and (pointer: fine)').matches;
 

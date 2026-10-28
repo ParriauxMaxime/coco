@@ -226,6 +226,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       provider: found.provider && found.model ? `${found.provider}/${found.model}` : found.provider || null,
       thinking: found.thinkingOptionId ?? null,
       mode: found.currentModeId ?? null,
+      workspaceId: found.workspaceId ?? null,
       serverId: await serverOf(),
       ...metrics(agentId, found.lastUsage),
     };

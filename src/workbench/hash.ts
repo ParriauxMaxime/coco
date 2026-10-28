@@ -1,7 +1,7 @@
 import { useWorkbench } from './workbench-store.ts';
 import type { WorkbenchState } from './workbench-store.ts';
 
-const TAB = /^(plan|stack|waiting|artifacts|ask|timeline|notes|decisions|findings|rules|pr-\d+|artifact-.+|diff-.+|file-.+|review-.+|commit-.+|findings-.+|brief-.+|agent-.+|ag-.+|ask-.+|stack-.+|sub-.+)$/;
+const TAB = /^(plan|stack|waiting|artifacts|ask|timeline|notes|decisions|findings|rules|pr-\d+|artifact-.+|diff-.+|file-.+|review-.+|commit-.+|findings-.+|brief-.+|agent-.+|ag-.+|ask-.+|stack-.+|sub-.+|git-.+|gitcommit-.+)$/;
 const PANE = /^(ask|artifacts|timeline|notes|pr-\d+|artifact-.+)$/;
 const dec = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
 

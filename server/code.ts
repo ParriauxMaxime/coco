@@ -27,6 +27,47 @@ class HttpError extends Error {
   }
 }
 
+const STATUS: Record<string, string> = { A: 'added', M: 'modified', D: 'removed', T: 'modified', R: 'renamed', C: 'added' };
+// `git diff -z --name-status` and `--numstat` outputs as files with their counts (a binary file counts 0)
+export function parseDiffFiles(nameStatus: string, numstat: string): PrFile[] {
+  const counts = new Map<string, { additions: number; deletions: number }>();
+  const nt = numstat.split('\0');
+  for (let i = 0; i < nt.length; i++) {
+    const m = nt[i].match(/^(-|\d+)\t(-|\d+)\t(.*)$/s);
+    if (!m) continue;
+    let name = m[3];
+    if (name === '') {
+      name = nt[i + 2];
+      i += 2;
+    }
+    counts.set(name, { additions: m[1] === '-' ? 0 : Number(m[1]), deletions: m[2] === '-' ? 0 : Number(m[2]) });
+  }
+  const files: PrFile[] = [];
+  const st = nameStatus.split('\0');
+  for (let i = 0; i < st.length; i++) {
+    const code = st[i];
+    if (!code) continue;
+    const kind = code[0];
+    if (kind === 'R' || kind === 'C') {
+      const previous = st[i + 1];
+      const filename = st[i + 2];
+      i += 2;
+      files.push({ filename, status: STATUS[kind], ...(kind === 'R' ? { previous } : {}), ...(counts.get(filename) || { additions: 0, deletions: 0 }) });
+    } else {
+      const filename = st[++i];
+      files.push({ filename, status: STATUS[kind] || 'modified', ...(counts.get(filename) || { additions: 0, deletions: 0 }) });
+    }
+  }
+  return files;
+}
+
+// a repo-relative file path: no absolute path, no `..`, `.` or empty segment
+export function checkPath(p: unknown): string {
+  if (!p || typeof p !== 'string') throw new HttpError(400, 'path required');
+  if (p.startsWith('/') || p.endsWith('/') || p.includes('\0') || p.includes('\n') || p.split('/').some((s) => s === '..' || s === '' || s === '.')) throw new HttpError(400, 'invalid path');
+  return p;
+}
+
 export function createCode({ REPO, config, works }: Deps) {
   const GITHUB = config?.repo?.github || '';
   const BRANCH = config?.repo?.defaultBranch || 'main';
@@ -185,7 +226,6 @@ export function createCode({ REPO, config, works }: Deps) {
     return { ok: out.every((r) => r.ok) };
   }
 
-  const STATUS: Record<string, string> = { A: 'added', M: 'modified', D: 'removed', T: 'modified', R: 'renamed', C: 'added' };
   const filesCache = new Map<string, PrFile[]>();
   async function filesBetween(mergeBase: string, headSha: string): Promise<PrFile[]> {
     const key = `${mergeBase}:${headSha}`;
@@ -193,34 +233,7 @@ export function createCode({ REPO, config, works }: Deps) {
     if (cached) return cached;
     const [ns, nu] = await Promise.all([git(['diff', '-M', '--no-ext-diff', '--name-status', '-z', mergeBase, headSha]), git(['diff', '-M', '--no-ext-diff', '--numstat', '-z', mergeBase, headSha])]);
     if (!ns.ok || !nu.ok) throw new HttpError(500, `git diff: ${(ns.stderr || nu.stderr).trim().slice(0, 200)}`);
-    const counts = new Map<string, { additions: number; deletions: number }>();
-    const nt = nu.stdout.split('\0');
-    for (let i = 0; i < nt.length; i++) {
-      const m = nt[i].match(/^(-|\d+)\t(-|\d+)\t(.*)$/s);
-      if (!m) continue;
-      let name = m[3];
-      if (name === '') {
-        name = nt[i + 2];
-        i += 2;
-      }
-      counts.set(name, { additions: m[1] === '-' ? 0 : Number(m[1]), deletions: m[2] === '-' ? 0 : Number(m[2]) });
-    }
-    const files: PrFile[] = [];
-    const st = ns.stdout.split('\0');
-    for (let i = 0; i < st.length; i++) {
-      const code = st[i];
-      if (!code) continue;
-      const kind = code[0];
-      if (kind === 'R' || kind === 'C') {
-        const previous = st[i + 1];
-        const filename = st[i + 2];
-        i += 2;
-        files.push({ filename, status: STATUS[kind], ...(kind === 'R' ? { previous } : {}), ...(counts.get(filename) || { additions: 0, deletions: 0 }) });
-      } else {
-        const filename = st[++i];
-        files.push({ filename, status: STATUS[kind] || 'modified', ...(counts.get(filename) || { additions: 0, deletions: 0 }) });
-      }
-    }
+    const files = parseDiffFiles(ns.stdout, nu.stdout);
     filesCache.set(key, files);
     if (filesCache.size > 50) filesCache.delete(filesCache.keys().next().value ?? '');
     return files;
@@ -253,12 +266,6 @@ export function createCode({ REPO, config, works }: Deps) {
     lru(trees, sha, files, TREE_LRU);
     return files;
   }
-
-  const checkPath = (p: unknown): string => {
-    if (!p || typeof p !== 'string') throw new HttpError(400, 'path required');
-    if (p.startsWith('/') || p.endsWith('/') || p.includes('\0') || p.includes('\n') || p.split('/').some((s) => s === '..' || s === '' || s === '.')) throw new HttpError(400, 'invalid path');
-    return p;
-  };
 
   const blobs = new Map<string, FileBlob>();
   async function readFile(sha: string, p: string): Promise<FileBlob> {
@@ -357,7 +364,7 @@ export function createCode({ REPO, config, works }: Deps) {
     if (!headSha) throw new HttpError(404, `unknown commit ${rawSha}`);
     const mergeBase = await revParse(`${headSha}^`);
     if (!mergeBase) throw new HttpError(400, `${rawSha.slice(0, 9)} has no parent`);
-    if (action === 'refs') return { headSha, mergeBase, files: await filesBetween(mergeBase, headSha) };
+    if (action === 'refs') return { headSha, mergeBase, subject: (await git(['log', '-1', '--format=%s', headSha])).stdout.trim(), files: await filesBetween(mergeBase, headSha) };
     const p = checkPath(q.get('path'));
     if (action === 'file') return readFile(q.get('ref') === 'base' ? mergeBase : headSha, p);
     if (action === 'diff') return { path: p, mergeBase, headSha, unified: await diffOf({ mergeBase, headSha }, p, q.get('previous') ? checkPath(q.get('previous')) : null) };
@@ -401,5 +408,5 @@ export function createCode({ REPO, config, works }: Deps) {
     }
   }
 
-  return { handle, ensureRefs, prFilesFromGit, dropRefs };
+  return { handle, ensureRefs, prFilesFromGit, dropRefs, commitRoute };
 }

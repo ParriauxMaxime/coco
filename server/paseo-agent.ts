@@ -70,6 +70,8 @@ export type ProviderEntry = { provider: string; status: string; enabled?: boolea
 // a user prompt in an agent's timeline index: its preview is clipped (ends with …) past a few hundred characters
 export type PromptIndex = { epoch?: string; prompts?: { seq: number; timestamp?: string; preview: string }[]; error?: string | null };
 export type WorkspaceHandle ={ id: string; agents: { create(opts: Record<string, unknown>): Promise<DaemonAgent> } };
+// the daemon's checkout calls on a directory, as the Paseo app's git panel makes them (server/workspace-git.ts)
+export type CheckoutApi = Pick<RawDaemon, 'getCheckoutStatus' | 'getCheckoutDiff' | 'listCheckoutCommits' | 'checkoutCommit' | 'checkoutPull' | 'checkoutPush' | 'checkoutPrCreate' | 'checkoutPrStatus' | 'checkoutDiscardChanges' | 'stashSave' | 'stashPop'>;
 export type DaemonClient = {
   workspaces: {
     list(opts: { page: { limit: number; cursor?: string } }): Promise<{ entries: WorkspaceEntry[]; pageInfo?: { nextCursor?: string } }>;
@@ -86,6 +88,7 @@ export type DaemonClient = {
   setAgentMode?(agentId: string, modeId: string): Promise<unknown>;
   updateAgent?(agentId: string, updates: { name?: string }): Promise<unknown>;
   listAgentTimelinePrompts?(agentId: string): Promise<PromptIndex>;
+  checkout?: CheckoutApi;
 } & SubagentApi;
 type Worktree = { mode: string; newBranch?: string; base?: string; branch?: string; prNumber?: number | string; slug?: string };
 
@@ -141,7 +144,7 @@ export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}
   };
   const client = { ...api, close, connection, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
   Object.assign(client, { setAgentMode: (id: string, m: string) => raw.setAgentMode(id, m), updateAgent: (id: string, u: { name?: string }) => raw.updateAgent(id, u), listAgentTimelinePrompts: (id: string) => raw.listAgentTimelinePrompts(id) });
-  Object.assign(client, { listProviderSubagents:(id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts) });
+  Object.assign(client, { listProviderSubagents:(id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts), checkout: raw });
   // with reconnect on, the SDK's first connect waits for the daemon forever: past the deadline coco reports it unreachable and tries again later
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

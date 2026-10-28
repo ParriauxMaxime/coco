@@ -36,6 +36,15 @@ export const parseCommitTab = (id: string | null | undefined) => {
   return m ? { threadKey: m[1], msgId: m[2] } : null;
 };
 
+// a commit of an agent's workspace (its Changes panel): `gitcommit-<workspace id>~<sha>`; a workspace's Changes panel: `git-<workspace id>`
+export const workspaceCommitTabId = (wsId: string, sha: string) => `gitcommit-${wsId}~${sha}`;
+export const parseWorkspaceCommitTab = (id: string | null | undefined) => {
+  const m = /^gitcommit-([\w.-]+)~([0-9a-f]{7,40})$/.exec(id || '');
+  return m ? { wsId: m[1], sha: m[2] } : null;
+};
+export const changesTabId = (wsId: string) => `git-${wsId}`;
+export const parseChangesTab = (id: string | null | undefined) => /^git-([\w.-]+)$/.exec(id || '')?.[1] ?? null;
+
 export const codeTabId =(n: PrKey, path: string, files: Pick<RefFile, 'filename'>[] = []) => `${files.some((f) => f.filename === path) ? 'diff' : 'file'}-${n}~${path}`;
 
 export const baseName = (path: string) => path.split('/').pop() ?? path;

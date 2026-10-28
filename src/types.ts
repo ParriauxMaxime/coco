@@ -554,6 +554,12 @@ export type Job = { id: string; work: string | null; pr: string | null; action: 
 export type WorkWorktree = { path: string; branch: string; title: string; key: string | null; workspaceIds: string[]; dirty: number; unpushed: number; error?: string };
 export type WorktreeNotice = { id: string; kind: 'worktrees'; slug: string; title: string; at: string; count: number };
 export type WorktreesRemoved = { removed: string[]; kept: { path: string; why: string }[]; unarchived: { workspaceId: string; why: string }[] };
+// a workspace's git (server/workspace-git.ts): via says whether Paseo's checkout API or plain git answered
+export type GitStatus = { cwd: string; branch: string | null; upstream: string | null; ahead: number | null; behind: number | null; base: string | null; aheadBase: number | null; behindBase: number | null; dirty: boolean; hasRemote: boolean; stashes: { index: number; message: string }[]; via: 'paseo' | 'git' };
+export type GitFile = { filename: string; status: string; previous?: string; additions: number; deletions: number; binary?: boolean };
+export type GitCommit = { sha: string; shortSha: string; subject: string; author: string; date: string; files: number | null };
+export type GitPr = { number: number | null; url: string; title: string; state: string; isDraft: boolean };
+export type GitTexts = { path: string; original: string; modified: string; binary?: boolean; tooLarge?: boolean; unified?: string };
 export type AskRun = {
   id: string;
   prompt: string;
@@ -602,7 +608,7 @@ export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
 // any Paseo agent, in a work or not (GET /api/agent-chat/<agentId>)
-export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; provider: string | null; thinking: string | null; mode?: string | null; serverId: string | null; openCards: number } & AgentMetrics;
+export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; provider: string | null; thinking: string | null; mode?: string | null; workspaceId?: string | null; serverId: string | null; openCards: number } & AgentMetrics;
 // an agent handed to a fresh one (server/handoff.ts): step summary (the old one writes its briefing), starting, done or failed
 export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: 'summary' | 'starting' | 'done' | 'failed'; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null };
 // GET /api/agent-chat/<agentId>/handoff: to, its hand-off to a new agent; from, the one it took over from
