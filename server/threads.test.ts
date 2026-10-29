@@ -155,7 +155,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
     assert.ok(thread.waiting);
     return { ...thread, waiting: thread.waiting };
   };
-  return { threads, post, daemon, read, activity, reply, decided };
+  return { threads, post, daemon, read, activity, reply, decided, DATA };
 }
 
 type Pending = { waiting: { replyPath: string; msgId: string; earlier?: { msgId: string }[] } | null };
@@ -960,4 +960,57 @@ test('Approve picks the commit in a throwaway worktree and moves the PR branch, 
   const m4 = await suggest(6);
   await threads.decideSuggestion(SLUG, A, m4.id, 'approve');
   assert.deepEqual([state(m3.id), state(m4.id)], ['superseded', 'applied'], 'the remade commit leaves no stale conflict');
+});
+
+test('a thread keeps one open commit: a new one replaces the pending one it builds on, and Approve picks both', async () => {
+  let commit = '1'.repeat(40);
+  const calls: string[][] = [];
+  const exec: Exec = async (_cmd, args) => {
+    calls.push(args.map(String));
+    const out = (stdout: string) => ({ ok: true, stdout, stderr: '' });
+    if (args.includes('cherry')) return out('+ x\n+ y\n');
+    if (args.includes('--grep')) return out('');
+    if (args.includes('--no-patch')) return out('Guard the null\n');
+    if (args.includes('--name-only')) return out('src/widgets.ts\n');
+    if (args.includes('rev-parse')) return out('abc999\n');
+    return out('diff');
+  };
+  const { threads, post, daemon, read, reply } = setup(undefined, undefined, () => [{ id: 'aa11', commit }], undefined, exec);
+  const suggest = async (n: number) => {
+    commit = String(n).repeat(40);
+    const a = await post(A, `Add the null check ${n}`);
+    await until(() => daemon.calls.sent.length === n, 'dispatch');
+    reply(a.waiting.replyPath, 'Done.');
+    daemon.finish(daemon.calls.created[0].id);
+    await until(() => !read(A).waiting, 'turn end');
+    return read(A).messages.findLast((m) => m.suggestion)!;
+  };
+  const m1 = await suggest(1);
+  const m2 = await suggest(2);
+  const state = (id: string) => read(A).messages.find((m) => m.id === id)?.suggestion?.state;
+  assert.deepEqual([state(m1.id), state(m2.id)], ['superseded', 'pending']);
+  calls.length = 0;
+  await threads.decideSuggestion(SLUG, A, m2.id, 'approve');
+  assert.equal(state(m2.id), 'applied');
+  assert.ok(calls.some((c) => c.includes('cherry-pick') && c.at(-1) === `${'1'.repeat(40)}^..${'2'.repeat(40)}`), 'picks from before the first commit');
+});
+
+test('a code group whose findings are all settled and whose agent is gone frees its worktree after an hour, keeping its branch', async () => {
+  const calls: string[][] = [];
+  const exec: Exec = async (cmd, args) => (calls.push([cmd, ...args.map(String)]), { ok: true, stdout: cmd === 'paseo' ? '[]' : '', stderr: '' });
+  const { threads, post, daemon, read, reply, DATA } = setup(undefined, undefined, () => [], undefined, exec);
+  const b = await post(B, 'Rename the helper');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  reply(b.waiting.replyPath, 'Declined, nothing to do.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(B).waiting, 'turn end');
+  const groupFile = path.join(DATA, 'works', SLUG, 'groups', `${read(B).groupId}.json`);
+  const age = (ms: number) => fs.writeFileSync(groupFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(groupFile, 'utf8')), updatedAt: new Date(Date.now() - ms).toISOString() }));
+
+  age(10 * 60 * 1000);
+  assert.deepEqual(await threads.sweepGroups(), [], 'too recent');
+  age(2 * 60 * 60 * 1000);
+  assert.deepEqual(await threads.sweepGroups(), [`${SLUG}/${read(B).groupId}`]);
+  assert.equal(JSON.parse(fs.readFileSync(groupFile, 'utf8')).status, 'closed');
+  assert.ok(!calls.some((c) => c.includes('branch') && c.includes('-D')), 'the branch stays');
 });

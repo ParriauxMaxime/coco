@@ -1064,7 +1064,13 @@ cocopilot/<group> <PR head>`), adopts it as a Paseo workspace and starts its
 agent at once; the pool refills in the background, one spare at a time, shown
 in Jobs. A spare still warming can be taken: its step is cut short. No spare
 ready: the group makes its own worktree as before. Closing such a group
-removes its worktree (Paseo only removes the ones it made). On restart,
+removes its worktree (Paseo only removes the ones it made). A group closes when
+its last finding is settled with nothing open; every 10 minutes coco also
+closes the code groups whose findings are all fixed, declined or outdated and
+whose agent has been gone or idle for an hour, keeping their branch
+(`threads.sweepGroups`). A thread holds one open commit: a new one supersedes
+the open one, and carries the changes of the commit it builds on, so Approve
+picks both. On restart,
 spares cut short or beyond the wanted count are removed, then the pool fills.
 
 ### Changes (a workspace's git panel)

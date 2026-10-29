@@ -329,6 +329,13 @@ void paseoHealth.boot().then(sweepArchivedCards);
 setInterval(sweepArchivedCards, 10 * 60 * 1000);
 agentChecks.resume(threads.codeWorktrees()).catch((e) => console.error(`agent worktrees: ${errorMessage(e)}`));
 spares.start().catch((e) => console.error(`spare worktrees: ${errorMessage(e)}`));
+const sweepGroups = () =>
+  threads
+    .sweepGroups()
+    .then((freed) => freed.length && console.log(`code groups settled, worktrees freed: ${freed.join(', ')}`))
+    .catch((e) => console.error(`code groups sweep: ${errorMessage(e)}`));
+void sweepGroups();
+setInterval(sweepGroups, 10 * 60 * 1000);
 const sweepUploads = () => {
   try {
     const gone = uploads.sweep();

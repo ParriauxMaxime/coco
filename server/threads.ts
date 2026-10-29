@@ -44,7 +44,8 @@ type Item = { id: string; title?: string; path: string; startLine: number; endLi
 type ThreadPr = { head: string; sha: string; url?: string; repo?: string };
 type CardSuggestion = { kind: 'card'; fields: Record<string, unknown>; state: string; error?: string };
 // checks: coco's own run of the repo checks on the commit, running until it lands
-type CommitSuggestion = { kind: 'commit'; commit: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string; checks?: Verification | { state: 'running'; at: string; head: string } };
+// from: the commit its change starts after, set when it carries earlier open commits it builds on (Approve picks from..commit)
+type CommitSuggestion = { kind: 'commit'; commit: string; from?: string; files: string[]; diff: string; state: string; error?: string; appliedCommit?: string; checks?: Verification | { state: 'running'; at: string; head: string } };
 type Suggestion = CardSuggestion | CommitSuggestion;
 // choices and picked: replies written before the agents asked through cards, shown read-only
 type Choice = { label: string; text: string; change: boolean; option?: string };
@@ -209,6 +210,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (ref.kind === 'plan') return reviewPlan.planOf(slug, ref.n) as Item | null;
     return (comments.list(slug, ref.n).comments || []).find((c) => c.id === ref.id) || null;
   };
+  const SETTLED = ['fixed', 'declined', 'outdated'];
+  const settled = (slug: string, ref: Ref | null) => ref?.kind === 'comment' && SETTLED.includes(comments.list(slug, ref.n).comments?.find((c) => c.id === ref.id)?.status ?? '');
   // the best-mapped persona of the file a comment (or its group) is on, for the "Ask <persona>" prefill
   const personaOf = (slug: string, work: Work, ref: Ref, group: Group | null) => {
     const file = ref.kind === 'comment' ? itemOf(slug, work, ref)?.path : group?.files?.[0];
@@ -739,8 +742,13 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return Object.keys(fields).length ? { kind: 'card', fields, state: 'pending' } : null;
   }
 
-  async function commitOf(repo: string, commit: string) {
-    const [diff, names, head] = await Promise.all([git(repo, ['show', '--format=', '--stat', '--patch', commit]), git(repo, ['show', '--format=', '--name-only', commit]), git(repo, ['show', '--no-patch', '--format=%cI%n%s', commit])]);
+  // from: the commit the change starts after, when the suggestion carries earlier open commits it builds on
+  async function commitOf(repo: string, commit: string, from?: string) {
+    const [diff, names, head] = await Promise.all([
+      git(repo, from ? ['diff', '--stat', '--patch', from, commit] : ['show', '--format=', '--stat', '--patch', commit]),
+      git(repo, from ? ['diff', '--name-only', from, commit] : ['show', '--format=', '--name-only', commit]),
+      git(repo, ['show', '--no-patch', '--format=%cI%n%s', commit]),
+    ]);
     const [when, subject = ''] = head.ok ? head.stdout.split('\n') : [];
     const at = Date.parse(when) ? new Date(when).toISOString() : new Date().toISOString();
     return { commit, files: names.stdout.split('\n').filter(Boolean), diff: diff.stdout.slice(0, MAX_DIFF), at, subject: head.ok ? subject : '' };
@@ -768,13 +776,17 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // the suggestion goes in the thread with coco's checks running, started once the thread is written
   async function addCommit(slug: string, key: string, thread: Thread, group: CodeGroup, found: Found) {
     if (thread.messages.some((m) => m.suggestion?.kind === 'commit' && m.suggestion.commit === found.commit)) return null;
-    // an amended or re-made commit replaces the pending one it rewrote; one the new commit builds on stays, as Approve picks commits one by one
+    // a thread holds one open commit: the new one replaces any still open, and carries the changes of those it builds on so Approve picks them together
+    const repo = repoPath(slug);
+    let from: string | undefined;
     for (const m of thread.messages) {
       const old = m.suggestion;
-      if (old?.kind !== 'commit' || old.state !== 'pending') continue;
-      if (!(await git(repoPath(slug), ['merge-base', '--is-ancestor', old.commit, found.commit])).ok) old.state = 'superseded';
+      if (old?.kind !== 'commit' || !isOpenSuggestion(old)) continue;
+      old.state = 'superseded';
+      if ((await git(repo, ['merge-base', '--is-ancestor', old.commit, found.commit])).ok) from ||= old.from || `${old.commit}^`;
     }
-    const s: CommitSuggestion = { kind: 'commit', commit: found.commit, files: found.files, diff: found.diff, state: 'pending' };
+    if (from) found = { ...(await commitOf(repo, found.commit, from)), at: found.at };
+    const s: CommitSuggestion = { kind: 'commit', commit: found.commit, files: found.files, diff: found.diff, state: 'pending', ...(from ? { from } : {}) };
     const cwd = group.worktree;
     if (cwd && worktrees?.verify) s.checks = { state: 'running', at: new Date().toISOString(), head: s.commit };
     const m = placeCommit(thread, s, found.at, { agentId: group.agentId, groupId: group.id });
@@ -1163,16 +1175,16 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
 
   // picks in a throwaway worktree, never in the PR worktree an agent or the owner may be using; that one then catches up
   // with reset --keep, which keeps its uncommitted edits unless they touch the picked files
-  async function cherryPick(repo: string, pr: ThreadPr, commit: string): Promise<{ error: string } | { conflict: string } | { applied: string } | { already: string }> {
+  async function cherryPick(repo: string, pr: ThreadPr, commit: string, from = `${commit}^`): Promise<{ error: string } | { conflict: string } | { applied: string } | { already: string }> {
     const tip = await branchHead(repo, pr.head);
     if (!tip) return { error: `no local branch ${pr.head}` };
-    const cherry = await git(repo, ['cherry', tip, commit, `${commit}^`]);
-    if (cherry.stdout.startsWith('-')) return { already: tip };
+    const cherry = (await git(repo, ['cherry', tip, commit, from])).stdout.split('\n').filter(Boolean);
+    if (cherry.length && cherry.every((l) => l.startsWith('-'))) return { already: tip };
     const cwd = path.join(os.tmpdir(), `cc-apply-${hex(3)}`);
     const add = await git(repo, ['worktree', 'add', '--detach', cwd, tip]);
     if (!add.ok) return { error: `cannot check out ${pr.head}: ${add.stderr.slice(0, 200)}` };
     try {
-      const pick = await git(cwd, ['cherry-pick', commit]);
+      const pick = await git(cwd, ['cherry-pick', `${from}..${commit}`]);
       if (!pick.ok) {
         await git(cwd, ['cherry-pick', '--abort']);
         return /empty/.test(pick.stderr + pick.stdout) ? { already: tip } : { conflict: pick.stderr.slice(0, 400) || 'cherry-pick failed' };
@@ -1204,7 +1216,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     }
     if (ref.kind !== 'comment') return;
     const pr = await prOf(work, ref.n);
-    const out = await cherryPick(repoOf(work).path, pr, s.commit);
+    const out = await cherryPick(repoOf(work).path, pr, s.commit, s.from);
     if ('error' in out) {
       s.state = 'pending';
       s.error = out.error;
@@ -1243,9 +1255,15 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     Object.assign(thread, read(slug, key));
   }
 
-  function decideSuggestion(slug: string, key: string, msgId: string, action: string) {
+  // once its finding is settled and nothing is left open, the thread leaves its group (release)
+  async function decideSuggestion(slug: string, key: string, msgId: string, action: string) {
     const { work, ref } = check(slug, key);
     if (!['approve', 'dismiss', 'rebase'].includes(action)) throw new HttpError(400, "action must be 'approve', 'dismiss' or 'rebase'");
+    const thread = await decide(slug, key, msgId, action, work, ref);
+    if (settled(slug, ref)) await release(slug, key).catch(() => null);
+    return thread;
+  }
+  function decide(slug: string, key: string, msgId: string, action: string, work: Work, ref: Ref) {
     return withLock(`${slug}:${key}`, async () => {
       const thread = read(slug, key);
       const suggestion = thread.messages.find((m) => m.id === msgId && m.suggestion)?.suggestion;
@@ -1281,8 +1299,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     });
   }
 
-  // a code group archives its Paseo workspace (agent and worktree) and drops its branch: approved commits already live on the PR branch
-  async function closeGroup(slug: string, id: string) {
+  // a code group archives its Paseo workspace (agent and worktree) and drops its branch: approved commits already live on the PR branch;
+  // keepBranch when a commit may still wait on it
+  async function closeGroup(slug: string, id: string, { keepBranch = false } = {}) {
     const g = readGroup(slug, id);
     if (!g) throw new HttpError(404, 'no such group');
     sessions.get(at(slug, id))?.then((s) => s?.detach());
@@ -1295,8 +1314,29 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     else if (g.agentId) await exec('paseo', ['archive', g.agentId]);
     const repo = repoPath(slug);
     if (g.kind === 'code' && g.spare && worktree) await git(repo, ['worktree', 'remove', '--force', worktree]);
-    if (g.branch) await git(repo, ['branch', '-D', g.branch]);
+    if (g.branch && !keepBranch) await git(repo, ['branch', '-D', g.branch]);
     return writeGroup(slug, { ...g, status: 'closed' });
+  }
+
+  const IDLE_MS = 60 * 60 * 1000;
+  // code groups whose findings are all settled and whose agent is gone or idle for an hour: worktree and workspace go, the branch stays
+  // for any commit still open on it; release missed them when a suggestion was open at settle time or the finding settled outside coco
+  async function sweepGroups() {
+    const live = await reviewAgent.agentsList().catch(() => null);
+    if (!live) return [];
+    const now = Date.now();
+    const freed: string[] = [];
+    for (const work of works.list().filter((w) => !w.archived)) {
+      for (const g of listGroups(work.slug)) {
+        if (g.kind !== 'code' || g.status !== 'active' || now - Date.parse(g.updatedAt || g.createdAt) < IDLE_MS) continue;
+        const agent = live.find((a) => a.id === g.agentId);
+        if (agent && agent.status !== 'idle' && agent.status !== 'closed' && agent.status !== 'error') continue;
+        const done = g.items.every((key) => settled(work.slug, parseThreadKey(key)) && !read(work.slug, key).waiting);
+        if (!done) continue;
+        if (await closeGroup(work.slug, g.id, { keepBranch: true }).then(() => true, () => false)) freed.push(`${work.slug}/${g.id}`);
+      }
+    }
+    return freed;
   }
 
   // the item is settled (finding accepted or dismissed): it leaves its group, and the group's agent and worktree go once no item is left;
@@ -1414,6 +1454,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     decideSuggestion,
     regroup,
     release,
+    sweepGroups,
     setFindingActor,
     cardHook,
     cardChanged: (slug: string, key: string) => notify(slug, key, { type: 'thread' }),
