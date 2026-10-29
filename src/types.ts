@@ -433,7 +433,7 @@ export type ThreadSummary = { label?: string; count: number; waiting?: boolean; 
 export type UnlinkedCommit = { commit: string; subject: string; files: string[]; at: string };
 export type ThreadGroup = { id: string; agentId?: string | null; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number; unlinked?: UnlinkedCommit[] };
 export type ThreadPostBody = { text: string; model?: string; thinking?: string; attachments?: string[] };
-export type SuggestionAction = 'approve' | 'dismiss';
+export type SuggestionAction = 'approve' | 'dismiss' | 'rebase';
 
 export type FindingRow = {
   key: string;

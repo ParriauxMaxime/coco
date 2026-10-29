@@ -896,3 +896,60 @@ test('a commit naming no item of the group waits on the group, not linked, until
   assert.deepEqual(linked.unlinked, []);
   assert.equal(read(A).messages.findLast((m) => m.suggestion)?.suggestion?.commit, 'c0ffee3');
 });
+
+test('Approve picks the commit in a throwaway worktree and moves the PR branch, marks a change the branch already has applied, and sends a conflict back to the agent once', async () => {
+  let commit = 'f'.repeat(40);
+  const git = { cherry: '+ x\n', pick: true };
+  const calls: string[][] = [];
+  const exec: Exec = async (_cmd, args) => {
+    calls.push(args.map(String));
+    const out = (stdout: string, ok = true) => ({ ok, stdout, stderr: ok ? '' : 'CONFLICT (content): src/widgets.ts' });
+    if (args.includes('cherry')) return out(git.cherry);
+    if (args.includes('cherry-pick') && !args.includes('--abort')) return out('', git.pick);
+    if (args.includes('--grep')) return out('');
+    if (args.includes('--no-patch')) return out('Guard the null\n');
+    if (args.includes('--name-only')) return out('src/widgets.ts\n');
+    if (args.includes('rev-parse')) return out('abc999\n');
+    return out('diff');
+  };
+  const { threads, post, daemon, read, reply } = setup(undefined, undefined, () => [{ id: 'aa11', commit }], undefined, exec);
+  const suggest = async (n: number) => {
+    commit = String(n).repeat(40).replace(/1/g, 'f');
+    const a = await post(A, `Add the null check ${n}`);
+    await until(() => daemon.calls.sent.length === n, 'dispatch');
+    reply(a.waiting.replyPath, 'Done.');
+    daemon.finish(daemon.calls.created[0].id);
+    await until(() => !read(A).waiting, 'turn end');
+    return read(A).messages.findLast((m) => m.suggestion)!;
+  };
+  const state = (id: string) => read(A).messages.find((m) => m.id === id)?.suggestion?.state;
+
+  const m1 = await suggest(1);
+  calls.length = 0;
+  await threads.decideSuggestion(SLUG, A, m1.id, 'approve');
+  assert.equal(state(m1.id), 'applied');
+  assert.ok(calls.some((c) => c.includes('worktree') && c.includes('--detach')), 'picked in a throwaway worktree');
+  assert.ok(calls.some((c) => c.includes('update-ref') && c.includes('refs/heads/feat/widgets') && c.at(-1) === 'abc999'), 'the branch moves only from the tip it was picked on');
+
+  git.cherry = '- x\n';
+  const m2 = await suggest(2);
+  await threads.decideSuggestion(SLUG, A, m2.id, 'approve');
+  assert.equal(state(m2.id), 'applied');
+  assert.match(read(A).messages.at(-1)!.text, /already has commit 2222222's change/);
+
+  git.cherry = '+ x\n';
+  git.pick = false;
+  const m3 = await suggest(3);
+  await threads.decideSuggestion(SLUG, A, m3.id, 'approve');
+  await until(() => daemon.calls.sent.length === 4, 'conflict sent back');
+  assert.match(daemon.calls.sent[3].text, /does not apply on `feat\/widgets` any more/);
+  reply(read(A).waiting!.replyPath, 'Rebased.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+
+  await threads.decideSuggestion(SLUG, A, m3.id, 'approve');
+  assert.equal(daemon.calls.sent.length, 4, 'a second conflict waits on the owner');
+  assert.match(read(A).messages.at(-1)!.text, /Retry once you rebased it, Ask the agent to rebase, or Dismiss it/);
+  await threads.decideSuggestion(SLUG, A, m3.id, 'rebase');
+  await until(() => daemon.calls.sent.length === 5, 'asked again by the owner');
+});

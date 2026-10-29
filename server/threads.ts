@@ -53,7 +53,7 @@ type Message = { id: string; role: string; text: string; ts: string; model?: str
 type Asked = { msgId: string; replyPath: string; cardPath: string };
 // deps: the first prompt is held back while the worktree installs its dependencies (since when)
 type Waiting = Asked & { groupId: string; agentId: string; sentAt: string; sha?: string | null; earlier?: Asked[]; deps?: { since: string } };
-// sentBack: a failed check already went back to the agent since the owner's last message
+// sentBack: a failed check or a conflict already went back to the agent since the owner's last message
 // verifies: the owner's Verify runs by commit sha
 type Thread = { key: string; groupId: string | null; waiting: Waiting | null; messages: Message[]; newGroup?: boolean; sentBack?: boolean; verifies?: Record<string, VerifyRun> };
 type GroupBase = { id: string; model: string; thinking?: string | null; agentId: string | null; items: string[]; status: string; createdAt: string; updatedAt?: string };
@@ -574,7 +574,6 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         }
         // a commit made after the reply that ended a thread's wait
         await sweep(slug, groupId).catch(() => {});
-        await drainQueue(slug).catch(() => {});
       },
       () => following.delete(s.agentId),
     );
@@ -1161,36 +1160,38 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     return first;
   }
 
-  // the PR worktree can take a cherry-pick when it has no tracked change and no agent is mid-turn in it
-  async function prTarget(repo: string, pr: ThreadPr) {
-    const wt = await reviewAgent.worktreeFor(pr.head, repo);
-    if (!wt) return { wt: null, busy: false };
-    const [status, agents] = await Promise.all([git(wt, ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=no']), reviewAgent.agentsList()]);
-    const busy = Boolean(status.stdout.trim()) || agents.some((a) => a.status === 'running' && a.cwd && reviewAgent.sameDir(a.cwd, wt));
-    return { wt, busy };
-  }
-
-  async function cherryPick(repo: string, pr: ThreadPr, commit: string): Promise<{ queued: true } | { error: string } | { conflict: string } | { applied: string }> {
-    const { wt, busy } = await prTarget(repo, pr);
-    if (busy) return { queued: true };
-    const cwd = wt || path.join(os.tmpdir(), `cc-apply-${hex(3)}`);
-    if (!wt) {
-      const add = await git(repo,['worktree', 'add', cwd, pr.head]);
-      if (!add.ok) return { error: `cannot check out ${pr.head}: ${add.stderr.slice(0, 200)}` };
-    }
+  // picks in a throwaway worktree, never in the PR worktree an agent or the owner may be using; that one then catches up
+  // with reset --keep, which keeps its uncommitted edits unless they touch the picked files
+  async function cherryPick(repo: string, pr: ThreadPr, commit: string): Promise<{ error: string } | { conflict: string } | { applied: string } | { already: string }> {
+    const tip = await branchHead(repo, pr.head);
+    if (!tip) return { error: `no local branch ${pr.head}` };
+    const cherry = await git(repo, ['cherry', tip, commit, `${commit}^`]);
+    if (cherry.stdout.startsWith('-')) return { already: tip };
+    const cwd = path.join(os.tmpdir(), `cc-apply-${hex(3)}`);
+    const add = await git(repo, ['worktree', 'add', '--detach', cwd, tip]);
+    if (!add.ok) return { error: `cannot check out ${pr.head}: ${add.stderr.slice(0, 200)}` };
     try {
       const pick = await git(cwd, ['cherry-pick', commit]);
       if (!pick.ok) {
         await git(cwd, ['cherry-pick', '--abort']);
-        return { conflict: pick.stderr.slice(0, 400) || 'cherry-pick failed' };
+        return /empty/.test(pick.stderr + pick.stdout) ? { already: tip } : { conflict: pick.stderr.slice(0, 400) || 'cherry-pick failed' };
       }
-      return { applied: (await git(cwd, ['rev-parse', 'HEAD'])).stdout.trim() };
+      const picked = (await git(cwd, ['rev-parse', 'HEAD'])).stdout.trim();
+      const wt = await reviewAgent.worktreeFor(pr.head, repo);
+      if (!wt) {
+        const move = await git(repo, ['update-ref', `refs/heads/${pr.head}`, picked, tip]);
+        return move.ok ? { applied: picked } : { error: `${pr.head} moved while applying: Approve again` };
+      }
+      if ((await git(wt, ['rev-parse', 'HEAD'])).stdout.trim() !== tip) return { error: `${pr.head} moved while applying: Approve again` };
+      const keep = await git(wt, ['reset', '--keep', picked]);
+      return keep.ok ? { applied: picked } : { error: `${wt} has uncommitted edits on the files this commit changes: commit or stash them, then Approve again` };
     } finally {
-      if (!wt) await git(repo, ['worktree', 'remove', '--force', cwd]);
+      await git(repo, ['worktree', 'remove', '--force', cwd]);
     }
   }
 
-  // Approve on a code suggestion: cherry-pick onto the PR branch, or queue while its worktree is busy, or send the conflict back to the group agent
+  // Approve on a code suggestion: cherry-pick onto the PR branch, or mark it applied when the branch already has it,
+  // or send a conflict back to the group agent once; after that the owner retries, asks the agent again or dismisses
   async function apply(slug: string, work: Work, ref: Ref, key: string, thread: Thread, suggestion: Suggestion) {
     const s = suggestion;
     if (s.kind === 'card') {
@@ -1203,10 +1204,6 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if (ref.kind !== 'comment') return;
     const pr = await prOf(work, ref.n);
     const out = await cherryPick(repoOf(work).path, pr, s.commit);
-    if ('queued' in out) {
-      s.state = 'queued';
-      return;
-    }
     if ('error' in out) {
       s.state = 'pending';
       s.error = out.error;
@@ -1215,50 +1212,51 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     if ('conflict' in out) {
       s.state = 'conflict';
       s.error = out.conflict;
-      if (thread.waiting) {
-        thread.messages.push(message('system', `Commit ${s.commit.slice(0, 7)} no longer applies on ${pr.head}. Ask the agent to rebase once it has answered.`));
+      if (thread.waiting || thread.sentBack) {
+        thread.messages.push(message('system', `Commit ${s.commit.slice(0, 7)} no longer applies on ${pr.head}. Retry once you rebased it, Ask the agent to rebase, or Dismiss it.`));
         return;
       }
-      thread.messages.push(message('system', `Commit ${s.commit.slice(0, 7)} no longer applies on ${pr.head}; sent back to the agent.`));
-      write(slug, thread);
-      await dispatch(slug, work, ref, key, { role: 'system', text: `Your commit ${s.commit} does not apply on \`${pr.head}\` any more (head ${pr.sha}). Rebase your branch on that head (\`git rebase ${pr.sha}\`), resolve, and commit the change for this comment again with its trailer.` });
-      Object.assign(thread, read(slug, key));
+      await askRebase(slug, work, ref, key, thread, s, pr);
       return;
     }
     s.state = 'applied';
-    s.appliedCommit = out.applied;
     delete s.error;
+    delete thread.sentBack;
+    if ('already' in out) {
+      await comments.update(slug, ref.n, ref.id, { status: 'fixed', resolution: { commit: out.already, note: 'already on the PR branch' } });
+      thread.messages.push(message('system', `${pr.head} already has commit ${s.commit.slice(0, 7)}'s change: marked applied.`));
+      return;
+    }
+    s.appliedCommit = out.applied;
     await comments.update(slug, ref.n, ref.id, { status: 'fixed', resolution: { commit: out.applied, note: 'approved from the thread' } });
     thread.messages.push(message('system', `Applied on ${pr.head} as ${out.applied.slice(0, 7)}.`));
   }
 
+  async function askRebase(slug: string, work: Work, ref: Ref & { kind: 'comment' }, key: string, thread: Thread, s: CommitSuggestion, pr: ThreadPr) {
+    thread.sentBack = true;
+    thread.messages.push(message('system', `Commit ${s.commit.slice(0, 7)} no longer applies on ${pr.head}; sent back to the agent.`));
+    write(slug, thread);
+    await dispatch(slug, work, ref, key, { role: 'system', text: `Your commit ${s.commit} does not apply on \`${pr.head}\` any more (head ${pr.sha}). Rebase your branch on that head (\`git rebase ${pr.sha}\`), resolve, and commit the change for this comment again with its trailer.` });
+    Object.assign(thread, read(slug, key));
+  }
+
   function decideSuggestion(slug: string, key: string, msgId: string, action: string) {
     const { work, ref } = check(slug, key);
-    if (!['approve', 'dismiss'].includes(action)) throw new HttpError(400, "action must be 'approve' or 'dismiss'");
+    if (!['approve', 'dismiss', 'rebase'].includes(action)) throw new HttpError(400, "action must be 'approve', 'dismiss' or 'rebase'");
     return withLock(`${slug}:${key}`, async () => {
       const thread = read(slug, key);
       const suggestion = thread.messages.find((m) => m.id === msgId && m.suggestion)?.suggestion;
       if (!suggestion) throw new HttpError(404, 'no such suggestion');
       if (!OPEN_SUGGESTION.includes(suggestion.state)) throw new HttpError(400, `suggestion is already ${suggestion.state}`);
       if (action === 'dismiss') suggestion.state = 'dismissed';
-      else await apply(slug, work, ref, key, thread, suggestion);
+      else if (action === 'approve') await apply(slug, work, ref, key, thread, suggestion);
+      else {
+        if (suggestion.kind !== 'commit' || suggestion.state !== 'conflict' || ref.kind !== 'comment') throw new HttpError(400, 'only a commit in conflict goes back to its agent');
+        if (thread.waiting) throw new HttpError(409, 'the agent is still working on this thread');
+        await askRebase(slug, work, ref, key, thread, suggestion, await prOf(work, ref.n));
+      }
       return write(slug, thread);
     });
-  }
-
-  // approvals waiting on a busy PR worktree: try them again
-  async function drainQueue(slug: string) {
-    const work = works.get(slug);
-    if (!work) return;
-    for (const t of listThreads(slug).filter((x) => x.messages.some((m) => m.suggestion?.state === 'queued'))) {
-      const ref = parseThreadKey(t.key);
-      if (!ref) continue;
-      await withLock(`${slug}:${t.key}`, async () => {
-        const thread = read(slug, t.key);
-        for (const msg of thread.messages) if (msg.suggestion?.state === 'queued') await apply(slug, work, ref, t.key, thread, msg.suggestion);
-        write(slug, thread);
-      });
-    }
   }
 
   // move a thread to another open group of the same subject kind, or mark it for a new group on its next dispatch
@@ -1319,13 +1317,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     });
   }
 
-  // the Paseo plugin reports a finished turn: read back the threads waiting on that agent, then retry queued approvals
+  // the Paseo plugin reports a finished turn: read back the threads waiting on that agent
   async function turnEnded(agentId: string) {
     const agents = await reviewAgent.agentsList();
     for (const work of works.list().filter((w) => !w.archived)) {
       for (const t of listThreads(work.slug)) if (t.waiting?.agentId === agentId) await ingest(work.slug, t.key, agents);
       for (const g of listGroups(work.slug).filter((x) => x.agentId === agentId)) await sweep(work.slug, g.id).catch(() => {});
-      await drainQueue(work.slug);
     }
   }
 
@@ -1380,10 +1377,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
         }
         return send(res, 200, listGroups(slug).map((g) => (g.kind === 'code' && g.status === 'active' ? { ...g, unlinked: readCommits(slug, g.id).unlinked ?? [] } : g)));
       }
-      if (!key) {
-        await drainQueue(slug);
-        return send(res, 200, summaries(slug));
-      }
+      if (!key) return send(res, 200, summaries(slug));
       if (sub === 'verify' && req.method === 'POST') return send(res, 200, await verifyThread(slug, key, (await body()).commit));
       if (sub === 'suggestions' && req.method === 'POST') return send(res, 200, await decideSuggestion(slug, key, msgId, (await body()).action));
       if (sub === 'events' && req.method === 'GET') {
@@ -1415,7 +1409,6 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     turnEnded,
     summaries,
     decideSuggestion,
-    drainQueue,
     regroup,
     release,
     setFindingActor,

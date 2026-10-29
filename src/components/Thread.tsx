@@ -30,7 +30,7 @@ const SHOWN_TURNS = 8;
 const MORE_TURNS = 8;
 const OPEN = ['pending', 'queued', 'conflict'];
 const STATE_CHIP: Record<string, string> = { pending: 'dp-info', queued: 'dp-warn', conflict: 'dp-bad', applied: 'dp-ok', dismissed: '' };
-const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch', superseded: 'the agent rewrote this commit: approve the newer one' };
+const STATE_NOTE: Record<string, string> = { queued: 'approved while the PR worktree was busy: Approve again', conflict: 'does not apply on the PR branch', superseded: 'the agent rewrote this commit: approve the newer one' };
 
 type ThreadsOf = { summaries: Record<string, ThreadSummary>; groups: ThreadGroup[] };
 export type Verdict = { label: string; title?: string; on: (text: string) => void; allowEmpty?: boolean; className?: string; pending?: boolean };
@@ -118,7 +118,8 @@ export function SuggestionActions({ s, onDecide, busy, pending, verify, onVerify
       {isOpenSuggestion(s) && (
         <div className="dp-thr-sugg-f">
           {s.kind === 'commit' && <VerifyButton run={verify} busy={busy} pending={pending === 'verify'} onClick={onVerify} />}
-          {s.state !== 'queued' && <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={async () => (!red || (await confirmDialog({ title: "coco's checks fail on this commit. Approve anyway?", ok: 'Approve anyway', danger: true }))) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>}
+          {s.state === 'conflict' && <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'rebase')}`} disabled={busy} title="Send the commit back to its agent to rebase on the PR branch" onClick={() => onDecide('rebase')}><Icon name="bot" size={12} />Ask agent</button>}
+          <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending === 'approve')}`} disabled={busy} title={red ? "coco's checks fail on this commit" : undefined} onClick={async () => (!red || (await confirmDialog({ title: "coco's checks fail on this commit. Approve anyway?", ok: 'Approve anyway', danger: true }))) && onDecide('approve')}><Icon name={s.state === 'conflict' ? 'refresh' : 'check'} size={12} />{s.state === 'conflict' ? 'Retry' : red ? 'Approve anyway' : 'Approve'}{s.kind === 'commit' && VERIFIED_TAG[verify?.status ?? ''] || ''}</button>
           <button type="button" className={`dp-btn dp-sm${pendingClass(pending === 'dismiss')}`} disabled={busy} onClick={() => onDecide('dismiss')}><Icon name="x" size={12} />Dismiss</button>
         </div>
       )}
