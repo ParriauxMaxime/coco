@@ -34,8 +34,9 @@ The status bar shows the commit the server runs (`coco <sha>`, `*` when the
 checkout was dirty at boot) and, once the checkout moved past it, "N commits
 behind · Restart" (`POST /api/server/restart`: the client builds into
 `dist.next` while the running server keeps serving, its chunks join `dist`
-beside the old ones (kept two days so open pages still load them), then
-`index.html` is renamed over the old one, so `dist` never misses a file; the old
+beside the old ones, then `index.html` is renamed over the old one, so `dist`
+never misses a file; then only this build's chunks and the replaced build's
+(open pages still load them; listed in `dist/.assets`) are kept; the old
 server stops and the same argv starts; a `package-lock.json` newer than the
 last install runs `npm install` first; a failed install or build leaves the old
 server running; log in `<dataDir>/server-restart.log`). A server that finds its port
@@ -524,10 +525,13 @@ the diff comment zone. The server keeps `body` as the markdown twin for fix
 agents, threads and briefs; a hand edit of `body` drops the blocks.
 
 Loading: the last board of each view is saved to
-`data/works/<slug>/findings-cache/<pr|stack>.json`. The tab asks
-`?stale=1` first (the saved board at once, "refreshing" in the bar) and the
-live one next; both share one refresh, and a decision taken during it keeps
-its stale result out of the caches.
+`data/works/<slug>/findings-cache/<pr|stack>.json`. A plain GET answers
+with the saved board at once; older than 15 s (always with `?stale=1`) it
+carries `stale: true` and a refresh starts behind it, and the SSE topic
+`findings:<slug>` tells the page when that refresh landed a different board.
+`?fresh=1` waits for a new collect. Refreshes share one run, the stack PRs'
+GitHub remarks are read four at a time, and a decision taken during a run
+keeps its stale result out of the caches.
 
 `POST …/findings { action: accept | dismiss | reopen, keys, reason, pr }`.
 The ledger `data/works/<slug>/findings.json` is keyed by `(source, file,

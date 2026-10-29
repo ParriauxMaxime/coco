@@ -8,14 +8,17 @@ import type { Req, Res, Send } from './core-types.ts';
 
 export type ServerInfo = { running: string | null; head: string | null; behind: number; dirty: boolean; startedAt: string; build: string | null };
 
-// the client builds beside dist/ while this server keeps serving; its chunks join dist/ next to the old ones an open page still loads
-// (two days), then index.html is renamed over the old one, so dist/ is never missing a file; then this server stops and the new one
+// the client builds beside dist/ while this server keeps serving; its chunks join dist/ next to the old ones an open page still loads,
+// then index.html is renamed over the old one, so dist/ is never missing a file; only then are the chunks pruned to this build's and the
+// replaced build's (listed in dist/.assets; two days of them when no list was kept); then this server stops and the new one
 // takes the port; a lockfile newer than the last install installs first; a failed install or build leaves this one running
 const RESTART = [
   '[ package-lock.json -nt node_modules/.package-lock.json ] && { npm install --no-audit --no-fund || { echo "restart: npm install failed, coco keeps running"; exit 1; }; }',
   'npx vite build --outDir dist.next --emptyOutDir --logLevel warn || { echo "restart: client build failed, coco keeps running"; exit 1; }',
-  'rsync -a --exclude index.html dist.next/ dist/ && mv dist.next/index.html dist/index.html && rm -rf dist.next',
-  'find dist/assets -type f -mtime +2 -delete',
+  'ls dist.next/assets > dist.next/.assets',
+  'rsync -a --exclude index.html --exclude .assets dist.next/ dist/ && mv dist.next/index.html dist/index.html',
+  'if [ -f dist/.assets ]; then cat dist/.assets dist.next/.assets > dist.next/.keep; for f in dist/assets/*; do grep -qxF "${f##*/}" dist.next/.keep || rm -f "$f"; done; else find dist/assets -type f -mtime +2 -delete; fi',
+  'mv dist.next/.assets dist/.assets && rm -rf dist.next',
   'kill "$COCO_OLD_PID"; while kill -0 "$COCO_OLD_PID" 2>/dev/null; do sleep 0.2; done',
   'exec "$0" "$@"',
 ].join('\n');
