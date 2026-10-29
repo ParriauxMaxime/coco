@@ -543,7 +543,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     return { slug: work.slug, created: !existing, stackKept };
   }
 
-  // labelled with its work and row, so it lists among the work's agents
+  // labelled with its work and row like a New agent one, so it lists among the work's agents; an ask label would hide it there as a conversation's agent
   async function startAgent(p: AgentProposal, conv: Conv | null, agentId: string, at: { work: string | null; pr: string | null } = { work: null, pr: null }) {
     const slug = p.workSlug || conv?.workSlug || at.work;
     const work = slug ? works.get(slug) : null;
@@ -552,7 +552,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     let error = '';
     try {
       const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv?.scope ?? { kind: 'global' });
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, ...placed, labels: { source: 'cocopilot', ask: (conv?.id ?? agentId).slice(0, 8), work: work?.slug, pr: row } });
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
     } catch (e) {
       error = errorMessage(e);
     }

@@ -386,7 +386,8 @@ test('a proposal card shows what the agent proposes, is refused when it cannot r
   const started = await cards.answer(agent.id, { approved: true });
   const newAgent = daemon.calls.created[1];
   assert.equal(newAgent.prompt, 'Build the endpoint');
-  assert.equal(newAgent.labels?.work, 'csv-export');
+  // no ask label: the work's agent list skips those as Ask conversations' agents
+  assert.deepEqual([newAgent.labels?.kind, newAgent.labels?.work, newAgent.labels?.ask], ['agent', 'csv-export', undefined]);
   assert.equal(started.result?.link, `#/work/csv-export/ag-${newAgent.id}`);
   assert.match(work.timeline[0].text, /^started Paseo agent "PR 1: endpoint" \(\w{8}\) from ask \w{8}: "Plan the CSV export"$/);
 
