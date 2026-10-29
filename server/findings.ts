@@ -16,6 +16,8 @@ import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution,
 const GH_TTL_MS = 120000;
 // stack PRs whose GitHub remarks are read at once
 const GH_PARALLEL = 4;
+// stack rows whose refs and files are read at once: a large stack spawning every git run together stalls the server
+const ROWS_PARALLEL = 6;
 // a board younger than this is served without asking again
 const BOARD_FRESH_MS = 15000;
 const IMPORT_EVERY_MS = 60000;
@@ -302,7 +304,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
   }
 
   async function stackRows(work: Work): Promise<StackRowInfo[]> {
-    return Promise.all((work.stack || []).map(async (s, index): Promise<StackRowInfo | null> => {
+    return mapLimit(work.stack || [], ROWS_PARALLEL, async (s, index): Promise<StackRowInfo | null> => {
       const key = rowKey(s);
       if (!key) return null;
       try {
@@ -314,7 +316,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         const notBuiltYet = !s.number && (e as { code?: number }).code === 404;
         return { key, number: s.number || null, branch: s.planned?.branch || null, headSha: null, files: new Set<string>(), error: notBuiltYet ? undefined : errText(e) };
       }
-    })).then((x) => x.filter((r) => r !== null));
+    }).then((x) => x.filter((r) => r !== null));
   }
 
   // only: one row key; the other rows still lend their files to place review findings

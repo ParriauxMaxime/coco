@@ -22,6 +22,7 @@ const BLOB_LRU = 200;
 const TREE_LRU = 4;
 const INFO_TTL = 60000;
 const FRESH_TTL = 10000;
+const ROW_REPO_MS = 10000;
 
 class HttpError extends Error {
   code: number;
@@ -76,7 +77,15 @@ export function checkPath(p: unknown): string {
 export function createCode({ REPO, config, works, repoOf = () => ({ path: REPO, github: config?.repo?.github || '', defaultBranch: config?.repo?.defaultBranch || 'main' }) }: Deps) {
   const byPath = new Map<string, ReturnType<typeof repoCode>>();
   const at = (r: Repo) => byPath.get(r.path) ?? byPath.set(r.path, repoCode(r, works)).get(r.path)!;
-  const of = (key: RowKey | null) => at(repoOf(findRow(works, key)?.work));
+  // a row's repo, kept a few seconds: a findings collect asks it twice per row, and each lookup parses every work
+  const rowRepos = new Map<string, { at: number; repo: Repo }>();
+  const of = (key: RowKey | null) => {
+    const hit = rowRepos.get(String(key));
+    if (hit && Date.now() - hit.at < ROW_REPO_MS) return at(hit.repo);
+    const repo = repoOf(findRow(works, key)?.work);
+    rowRepos.set(String(key), { at: Date.now(), repo });
+    return at(repo);
+  };
   async function commitRepo(sha: string) {
     const all = [...new Map([repoOf(null), ...works.list().map((w) => repoOf(w))].map((r) => [r.path, r])).values()].map(at);
     for (const r of SHA_RE.test(sha) ? all : []) if (await r.hasCommit(sha)) return r;

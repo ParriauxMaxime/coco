@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { rowKey } from './stack.ts';
 import { defaultExec } from './placement.ts';
-import { cacheFile, swrCache } from './swr.ts';
+import { cacheFile, mapLimit, swrCache } from './swr.ts';
 import type { Exec, PaseoProject } from './placement.ts';
 import type { RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, Send, Work } from './core-types.ts';
@@ -23,6 +23,7 @@ type Deps = {
 };
 
 const TTL_MS = 30000;
+const GIT_PARALLEL = 6;
 const samePath = (a: string | undefined, b: string | undefined) => Boolean(a && b) && path.resolve(a as string) === path.resolve(b as string);
 const why = (r: { stdout: string; stderr: string }) => (r.stderr || r.stdout).trim().slice(0, 300);
 
@@ -114,16 +115,15 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
       if (tree && !found.has(tree.path)) found.set(tree.path, { branch: tree.branch, title: tree.branch || path.basename(tree.path), key: null, headOid: null });
     }
     const keep = [...found].filter(([p]) => !samePath(p, repo.path) && !samePath(p, root || undefined));
-    return Promise.all(
-      keep.map(async ([p, f]) => ({
-        path: p,
-        branch: f.branch,
-        title: f.title,
-        key: f.key,
-        workspaceIds: spaces.filter((w) => samePath(w.workspaceDirectory, p)).map((w) => w.id),
-        ...(await worktreeState(exec, p, f.headOid)),
-      })),
-    );
+    // a few git runs at once: a large stack spawning them all together stalls the server for seconds
+    return mapLimit(keep, GIT_PARALLEL, async ([p, f]) => ({
+      path: p,
+      branch: f.branch,
+      title: f.title,
+      key: f.key,
+      workspaceIds: spaces.filter((w) => samePath(w.workspaceDirectory, p)).map((w) => w.id),
+      ...(await worktreeState(exec, p, f.headOid)),
+    }));
   }
 
   // only the ticked paths of this work; git refuses a worktree with changes (no --force), and its workspaces are archived only once it is gone
