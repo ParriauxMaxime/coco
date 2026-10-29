@@ -113,5 +113,9 @@ export function createAgentChecks({ DATA, worktrees, post, say, works, jobs }: D
     for (const { cwd, agentId } of all) if (fs.existsSync(cwd)) await linesOf(cwd, agentId).catch(() => []);
   }
 
-  return { readier, beforeTurn, turnEnded, resume, tracked: (agentId: string) => load()[agentId] ?? null };
+  function rekey(slug: string, from: RowKey, to: RowKey) {
+    for (const [agentId, t] of Object.entries(load())) if (t.slug === slug && t.key === from) save(agentId, { ...t, key: to });
+  }
+
+  return { readier, beforeTurn, turnEnded, resume, rekey, tracked: (agentId: string) => load()[agentId] ?? null };
 }

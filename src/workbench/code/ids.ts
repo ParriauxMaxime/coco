@@ -7,7 +7,12 @@ const toKey = (s: string): PrKey => (/^\d+$/.test(s) ? Number(s) : s);
 export const isLocalKey = (k: PrKey) => String(k).startsWith('b:');
 export const keyLabel = (k: PrKey) => (isLocalKey(k) ? String(k).slice(2).replaceAll(':', '/') : `#${k}`);
 
-export const parseCodeTab = (id: string | null | undefined) => {
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// a tab id naming row `from` (as `-<key>` or in a thread key `c.<file key>.`) names `to` instead
+export const rekeyTab = (id: string, from: string, to: string) =>
+  id.replace(new RegExp(`-${esc(from)}(?=$|~)`), `-${to}`).replace(new RegExp(`([cp]\\.)${esc(from.replaceAll(':', '~'))}(?=$|[.~])`), `$1${to}`);
+
+export const parseCodeTab =(id: string | null | undefined) => {
   const m = new RegExp(`^(diff|file)-${KEY}~(.+)$`).exec(id || '');
   return m ? { kind: m[1] === 'diff' ? 'diff' : 'file', n: toKey(m[2]), path: m[3] } : null;
 };

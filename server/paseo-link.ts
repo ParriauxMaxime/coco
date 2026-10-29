@@ -192,6 +192,12 @@ export function createPaseoLink({ config, repoOf = () => ({ github: config?.repo
     return true;
   }
 
+  function rekey(slug: string, from: RowKey, to: RowKey) {
+    const moved = [...links.values()].filter((l) => l.slug === slug && l.key === from);
+    for (const l of moved) l.key = to;
+    if (moved.length) persist();
+  }
+
   const linked = (slug?: string | null) => [...links.values()].filter((l) => !slug || l.slug === slug).reverse().map(linkView);
 
   // the rows of the work holding this branch, in merge order, each with its branch: the PR head, else the planned branch
@@ -293,5 +299,5 @@ export function createPaseoLink({ config, repoOf = () => ({ github: config?.repo
     }
   }
 
-  return { handle, resolve, stack, run, turnEnded, refreshWork, linkAgent, brief, briefed, unlink, linked };
+  return { handle, resolve, stack, run, turnEnded, refreshWork, linkAgent, brief, briefed, unlink, linked, rekey };
 }

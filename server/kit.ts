@@ -8,7 +8,7 @@ import { kitScope } from './briefs.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import { branchOf, isLocal, parseKey, rowKey } from './stack.ts';
 import { HttpError, httpStatus, errorMessage } from './core-types.ts';
-import type { ArtifactMeta, ReadBody, Req, Res, Send, StackRow, Work } from './core-types.ts';import type { FeatureFlags } from './feature-flags.ts';
+import type { ArtifactMeta, ReadBody, Req, Res, RowKey, Send, StackRow, Work } from './core-types.ts';import type { FeatureFlags } from './feature-flags.ts';
 
 const TTL_MS = 60000;
 const VIDEO = /user-attachments\/assets|\.(mp4|webm|mov)\b/i;
@@ -258,5 +258,13 @@ export function createKit({ REPO, DATA, config, works, betaFlags, exec = default
     }
   }
 
-  return { handle, view, setScope };
+  function rekey(from: RowKey, to: RowKey) {
+    const all = allRecords();
+    if (!all[String(from)] || all[String(to)]) return;
+    record(String(to), all[String(from)]);
+    delete all[String(from)];
+    if (recordsFile) fs.writeFileSync(recordsFile, JSON.stringify(all, null, 1));
+  }
+
+  return { handle, view, setScope, rekey };
 }

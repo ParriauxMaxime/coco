@@ -177,7 +177,14 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     }
   }
 
-  return { start, wrap, link, onAgent, list, dismiss, watch, handle, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
+  // a planned row that got its PR: its jobs follow it
+  function rekey(work: string, from: string | number, to: string | number) {
+    const moved = load(work).filter((j) => j.pr === String(from));
+    for (const j of moved) j.pr = String(to);
+    if (moved.length) changed(moved[0]);
+  }
+
+  return { start, wrap, link, onAgent, list, dismiss, watch, handle, rekey, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
 }
 
 export type Jobs = ReturnType<typeof createJobs>;

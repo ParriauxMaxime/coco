@@ -7,6 +7,7 @@ import { cell, mermaid, validateBlocks } from './blocks.ts';
 import type { Block, Cell, Raw } from './blocks.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { ReadBody, Req, Res, Send } from './core-types.ts';
+import { rekeyValue } from './rekey.ts';
 
 export const CARD_KINDS = ['post', 'choice', 'rows', 'form', 'confirm'] as const;
 export const FIELD_TYPES = ['text', 'textarea', 'number', 'select', 'toggle'] as const;
@@ -537,5 +538,13 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,
     handle,
     onChange: (l: (agentId: string, card: Card) => void) => (listeners.add(l), () => listeners.delete(l)),
+    // a planned row that got its PR: its cards and the threads they answer in follow it
+    rekey: (work: string, from: string | number, to: string | number) => {
+      for (const c of [...cards.values()]) {
+        if (c.work !== work) continue;
+        const next = { ...c, pr: c.pr === String(from) ? String(to) : c.pr, thread: c.thread && rekeyValue(c.thread, from, to) };
+        if (next.pr !== c.pr || next.thread !== c.thread) save(next);
+      }
+    },
   };
 }

@@ -19,7 +19,7 @@ import type { Config } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import { sseSink } from './events.ts';
 import type { Sink } from './events.ts';
-import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Send, Work } from './core-types.ts';
+import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RowKey, RunResult, Send, StackRow, Work } from './core-types.ts';
 
 // what a work change touched: the work itself, its stack, review plan, drift or artifacts
 export type Change = 'work' | 'stack' | 'plan' | 'drift' | 'artifacts';
@@ -178,8 +178,13 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     if (touch) work.updatedAt = new Date().toISOString();
     const before = get(work.slug);
     if (before && before.title !== work.title) Promise.resolve(hooks.onRetitled?.(work)).catch(() => {});
+    const moves = rekeyed(before?.stack || [], work.stack || []);
+    for (const [from, to] of moves) {
+      for (const f of (work as { betaFlags?: { prs?: RowKey[] }[] }).betaFlags || []) if (f.prs) f.prs = f.prs.map((k) => (k === from ? to : k));
+      for (const d of work.decisions || []) if (d.pr != null && String(d.pr) === String(from)) d.pr = to;
+    }
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
-    for (const [from, to] of rekeyed(before?.stack || [], work.stack || [])) {
+    for (const [from, to] of moves) {
       try {
         hooks.onRekeyed?.(work.slug, from, to);
       } catch (e) {

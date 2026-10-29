@@ -4,7 +4,7 @@ import { useWorkbench } from '../workbench/workbench-store.ts';
 import { WorkContext } from '../workbench/use-work.ts';
 import { api, errorMessage, termApi } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
-import { terminalTabId } from '../workbench/code/ids.ts';
+import { rekeyTab, terminalTabId } from '../workbench/code/ids.ts';
 import Icon from './Icon.tsx';
 import Inspector, { inspectorFor } from './Inspector.tsx';
 import { useInspector } from './inspector-state.ts';
@@ -53,6 +53,15 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const openFindings = (d.findings?.rows || []).filter((f) => f.status === 'open').length;
   const tabCount: Record<string, number | undefined> = { stack: d.prs.length, findings: openFindings || undefined, decisions: (d.work.w.decisions || []).length || undefined };
   const agents = useAgentList(slug) || [];
+
+  // a planned row that got its PR: its open tabs follow the number
+  useEffect(() => {
+    const moved = d.prs.flatMap((p) => (p.number && p.planned?.branch ? [[`b:${p.planned.branch.replaceAll('/', ':')}`, String(p.number)] as const] : []));
+    for (const t of groups.flatMap((g) => g.tabs)) {
+      const next = moved.reduce((id, [from, to]) => rekeyTab(id, from, to), t);
+      if (next !== t) useWorkbench.getState().rename(t, next);
+    }
+  }, [d.prs, groups]);
 
   const openPr = (key: string) => {
     setSelected(key);

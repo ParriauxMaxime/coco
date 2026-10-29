@@ -29,7 +29,8 @@ import { createDispatch } from './dispatch.ts';
 import { createNewAgent } from './new-agent.ts';
 import { createHandoff } from './handoff.ts';
 import { createPreflight, isVideoEntry } from './preflight.ts';
-import { parseKey } from './stack.ts';
+import { currentKey, parseKey } from './stack.ts';
+import { rekeyWorkFiles } from './rekey.ts';
 import { createBriefWriter } from './brief-writer.ts';
 import { createJudge } from './judge.ts';
 import { createStackKeeper, needsKeeping } from './stack-keeper.ts';
@@ -270,8 +271,19 @@ permissions.onAgent((a, removed) => {
 });
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, models, subagents, snapshots: createChatSnapshots(path.join(DATA, 'chat-snapshots')) });
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, models, subagents, snapshots: createChatSnapshots(path.join(DATA, 'chat-snapshots')), keyOf: (slug, key) => String(currentKey(works.get(slug), parseKey(key) ?? key)) });
 works.hooks.onClosed = (w) => workAgents.forget(w.slug);
+// a planned row that got its PR: what was kept under its branch key follows the number
+works.hooks.onRekeyed = (slug, from, to) => {
+  rekeyWorkFiles(DATA, slug, from, to);
+  jobs.rekey(slug, from, to);
+  paseoLink.rekey(slug, from, to);
+  agentChecks.rekey(slug, from, to);
+  kit.rekey(from, to);
+  ask.rekey(slug, from, to);
+  cards.rekey(slug, from, to);
+  void gates.summarize(slug).catch(() => {});
+};
 const agentControls = createAgentControls({ client: paseoAgents.client, models, renamed: (agentId, title) => void ask.rename(agentId, title) });
 const handoff = createHandoff({ DATA, owner: config.owner.name, defaultModel: config.models.default, client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), models, link: paseoLink });
 const finished = createFinishedAgents({ client: paseoAgents.client, agents: permissions.agents, linked: () => paseoLink.linked(), successors: handoff.successors, maxAgeMs: LAST_WORD_MS });

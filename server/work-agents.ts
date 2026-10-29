@@ -54,6 +54,8 @@ type Options = {
   models?: Pick<Models, 'apply'>;
   subagents?: Pick<Subagents, 'counts' | 'onChange'>;
   snapshots?: Pick<ChatSnapshots, 'get' | 'put' | 'drop'>;
+  // the row a label's key names now: a branch key of a row that since got its PR is its number
+  keyOf?: (slug: string, key: string) => string;
 };
 type TimelineEntries = Awaited<ReturnType<typeof timelineWithCursor>>['entries'];
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
@@ -63,7 +65,8 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, models, subagents, snapshots }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
+  const labelKey = (labels: Record<string, string> | null | undefined) => (labels?.pr ? keyOf(labels.work || '', labels.pr.replaceAll('~', ':')) : null);
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -88,7 +91,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     const links = await Promise.all(linked(slug).filter((l) => !seen.has(l.agentId)).map(async (l) => ({ l, a: (await c.agents.ref(l.agentId).refresh().catch(() => null))?.agent ?? null })));
     return [
       ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, ...metrics(m.agentId) })),
-      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: a.labels?.pr ? a.labels.pr.replaceAll('~', ':') : null, status: statusOf(a), updatedAt: a.updatedAt || null, ...metrics(a.id, a.lastUsage) })),
+      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: labelKey(a.labels), status: statusOf(a), updatedAt: a.updatedAt || null, ...metrics(a.id, a.lastUsage) })),
       ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, ...metrics(l.agentId, a?.lastUsage) })),
     ];
   }
@@ -258,7 +261,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
   // the work and stack row an agent's labels name
   async function placeOf(agentId: string) {
     const labels = (await (await client()).agents.ref(agentId).refresh())?.agent?.labels;
-    return { work: labels?.work || null, pr: labels?.pr ? labels.pr.replaceAll('~', ':') : null };
+    return { work: labels?.work || null, pr: labelKey(labels) };
   }
 
   // any Paseo agent, in a work or not: what its own page shows above its chat
@@ -271,7 +274,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       title: titleOf(found.title, agentId),
       kind: l?.kind || l?.ritual || 'agent',
       work: l?.work || null,
-      pr: l?.pr ? l.pr.replaceAll('~', ':') : null,
+      pr: labelKey(l),
       status: statusOf(found),
       updatedAt: found.updatedAt || null,
       provider: found.provider && found.model ? `${found.provider}/${found.model}` : found.provider || null,

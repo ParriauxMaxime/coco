@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { fileKey, parseKey, rowKey } from './stack.ts';
+import { currentKey, fileKey, parseKey, rowKey } from './stack.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { HttpError, errorMessage, isSeverity } from './core-types.ts';
 import type { RepoIdentity, RepoOf } from './config.ts';
@@ -129,7 +129,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
   };
   const mutate = <T>(slug: string, key: unknown, fn: (data: CommentFile) => T | Promise<T>): Promise<T> => {
     checkSlug(slug);
-    const n = checkNumber(key);
+    const n = currentKey(works?.get(slug), checkNumber(key));
     return withLock(file(slug, n), async () => {
       const data = read(slug, n);
       data.number = n;
@@ -158,7 +158,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
 
   const list = (slug: string, n: unknown) => {
     checkSlug(slug);
-    return read(slug, checkNumber(n));
+    return read(slug, currentKey(works?.get(slug), checkNumber(n)));
   };
 
   // a structured finding (coco-findings skill): category, recommendation, typed blocks, sources; a suggestion's `before` is read at the sha, never trusted

@@ -15,6 +15,13 @@ export const branchOf = (k: RowKey): string => String(k).slice(2).replaceAll(':'
 export const fileKey = (k: unknown): string => String(k).replaceAll(':', '~');
 export const keyLabel = (k: RowKey | null): string => (isLocal(k) ? branchOf(k) : `#${k}`);
 
+// a branch key of a row that since got its PR (an agent's labels, an old tab): the row's number
+export const currentKey = (work: Pick<Work, 'stack'> | null | undefined, key: RowKey): RowKey => {
+  const stack = work?.stack || [];
+  if (!isLocal(key) || stack.some((s) => rowKey(s) === key)) return key;
+  return stack.find((s) => s.number && s.planned?.branch === branchOf(key))?.number ?? key;
+};
+
 // work, row index and parent row of a key; a local key is looked up across works, live ones first
 export function findRow(works: Pick<Works, 'get' | 'list'>, key: RowKey | null, slug?: string): { work: Work; index: number; row: StackRow; parent: StackRow | null } | null {
   const one = slug ? works.get(slug) : undefined;

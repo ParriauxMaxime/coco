@@ -1283,6 +1283,14 @@ Pull based, no webhooks:
   or local `b:<branch>`), every row of the work re-reads its head (fresh for
   PRs, the branch tip for local rows) and re-anchors its comments, in the
   background, one refresh per work at a time.
+- Planned rows: each work read asks GitHub (cached 60 s, one query per repo)
+  for an open or merged PR on each planned branch. A row whose branch got one
+  (its agent opened it) takes that number, logged on the timeline. What was
+  kept under `b:<branch>` moves to the number: comments, review plan and
+  runs, threads and groups, briefs, kit pieces, jobs, linked agents, Ask
+  conversations and cards. Agent labels and open tabs still naming
+  `b:<branch>` resolve to the number. A `propose_stack_edit` that gives a
+  planned row its PR moves the same way.
 - Review runs are ingested on each `GET /api/works/<slug>/prs/<n>/review-runs`
   (the same 30 s poll): result file, `Cc-Comment:` trailers, agent state and
   the push guard are read then, nothing runs in the background.
@@ -1905,7 +1913,8 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
     title, current milestone chip, state dot, a spinner while a job or an
     agent works on it, the orange count of agents waiting on you); a click
     opens `pr-<n>`, the caret unfolds Review code (`review-<n>`), Findings
-    (`findings-<n>`, open count) and the PR's agents. Merged and planned PRs
+    (`findings-<n>`, open count) and the PR's agents; a planned row reviews
+    its local branch (`review-b:<branch>`) the same way. Merged and planned PRs
     fold into two lines at the end ("2 merged", "25 planned"); a folded line
     or group keeps the spinner and waiting count of what it hides. Agents
     show status dots (blue working, orange waiting, green done, red failed,

@@ -741,5 +741,12 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     rename,
     onChange: (l: () => void) => (changed.add(l), () => changed.delete(l)),
     actions,
+    // a planned row that got its PR: the conversations about it follow it
+    rekey: (slug: string, from: RowKey, to: RowKey) => {
+      for (const m of metas()) if (m.workSlug === slug && m.pr === from) {
+        const conv = load(m.id);
+        if (conv) save(Object.assign(conv, { pr: to }));
+      }
+    },
   };
 }
