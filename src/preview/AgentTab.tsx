@@ -18,8 +18,10 @@ import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
 import { ContextRing } from './Ring.tsx';
 import { HandoffControls } from './Handoff.tsx';
-import Thread, { threadLabel, useThreadsOf } from '../components/Thread.tsx';
-import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadSummary, UploadRef } from '../types.ts';
+import Thread, { refreshThreads, threadLabel, useThreadsOf } from '../components/Thread.tsx';
+import { confirmDialog } from '../components/Dialogs.tsx';
+import { pendingClass, useAction } from '../components/action.ts';
+import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadGroup, ThreadSummary, UploadRef } from '../types.ts';
 import { ModelControls, useAskModel, useLiveMode, useModelChoice } from './chat/ModelPicker.tsx';
 import { AgentTitle } from './AgentTitle.tsx';
 import type { Choice } from './chat/ModelPicker.tsx';
@@ -36,8 +38,8 @@ export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slic
 
 // serverId: given outside a work, where no work agent list carries it; handoff: its Hand off button and where it was handed from or to
 // onRenamed: after the title was edited in place (a live agent's title is a click to rename)
-type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; serverId?: string | null; handoff?: boolean; onRenamed?: (title: string) => void };
-export function Header({ title, kind, pr, state, agentId, metrics, chips, serverId, handoff = false, onRenamed }: HeaderProps) {
+type HeaderProps = { title: string; kind: string; pr: string | null; state: AgentState; agentId: string | null; metrics?: AgentMetrics | null; chips?: React.ReactNode; actions?: React.ReactNode; serverId?: string | null; handoff?: boolean; onRenamed?: (title: string) => void };
+export function Header({ title, kind, pr, state, agentId, metrics, chips, actions, serverId, handoff = false, onRenamed }: HeaderProps) {
   const listedServer = useServerId(useContext(WorkContext)?.slug ?? '');
   const href = paseoLink(serverId ?? listedServer, agentId);
   const usage = metrics ? usageLine(metrics) : '';
@@ -52,6 +54,7 @@ export function Header({ title, kind, pr, state, agentId, metrics, chips, server
       <span className="dp-sp" />
       {usage && metrics && <span className="dp-xs dp-t3 dp-ag-usage" title={usageTitle(metrics)}>{usage}</span>}
       <span className="dp-xs dp-t3"><ContextRing used={metrics?.contextTokens} max={metrics?.contextMax} label /></span>
+      {actions}
       {handoff && agentId && <HandoffControls agentId={agentId} metrics={metrics} archived={state === 'archived'} />}
       {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} /><span className="dp-ag-paseo">Open in Paseo</span></a>}
     </div>
@@ -230,7 +233,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
   ];
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} handoff />
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} actions={group?.status === 'active' && <GroupActions slug={slug} group={group} keys={keys} summaries={summaries} />} handoff />
       {view === 'changes' && wsId ? <GitPanel wsId={wsId} onOpenCommit={openWorkspaceCommit(wsId)} />
         : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} onOpenTab={openWorkspaceFile(wsId)} />
         : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} />
@@ -256,6 +259,25 @@ export function ViewSeg({ views, value, onPick }: { views: ViewDef[]; value: Age
   );
 }
 
+// the group's actions the threads show under a comment: rules from its corrections, prune its agent
+function GroupActions({ slug, group, keys, summaries }: { slug: string; group: ThreadGroup; keys: string[]; summaries: Record<string, ThreadSummary> }) {
+  const { pending, busy, run } = useAction();
+  const talked = keys.filter((k) => summaries[k].count > 1);
+  const waiting = keys.some((k) => summaries[k].waiting);
+  return (
+    <>
+      {talked.length > 0 && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this agent's threads into proposed work rules" onClick={() => run('rules', async () => {
+        await Promise.all(talked.map((threadKey) => api.proposeRules(slug, { scope: 'work', threadKey })));
+        toast.success('coco is proposing rules: keep or drop them in the Rules tab');
+      })}><Icon name="book" size={12} />Rules</button>}
+      {!waiting && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={async () => (await confirmDialog({ title: `Prune the agent of group ${group.id}?`, body: `${group.items.length} item(s): archive its agent and worktree, delete its branch.`, ok: 'Prune', danger: true })) && run('prune', async () => {
+        await api.closeGroup(slug, group.id);
+        await refreshThreads(slug);
+      })}><Icon name="archive" size={12} />Prune agent</button>}
+    </>
+  );
+}
+
 // a group agent seen as the items it works on: the same threads as under the comments, the most recent open
 function GroupThreads({ slug, keys, summaries }: { slug: string; keys: string[]; summaries: Record<string, ThreadSummary> }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set(keys.filter((k, i) => i === 0 || summaries[k].waiting || summaries[k].open || summaries[k].asks)));
@@ -269,7 +291,7 @@ function GroupThreads({ slug, keys, summaries }: { slug: string; keys: string[];
       <div className="dp-ag-threads">
         <div className="dp-ag-thread dp-ag-one">
           <div className="dp-ag-thread-h dp-open"><span className="dp-ell">{summaries[keys[0]].label || keys[0]}</span></div>
-          <Thread slug={slug} threadKey={keys[0]} />
+          <Thread slug={slug} threadKey={keys[0]} bare />
         </div>
       </div>
     );
@@ -284,7 +306,7 @@ function GroupThreads({ slug, keys, summaries }: { slug: string; keys: string[];
             <span className="dp-sp" />
             <span className="dp-xs dp-t3">{threadLabel(summaries[k], '')}</span>
           </button>
-          {open.has(k) && <Thread slug={slug} threadKey={k} />}
+          {open.has(k) && <Thread slug={slug} threadKey={k} bare />}
         </section>
       ))}
     </div>

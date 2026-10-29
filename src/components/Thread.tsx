@@ -213,7 +213,8 @@ function useThreadStream(slug: string, key: string, onChange: () => void, onLive
 
 // a scoped agent on one item: dispatch, follow its work live, read its answer, approve or dismiss what it suggests; writing to it never waits for it
 // verdicts: [{ label, title, on(note) }] buttons that use the box text as remark instead of dispatching it
-type ThreadProps = { slug: string; threadKey: string; onSettled?: () => void; verdicts?: Verdict[]; autoFocus?: boolean };
+// bare: inside its group agent's tab, whose header carries the group's actions; the thread keeps only what a message waits on
+type ThreadProps = { slug: string; threadKey: string; onSettled?: () => void; verdicts?: Verdict[]; autoFocus?: boolean; bare?: boolean };
 function EarlierTurns({ hidden, onMore }: { hidden: number; onMore: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const more = useRef(onMore);
@@ -265,7 +266,7 @@ function inboundOf(server: ThreadInbound[], local: Sent[]) {
   return [...server.map((s) => ({ key: s.id, text: s.text, files: s.files ?? [] })), ...mine.map((p) => ({ key: p.nonce, text: p.text, files: p.files }))];
 }
 
-export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false }: ThreadProps) {
+export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false, bare = false }: ThreadProps) {
   const { groups, summaries } = useThreadsOf(slug);
   const seen = useSeen(`thread:${slug}:${key}`);
   const [thread, setThread] = useState<ThreadData | null>(null);
@@ -360,15 +361,15 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const from = asks.length > turns ? asks[asks.length - turns] : 0;
   return (
     <div ref={seen} className="dp-thr">
-      <div className="dp-thr-h">
-        <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : posted.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>
-        {group?.status === 'active' && thread.agent && (
+      {(!bare || thread.starting || thread.waiting?.deps || thread.agent?.deps === 'installing') && <div className="dp-thr-h">
+        {(!bare || thread.starting) && <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : posted.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>}
+        {group?.status === 'active' && thread.agent && (!bare || thread.waiting?.deps) && (
           <span className={`dp-chip${thread.agent.live ? ' dp-ok' : ''}`} title={thread.agent.live ? 'The agent keeps this thread in context: the next message is sent as a new turn' : 'The agent is gone: the next message starts a new one with the whole thread'}>
             <span className="dp-d" />{thread.waiting?.deps ? `waiting for deps (${secs(thread.waiting.deps.since)} s)` : thread.agent.live ? `agent live${thread.agent.status === 'running' ? ' · working' : ''}` : 'agent gone'}
           </span>
         )}
         {thread.agent?.live && thread.agent.deps === 'installing' && <span className="dp-chip dp-warn" title="coco installs this worktree's dependencies: the agent reads and changes the code meanwhile and hears when its checks work">installing deps</span>}
-        <span className="dp-thr-hx">
+        {!bare && <span className="dp-thr-hx">
         {!waiting && (group || others.length > 0) && (
           <select className="dp-inp" value="" disabled={busy} aria-label="Regroup" onChange={(e) => act('regroup', () => api.regroup(slug, key, e.target.value))}>
             <option value="" disabled>Regroup…</option>
@@ -378,8 +379,8 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         )}
         {thread.messages.length > 1 && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this thread into proposed work rules" onClick={() => act('rules', async () => { await api.proposeRules(slug, { scope: 'work', threadKey: key }); setNote('coco is proposing rules: keep or drop them in the Rules tab'); return thread; })}><Icon name="book" size={12} />Rules</button>}
         {!waiting && group?.status === 'active' && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={async () => (await confirmDialog({ title: `Prune the agent of group ${group.id}?`, body: `${group.items.length} item(s): archive its agent and worktree, delete its branch.`, ok: 'Prune', danger: true })) && act('prune', async () => { await api.closeGroup(slug, group.id); return api.thread(slug, key); })}><Icon name="archive" size={12} />Prune agent</button>}
-        </span>
-      </div>
+        </span>}
+      </div>}
       {group?.unlinked?.map((u) => (
         <div key={u.commit} className="dp-thr-sys dp-thr-ready">
           commit <code>{u.commit.slice(0, 7)}</code> not linked to a comment · {u.subject}
