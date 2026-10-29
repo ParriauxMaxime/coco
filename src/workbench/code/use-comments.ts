@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { create } from 'zustand';
+import { useShownInterval, useVisible } from '../../resource.ts';
 import { codeApi } from './code-api.ts';
 import type { CommentInput, CommentPatch, PrKey, Proposal, Refs, ReviewComment, ReviewPlanState, ReviewRun } from '../types.ts';
 
@@ -85,24 +86,37 @@ export function loadReview(slug: string, n: PrKey, { fresh = false }: { fresh?: 
 
 const loadPlan = (slug: string, n: PrKey) => reviewApi.plan(slug, n).then((plan) => put(slug, n, () => ({ plan })), () => {});
 
-const watchers = new Map<string, { count: number; stop: () => void }>();
-function watch(slug: string, n: PrKey) {
+// shown: the watchers whose tab shows; a PR whose tabs all hide polls nothing and catches up once one shows again
+type Watcher = { count: number; shown: number; at: number; stop: () => void };
+const watchers = new Map<string, Watcher>();
+function watch(slug: string, n: PrKey, shown: boolean) {
   const k = key(slug, n);
   const w = watchers.get(k);
-  if (w) { w.count++; return; }
+  if (w) { w.count++; showing(slug, n, shown ? 1 : 0); return; }
   // the head moves outside cocopilot (a push from a terminal): ask GitHub again on open, focus and return
   const visible = () => document.visibilityState === 'visible';
-  const recheck = () => visible() && loadReview(slug, n, { fresh: true });
-  const timer = setInterval(() => visible() && loadReview(slug, n), POLL_MS);
+  const me: Watcher = { count: 1, shown: shown ? 1 : 0, at: Date.now(), stop: () => {} };
+  const recheck = () => { if (visible() && me.shown) { me.at = Date.now(); loadReview(slug, n, { fresh: true }); } };
+  const timer = setInterval(() => { if (visible() && me.shown) { me.at = Date.now(); loadReview(slug, n); } }, POLL_MS);
   document.addEventListener('visibilitychange', recheck);
   window.addEventListener('focus', recheck);
-  watchers.set(k, { count: 1, stop: () => { clearInterval(timer); document.removeEventListener('visibilitychange', recheck); window.removeEventListener('focus', recheck); } });
+  me.stop = () => { clearInterval(timer); document.removeEventListener('visibilitychange', recheck); window.removeEventListener('focus', recheck); };
+  watchers.set(k, me);
   loadReview(slug, n, { fresh: true });
 }
-function unwatch(slug: string, n: PrKey) {
+function showing(slug: string, n: PrKey, delta: number) {
+  const w = watchers.get(key(slug, n));
+  if (!w) return;
+  const was = w.shown;
+  w.shown += delta;
+  if (!was && w.shown && Date.now() - w.at > POLL_MS) { w.at = Date.now(); loadReview(slug, n); }
+}
+function unwatch(slug: string, n: PrKey, shown: boolean) {
   const k = key(slug, n);
   const w = watchers.get(k);
-  if (!w || --w.count > 0) return;
+  if (!w) return;
+  if (shown) w.shown--;
+  if (--w.count > 0) return;
   w.stop();
   watchers.delete(k);
 }
@@ -153,18 +167,22 @@ const actions = (slug: string, n: PrKey) => ({
 
 export function useComments(slug: string, n: PrKey, { watch: live = true } = {}) {
   const e = useReviewStore((s) => s.prs[key(slug, n)]) || EMPTY;
+  const shown = useVisible();
+  const shownAt = useRef(shown);
   useEffect(() => {
     if (!slug || !n || !live) return undefined;
-    watch(slug, n);
-    return () => unwatch(slug, n);
+    const on = shownAt.current;
+    watch(slug, n, on);
+    return () => unwatch(slug, n, shownAt.current);
   }, [slug, n, live]);
+  useEffect(() => {
+    if (shownAt.current === shown) return;
+    shownAt.current = shown;
+    if (slug && n && live) showing(slug, n, shown ? 1 : -1);
+  }, [shown]);
   const act = useMemo(() => actions(slug, n), [slug, n]);
   const planning = e.plan?.run?.status === 'running';
-  useEffect(() => {
-    if (!planning || !live || !n) return undefined;
-    const timer = setInterval(() => loadPlan(slug, n), PLAN_POLL_MS);
-    return () => clearInterval(timer);
-  }, [planning, live, slug, n]);
+  useShownInterval(() => n && loadPlan(slug, n), PLAN_POLL_MS, Boolean(planning && live && n));
   const derived = useMemo(() => {
     const byPath: Record<string, number> = {};
     const counts: Record<string, number> = { open: 0, sent: 0, fixed: 0, declined: 0, outdated: 0 };

@@ -1,21 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
+import { useShownInterval } from '../resource.ts';
 import type { BrowserTab } from '../api.ts';
 import './browser.css';
 
 // the tabs an agent keeps in coco's headless Chrome (coco hosting Paseo's browser while the app is closed), read every 10 s
 export function useAgentBrowser(agentId: string) {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
-  useEffect(() => {
-    let live = true;
-    const load = () => api.agentBrowserTabs(agentId).then((r) => live && setTabs(r.tabs), () => {});
-    void load();
-    const timer = setInterval(load, 10_000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [agentId]);
+  const at = useRef(agentId);
+  at.current = agentId;
+  const load = () => api.agentBrowserTabs(agentId).then((r) => at.current === agentId && setTabs(r.tabs), () => {});
+  useEffect(() => { void load(); }, [agentId]);
+  useShownInterval(load, 10_000);
   return tabs;
 }
 
@@ -23,10 +19,7 @@ export function useAgentBrowser(agentId: string) {
 export function BrowserPanel({ tabs }: { tabs: BrowserTab[] }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 3000);
-    return () => clearInterval(timer);
-  }, []);
+  useShownInterval(() => setTick((t) => t + 1), 3000);
   const tab = tabs.find((t) => t.browserId === picked) ?? [...tabs].sort((a, b) => b.usedAt - a.usedAt)[0];
   if (!tab) return <div className="dp-empty">No browser tab open</div>;
   return (

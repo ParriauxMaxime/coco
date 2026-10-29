@@ -8,6 +8,7 @@ import type { Verdict } from '../components/Thread.tsx';
 import { toast } from '../components/Toast.tsx';
 import { pendingClass } from '../components/action.ts';
 import { api, errorMessage } from '../api.ts';
+import { useShownInterval } from '../resource.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { parseHash } from '../workbench/hash.ts';
 import { openCodeAt, useLocal } from '../workbench/tabs/Code.tsx';
@@ -378,11 +379,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     return () => window.removeEventListener('keydown', onKey);
   }, [order, current, busy, importing, asking]);
   // the fix agents' chips follow their threads while the accepted list shows
-  useEffect(() => {
-    if (status !== 'accepted') return undefined;
-    const t = setInterval(() => refreshThreads(d.slug), 10000);
-    return () => clearInterval(t);
-  }, [status, d.slug]);
+  useShownInterval(() => refreshThreads(d.slug), 10000, status === 'accepted');
   const currentPr = current ? nOf(current) || null : null;
   useEffect(() => { onCurrentPr?.(currentPr); }, [currentPr]);
 

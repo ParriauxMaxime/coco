@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
 import { useUnsaved } from '../updates.ts';
+import { useShownInterval } from '../resource.ts';
 import { WorkContext } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import Icon from './Icon.tsx';
@@ -30,11 +31,7 @@ function useHandoffs(agentId: string | null) {
     void load();
   }, [agentId]);
   const busy = Boolean(data?.to && BUSY.includes(data.to.step)) || Boolean(data?.to?.step === 'done' && !data.to.archived && data.to.doneAt && Date.now() - Date.parse(data.to.doneAt) < 90_000);
-  useEffect(() => {
-    if (!busy) return undefined;
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
-  }, [busy, agentId]);
+  useShownInterval(load, POLL_MS, busy);
   return { data, setData, load };
 }
 

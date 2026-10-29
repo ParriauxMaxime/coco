@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
+import { useShownInterval } from '../../resource.ts';
 import { toHash } from '../../workbench/hash.ts';
 import WaitingList from '../WaitingList.tsx';
 import { useWaiting } from '../waiting.ts';
@@ -71,11 +72,8 @@ export default function AgentsPage() {
     api.linkedAgents().then((all) => setLinks(Object.fromEntries(all.map((l) => [l.agentId, l]))), () => setLinks({}));
     return api.agents().then((d) => { setData(d); setErr(''); }, (e) => setErr(errorMessage(e))).finally(() => setBusy(false));
   };
-  useEffect(() => {
-    void refresh();
-    const t = setInterval(refresh, 15000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { void refresh(); }, []);
+  useShownInterval(refresh, 15000);
   const toggle = async (id: string) => {
     if (open === id) return setOpen(null);
     setOpen(id);

@@ -5,6 +5,7 @@ import Blocks from './Blocks.tsx';
 import Checks, { VerifyChips } from './Checks.tsx';
 import { api, errorMessage } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
+import { useShownInterval } from '../resource.ts';
 import { toast } from './Toast.tsx';
 import { confirmDialog } from './Dialogs.tsx';
 import { pendingClass } from './action.ts';
@@ -438,18 +439,10 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     api.thread(slug, key).then(setThread, (e) => setError(errorMessage(e)));
   }, [slug, key]);
   // the stream reports replies at once; this catches an agent coco does not follow
-  useEffect(() => {
-    if (!waiting) return;
-    const timer = setInterval(reload, POLL_MS);
-    return () => clearInterval(timer);
-  }, [slug, key, waiting]);
+  useShownInterval(reload, POLL_MS, Boolean(waiting));
   // a queued approval lands when the PR worktree frees up: follow it through the summaries poll
   const queued = Boolean(thread?.messages.some((m) => m.suggestion?.state === 'queued'));
-  useEffect(() => {
-    if (!queued) return;
-    const timer = setInterval(() => refreshThreads(slug).then(() => api.thread(slug, key).then(setThread)), POLL_MS * 5);
-    return () => clearInterval(timer);
-  }, [slug, key, queued]);
+  useShownInterval(() => refreshThreads(slug).then(() => api.thread(slug, key).then(setThread)), POLL_MS * 5, queued);
 
   const act = async (what: string, fn: () => Promise<ThreadData>) => {
     setPending(what);

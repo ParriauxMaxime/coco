@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
+import { useShownInterval } from '../../resource.ts';
 import Icon from '../Icon.tsx';
 import { workHref } from '../prefs.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section, Tiles } from './Page.tsx';
@@ -81,11 +82,8 @@ export default function ProjectsPage() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [seen, setSeen] = useState<Record<string, boolean>>({});
   const refresh = () => api.paseo().then((d) => { setData(d); setErr(''); }, (e) => setErr(errorMessage(e)));
-  useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 20000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { refresh(); }, []);
+  useShownInterval(refresh, 20000);
   const toggle = (id: string) => {
     if (seen[id]) return setOpen((o) => ({ ...o, [id]: !o[id] }));
     setSeen((s) => ({ ...s, [id]: true }));

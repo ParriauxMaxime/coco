@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Markdown from '../components/Markdown.tsx';
 import { errorMessage } from '../api.ts';
+import { useShownInterval } from '../resource.ts';
 import { useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { findRun, putRuns, reviewApi, useReviewStore } from '../workbench/code/use-comments.ts';
@@ -51,14 +52,11 @@ export function RunInfo({ run, facts, brief, children }: { run: Run; facts: Reac
 export function RunLog({ id, load, live }: { id: string; load: () => Promise<{ out?: string }>; live: boolean }) {
   const [out, setOut] = useState('');
   const pre = useRef<HTMLPreElement>(null);
-  useEffect(() => {
-    let on = true;
-    const tick = () => load().then((l) => on && setOut(l.out || ''), (e) => on && setOut(errorMessage(e)));
-    tick();
-    if (!live) return () => { on = false; };
-    const t = setInterval(tick, POLL_MS);
-    return () => { on = false; clearInterval(t); };
-  }, [id, live]);
+  const at = useRef(id);
+  at.current = id;
+  const tick = () => load().then((l) => at.current === id && setOut(l.out || ''), (e) => at.current === id && setOut(errorMessage(e)));
+  useEffect(() => { void tick(); }, [id, live]);
+  useShownInterval(tick, POLL_MS, live);
   useLayoutEffect(() => { if (pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [out]);
   return (
     <section className="dp-run-logs">
@@ -102,11 +100,7 @@ export default function RunView({ tabId }: { tabId: string }) {
     if (n) reviewApi.brief(slug, n, runId).then(setBrief);
   }, [slug, n, runId]);
 
-  useEffect(() => {
-    if (!n || !active || done) return undefined;
-    const t = setInterval(() => reviewApi.runs(slug, n).then((r) => putRuns(slug, n, r.runs || []), () => {}), POLL_MS);
-    return () => clearInterval(t);
-  }, [slug, n, active, done]);
+  useShownInterval(() => n && reviewApi.runs(slug, n).then((r) => putRuns(slug, n, r.runs || []), () => {}), POLL_MS, Boolean(n && active && !done));
 
   if (!run) return <div className="dp-tabview">{missing ? <Empty icon="bot">Run {runId} is not in this work.</Empty> : <Loading what="Loading the run…" />}</div>;
   const chips = <>

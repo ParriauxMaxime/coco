@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useWork } from '../use-work.ts';
+import { useShownInterval } from '../../resource.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { codeApi, isDesktop, loadMonaco } from '../code/code-api.ts';
 import { useComments, useReviewStore } from '../code/use-comments.ts';
@@ -60,14 +61,11 @@ export function useLangStatus(n: PrKey, sha: string | null | undefined, path: st
     if (!sha || !desktop || !path) return;
     fetch(`/api/code/pr/${n}/open?${new URLSearchParams({ sha, path })}`).catch(() => {});
   }, [n, sha, path, desktop]);
-  useEffect(() => {
-    if (!on || !sha) return undefined;
-    let live = true;
-    const tick = () => fetch('/api/code/lang/stats').then((r) => r.json()).then((s) => live && setStats(s)).catch(() => {});
-    tick();
-    const t = setInterval(tick, LANG_POLL_MS);
-    return () => { live = false; clearInterval(t); };
-  }, [on, sha]);
+  const live = useRef(false);
+  live.current = Boolean(on && sha);
+  const tick = () => fetch('/api/code/lang/stats').then((r) => r.json()).then((s) => live.current && setStats(s)).catch(() => {});
+  useEffect(() => { if (on && sha) void tick(); }, [on, sha]);
+  useShownInterval(tick, LANG_POLL_MS, Boolean(on && sha));
   if (!stats) return null;
   if (stats.status === 'error') return { tone: 'dp-bad', label: 'nav error', tip: stats.lastError };
   if (stats.sha !== sha) return { tone: '', label: 'nav idle', tip: 'Code navigation is not indexing this head' };
