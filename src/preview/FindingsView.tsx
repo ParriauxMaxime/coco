@@ -356,6 +356,16 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     return () => removeEventListener('hashchange', relink);
   }, [rows]);
 
+  // a beta path to a finding the filters hide shows it: its bucket, its reviewer, every PR
+  const navKey = beta ? nav.path[0] : undefined;
+  useEffect(() => {
+    const r = navKey && !order.some((x) => x.key === navKey) ? rows.find((x) => x.key === navKey) : undefined;
+    if (!r) return;
+    if (hidden.includes(r.source)) setHidden(hidden.filter((s) => s !== r.source));
+    setPrFilter((p) => (p === null ? p : nOf(r)));
+    setStatus(bucketOf(r, left));
+  }, [navKey, rows]);
+
   useEffect(() => {
     const list = root.current?.querySelector('.dp-fi-list');
     const row = current && list?.querySelector(`[data-fk="${CSS.escape(current.key)}"]`);

@@ -5,6 +5,7 @@ import { fitMode } from './nav.ts';
 import type { NavMode } from './nav.ts';
 import { NavDepth, useNav } from './use-nav.ts';
 import type { Nav } from './use-nav.ts';
+import Drill from './Drill.tsx';
 import './nav.css';
 
 // one level of a surface: its crumb and its content. child(key) is the level opened under that item, which Expand nests
@@ -14,7 +15,7 @@ export type Level = { key: string; label: string; render: (child: (key: string) 
 export type LayoutProps = { levels: Level[]; nav: Nav; width: number; base: number };
 type Layout = (p: LayoutProps) => React.ReactNode;
 
-const LAYOUTS: Partial<Record<NavMode, Layout>> = {};
+const LAYOUTS: Partial<Record<NavMode, Layout>> = { drill: Drill };
 
 export const hasLayout = (mode: NavMode) => mode === 'classic' || Boolean(LAYOUTS[mode]);
 
