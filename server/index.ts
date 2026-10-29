@@ -232,7 +232,7 @@ const purge = createPurge({
   repos: config.repos,
   extraDirs: () => subdirs(path.join(DATA, 'worktrees')).flatMap(subdirs),
   works,
-  prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)),
+  prInfo: (w, n) => works.prInfo(n, false, repos.repoFor(w).github),
   linked: () => paseoLink.linked(),
   devServers: { records: () => devServers.records(), forget: (worktree) => devServers.forget(worktree) },
   selfAgentId: process.env.PASEO_AGENT_ID || null,

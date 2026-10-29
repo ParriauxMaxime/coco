@@ -25,7 +25,7 @@ import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Sen
 export type Change = 'work' | 'stack' | 'plan' | 'drift' | 'artifacts';
 
 const HOME = os.homedir();
-const run = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
+const defaultRun = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
   new Promise<RunResult>((resolve) => {
     execFile(cmd, args, { maxBuffer: 20 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') });
@@ -122,12 +122,15 @@ interface NotionBody {
   mode?: string;
 }
 
-export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'> }) {
+export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = defaultRun }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'>; run?: typeof defaultRun }) {
   const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onClosed?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
-  const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
-  const notion = createNotionSync({ DATA, REPO, config, jobs, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => Promise.all((get(s)?.stack || []).map((x) => prInfo(x.number))), prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
+  const gh = (github: string, args: string[]) => (github ? run('gh', args) : Promise.resolve(noRepo));
+  // the repo a work lives in (as repos.repoFor); the default repo keeps its bare number as cache key, so cache files written before stay valid
+  const githubOfWork = (w: Pick<Work, 'repo'> | null | undefined) => (config.repos.find((r) => r.id === w?.repo) || config.repos[0] || config.repo).github;
+  const prKey = (github: string, number: number) => (github === GITHUB ? String(number) : `${github}#${number}`);
+  const notion = createNotionSync({ DATA, REPO, config, jobs, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => { const w = get(s); return Promise.all((w?.stack || []).map((x) => prInfo(x.number, false, githubOfWork(w)))); }, prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
   const ROOT = path.join(DATA, 'works');
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug: string) => path.join(ROOT, `${slug}.json`);
@@ -142,13 +145,26 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       .map((f): Work => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')))
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   const get = (slug: string): Work | null => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
+  // the GitHub repo of a PR number: that of the work whose stack holds it (a live work before an archived one), else the default repo; forgotten on every change
+  let githubs: Map<number, string> | null = null;
+  const githubOf = (number: number) => {
+    if (!githubs) {
+      const ws = list();
+      const map = (githubs = new Map<number, string>());
+      for (const w of [...ws.filter((x) => !x.archived), ...ws.filter((x) => x.archived)]) for (const s of w.stack || []) if (s.number && !map.has(s.number)) map.set(s.number, githubOfWork(w));
+    }
+    return githubs.get(number) ?? GITHUB;
+  };
   // listeners run in the order they were added
   const listeners = new Set<(slug: string, what: Change) => void>();
   const onChange = (fn: (slug: string, what: Change) => void) => {
     listeners.add(fn);
     return () => void listeners.delete(fn);
   };
-  const changed = (slug: string, what: Change = 'work') => listeners.forEach((l) => l(slug, what));
+  const changed = (slug: string, what: Change = 'work') => {
+    githubs = null;
+    listeners.forEach((l) => l(slug, what));
+  };
   const save = (work: Work, { touch = true, what }: { touch?: boolean; what?: Change } = {}) => {
     if (touch) work.updatedAt = new Date().toISOString();
     const before = get(work.slug);
@@ -188,25 +204,31 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     return { projects: tree, orphanAgents, error: p.ok ? null : p.stderr };
   }
 
-  // one GraphQL call for every PR asked within the same few ms (a page load asks for the whole stack at once)
-  const fetchPrs = batcher<number, GhPrNode>(async (numbers) => {
-    if (!GITHUB) throw new Error(noRepo.stderr);
-    const [owner, name] = GITHUB.split('/');
-    const query = `query{repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){${numbers.map((n) => `p${n}:pullRequest(number:${n}){...P}`).join(' ')}}} fragment P on PullRequest{${PR_FIELDS}}`;
-    const r = await run('gh', ['api', 'graphql', '-f', `query=${query}`]);
-    const repo = parseJson<{ data?: { repository?: Record<string, GhPr | null> } }>(r, {}).data?.repository;
-    if (!repo) throw new Error(r.stderr.slice(0, 200));
-    return new Map(numbers.flatMap((n) => {
-      const d = repo[`p${n}`];
-      return d ? [[n, { info: toPrInfo(d), body: d.body || '' }]] : [];
-    }));
-  });
-  const prNode = (number: number, fresh = false) => prCache(String(number), () => fetchPrs(number), fresh);
+  // per GitHub repo, one GraphQL call for every PR asked within the same few ms (a page load asks for the whole stack at once)
+  const batchers = new Map<string, (number: number) => Promise<GhPrNode>>();
+  const fetchPrs = (github: string, number: number) => {
+    let fetch = batchers.get(github);
+    if (!fetch) batchers.set(github, (fetch = batcher<number, GhPrNode>(async (numbers) => {
+      if (!github) throw new Error(noRepo.stderr);
+      const [owner, name] = github.split('/');
+      const query = `query{repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){${numbers.map((n) => `p${n}:pullRequest(number:${n}){...P}`).join(' ')}}} fragment P on PullRequest{${PR_FIELDS}}`;
+      const r = await run('gh', ['api', 'graphql', '-f', `query=${query}`]);
+      const repo = parseJson<{ data?: { repository?: Record<string, GhPr | null> } }>(r, {}).data?.repository;
+      if (!repo) throw new Error(r.stderr.slice(0, 200));
+      return new Map(numbers.flatMap((n) => {
+        const d = repo[`p${n}`];
+        return d ? [[n, { info: toPrInfo(d), body: d.body || '' }]] : [];
+      }));
+    })));
+    return fetch(number);
+  };
+  const prNode = (number: number, fresh = false, github = githubOf(number)) => prCache(prKey(github, number), () => fetchPrs(github, number), fresh);
 
-  async function prInfo(number: number | null | undefined, fresh = false): Promise<PrInfo> {
+  // `github`: the work's repo when the caller has the work, else the repo of the work holding that number
+  async function prInfo(number: number | null | undefined, fresh = false, github?: string): Promise<PrInfo> {
     // no PR: no diff numbers, rather than a "0 files" that reads as an empty branch
     if (!number) return { number: null, state: 'PLANNED', isDraft: false, ci: 'none', checks: [], reviewers: [] };
-    return prNode(number, fresh).then((n) => n.info, (e: Error) => ({ number, error: e.message }));
+    return prNode(number, fresh, github ?? githubOf(number)).then((n) => n.info, (e: Error) => ({ number, error: e.message }));
   }
   function toPrInfo(d: GhPr): PrInfo {
     const contexts = d.commits?.nodes[0]?.commit.statusCheckRollup?.contexts.nodes || [];
@@ -284,7 +306,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     const name = (label || path.basename(abs)).replace(/[^\w.-]+/g, '-');
     const dest = path.join(artDir(slug), name);
     fs.cpSync(abs, dest, { recursive: true });
-    const sha = pr && !headSha && /^\d+$/.test(String(pr)) ? (await prInfo(Number(pr))).sha : headSha;
+    const sha = pr && !headSha && /^\d+$/.test(String(pr)) ? (await prInfo(Number(pr), false, githubOfWork(get(slug)))).sha : headSha;
     const blocked = kind === 'video' ? blockedBeats(abs) : [];
     if (pr || kind) setArtifactMeta(slug, name, { pr: pr ? String(pr) : null, kind: kind && config.kitKinds.includes(kind) ? kind : null, headSha: sha || null, ...(blocked.length ? { blocked } : {}) });
     const work = get(slug);
@@ -309,25 +331,27 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
   const matchGlob = (glob: string, p: string) => globToRegExp(glob).test(p);
 
   const filesCache = swrCache<PrFile[]>(120000, cacheFile(DATA, 'pr-files'));
-  const prFiles = (number: number): Promise<PrFile[]> =>
-    filesCache(String(number), async () => {
-      const r = await gh(['api', '--paginate', `repos/${GITHUB}/pulls/${number}/files?per_page=100`, '--jq', '.[] | {filename,additions,deletions,status}']);
+  const prFiles = (number: number, github = githubOf(number)): Promise<PrFile[]> =>
+    filesCache(prKey(github, number), async () => {
+      const r = await gh(github, ['api', '--paginate', `repos/${github}/pulls/${number}/files?per_page=100`, '--jq', '.[] | {filename,additions,deletions,status}']);
       return r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
     });
-  const prBody = (number: number): Promise<string> => prNode(number).then((n) => n.body, () => '');
-  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await prInfo(s.number, fresh)), key: rowKey(s), personas: s.personas || [] })));
+  const prBody = (number: number, github?: string): Promise<string> => prNode(number, false, github ?? githubOf(number)).then((n) => n.body, () => '');
+  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await prInfo(s.number, fresh, githubOfWork(work))), key: rowKey(s), personas: s.personas || [] })));
 
   async function plan(work: Work) {
     const prs = await stackInfo(work);
     recordChanges(work.slug, prs);
-    const extras = await Promise.all((work.stack || []).map(async (s) => ({ body: s.number ? await prBody(s.number) : '', files: s.number ? await prFiles(s.number) : [], personas: s.personas || [], planned: s.planned || null })));
+    const github = githubOfWork(work);
+    const extras = await Promise.all((work.stack || []).map(async (s) => ({ body: s.number ? await prBody(s.number, github) : '', files: s.number ? await prFiles(s.number, github) : [], personas: s.personas || [], planned: s.planned || null })));
     return prs.map((pr, i) => ({ ...pr, ...extras[i] }));
   }
 
   async function stackFiles(work: Work) {
     const prs = work.stack || [];
     if (!prs.length) return [];
-    const results = await Promise.all(prs.filter((s) => s.number).map((s) => gh(['pr', 'diff', String(s.number), '--repo', GITHUB, '--name-only'])));
+    const github = githubOfWork(work);
+    const results = await Promise.all(prs.filter((s) => s.number).map((s) => gh(github, ['pr', 'diff', String(s.number), '--repo', github, '--name-only'])));
     return [...new Set(results.flatMap((r) => (r.ok ? r.stdout.split('\n').filter(Boolean) : [])))];
   }
 
@@ -386,7 +410,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
   async function sweepArchive() {
     for (const work of list()) {
       if (work.archived || work.autoArchive === false || !(work.stack || []).length) continue;
-      const prs = await Promise.all(work.stack.map((s) => prInfo(s.number)));
+      const prs = await Promise.all(work.stack.map((s) => prInfo(s.number, false, githubOfWork(work))));
       if (isDone(work, prs)) setArchived(work.slug, true, 'auto');
     }
   }
@@ -433,7 +457,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     }
     if (b === 'personas-suggest') {
       const pr = query().get('pr');
-      const files = pr ? (await prFiles(Number(pr))).map((f) => f.filename) : await stackFiles(work);
+      const files = pr ? (await prFiles(Number(pr), githubOfWork(work))).map((f) => f.filename) : await stackFiles(work);
       return send(res, 200, { files: files.length, personas: personasForPaths(files) });
     }
     if (b === 'plan') return send(res, 200, { ...work, prs: await plan(work) });
@@ -467,7 +491,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       if (body.action === 'discard-preview') return send(res, 200, notion.discardPreview(a));
       return send(res, 200, await notion.sync(a, { force: Boolean(body.force), parentPageId: body.parentPageId || null, mode: body.mode || 'apply' }));
     }
-    if (b === 'notion' && req.method === 'GET') return send(res, 200, notion.status({ ...work, artifacts: listArtifacts(a) }, await Promise.all((work.stack || []).map((s) => prInfo(s.number)))));
+    if (b === 'notion' && req.method === 'GET') return send(res, 200, notion.status({ ...work, artifacts: listArtifacts(a) }, await Promise.all((work.stack || []).map((s) => prInfo(s.number, false, githubOfWork(work))))));
     if (req.method === 'PUT') {
       const body: Partial<Work> = JSON.parse(await readBody(req));
       try {
@@ -483,6 +507,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       await Promise.resolve(hooks.onClosed?.(work)).catch(() => {});
       const done = full ? await Promise.resolve(hooks.forgetWork?.(work)).catch((e) => [`cleanup failed: ${errorMessage(e)}`]) || [] : [];
       fs.rmSync(file(a));
+      githubs = null;
       if (full) fs.rmSync(path.join(ROOT, a), { recursive: true, force: true });
       return send(res, 200, { ok: true, done: full ? [...done, 'work folder removed'] : [] });
     }
@@ -560,7 +585,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     const card = { ...input, ...validateRich(input) };
     if (card.blocks) {
       const sha = card.sha || decision?.sha;
-      if (sha) await readSuggestionBefore(card.blocks, (p) => run('git', ['-C', REPO, 'show', `${sha}:${p}`]).then((r) => (r.ok ? r.stdout.replace(/\n$/, '').split('\n') : null)));
+      const repo = config.repos.find((r) => r.id === work.repo)?.path || REPO;
+      if (sha) await readSuggestionBefore(card.blocks, (p) => run('git', ['-C', repo, 'show', `${sha}:${p}`]).then((r) => (r.ok ? r.stdout.replace(/\n$/, '').split('\n') : null)));
       card.details = blocksToMarkdown({ summary: card.summary ?? decision?.summary, blocks: card.blocks, sources: card.sources ?? decision?.sources });
     }
     if (decision) Object.assign(decision, card);
@@ -568,6 +594,6 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     return save(work);
   };
 
-  const dropPr = (number: number) => prCache.drop(String(number));
+  const dropPr = (number: number) => prCache.drop(prKey(githubOf(number), number));
   return { paseo, handle, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks, notion };
 }
