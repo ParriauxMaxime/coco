@@ -151,17 +151,19 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
   };
   const mark = (marks: string, rel: string, value: string | null) => fs.writeFileSync(marks, JSON.stringify({ ...readMarks(marks), [rel]: value }));
 
-  // what a folder needs now: nothing, a link, or the worktree's own copy (a first one, a reinstall after its lockfile changed or an install cut short)
+  // what a folder needs now: nothing, a link, or the worktree's own copy (a first one, a reinstall after its lockfile changed or an install cut short).
+  // An optional folder the main checkout lacks gets installed in the worktree instead of staying missing
   function needOf(root: string, main: string, marks: string, d: DepsEntry): 'ok' | 'link' | 'own' | 'missing' {
     const target = path.join(root, d.path);
     const st = lstat(target);
     const differs = lockDiffers(root, main, d);
-    if (st?.isSymbolicLink()) return differs ? 'own' : realDir(target) ? 'ok' : realDir(path.join(main, d.path)) ? 'link' : 'missing';
+    const absent = d.optional && d.install?.length ? 'own' : 'missing';
+    if (st?.isSymbolicLink()) return differs ? 'own' : realDir(target) ? 'ok' : realDir(path.join(main, d.path)) ? 'link' : absent;
     const installed = readMarks(marks)[d.path];
     if (installed !== undefined) return st && installed === (d.lockfile ? hashOf(readOr(path.join(root, d.lockfile))) : null) ? 'ok' : 'own';
     if (st) return 'ok';
     if (differs) return 'own';
-    return realDir(path.join(main, d.path)) ? 'link' : 'missing';
+    return realDir(path.join(main, d.path)) ? 'link' : absent;
   }
 
   async function copyTree(from: string, to: string) {

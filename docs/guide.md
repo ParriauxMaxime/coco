@@ -987,7 +987,9 @@ config (docs/configuration.md); without it nothing changes.
   main checkout's folder (`cp -c`, a reflink on Linux), then the entry's
   `install` command, run in the folder's parent. The lockfile it was
   installed for is kept in the worktree's git dir, so a later lockfile
-  change reinstalls and an install cut short is retried.
+  change reinstalls and an install cut short is retried. An `optional`
+  folder the main checkout lacks is installed the same way (no clone), so
+  the checks that need it run and spares come with it.
 - No first prompt hold: a code group's first prompt goes out while the
   worktree still installs its own copy (`hold.ms` in `createThreads`, 0 by
   default). The prompt says the dependencies are still installing: the agent

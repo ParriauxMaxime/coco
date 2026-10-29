@@ -116,6 +116,24 @@ test('a main checkout without node_modules does not block: the brief says the ch
   assert.equal(fs.lstatSync(path.join(wt, 'node_modules')).isSymbolicLink(), true);
 });
 
+test('an optional folder the main checkout lacks is installed in the worktree, so the check that needs it runs', async (t) => {
+  const { main, wt } = fixture(t);
+  fs.mkdirSync(path.join(wt, 'web'));
+  const tests = { id: 'tests', label: 'Tests', command: ['vitest'], needs: ['web/node_modules'] };
+  const web = { path: 'web/node_modules', install: ['sh', '-c', 'mkdir node_modules'], optional: true };
+  const told: string[] = [];
+  const aw = createAgentWorktrees({ config: settings(main, { deps: [...deps('true'), web], checks: [tests] }), notify: async (_id, text) => void told.push(text) });
+  const r = await aw.prepare(wt);
+  assert.equal(r.state, 'preparing');
+  assert.deepEqual(r.deps.map((d) => d.mode), ['linked', 'installing']);
+  aw.whenReady(wt, 'agent-4');
+  await until(() => told.length > 0, 'the ready message');
+  const ready = await aw.prepare(wt);
+  assert.equal(ready.state, 'ready');
+  assert.deepEqual(ready.deps.map((d) => d.mode), ['linked', 'own']);
+  assert.equal(ready.checks[0].available, true);
+});
+
 test("coco's run of the checks on a commit: each check on the files it covers, a failure keeps its output, a check lacking what it needs is skipped", async (t) => {
   const { main, wt } = fixture(t);
   const commit = (file: string) => {
