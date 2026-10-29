@@ -7,6 +7,7 @@ import { NavDepth, useNav } from './use-nav.ts';
 import type { Nav } from './use-nav.ts';
 import Drill from './Drill.tsx';
 import Expand from './Expand.tsx';
+import Columns from './Columns.tsx';
 import './nav.css';
 
 // one level of a surface: its crumb and its content. child(key) is the level opened under that item, which Expand nests
@@ -16,7 +17,7 @@ export type Level = { key: string; label: string; render: (child: (key: string) 
 export type LayoutProps = { levels: Level[]; nav: Nav; width: number; base: number };
 type Layout = React.ComponentType<LayoutProps>;
 
-const LAYOUTS: Partial<Record<NavMode, Layout>> = { drill: Drill, expand: Expand };
+const LAYOUTS: Partial<Record<NavMode, Layout>> = { drill: Drill, expand: Expand, columns: Columns };
 
 export const hasLayout = (mode: NavMode) => mode === 'classic' || Boolean(LAYOUTS[mode]);
 
