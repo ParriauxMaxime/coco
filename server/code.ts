@@ -5,12 +5,14 @@ import path from 'node:path';
 import { branchOf, findRow, isLocal, parseKey, rowKey } from './stack.ts';
 import { errorMessage } from './core-types.ts';
 import type { PrFile, ReadBody, Refs, RefsOptions, Req, Res, RowKey, Send, Works } from './core-types.ts';
+import type { RepoIdentity } from './config.ts';
 
 type GitResult<T extends string | Buffer = string> = { ok: boolean; code: string | number; stdout: T; stderr: string };
 type GitOptions = { timeout?: number; cwd?: string };
 type PrShas = { headSha: string; baseSha: string; baseRef?: string; headRef?: string };
 type FileBlob = { sha: string | null; path: string; text: string; size: number; binary: boolean; tooLarge?: boolean; external?: boolean };
-type Deps = { REPO: string; config?: { repo?: { github?: string; defaultBranch?: string } }; works: Pick<Works, 'get' | 'list'> };
+type Repo = Pick<RepoIdentity, 'path' | 'github' | 'defaultBranch'>;
+type Deps = { REPO: string; config?: { repo?: { github?: string; defaultBranch?: string } }; works: Pick<Works, 'get' | 'list'>; repoOf?: (work: { repo?: string | null } | null | undefined) => Repo };
 
 const SHA_RE = /^[0-9a-f]{7,40}$/;
 const MAX_TEXT = 5 * 1024 * 1024;
@@ -68,9 +70,30 @@ export function checkPath(p: unknown): string {
   return p;
 }
 
-export function createCode({ REPO, config, works }: Deps) {
-  const GITHUB = config?.repo?.github || '';
-  const BRANCH = config?.repo?.defaultBranch || 'main';
+// each work's rows read the repo it lives in (repoOf); a key's repo is the repo of the work holding that row, a commit's the first repo that has it
+export function createCode({ REPO, config, works, repoOf = () => ({ path: REPO, github: config?.repo?.github || '', defaultBranch: config?.repo?.defaultBranch || 'main' }) }: Deps) {
+  const byPath = new Map<string, ReturnType<typeof repoCode>>();
+  const at = (r: Repo) => byPath.get(r.path) ?? byPath.set(r.path, repoCode(r, works)).get(r.path)!;
+  const of = (key: RowKey | null) => at(repoOf(findRow(works, key)?.work));
+  async function commitRepo(sha: string) {
+    const all = [...new Map([repoOf(null), ...works.list().map((w) => repoOf(w))].map((r) => [r.path, r])).values()].map(at);
+    for (const r of SHA_RE.test(sha) ? all : []) if (await r.hasCommit(sha)) return r;
+    return all[0];
+  }
+  async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
+    const [root, kind, n] = parts;
+    return (root === 'code' && kind === 'commit' ? await commitRepo(n) : of(parseKey(n))).handle(req, res, parts, readBody, send);
+  }
+  return {
+    handle,
+    ensureRefs: (key: RowKey, opts?: RefsOptions) => of(key).ensureRefs(key, opts),
+    prFilesFromGit: (key: RowKey, opts?: RefsOptions) => of(key).prFilesFromGit(key, opts),
+    dropRefs: (key: RowKey) => of(key).dropRefs(key),
+    commitRoute: async (sha: string, action: string, q: URLSearchParams) => (await commitRepo(sha)).commitRoute(sha, action, q),
+  };
+}
+
+function repoCode({ path: REPO, github: GITHUB, defaultBranch: BRANCH }: Repo, works: Deps['works']) {
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   const headRefName = (n: RowKey) => `refs/cocopilot/head/${n}`;
   const baseRefName = (n: RowKey) => `refs/cocopilot/base/${n}`;
@@ -408,5 +431,5 @@ export function createCode({ REPO, config, works }: Deps) {
     }
   }
 
-  return { handle, ensureRefs, prFilesFromGit, dropRefs, commitRoute };
+  return { handle, ensureRefs, prFilesFromGit, dropRefs, commitRoute, hasCommit };
 }

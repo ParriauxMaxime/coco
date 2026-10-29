@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createComments } from './comments.ts';
 import { createReviewAgent } from './review-agent.ts';
 import { DEFAULTS } from './config.ts';
@@ -219,4 +220,25 @@ test('start picks the runner by the plan rule and records the run', async () => 
   await assert.rejects(d.agent.start(SLUG, N, { commentIds: ['old'] }), (e) => e instanceof HttpError && e.status === 400);
   await assert.rejects(d.agent.start(SLUG, N, { commentIds: [] }), (e) => e instanceof HttpError && e.status === 400);
   assert.equal(d.comments.list(SLUG, N).comments[0].status, 'open');
+});
+
+test("rowPr of a local row reads the branch in the work's own repo", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'review-agent-repos-'));
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const [one, two] = ['one', 'two'].map((name) => {
+    const dir = path.join(tmp, name);
+    fs.mkdirSync(dir);
+    git(dir, 'init', '-q', '-b', 'main');
+    git(dir, '-c', 'user.name=alice', '-c', 'user.email=alice@acme.test', 'commit', '-q', '--allow-empty', '-m', 'init');
+    return dir;
+  });
+  git(two, 'branch', 'feat/elsewhere');
+  const second = { ...config.repo, path: two, github: 'acme/two', defaultBranch: 'trunk' };
+  const work: Work = { slug: SLUG, title: 'Demo', repo: 'two', stack: [{ planned: { branch: 'feat/elsewhere', title: 'Elsewhere' } }] };
+  const agent = createReviewAgent({ DATA: tmp, REPO: one, config, works: { get: () => work, save: (w: Work) => w }, comments: createComments({ DATA: tmp, REPO: one, config }), repoOf: (w) => (w?.repo === 'two' ? second : { ...config.repo, path: one }) });
+  const pr = await agent.rowPr(work, 0);
+  assert.equal(pr.sha, git(two, 'rev-parse', 'feat/elsewhere'));
+  assert.equal(pr.repo, two);
+  assert.equal(pr.base, 'trunk');
+  await assert.rejects(agent.rowPr({ ...work, repo: undefined }, 0), (e) => e instanceof HttpError && e.status === 404);
 });

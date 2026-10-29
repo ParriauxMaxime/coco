@@ -44,6 +44,8 @@ export type PreflightConfig = {
 };
 
 export type RepoIdentity ={ path: string; github: string; defaultBranch: string; tsconfig: string; rules: string[]; reviewsDir: string; commitConvention: string };
+// the repo a work lives in (repos.repoFor); a module built with one REPO defaults to config.repo at that path
+export type RepoOf = (work: { repo?: string | null } | null | undefined) => RepoIdentity;
 // settings that belong to a repo; one left out falls back to the top-level value
 export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree', 'preflight'] as const;
 export type RepoSettings = Partial<Pick<Config, (typeof REPO_SETTINGS)[number]>>;

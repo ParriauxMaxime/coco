@@ -114,6 +114,22 @@ test('resolve caches the PR lookup per branch', async () => {
   assert.equal(calls.filter(([cmd]) => cmd === 'gh').length, 1);
 });
 
+test('resolve looks the branch PR up in the repo of each work and picks the work of that repo', async () => {
+  const works = [...structuredClone(WORKS), { slug: 'coco', title: 'Coco', repo: 'two', stack: [{ number: 101 }] }];
+  const gh: string[] = [];
+  const exec = async (cmd: string, args: string[]) => {
+    if (cmd === 'git') return { ok: true, stdout: 'feat/x\n', stderr: '' };
+    const repo = args[args.indexOf('--repo') + 1];
+    gh.push(repo);
+    return { ok: true, stdout: JSON.stringify(repo === 'acme/two' ? [{ number: 101 }] : []), stderr: '' };
+  };
+  const repoOf = (w: Work | null | undefined) => ({ github: w?.repo === 'two' ? 'acme/two' : 'acme/widgets' });
+  const noop = { list: () => [], ingest: async () => ({ runs: [] }), sameDir: () => false };
+  const link = createPaseoLink({ repoOf, works: { list: () => works }, comments: { list: () => ({}), follow: async () => [] }, code: { ensureRefs: async () => ({ headSha: 'abc' }) }, reviewAgent: noop, stackFix: noop, exec });
+  assert.equal((await link.resolve({ cwd: '/wt' })).work?.slug, 'coco');
+  assert.deepEqual(gh, ['acme/widgets', 'acme/two']);
+});
+
 test('run finds a review run by its label PR key and a stack fix by id', () => {
   const runs = [{ slug: 'invoices', number: 101, runId: 'r1', agentId: 'ag1', status: 'running', commentIds: ['a'] }];
   const { link } = setup({ runs, stackRuns: [stackRun()], stored: [{ id: 'a', status: 'sent' }] });

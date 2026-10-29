@@ -7,7 +7,7 @@ import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.
 import { UUID, createPaseoAgents, expandHome, launcherEnv, sameDir, worktreeFor as worktreeOf } from './paseo-agent.ts';
 import { notesSection } from './briefs.ts';
 import { HttpError, errorMessage, errorStatus } from './core-types.ts';
-import type { Config } from './config.ts';
+import type { Config, RepoIdentity, RepoOf } from './config.ts';
 import type { Comment, CommentsApi, Exec, LaunchInput, PaseoAgentInfo, ReadBody, Req, Res, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
 
 const MAX_COMMENTS = 30;
@@ -51,7 +51,7 @@ type StartInput = { commits?: unknown; commentIds?: unknown; provider?: string; 
 type RowPlacement = { place(scope: { kind: 'row'; slug: string; key: RowKey; edits: true }): Promise<{ workspaceId: string; cwd: string }> };
 // readies the worktree of an agent launched on a PR branch; its brief lines go after the prompt
 export type Readier = { ready(cwd: string): Promise<string[]>; started(agentId: string, cwd: string, meta: { slug?: string; key?: RowKey | null }): void };
-type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents; placement?: RowPlacement; readier?: Readier };
+type Deps = { DATA: string; REPO: string; config: Config; works: Pick<Works, 'get' | 'save'>; comments: Pick<CommentsApi, 'list' | 'update'>; PERSONAS?: string; exec?: Exec; agents?: LaunchAgents; placement?: RowPlacement; readier?: Readier; repoOf?: RepoOf };
 
 const defaultExec: Exec = (cmd, args, opts = {}) =>
   new Promise((resolve) => {
@@ -123,9 +123,8 @@ export const personaPointers = (logins: string[], excerpt: (login: string) => { 
     return ex ? [`- \`${login}\`: read \`${ex.file}\`, "${ex.heading}".`] : [];
   });
 
-export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents(), placement, readier }: Deps) {
+export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONAS = config.personasDir, exec = defaultExec, agents = createPaseoAgents(), placement, readier, repoOf = () => ({ ...config.repo, path: REPO }) }: Deps) {
   const GH = config.repo.github;
-  const SHARED_RULES = sharedRules(config);
   const reviewsDir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
   const runFile = (slug: string, n: RowKey | null, runId: string) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}.json`);
   const briefFile = (slug: string, n: RowKey | null, runId: string) => path.join(reviewsDir(slug), `pr-${fileKey(n)}-run-${runId}.md`);
@@ -205,9 +204,10 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return `PR ${index + 1} of ${total}: ${parts.join(' → ')}`;
   }
 
-  function buildBrief({ work, pr, index = 0, stackPrs = [], comments: cs = [], personas = [], options = {} }: { work: Pick<Work, 'slug' | 'notes'>; pr: BriefPr; index?: number; stackPrs?: StackPr[]; comments?: Comment[]; personas?: string[]; options?: BriefOptions }) {
+  function buildBrief({ work, pr, index = 0, stackPrs = [], comments: cs = [], personas = [], options = {} }: { work: Pick<Work, 'slug' | 'notes' | 'repo'>; pr: BriefPr; index?: number; stackPrs?: StackPr[]; comments?: Comment[]; personas?: string[]; options?: BriefOptions }) {
     if (cs.length > MAX_COMMENTS) throw new HttpError(400, `at most ${MAX_COMMENTS} comments per run (got ${cs.length})`);
     if (!cs.length) throw new HttpError(400, 'no comments to address');
+    const repo = repoOf(work);
     const commits = options.commits === 'squash' ? 'squash' : 'one';
     const result = options.resultPath || resultFile(work.slug, pr.number, options.runId || 'RUN');
     const sorted = [...cs].sort(byFileThenLine);
@@ -218,14 +218,14 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     out.push(`Run ${options.runId || '?'} for work \`${work.slug}\`. You address ${sorted.length} review comment${sorted.length === 1 ? '' : 's'} left by the owner on this ${local ? 'branch (no PR yet)' : 'PR'}.`, '');
 
     out.push('## Hard rules', '');
-    out.push(`- Work on branch \`${pr.head}\` only. \`git branch --show-current\` must print \`${pr.head}\`; if it does not, stop and report instead of switching.`, ...SHARED_RULES, '');
+    out.push(`- Work on branch \`${pr.head}\` only. \`git branch --show-current\` must print \`${pr.head}\`; if it does not, stop and report instead of switching.`, ...sharedRules({ repo }), '');
 
     out.push('## PR', '');
     out.push(...(local ? [] : [`- Number: #${pr.number}`]), `- Title: ${pr.title || ''}`, ...(local ? [] : [`- URL: ${pr.url || ''}`]), `- Base: \`${pr.base}\``, `- Head: \`${pr.head}\``, `- Head sha: \`${pr.sha || ''}\``, `- ${stackLine(stackPrs.length ? stackPrs : [{ number: pr.number }], stackPrs.length ? index : 0, pr.number)}`, '');
 
     out.push('## PR body', '');
     const body = (pr.body || '').trim();
-    out.push(!body ? '(empty)' : local || body.length <= BODY_INLINE ? fenced(body, 'markdown') : `Not inlined (${body.length} characters): \`gh pr view ${pr.number} --repo ${GH} --json body -q .body\`.`, '');
+    out.push(!body ? '(empty)' : local || body.length <= BODY_INLINE ? fenced(body, 'markdown') : `Not inlined (${body.length} characters): \`gh pr view ${pr.number} --repo ${repo.github} --json body -q .body\`.`, '');
 
     out.push('## Work rules', '');
     out.push(...notesBrief(work.notes, `\`jq -r .notes ${path.join(DATA, 'works', `${work.slug}.json`)}\``), '');
@@ -253,7 +253,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return out.join('\n');
   }
 
-  const worktreeFor = (head: string) => worktreeOf(REPO, head, exec);
+  const worktreeFor = (head: string, repo = REPO) => worktreeOf(repo, head, exec);
 
   const agentsList = async (): Promise<PaseoAgentInfo[]> => {
     const r = await exec('paseo', ['ls', '--json']);
@@ -261,12 +261,13 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return Array.isArray(list) ? list : [];
   };
 
-  async function pickRunner(pr: Pick<ReviewPr, 'head' | 'number'>): Promise<Runner> {
-    const cwd = await worktreeFor(pr.head);
-    if (!cwd) return { mode: isLocal(pr.number) ? 'checkout-branch' : 'checkout-pr' };
+  async function pickRunner(pr: Pick<ReviewPr, 'head' | 'number'> & Partial<Pick<ReviewPr, 'repo'>>): Promise<Runner> {
+    const repo = pr.repo ?? REPO;
+    const cwd = await worktreeFor(pr.head, repo);
+    if (!cwd) return { mode: isLocal(pr.number) ? 'checkout-branch' : 'checkout-pr', repo };
     const agent = (await agentsList()).find((a) => a.cwd && a.status !== 'closed' && a.status !== 'error' && sameDir(a.cwd, cwd));
-    if (agent) return { mode: 'send', agentId: agent.id, cwd };
-    return { mode: 'cwd', cwd };
+    if (agent) return { mode: 'send', agentId: agent.id, cwd, repo };
+    return { mode: 'cwd', cwd, repo };
   }
 
   // starts the brief on the runner, returns the agent id; labels tell the Paseo plugin which cocopilot run the agent is on
@@ -293,7 +294,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     let cwd: string | null | undefined = null;
     const onRow = placement && typeof workSlug === 'string' && workSlug && n != null && runner.mode !== 'branch-off';
     try {
-      const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : runner.mode === 'workspace' ? { workspaceId: runner.workspaceId, cwd: runner.cwd } : { cwd: runner.mode === 'cwd' ? runner.cwd : REPO, worktree };
+      const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : runner.mode === 'workspace' ? { workspaceId: runner.workspaceId, cwd: runner.cwd } : { cwd: runner.mode === 'cwd' ? runner.cwd : runner.repo ?? REPO, worktree };
       cwd = worktree && !onRow ? null : where.cwd;
       started = await agents.start({ title, provider, thinking, prompt: await withSetup(cwd), labels: all, ...where });
     } catch (e) {
@@ -304,38 +305,39 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return started.agentId;
   }
 
-  const remoteHead = async (n: RowKey) => {
-    const r = await exec('git', ['-C', REPO, 'ls-remote', 'origin', isLocal(n) ? `refs/heads/${branchOf(n)}` : `refs/pull/${n}/head`]);
+  const remoteHead = async (n: RowKey, repo = REPO) => {
+    const r = await exec('git', ['-C', repo, 'ls-remote', 'origin', isLocal(n) ? `refs/heads/${branchOf(n)}` : `refs/pull/${n}/head`]);
     if (!r.ok) return null;
     return r.stdout.trim().split(/\s+/)[0] || null;
   };
 
-  async function fetchPr(n: unknown): Promise<ReviewPr> {
-    const r = await exec('gh', ['pr', 'view', String(n), '--repo', GH, '--json', 'number,title,url,state,isDraft,headRefName,baseRefName,headRefOid,body']);
+  async function fetchPr(n: unknown, repo?: RepoIdentity): Promise<ReviewPr> {
+    const r = await exec('gh', ['pr', 'view', String(n), '--repo', repo?.github ?? GH, '--json', 'number,title,url,state,isDraft,headRefName,baseRefName,headRefOid,body']);
     const d = r.ok ? parseJson<{ number: number; title: string; url: string; state: string; isDraft: boolean; headRefName: string; baseRefName: string; headRefOid?: string; body?: string } | null>(r.stdout, null) : null;
     if (!d) throw new HttpError(404, `cannot read PR #${n}: ${r.stderr.slice(0, 200)}`);
-    return { number: d.number, title: d.title, url: d.url, state: d.state, isDraft: d.isDraft, head: d.headRefName, base: d.baseRefName, sha: d.headRefOid || '', body: d.body || '' };
+    return { number: d.number, title: d.title, url: d.url, state: d.state, isDraft: d.isDraft, head: d.headRefName, base: d.baseRefName, sha: d.headRefOid || '', body: d.body || '', repo: repo?.path ?? REPO };
   }
-  const branchSha = async (branch: string) => {
-    const r = await exec('git', ['-C', REPO, 'rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`]);
+  const branchSha = async (branch: string, repo = REPO) => {
+    const r = await exec('git', ['-C', repo, 'rev-parse', '--verify', '-q', `refs/heads/${branch}^{commit}`]);
     return r.ok ? r.stdout.trim() || null : null;
   };
   // the PR fields of a stack row; a local row reads them from its plan and its branch
   async function rowPr(work: Work, index: number): Promise<ReviewPr> {
     const row = work.stack[index];
     const key = rowKey(row);
-    if (!isLocal(key)) return fetchPr(key);
+    const repo = repoOf(work);
+    if (!isLocal(key)) return fetchPr(key, repo);
     const planned = row.planned ?? {};
     const head = planned.branch ?? '';
-    const sha = await branchSha(head);
+    const sha = await branchSha(head, repo.path);
     if (!sha) throw new HttpError(404, `branch ${head} not found locally`);
     const parent = work.stack[index - 1];
-    const base = !parent ? config.repo.defaultBranch : parent.planned?.branch || (await fetchPr(parent.number)).head;
-    return { number: key, title: planned.title || head, url: '', state: 'LOCAL', isDraft: true, head, base, sha, body: planned.scope || '' };
+    const base = !parent ? repo.defaultBranch : parent.planned?.branch || (await fetchPr(parent.number, repo)).head;
+    return { number: key, title: planned.title || head, url: '', state: 'LOCAL', isDraft: true, head, base, sha, body: planned.scope || '', repo: repo.path };
   }
-  async function fetchStackState(number: RowKey | null | undefined): Promise<StackPr> {
+  async function fetchStackState(number: RowKey | null | undefined, github = GH): Promise<StackPr> {
     if (!number) return { number: null };
-    const r = await exec('gh', ['pr', 'view', String(number), '--repo', GH, '--json', 'number,state,isDraft']);
+    const r = await exec('gh', ['pr', 'view', String(number), '--repo', github, '--json', 'number,state,isDraft']);
     const d = r.ok ? parseJson<{ number: number; state: string; isDraft: boolean } | null>(r.stdout, null) : null;
     return d ? { number: d.number, state: d.state, isDraft: d.isDraft } : { number };
   }
@@ -368,7 +370,8 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       }
       if (!picked.length) throw new HttpError(400, 'no open comments to send (outdated ones are skipped)');
 
-      const [pr, stackPrs] = await Promise.all([rowPr(work, index), Promise.all(work.stack.map((s) => fetchStackState(s.number)))]);
+      const repo = repoOf(work);
+      const [pr, stackPrs] = await Promise.all([rowPr(work, index), Promise.all(work.stack.map((s) => fetchStackState(s.number, repo.github)))]);
       if (!pr.head) throw new HttpError(400, `${keyLabel(n)} has no head branch`);
       const runner = await pickRunner(pr);
       const runId = crypto.randomBytes(4).toString('hex');
@@ -378,7 +381,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       const text = buildBrief({ work, pr, index, stackPrs, comments: picked, personas: work.stack[index].personas || [], options: { commits, runId, resultPath: result } });
       fs.mkdirSync(reviewsDir(slug), { recursive: true });
       fs.writeFileSync(brief, text);
-      const remoteHeadBefore = await remoteHead(n);
+      const remoteHeadBefore = await remoteHead(n, repo.path);
 
       const task = `Read ${brief} and follow it end to end.`;
       const prompt = typeof input.wrap === 'function' ? input.wrap(task) : task;
@@ -424,7 +427,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return r.ok ? parseCommitLog(r.stdout).flatMap(({ commit, ids }) => ids.map((id) => ({ id, commit }))) : [];
   }
 
-  async function ingestRun(slug: string, n: RowKey, run: Run, running: PaseoAgentInfo[]) {
+  async function ingestRun(slug: string, n: RowKey, run: Run, running: PaseoAgentInfo[], repo = REPO) {
     let runChanged = false;
     const agent = run.agentId ? running.find((a) => a.id === run.agentId) : null;
     if (!run.cwd && agent?.cwd) {
@@ -433,7 +436,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     }
 
     if (!run.pushWarned && !run.pushedByUser && run.remoteHeadBefore) {
-      const now = await remoteHead(n);
+      const now = await remoteHead(n, repo);
       if (now && now !== run.remoteHeadBefore) {
         run.pushWarned = true;
         runChanged = true;
@@ -482,7 +485,8 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       const running = list(slug, n).filter((r) => r.status === 'running');
       if (running.length) {
         const live = await agentsList();
-        for (const run of running) await ingestRun(slug, n, run, live);
+        const repo = repoOf(works.get(slug)).path;
+        for (const run of running) await ingestRun(slug, n, run, live, repo);
       }
       return { runs: list(slug, n) };
     });

@@ -8,6 +8,7 @@ import { isLocal, rowKey } from './stack.ts';
 import { byFileThenLine, capitalize, commentSection, fenced as fence, notesBrief, personaPointers, sharedRules } from './review-agent.ts';
 import { blocksToMarkdown } from './blocks.ts';
 import type { Block } from './blocks.ts';
+import type { RepoIdentity, RepoOf } from './config.ts';
 import { HttpError, errorMessage } from './core-types.ts';
 import type { Comment, Exec, PaseoAgentInfo, ReadBody, Refs, Req, Res, ReviewAgentApi, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
 
@@ -37,6 +38,7 @@ type Deps = {
   reviewAgent: FixAgent;
   exec?: Exec;
   place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>;
+  repoOf?: RepoOf;
 };
 
 const defaultExec: Exec = (cmd, args) =>
@@ -53,9 +55,7 @@ const parseJson = <T>(text: string, fallback: T): T => {
   }
 };
 
-export function createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, exec = defaultExec, place }: Deps) {
-  const SHARED_RULES = sharedRules(config);
-  const BASE = `origin/${config.repo.defaultBranch}`;
+export function createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, exec = defaultExec, place, repoOf = () => ({ ...config.repo, path: REPO }) as RepoIdentity }: Deps) {
   const dir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
   const runFile = (slug: string, id: string) => path.join(dir(slug), `stack-run-${id}.json`);
   const briefFile = (slug: string, id: string) => path.join(dir(slug), `stack-run-${id}.md`);
@@ -146,13 +146,14 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       if (pr.state === 'MERGED' || pr.state === 'CLOSED') continue;
       rows.push({ index, key, branch: pr.head, title: pr.title, personas: s.personas || [], comments: open.sort(byFileThenLine) });
     }
+    const { path: repo, defaultBranch } = repoOf(work);
     const chained: ChainRow[] = [];
     for (const [i, row] of rows.entries()) {
-      const tipBefore = await reviewAgent.branchSha(row.branch);
+      const tipBefore = await reviewAgent.branchSha(row.branch, repo);
       if (!tipBefore) throw new HttpError(409, `branch ${row.branch} not found locally`);
-      const worktree = await reviewAgent.worktreeFor(row.branch);
-      const remoteBefore = await reviewAgent.remoteHead(row.key);
-      chained.push({ ...row, tipBefore, parent: i ? rows[i - 1].branch : BASE, parentTipBefore: i ? chained[i - 1].tipBefore : null, worktree, remoteBefore });
+      const worktree = await reviewAgent.worktreeFor(row.branch, repo);
+      const remoteBefore = await reviewAgent.remoteHead(row.key, repo);
+      chained.push({ ...row, tipBefore, parent: i ? rows[i - 1].branch : `origin/${defaultBranch}`, parentTipBefore: i ? chained[i - 1].tipBefore : null, worktree, remoteBefore });
     }
     return chained;
   }
@@ -170,7 +171,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     }
   }
 
-  function buildBrief({ work, rows, id, commits, resultPath }: { work: Pick<Work, 'slug' | 'notes'>; rows: ChainRow[]; id: string; commits: string; resultPath: string }) {
+  function buildBrief({ work, rows, id, commits, resultPath }: { work: Pick<Work, 'slug' | 'notes' | 'repo'>; rows: ChainRow[]; id: string; commits: string; resultPath: string }) {
     const total = rows.reduce((n, r) => n + r.comments.length, 0);
     const out: string[] = [];
     out.push(`# Fix review comments across the stack — work \`${work.slug}\``, '');
@@ -180,7 +181,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
     out.push(
       '- Walk the rows in the order below (bottom of the stack first). Finish a row, restack it if needed, then move up.',
       "- Work on each row's branch in that row's place (listed below). Never switch an existing worktree to another branch.",
-      ...SHARED_RULES,
+      ...sharedRules({ repo: repoOf(work) }),
       '- A restack conflict: `git rebase --abort`, mark that row failed in the result with the conflicting files, and stop. Do not touch the rows above it.',
       `- A comment's triage (${Owner}'s note and thread) is the agreed outcome: follow it over the comment's own recommendation. When it settles on no code change, decline the comment with that outcome as the note.`,
       `- A comment on the PR body or title is fixed with \`gh pr edit <n> --body-file <file>\` or \`--title\`, the one GitHub write allowed. A review reply goes through cocopilot propose_pr_reply, which ${Owner} posts from its card.`,
@@ -211,7 +212,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
         `- Key: \`${row.key}\``,
         `- Scope: ${row.title || ''}`,
         `- Tip before: \`${row.tipBefore}\``,
-        i ? `- Parent: \`${row.parent}\`, parent tip before: \`${row.parentTipBefore}\`` : `- Parent: \`${BASE}\` (never restacked in this run)`,
+        i ? `- Parent: \`${row.parent}\`, parent tip before: \`${row.parentTipBefore}\`` : `- Parent: \`${row.parent}\` (never restacked in this run)`,
         row.worktree ? `- Place: \`${row.worktree}\`` : `- Place: none yet. \`git worktree add /tmp/cc-stack-${id}/row-${i + 1} ${row.branch}\`, work there, \`git worktree remove /tmp/cc-stack-${id}/row-${i + 1}\` once the run is over.`,
         '',
       );
@@ -261,7 +262,7 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       const resultPath = resultFile(slug, id);
       fs.mkdirSync(dir(slug), { recursive: true });
       fs.writeFileSync(brief, buildBrief({ work, rows, id, commits, resultPath }));
-      const runner: Runner = place ? { mode: 'workspace', ...(await place(slug)) } : rows[0].worktree ? { mode: 'cwd', cwd: rows[0].worktree } : { mode: 'checkout-branch' };
+      const runner: Runner = place ? { mode: 'workspace', ...(await place(slug)) } : rows[0].worktree ? { mode: 'cwd', cwd: rows[0].worktree } : { mode: 'checkout-branch', repo: repoOf(work).path };
       const provider = input.provider || config.models.default;
       const agentId = await reviewAgent.launch(runner, { title: `Fix stack ${slug} (${total})`, provider, prompt: `Read ${brief} and follow it end to end.`, labels: { kind: 'stack-fix', run: id, work: slug, comments: total }, requestedBy: input.requestedBy, branch: rows[0].branch });
 
@@ -308,10 +309,11 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
 
   async function ingestRun(run: StackRun, agents: PaseoAgentInfo[]) {
     const slug = run.slug;
+    const repo = repoOf(works.get(slug)).path;
     const rowOf = (id: string) => run.rows.find((r) => r.commentIds.includes(id));
     if (!run.pushWarned) {
       for (const row of run.rows) {
-        const now = await reviewAgent.remoteHead(row.key);
+        const now = await reviewAgent.remoteHead(row.key, repo);
         if (now && now !== row.remoteBefore) {
           run.pushWarned = true;
           reviewAgent.timeline(slug, 'warning', `stack fix ${run.id}: remote head of ${row.branch} moved during the run`);
@@ -346,9 +348,9 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
 
     let fixed = 0;
     for (const row of run.rows) {
-      const tip = await reviewAgent.branchSha(row.branch);
+      const tip = await reviewAgent.branchSha(row.branch, repo);
       if (!tip || tip === row.tipBefore) continue;
-      for (const t of await reviewAgent.trailersBetween(REPO, row.tipBefore, tip)) {
+      for (const t of await reviewAgent.trailersBetween(repo, row.tipBefore, tip)) {
         const owner = rowOf(t.id);
         if (owner && (await settle(slug, owner, t.id, { status: 'fixed', runId: run.id, resolution: { commit: t.commit, note: 'found via Cc-Comment trailer' } }))) fixed++;
       }

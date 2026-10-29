@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { fileKey, parseKey, rowKey } from './stack.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { HttpError, errorMessage, isSeverity } from './core-types.ts';
+import type { RepoIdentity, RepoOf } from './config.ts';
 import type { Comment, CommentFile, CommentStatus, ExecResult, ReadBody, Req, Res, RowKey, Send, Severity, Works } from './core-types.ts';
 
 const CTX = 3;
@@ -70,10 +71,12 @@ export function mapLine(line: number, hunks: Hunk[]) {
   return { line: line + delta, removed: false };
 }
 
-type Deps = { DATA: string; REPO: string; config: { owner: { login: string } }; works?: Pick<Works, 'get' | 'remark'> };
+type Deps = { DATA: string; REPO: string; config: { owner: { login: string }; repo?: RepoIdentity }; works?: Pick<Works, 'get' | 'remark'>; repoOf?: RepoOf };
 
-export function createComments({ DATA, REPO, config, works }: Deps) {
+export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ...config.repo, path: REPO }) as RepoIdentity }: Deps) {
   const ME = config.owner.login;
+  // shas and paths resolve in the checkout of the work's repo
+  const cwdOf = (slug: string) => repoOf(works?.get(slug)).path;
   const dir = (slug: string) => path.join(DATA, 'works', slug, 'comments');
   const file = (slug: string, n: RowKey) => path.join(dir(slug), `pr-${fileKey(n)}.json`);
 
@@ -137,17 +140,17 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
     });
   };
 
-  const resolveSha = async (sha: string) => {
-    const r = await git(REPO, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`]);
+  const resolveSha = async (cwd: string, sha: string) => {
+    const r = await git(cwd, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`]);
     return r.ok ? r.stdout.trim() : null;
   };
-  const fileLines = async (sha: string, p: string) => {
-    const r = await git(REPO, ['show', `${sha}:${p}`]);
+  const fileLines = async (cwd: string, sha: string, p: string) => {
+    const r = await git(cwd, ['show', `${sha}:${p}`]);
     return r.ok ? splitLines(r.stdout) : null;
   };
 
-  async function snippetFor({ sha, path: p, startLine, endLine }: { sha: string; path: string; startLine: number; endLine: number }) {
-    const lines = await fileLines(sha, p);
+  async function snippetFor({ sha, path: p, startLine, endLine }: { sha: string; path: string; startLine: number; endLine: number }, cwd = REPO) {
+    const lines = await fileLines(cwd, sha, p);
     if (!lines) throw new HttpError(400, `cannot read ${p} at ${String(sha).slice(0, 11)}`);
     if (startLine < 1 || endLine > lines.length) throw new HttpError(400, `range ${startLine}-${endLine} outside ${p} (${lines.length} lines)`);
     return sliceContext(lines, startLine, endLine);
@@ -159,14 +162,14 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
   };
 
   // a structured finding (coco-findings skill): category, recommendation, typed blocks, sources; a suggestion's `before` is read at the sha, never trusted
-  async function richOf(input: Input, sha: string) {
+  async function richOf(input: Input, sha: string, cwd: string) {
     let out: ReturnType<typeof validateRich>;
     try {
       out = validateRich(input);
     } catch (e) {
       throw new HttpError(400, errorMessage(e));
     }
-    await readSuggestionBefore(out.blocks, (p) => fileLines(sha, p));
+    await readSuggestionBefore(out.blocks, (p) => fileLines(cwd, sha, p));
     return out;
   }
   const twin = (c: Parameters<typeof blocksToMarkdown>[0]) => blocksToMarkdown(c).slice(0, MAX_BODY);
@@ -176,7 +179,7 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
   async function addIssue(slug: string, n: unknown, input: Input) {
     const { title, from, author = ME } = input;
     if (typeof title !== 'string' || !title.trim() || title.length > MAX_TITLE) throw new HttpError(400, `title must be 1-${MAX_TITLE} chars`);
-    const rich = await richOf(input, '');
+    const rich = await richOf(input, '', cwdOf(slug));
     const body = rich.blocks && !input.body ? twin(rich) : input.body;
     if (typeof body !== 'string' || !body.trim() || body.length > MAX_BODY) throw new HttpError(400, `body or blocks required, ${MAX_BODY} chars at most`);
     const f = (from && typeof from === 'object' ? from : {}) as Record<string, unknown>;
@@ -217,13 +220,14 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
     if (!isLine(startLine) || !isLine(endLine)) throw new HttpError(400, 'startLine and endLine required');
     if (endLine < startLine) throw new HttpError(400, 'endLine < startLine');
     if (typeof input.title === 'string' && input.title.length > MAX_TITLE) throw new HttpError(400, `title longer than ${MAX_TITLE}: keep it short, put the full sentence in summary`);
-    const full = await resolveSha(sha);
+    const cwd = cwdOf(slug);
+    const full = await resolveSha(cwd, sha);
     if (!full) throw new HttpError(400, `unknown sha ${sha}`);
-    const rich = await richOf(input, full);
+    const rich = await richOf(input, full, cwd);
     const body = rich.blocks && !input.body ? twin(rich) : input.body;
     if (typeof body !== 'string' || !body.trim()) throw new HttpError(400, 'body or blocks required');
     if (body.length > MAX_BODY) throw new HttpError(400, `body longer than ${MAX_BODY}`);
-    const ctx = await snippetFor({ sha: full, path: p, startLine, endLine });
+    const ctx = await snippetFor({ sha: full, path: p, startLine, endLine }, cwd);
     const now = new Date().toISOString();
     const comment: Comment = {
       id: crypto.randomBytes(6).toString('hex'),
@@ -291,7 +295,7 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
       fields.confidence = patch.confidence;
     }
     const current = (list(slug, n).comments || []).find((x) => x.id === id);
-    const rich = current ? await richOf(patch, current.sha) : {};
+    const rich = current ? await richOf(patch, current.sha, cwdOf(slug)) : {};
     const c = await mutate(slug, n, (data) => {
       const c = data.comments.find((x) => x.id === id);
       if (!c) throw new HttpError(404, 'no such comment');
@@ -322,21 +326,22 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
 
   async function reanchor(slug: string, n: RowKey, { headSha, mergeBase }: { headSha?: string | null; mergeBase?: string | null } = {}) {
     if (!headSha && !mergeBase) throw new HttpError(400, 'headSha or mergeBase required');
+    const cwd = cwdOf(slug);
     const target: { head: string | null; base: string | null } = { head: null, base: null };
-    if (headSha) target.head = (await resolveSha(headSha)) || (() => { throw new HttpError(400, `unknown headSha ${headSha}`); })();
-    if (mergeBase) target.base = (await resolveSha(mergeBase)) || (() => { throw new HttpError(400, `unknown mergeBase ${mergeBase}`); })();
+    if (headSha) target.head = (await resolveSha(cwd, headSha)) || (() => { throw new HttpError(400, `unknown headSha ${headSha}`); })();
+    if (mergeBase) target.base = (await resolveSha(cwd, mergeBase)) || (() => { throw new HttpError(400, `unknown mergeBase ${mergeBase}`); })();
 
     const linesCache = new Map<string, string[] | null>();
     const cachedLines = async (sha: string, p: string) => {
       const key = `${sha}:${p}`;
-      if (!linesCache.has(key)) linesCache.set(key, await fileLines(sha, p));
+      if (!linesCache.has(key)) linesCache.set(key, await fileLines(cwd, sha, p));
       return linesCache.get(key) ?? null;
     };
     const statusCache = new Map<string, Map<string, { status: string; to: string }>>();
     const changedFiles = async (oldSha: string, newSha: string) => {
       const key = `${oldSha}..${newSha}`;
       if (!statusCache.has(key)) {
-        const r = await git(REPO, ['diff', '--name-status', '-z', '-M', oldSha, newSha]);
+        const r = await git(cwd, ['diff', '--name-status', '-z', '-M', oldSha, newSha]);
         const map = new Map<string, { status: string; to: string }>();
         const tokens = r.stdout.split('\0');
         for (let i = 0; i < tokens.length && tokens[i]; ) {
@@ -360,7 +365,7 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
       if (!info) return { path: p, hunks: [] };
       if (info.status === 'D') return null;
       const paths = info.to === p ? [p] : [p, info.to];
-      const r = await git(REPO, ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', oldSha, newSha, '--', ...paths]);
+      const r = await git(cwd, ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', oldSha, newSha, '--', ...paths]);
       const { hunks, renameTo } = parseHunks(r.stdout);
       return { path: info.status === 'R' ? renameTo || info.to : p, hunks };
     }
@@ -377,7 +382,7 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
     }
 
     async function anchorOne(c: Comment, newSha: string): Promise<Anchored | null> {
-      const oldSha = await resolveSha(c.sha);
+      const oldSha = await resolveSha(cwd, c.sha);
       let p = c.path;
       let hunks: Hunk[] | null = null;
       if (oldSha) {
@@ -406,7 +411,7 @@ export function createComments({ DATA, REPO, config, works }: Deps) {
       const counts = { updated: 0, outdated: 0, unchanged: 0 };
       for (const c of data.comments) {
         const newSha = target[c.side];
-        if (c.kind === 'issue' || !newSha || (await resolveSha(c.sha)) === newSha) {
+        if (c.kind === 'issue' || !newSha || (await resolveSha(cwd, c.sha)) === newSha) {
           counts.unchanged++;
           continue;
         }

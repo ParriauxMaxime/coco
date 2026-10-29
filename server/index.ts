@@ -127,9 +127,10 @@ works.hooks.forgetWork = (work) => placement.forgetWork(work);
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.enqueue(slug, input).done, preflight: async (slug, entry, key) => (isVideoEntry(entry) ? preflight.run(slug, key) : null), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });
 const rules = createRules({ DATA, config, works, ask });
 const inbox = createInbox({ config, ask });
-const code = createCode({ REPO, config, works });
+const repoOf = repos.repoFor;
+const code = createCode({ REPO, config, works, repoOf });
 works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
-const comments = createComments({ DATA, REPO, config, works });
+const comments = createComments({ DATA, REPO, config, works, repoOf });
 // readiness news: a thread agent hears it within its turn, any other agent as a message
 const agentWorktrees = createAgentWorktrees({
   config,
@@ -148,19 +149,19 @@ const agentChecks = createAgentChecks({
   say: (agentId, text) => workAgents.say(agentId, text),
   jobs,
 });
-const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement, readier: agentChecks.readier });
+const reviewAgent = createReviewAgent({ DATA, REPO, config, works, comments, agents: paseoAgents, placement, readier: agentChecks.readier, repoOf });
 const lang = createLang({ REPO, config });
-const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }), jobs });
-const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, place: (slug) => placement.place({ kind: 'work', slug }) });
-const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent });
-const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key), chatted: (slug, key) => cards.chattedInThread(slug, key), worktrees: agentWorktrees, models, jobs });
-const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, jobs });
+const reviewPlan = createReviewPlan({ DATA, REPO, config, APP, code, works, rules, agents: paseoAgents, place: (slug) => placement.place({ kind: 'work', slug }), jobs, repoOf });
+const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, reviewAgent, place: (slug) => placement.place({ kind: 'work', slug }), repoOf });
+const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent, repoOf });
+const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key), chatted: (slug, key) => cards.chattedInThread(slug, key), worktrees: agentWorktrees, models, jobs, repoOf });
+const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, jobs, repoOf });
 threads.setFindingActor(findings.actOnComment);
 const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
-const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags });
+const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags, repoOf });
 const kit = createKit({ REPO, DATA, config, works, betaFlags });
-const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents, jobs });
+const gates = createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents: paseoAgents, jobs, repoOf });
 const judge = createJudge({ DATA, config, agents: paseoAgents });
 const briefWriter = createBriefWriter({ DATA, config, agents: paseoAgents, judge, place: (slug) => placement.place({ kind: 'work', slug }) });
 works.hooks.lessons = (w) => {
@@ -169,20 +170,20 @@ works.hooks.lessons = (w) => {
 };
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
 const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs });
-const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent, jobs });
+const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent, jobs, repoOf });
 // the directory of the workspace remembered for a row, which its agents run in
 const rowDir = async (slug: string, key: RowKey) => {
   const id = works.get(slug)?.stack?.find((s) => rowKey(s) === key)?.workspaceId;
   return id ? (await paseoAgents.listWorkspaces()).find((w) => w.id === id && !w.archivingAt)?.workspaceDirectory || null : null;
 };
-const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir, jobs });
+const drift = createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir, jobs, repoOf });
 works.hooks.drift = (slug) => drift.view(slug).catch(() => null);
 // first listener: a page told of a change reads the drift recomputed, not the cached one
 works.onChange((slug) => drift.drop(slug));
 const pack = createPack({ APP, DATA, config });
 const setup = createSetup({ APP, config, works, personaCount: () => listPersonas().length, agents: paseoAgents, place: () => placement.place({ kind: 'global' }) });
 const repoAdder = createRepoAdder({ config, APP, configFile: config.file || process.env.COCO_CONFIG || path.join(APP, 'coco.config.json'), project: (r) => placement.repoProject(r), setup: (r) => setup.startRepoAgent(r), jobs });
-const paseoLink = createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json'), onArchived: (agentId) => void briefWriter.ended(agentId).catch((e) => console.error(`brief lessons of ${agentId}: ${errorMessage(e)}`)), onTurnEnded: (agentId) => void agentChecks.turnEnded(agentId).catch((e) => console.error(`checks of ${agentId}: ${errorMessage(e)}`)) });
+const paseoLink = createPaseoLink({ config, repoOf, works, comments, code, reviewAgent, stackFix, threads, brief: async (slug, key) => renderBrief(await briefs.context(slug, String(key))), file: path.join(DATA, 'paseo-links.json'), onArchived: (agentId) => void briefWriter.ended(agentId).catch((e) => console.error(`brief lessons of ${agentId}: ${errorMessage(e)}`)), onTurnEnded: (agentId) => void agentChecks.turnEnded(agentId).catch((e) => console.error(`checks of ${agentId}: ${errorMessage(e)}`)) });
 const devServers = createDevServers({ REPO, config, works, jobs });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});

@@ -9,6 +9,7 @@ import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import type { Jobs } from './jobs.ts';
 import { GITHUB_MIN_FRESH_MS, cacheFile, swrCache } from './swr.ts';
 import type { Block, Source } from './blocks.ts';
+import type { RepoIdentity, RepoOf } from './config.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
 
 const GH_TTL_MS = 120000;
@@ -68,9 +69,10 @@ type FindingsOptions = {
     planState(slug: string, n: RowKey): { plan?: { watchPoints?: WatchPoint[]; createdAt: string | null; headSha: string } | null; watch?: Record<number, string | null | undefined> | null };
     watch(slug: string, n: RowKey, change: { index: number; state: string | null; note?: string }): unknown;
   };
-  reviewAgent: { worktreeFor(branch: string): Promise<string | null>; rowPr(work: Work, index: number): Promise<{ head?: string | null }> };
+  reviewAgent: { worktreeFor(branch: string, repo?: string): Promise<string | null>; rowPr(work: Work, index: number): Promise<{ head?: string | null }> };
   threads: { release(slug: string, key: string): Promise<{ key: string; outcome: string }> };
   exec?: Exec;
+  repoOf?: RepoOf;
 };
 type ActBody = { action?: string; keys?: unknown; reason?: string; pr?: string | number | null };
 const SEVERITY_WORDS: [RegExp, string][] = [
@@ -193,8 +195,7 @@ export const reviewSource = (name: string, text = '') => {
   return logins.length ? `review-as:${logins.join('+')}` : 'review-local';
 };
 
-export function createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, exec = defaultExec, jobs }: FindingsOptions) {
-  const GH = config.repo.github;
+export function createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, exec = defaultExec, jobs, repoOf = () => ({ ...config.repo, path: REPO }) as RepoIdentity }: FindingsOptions) {
   const ME = config.owner.login;
   const BOTS = config.botGroups || {};
   const botSubs = Object.values(BOTS).filter(Boolean).map((s) => String(s).replace(/[^\w-]/g, ''));
@@ -225,7 +226,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     ) as Promise<T>;
 
   // GitHub reviewers (inline comments and review bodies), bot groups and other bots, failed CI checks; the PR author's own remarks are not findings
-  async function githubRows(n: number, headSha: string | null): Promise<Row[]> {
+  async function githubRows(GH: string, n: number, headSha: string | null): Promise<Row[]> {
     const api = <T>(p: string, jq: string) => gh<T[]>(['api', '--paginate', `repos/${GH}/${p}?per_page=100`, '--jq', jq]);
     const [author, inline, reviews, issue, checks] = await Promise.all([
       gh<string | null>(['api', `repos/${GH}/pulls/${n}`, '--jq', '.user.login'], false).catch(() => null),
@@ -260,12 +261,13 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
       if (st?.isFile()) add(full, name);
       if (st?.isDirectory()) for (const f of fs.readdirSync(full).filter((x) => x.endsWith('.md'))) add(path.join(full, f), name);
     }
+    const own = repoOf(work);
     for (const r of rows) {
-      const wt = r.branch ? await reviewAgent.worktreeFor(r.branch) : null;
-      const dir = wt ? path.join(wt, config.repo.reviewsDir) : null;
+      const wt = r.branch ? await reviewAgent.worktreeFor(r.branch, own.path) : null;
+      const dir = wt ? path.join(wt, own.reviewsDir) : null;
       if (dir && fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.md'))) add(path.join(dir, f), f);
     }
-    const repo = path.join(REPO, config.repo.reviewsDir);
+    const repo = path.join(own.path, own.reviewsDir);
     const numbers = rows.map((r) => r.number).filter(Boolean);
     for (const f of numbers.length && fs.existsSync(repo) ? fs.readdirSync(repo).filter((x) => x.endsWith('.md')) : []) {
       const head = fs.readFileSync(path.join(repo, f), 'utf8').slice(0, 600);
@@ -312,7 +314,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         const claim = claimOf(w.body);
         return { key: findingKey('coco', w.path, claim), n: r.key, source: 'coco', severity: w.severity || severityOf(w.body), confidence: w.confidence, path: w.path, line: w.startLine, endLine: w.endLine, claim, body: w.body, url: null, ts: plan?.createdAt, watchIndex: index, sha: plan?.headSha };
       });
-      const gh = r.number ? await githubRows(r.number, r.headSha) : [];
+      const gh = r.number ? await githubRows(repoOf(work).github, r.number, r.headSha) : [];
       const mine = raw.filter((x) => x.n === r.key);
       const stored = comments.list(slug, r.key).comments || [];
       out.push(...settle([...mine, ...coco, ...gh], { comments: stored, ledger, watch: watch || {}, me: ME }).map((x) => ({ ...x, n: x.n ?? r.key })));

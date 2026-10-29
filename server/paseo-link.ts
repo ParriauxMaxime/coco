@@ -20,6 +20,7 @@ type AgentInput = { agentId: string; workspaceId?: string | null; cwd?: string |
 
 type PaseoLinkOptions = {
   config?: { repo?: { github?: string } } | null;
+  repoOf?: (work: Work | null | undefined) => { github: string };
   works: { list(): Work[]; prInfo?(n: number): Promise<PrInfo | null> };
   comments: { list(slug: string, key: RowKey): { comments?: TrackedComment[] }; follow(slug: string, key: RowKey, refs: { headSha: string }): Promise<unknown> };
   code: { ensureRefs(key: RowKey, opts?: { fresh?: boolean }): Promise<{ headSha: string }> };
@@ -53,8 +54,7 @@ const readLinks = (file?: string | null): Record<string, AgentLink> => {
   }
 };
 
-export function createPaseoLink({ config, works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec, onArchived, onTurnEnded }: PaseoLinkOptions) {
-  const GITHUB = config?.repo?.github || '';
+export function createPaseoLink({ config, repoOf = () => ({ github: config?.repo?.github || '' }), works, comments, code, reviewAgent, stackFix, threads, brief: briefFor, file, exec = defaultExec, onArchived, onTurnEnded }: PaseoLinkOptions) {
   const prByBranch = new Map<string, { at: number; number: number | null }>();
   const links = new Map(Object.entries(readLinks(file)));
   const activeWorks = (): LinkWork[] => works.list().filter((w) => !w.archived);
@@ -63,15 +63,23 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     if (file) fs.writeFileSync(file, JSON.stringify(Object.fromEntries(links), null, 1));
   };
 
-  async function prForBranch(branch: string) {
-    const cached = prByBranch.get(branch);
+  async function prIn(github: string, branch: string) {
+    const cached = prByBranch.get(`${github} ${branch}`);
     if (cached && Date.now() - cached.at < BRANCH_TTL_MS) return cached.number;
-    if (!GITHUB) return null;
-    const r = await exec('gh', ['pr', 'list', '--repo', GITHUB, '--head', branch, '--state', 'all', '--json', 'number', '--limit', '1']);
+    const r = await exec('gh', ['pr', 'list', '--repo', github, '--head', branch, '--state', 'all', '--json', 'number', '--limit', '1']);
     const number: number | null = r.ok ? (JSON.parse(r.stdout || '[]')[0]?.number ?? null) : null;
-    if (r.ok) prByBranch.set(branch, { at: Date.now(), number });
+    if (r.ok) prByBranch.set(`${github} ${branch}`, { at: Date.now(), number });
     return number;
   }
+  // the PR of a branch in the first repo of the works (default repo first) that has one
+  async function prForBranch(branch: string) {
+    for (const github of new Set([repoOf(null).github, ...activeWorks().map((w) => repoOf(w).github)])) {
+      const number = github ? await prIn(github, branch) : null;
+      if (number) return { github, number };
+    }
+    return null;
+  }
+  const holdsPr = (pr: { github: string; number: number } | null) => (w: LinkWork) => Boolean(pr && repoOf(w).github === pr.github && (w.stack || []).some((s) => s.number === pr.number));
 
   const runView = (work: LinkWork, kind: string, pr: RowKey | null, run: RunBase, mine: { status: string }[]) => ({
     kind,
@@ -95,8 +103,9 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
     const active = activeWorks();
     const branchRun = cwd ? await exec('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD']) : { ok: false, stdout: '' };
     const branch = branchRun.ok ? branchRun.stdout.trim() : null;
-    const number = branch && branch !== 'HEAD' ? await prForBranch(branch) : null;
-    const byPr = number ? active.find((w) => (w.stack || []).some((s) => s.number === number)) : null;
+    const pr = branch && branch !== 'HEAD' ? await prForBranch(branch) : null;
+    const number = pr?.number ?? null;
+    const byPr = pr ? active.find(holdsPr(pr)) : null;
     const localRow = (w: LinkWork) => (w.stack || []).find((s) => !s.number && branch && s.planned?.branch === branch);
     const byBranch = byPr ? null : active.find(localRow);
     return { branch, number, byPr, byBranch, localRow };
@@ -187,9 +196,9 @@ export function createPaseoLink({ config, works, comments, code, reviewAgent, st
 
   // the rows of the work holding this branch, in merge order, each with its branch: the PR head, else the planned branch
   async function stack({ branch }: { branch: string }) {
-    const number = await prForBranch(branch);
-    const holds = (s: StackRow) => (number && s.number === number) || s.planned?.branch === branch;
-    const work = activeWorks().find((w) => (w.stack || []).some(holds));
+    const pr = await prForBranch(branch);
+    const holds = (s: StackRow) => (pr && s.number === pr.number) || s.planned?.branch === branch;
+    const work = activeWorks().find(holdsPr(pr)) || activeWorks().find((w) => (w.stack || []).some((s) => s.planned?.branch === branch));
     if (!work) return { work: null, rows: [] };
     const headOf = async (s: StackRow) => (s.number ? (await works.prInfo?.(s.number))?.head : null) || s.planned?.branch || null;
     const rows = await Promise.all((work.stack || []).filter(rowKey).map(async (s) => ({ key: rowKey(s), branch: holds(s) ? branch : await headOf(s) })));

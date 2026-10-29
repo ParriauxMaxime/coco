@@ -6,7 +6,7 @@ import { decisionSummary, isLive } from './decisions.ts';
 import type { Decision } from './decisions.ts';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, fenced, listText } from './review-agent.ts';
-import type { Config } from './config.ts';
+import type { Config, RepoIdentity, RepoOf } from './config.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, StackRow, Work } from './core-types.ts';
 import type { FeatureFlag, FeatureFlags } from './feature-flags.ts';
@@ -72,6 +72,8 @@ interface RenderInput {
   rules?: BriefRule[];
   betas?: FeatureFlag[];
   config: Config;
+  // the work's repo; config.repo when left out
+  repo?: Pick<RepoIdentity, 'rules' | 'defaultBranch'>;
 }
 
 interface BriefContext extends RenderInput {
@@ -79,6 +81,7 @@ interface BriefContext extends RenderInput {
   stackPrs: BriefStackPr[];
   rules: BriefRule[];
   betas: FeatureFlag[];
+  repo: RepoIdentity;
 }
 
 // bullet lines of a "## heading" section of the notes
@@ -130,7 +133,7 @@ export const kitOf = (work: Pick<Work, 'links' | 'slug'>, row: StackRow, config:
   ].filter((line): line is string => Boolean(line));
 };
 
-export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = [], betas = [], config }: RenderInput) {
+export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = [], betas = [], config, repo = config.repo }: RenderInput) {
   const row = work.stack[index];
   const scope = row.planned?.title || pr.title || `PR ${index + 1}`;
   const out = [`# ${work.title} — PR ${index + 1}: ${scope}`, ''];
@@ -166,7 +169,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   section('Decisions (settled, do not revisit)', settledLines(work, rowKey(row)));
 
   const ruleLines = [...rules.map((r) => `- ${r.text}`), ...notesSection(work.notes, 'Rules').map((l) => `- ${l}`)];
-  const repoRules = listText((config.repo.rules || []).map((r) => `\`${r}\``));
+  const repoRules = listText((repo.rules || []).map((r) => `\`${r}\``));
   section('Rules', [...(repoRules ? [`Read ${repoRules}, then follow the rules matching the files in scope.`] : []), ...(ruleLines.length ? [...(repoRules ? ['On top of them:', ''] : []), ...ruleLines] : [])]);
 
   section('Owner personas', (row.personas || []).map((p) => `- \`${p}\`: read \`${path.join(config.personasDir, `${p}.md`)}\`, "What they check".`));
@@ -175,7 +178,7 @@ export function renderBrief({ work, index, pr, worktree, stackPrs = [], rules = 
   section('Constraints', [`Commit locally. Push, PR opening, undrafting and pinging belong to the orchestrator and the user. The PR body and title are yours to edit when the task calls for it (\`gh pr edit ${row.number || '<n>'} --body-file <file>\`, \`--title\`), e.g. a kit skill updating the body or attaching its video. Reply in English, concise, low token use.`]);
   section('Report back (short)', [
     '- Commits: sha + one line each.',
-    `- \`git diff --shortstat ${pr.base === config.repo.defaultBranch ? `origin/${pr.base}` : pr.base}\`.`,
+    `- \`git diff --shortstat ${pr.base === repo.defaultBranch ?`origin/${pr.base}` : pr.base}\`.`,
     '- Gate results quoted (type check, lint, format, tests: "N passing, M failing (why)").',
     '- Deviations from this brief, with why.',
     '- Open questions, each as yes/no + recommendation + tradeoff.',
@@ -216,10 +219,11 @@ export function renderHandoff({ brief, pr, agentId, state, owner = 'the user' }:
   ].join('\n');
 }
 
-export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules = null, betaFlags = null }: {
+export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules = null, betaFlags = null, repoOf = () => ({ ...config.repo, path: REPO }) }: {
   DATA: string;
   REPO: string;
   config: Config;
+  repoOf?: RepoOf;
   works: { get(slug: string): Work | null };
   comments: { list(slug: string, n: number | string): { comments?: BriefComment[] } };
   reviewAgent: ReviewAgentApi;
@@ -236,9 +240,10 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     const n = parseKey(raw);
     const index = (work.stack || []).findIndex((s) => rowKey(s) === n);
     if (n === null || index < 0) throw new HttpError(404, `${raw} is not in this work`);
+    const repo = repoOf(work);
     const pr = await reviewAgent.rowPr(work, index);
-    const [worktree, stackPrs] = await Promise.all([reviewAgent.worktreeFor(pr.head), Promise.all(work.stack.map((s): Promise<BriefStackPr> | BriefStackPr => (s.number ? reviewAgent.fetchStackState(s.number) : { number: null })))]);
-    return { work, n, index, pr, worktree, stackPrs, rules: rules ? rules.keptFor(work, index) : [], betas: betaFlags ? betaFlags.forRow(work, n) : [], config };
+    const [worktree, stackPrs] = await Promise.all([reviewAgent.worktreeFor(pr.head, repo.path), Promise.all(work.stack.map((s): Promise<BriefStackPr> | BriefStackPr => (s.number ? reviewAgent.fetchStackState(s.number, repo.github) : { number: null })))]);
+    return { work, n, index, pr, worktree, stackPrs, rules: rules ? rules.keptFor(work, index) : [], betas: betaFlags ? betaFlags.forRow(work, n) : [], config, repo };
   }
 
   const store = (slug: string, n: number | string, text: string, suffix = '') => {
@@ -263,10 +268,10 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
   }
 
   async function state(ctx: BriefContext): Promise<BriefState> {
-    const git = (args: string[]) => exec('git', ['-C', ctx.worktree || REPO, ...args]).then((r) => (r.ok ? r.stdout.trim() : ''));
+    const git = (args: string[]) => exec('git', ['-C', ctx.worktree || ctx.repo.path, ...args]).then((r) => (r.ok ? r.stdout.trim() : ''));
     const parent = ctx.work.stack[ctx.index - 1];
-    const baseRef = !parent ? `origin/${config.repo.defaultBranch}` : parent.planned?.branch || ctx.stackPrs[ctx.index - 1]?.head || ctx.pr.base;
-    const [tip, baseTip, remote] = await Promise.all([reviewAgent.branchSha(ctx.pr.head), git(['rev-parse', '--verify', '-q', baseRef]), reviewAgent.remoteHead(ctx.n)]);
+    const baseRef = !parent ? `origin/${ctx.repo.defaultBranch}` : parent.planned?.branch || ctx.stackPrs[ctx.index - 1]?.head || ctx.pr.base;
+    const [tip, baseTip, remote] = await Promise.all([reviewAgent.branchSha(ctx.pr.head, ctx.repo.path), git(['rev-parse', '--verify', '-q', baseRef]), reviewAgent.remoteHead(ctx.n, ctx.repo.path)]);
     const fork = tip && baseTip ? await git(['merge-base', baseRef, tip]) : '';
     const log = fork ? (await git(['log', '--oneline', '--no-decorate', `-${MAX_LOG}`, `${fork}..${tip}`])).split('\n').filter(Boolean) : [];
     const dirty = ctx.worktree ? (await git(['--no-optional-locks', 'status', '--short'])).split('\n').filter(Boolean) : [];
@@ -283,7 +288,7 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     if (handoff && !ctx.worktree) throw new HttpError(409, `${ctx.pr.head} is not checked out: nothing to hand off`);
     const text = handoff ? renderHandoff({ brief, pr: ctx.pr, agentId: agent?.id, state: await state(ctx), owner }) : brief;
     const saved = store(slug, ctx.n, text, handoff ? '-handoff' : '');
-    const runner = ctx.worktree ? { mode: 'cwd', cwd: ctx.worktree } : { mode: isLocal(ctx.n) ? 'checkout-branch' : 'checkout-pr' };
+    const runner = ctx.worktree ? { mode: 'cwd', cwd: ctx.worktree, repo: ctx.repo.path } : { mode: isLocal(ctx.n) ? 'checkout-branch' : 'checkout-pr', repo: ctx.repo.path };
     const title = `${handoff ? 'Handoff ' : ''}PR ${ctx.index + 1}: ${ctx.work.stack[ctx.index].planned?.title || ctx.pr.title || ctx.pr.head}`;
     const agentId = await reviewAgent.launch(runner, { title, provider: config.models.default, prompt: `Read ${saved.path} and follow it end to end; it is your full task brief.`, labels: { kind: handoff ? 'handoff' : 'brief', work: slug, pr: fileKey(ctx.n) }, n: ctx.n, branch: isLocal(ctx.n) ? branchOf(ctx.n) : ctx.pr.head });
     reviewAgent.timeline(slug, 'agent', `${handoff ? `handoff ${keyLabel(ctx.n)} from ${agent ? agent.id.slice(0, 8) : 'no agent'}` : `brief ${keyLabel(ctx.n)}`}: started agent ${String(agentId || '').slice(0, 8) || '?'} with ${saved.name}`);

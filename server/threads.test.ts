@@ -105,7 +105,7 @@ function fakeDaemon() {
   return { connect: async () => client, calls, item, finish };
 }
 
-function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: (to: string) => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models'], exec: Exec = async () => ({ ok: false, stdout: '', stderr: '' }), hold?: Parameters<typeof createThreads>[0]['hold']) {
+function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0]['worktrees'], trailers: (to: string) => { id: string; commit: string }[] = () => [], models?: Parameters<typeof createThreads>[0]['models'], exec: Exec = async () => ({ ok: false, stdout: '', stderr: '' }), hold?: Parameters<typeof createThreads>[0]['hold'], repoOf?: Parameters<typeof createThreads>[0]['repoOf']) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'threads-test-'));
   const daemon = fakeDaemon();
   const work = {
@@ -141,6 +141,7 @@ function setup(uploads?: Uploads, worktrees?: Parameters<typeof createThreads>[0
     worktrees,
     models,
     hold,
+    repoOf,
   });
   const file = (key: string) => path.join(DATA, 'works', SLUG, 'threads', `${key}.json`);
   const read = (key: string): ThreadFile => JSON.parse(fs.readFileSync(file(key), 'utf8'));
@@ -210,6 +211,22 @@ test('a group agent answers two findings: a message on one steers its turn, each
   assert.deepEqual(read(A).messages.map((m) => [m.role, m.text]), [['user', 'Add the null check'], ['agent', 'Null check added.'], ['user', 'Also cover undefined'], ['agent', 'Undefined covered.']]);
   assert.equal(activity(A).at(-1)?.type, 'end');
   assert.equal(activity(A).at(-1)?.msgId, a2.waiting.msgId);
+});
+
+test('a comment thread on a work of another repo starts its code group from that repo: its git, its local PR head', async () => {
+  const OTHER = '/acme/gadgets';
+  const gits: string[][] = [];
+  const exec: Exec = async (cmd, args) => {
+    if (cmd === 'git') gits.push(args);
+    const ok = args[1] === OTHER && (args[2] === 'rev-parse' || args[2] === 'merge-base');
+    return { ok, stdout: ok && args[2] === 'rev-parse' ? 'def456\n' : '', stderr: '' };
+  };
+  const { post, daemon } = setup(undefined, undefined, () => [], undefined, exec, undefined, () => ({ ...config.repo, path: OTHER }));
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  assert.deepEqual(daemon.calls.worktrees[0].source, { kind: 'worktree', cwd: OTHER, worktreeSlug: `cc-${a1.groupId}`, action: 'branch-off', branchName: `cocopilot/${a1.groupId}`, baseBranch: 'def456' });
+  assert.ok(gits.some((a) => a[1] === OTHER && a.includes('refs/heads/feat/widgets^{commit}')));
+  assert.ok(gits.every((a) => a[1] !== REPO), 'no git in the default repo');
 });
 
 test('a second message on a thread while its agent works is delivered mid-turn, shown at once, and both replies land', async () => {

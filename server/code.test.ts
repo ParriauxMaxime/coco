@@ -96,6 +96,36 @@ test('file: 404 outside tree, binary flag, text, traversal', async () => {
   await code.dropRefs(2);
 });
 
+test('repoOf: a row of a work in another repo reads that repo, with its default branch', async () => {
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'code-test-two-'));
+  const git2 = (...a: string[]) => execFileSync('git', ['-C', dir2, ...a], { encoding: 'utf8' }).trim();
+  try {
+    git2('init', '-q', '-b', 'trunk');
+    git2('config', 'user.email', 't@t');
+    git2('config', 'user.name', 't');
+    fs.writeFileSync(path.join(dir2, 'two.txt'), 'one\n');
+    git2('add', '.');
+    git2('commit', '-qm', 'trunk');
+    const trunk = git2('rev-parse', 'HEAD');
+    git2('checkout', '-qb', 'side');
+    fs.writeFileSync(path.join(dir2, 'two.txt'), 'two\n');
+    git2('commit', '-qam', 'side');
+    const side = git2('rev-parse', 'HEAD');
+    const work = { slug: 'w2', repo: 'two', stack: [{ planned: { branch: 'side' } }] };
+    const repoOf = (w: { repo?: string | null } | null | undefined) => (w?.repo === 'two' ? { path: dir2, github: 'acme/two', defaultBranch: 'trunk' } : { path: dir, github: 'acme/widgets', defaultBranch: 'main' });
+    const two = createCode({ REPO: dir, works: { get: () => null, list: () => [work] as never }, repoOf });
+    const refs = await two.ensureRefs('b:side');
+    assert.deepEqual([refs.headSha, refs.baseSha, refs.mergeBase], [side, trunk, trunk]);
+    assert.deepEqual((await two.prFilesFromGit('b:side')).map((f) => f.filename), ['two.txt']);
+    const out: { status?: number; body: Body } = { body: {} };
+    const req = Object.assign(new IncomingMessage(new Socket()), { method: 'GET', url: `/api/code/commit/${side}/refs` });
+    await two.handle(req, new ServerResponse(req), ['code', 'commit', side, 'refs'], async () => '', (_r, status, body) => void Object.assign(out, { status, body }));
+    assert.equal(out.body.mergeBase, trunk);
+  } finally {
+    fs.rmSync(dir2, { recursive: true, force: true });
+  }
+});
+
 test('head: local branch tip when ahead of GitHub, GitHub head otherwise', async () => {
   const ahead = git('commit-tree', `${head}^{tree}`, '-p', head, '-m', 'unpushed');
   git('update-ref', 'refs/heads/feat', ahead);

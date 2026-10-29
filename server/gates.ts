@@ -6,7 +6,7 @@ import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { skillFor } from './config.ts';
 import { sameSha } from './kit.ts';
 import { cacheFile, swrCache } from './swr.ts';
-import type { Config } from './config.ts';
+import type { Config, RepoOf } from './config.ts';
 import { conflictBody } from './jobs.ts';
 import type { Jobs } from './jobs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
@@ -70,6 +70,7 @@ type Deps = {
   findings: { snapshot(slug: string, only: RowKey | null): { rows: { n: RowKey | null; status?: string }[] } | null };
   agents?: { archiveWhenDone(agentId: string): Promise<boolean> };
   jobs?: Pick<Jobs, 'start'>;
+  repoOf?: RepoOf;
 };
 
 // a gate skill is a skill name, or { name, ask } when the client asks for its argument
@@ -128,11 +129,11 @@ export function gateState(stored: Partial<GateRecord> | null | undefined, derive
   return derived ? 'done' : 'todo';
 }
 
-export function createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents, jobs }: Deps) {
+export function createGates({ DATA, config, works, reviewAgent, kit, comments, findings, agents, jobs, repoOf = () => config.repo }: Deps) {
   const GATES = gatesFor(config);
-  const GH = config.repo.github || '';
   const remotes = swrCache<string | null>(REMOTE_TTL_MS, cacheFile(DATA, 'remote-heads'));
-  const remoteOf = (n: number | string) => remotes(String(n), () => reviewAgent.remoteHead(n));
+  // the default repo keeps the bare key
+  const remoteOf = (n: number | string, repo: string) => remotes(repo === config.repo.path ? String(n) : `${repo}:${n}`, () => reviewAgent.remoteHead(n, repo));
   // each work's rows and their current milestone, as last computed: the sidebar reads it without computing
   const summaryFile = cacheFile(DATA, 'milestones');
   let summaries: Record<string, RowMilestone[]> | null = null;
@@ -189,12 +190,13 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
 
   async function view(slug: string, raw: string) {
     const first = rowOf(slug, raw);
+    const repo = repoOf(first.work).path;
     const pr = first.row.number ? await works.prInfo(first.row.number) : null;
     const branch = pr?.head || first.row.planned?.branch || null;
     const [body, tip, remote, pieces] = await Promise.all([
       first.row.number ? works.prBody(first.row.number) : '',
-      branch ? reviewAgent.branchSha(branch) : null,
-      remoteOf(first.n),
+      branch ? reviewAgent.branchSha(branch, repo) : null,
+      remoteOf(first.n, repo),
       kit.view(slug, String(first.n)).then((k) => k.pieces, () => null),
     ]);
     await settle(slug, first.index, first.row, tip || remote);
@@ -268,6 +270,7 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
     } else if (action === 'ready') {
       if (id !== 'ready') throw new HttpError(400, 'only the ready milestone flips a draft');
       if (!(await view(slug, raw)).gates.find((g) => g.id === 'ready')?.canRun) throw new HttpError(409, 'ready needs an open draft with self-reviewed, kit and pushed done or skipped');
+      const GH = repoOf(work).github;
       const flip = async () => {
         const r = await reviewAgent.exec('gh', ['pr', 'ready', String(n), ...(GH ? ['--repo', GH] : [])]);
         if (!r.ok) throw new HttpError(502, (r.stderr || r.stdout).trim().slice(-400) || 'gh pr ready failed');

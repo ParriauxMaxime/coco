@@ -34,7 +34,7 @@ export async function guessRepo(work: Pick<Work, 'links' | 'stack'>, repos: Repo
 export function createRepos({ DATA, repos }: { DATA: string; repos: RepoConfig[] }) {
   const layoutFile = path.join(DATA, 'layout.json');
   const byId = (id: string | null | undefined) => repos.find((r) => r.id === id) || null;
-  const repoFor = (work: Pick<Work, 'repo'> | null | undefined) => byId(work?.repo) || repos[0];
+  const repoFor = (work: { repo?: string | null } | null | undefined) => byId(work?.repo) || repos[0];
 
   // gives every work without a repo its repo; returns what it would write, and writes it unless dryRun
   async function assign(works: Work[], save: (w: Work) => unknown, { dryRun = false, branchExists }: { dryRun?: boolean; branchExists?: BranchExists } = {}) {

@@ -12,7 +12,7 @@ import type { Entry, Started } from './paseo-agent.ts';
 import { writeReviewContext } from './review-context.ts';
 import type { DismissedWatch } from './review-context.ts';
 import { HttpError, errorMessage, errorStatus, isSeverity } from './core-types.ts';
-import type { Config, FileLayers } from './config.ts';
+import type { Config, FileLayers, RepoOf } from './config.ts';
 import type { CodeApi, PrFile, ReadBody, Refs, Req, Res, Rule, RowKey, Send, Works } from './core-types.ts';
 
 export const CATEGORIES = ['core', 'refactor', 'wiring', 'tests', 'other'];
@@ -32,7 +32,7 @@ type PlanRun = { status: string; startedAt: string; finishedAt: string | null; h
 type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined>; dismissed?: DismissedWatch[] };
 type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
-type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark' | 'changed'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; jobs?: Pick<Jobs, 'start' | 'link'> };
+type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark' | 'changed'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; jobs?: Pick<Jobs, 'start' | 'link'>; repoOf?: RepoOf };
 const MAX_STEPS = 8;
 const MAX_WATCH = 8;
 export const SEVERITIES = ['blocking', 'major', 'minor', 'nit'];
@@ -233,12 +233,12 @@ export function buildPrompt({ n, slug, refs: { headSha: head, mergeBase: base },
   ].join('\n');
 }
 
-export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }), place, jobs }: Deps) {
+export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules = null, agents = createPaseoAgents({ APP }), place, jobs, repoOf = () => ({ ...config.repo, path: REPO }) }: Deps) {
   const ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   const OWNER = config.owner.name;
-  const SYSTEM = systemPrompt(OWNER, REPO);
   const classifier = createClassifier(config.fileLayers);
-  const git = (args: string[]) => new Promise<string>((resolve) => execFile('git', ['-C', REPO, ...args], { env: ENV, maxBuffer: 64 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out))));
+  const repoPath = (slug: string) => repoOf(works.get(slug)).path;
+  const git = (repo: string, args: string[]) => new Promise<string>((resolve) => execFile('git', ['-C', repo, ...args], { env: ENV, maxBuffer: 64 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out))));
   const dir = (slug: string) => path.join(DATA, 'works', slug, 'reviews');
   const file = (slug: string, n: RowKey) => path.join(dir(slug), `pr-${fileKey(n)}-plan.json`);
   const read = (slug: string, n: RowKey): PlanData => {
@@ -264,11 +264,11 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
   const live = new Map<string, PlanRun>();
 
   const catCache = new Map<string, Cats>();
-  async function categories(refs: Pick<Refs, 'mergeBase' | 'headSha'>, files: PrFile[]) {
+  async function categories(repo: string, refs: Pick<Refs, 'mergeBase' | 'headSha'>, files: PrFile[]) {
     const key = `${refs.mergeBase}:${refs.headSha}`;
     const hit = catCache.get(key);
     if (hit) return hit;
-    const cats = classifier.classify(files, splitDiff(await git(['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha])));
+    const cats = classifier.classify(files, splitDiff(await git(repo, ['diff', '-M', '--no-ext-diff', '--no-color', refs.mergeBase, refs.headSha])));
     catCache.set(key, cats);
     if (catCache.size > 20) catCache.delete(catCache.keys().next().value ?? '');
     return cats;
@@ -277,7 +277,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
   async function state(slug: string, n: RowKey) {
     const refs = await code.ensureRefs(n);
     const files = await code.prFilesFromGit(n, refs);
-    const cats = await categories(refs, files);
+    const cats = await categories(repoPath(slug), refs, files);
     const data = read(slug, n);
     const run = live.get(`${slug}:${n}`) || data.run;
     const stale = Boolean(data.plan && data.plan.headSha !== refs.headSha);
@@ -294,22 +294,23 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     };
   }
 
-  async function prepare(n: RowKey) {
+  async function prepare(repo: string, n: RowKey) {
     const refs = await code.ensureRefs(n, { fresh: true });
     const files = await code.prFilesFromGit(n, refs);
-    return { refs, files, cats: await categories(refs, files) };
+    return { refs, files, cats: await categories(repo, refs, files) };
   }
 
   async function start(slug: string, n: RowKey, { guidance = '' }: { guidance?: unknown } = {}) {
     const k = `${slug}:${n}`;
     if (live.get(k)?.status === 'running') return { ok: true, running: true };
     const tracked = deferredJob(jobs, { work: slug, pr: n, action: 'review-plan', label: `Plan review ${keyLabel(n)}`, kind: 'agent', settle: 'promise' });
-    const prepared = await prepare(n).catch((e) => {
+    const work = works.get(slug);
+    const repo = repoOf(work).path;
+    const prepared = await prepare(repo, n).catch((e) => {
       tracked.reject(e);
       throw e;
     });
     const { refs, files, cats } = prepared;
-    const work = works.get(slug);
     const kept = rules && work ? rules.keptFor(work, (work.stack || []).findIndex((s) => rowKey(s) === n)) : [];
     writeReviewContext(DATA, slug, n, { guidance: String(guidance).slice(0, 4000).trim(), rules: kept.map((r) => r.text), personas: works.personasForPaths(files.map((f) => f.filename)), headSha: refs.headSha, at: new Date().toISOString() });
     const prompt = buildPrompt({ n, slug, refs, fileCount: files.length });
@@ -350,7 +351,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
         for (const w of run.proposal.watchPoints || []) {
           const wp = w?.path;
           if (typeof wp !== 'string' || lineCounts[wp] !== undefined || !files.some((f) => f.filename === wp)) continue;
-          lineCounts[wp] = (await git(['show', `${refs.headSha}:${wp}`])).split('\n').length;
+          lineCounts[wp] = (await git(repo, ['show', `${refs.headSha}:${wp}`])).split('\n').length;
         }
         const plan = { ...normalizePlan(run.proposal, files, cats, lineCounts), headSha: refs.headSha, mergeBase: refs.mergeBase, createdAt: run.finishedAt };
         run.status = 'done';
@@ -377,8 +378,8 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       note(`created Paseo workspace ${createdWorkspace}`);
       log('say', `No Paseo workspace was open for this PR: created ${createdWorkspace}.`);
     };
-    (work && place ? place(slug) : (work ? workCwd({ repo: REPO, work, key: n, prInfo: works.prInfo }) : Promise.resolve(REPO)).then((cwd) => ({ cwd, workspaceId: null })))
-      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: SYSTEM, provider: config.models.fast || config.models.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
+    (work && place ? place(slug) : (work ? workCwd({ repo, work, key: n, prInfo: works.prInfo }) : Promise.resolve(repo)).then((cwd) => ({ cwd, workspaceId: null })))
+      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: systemPrompt(OWNER, repo), provider: config.models.fast || config.models.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
       .then((r) => finish(r), (e) => finish(null, e));
     return { ok: true };
   }

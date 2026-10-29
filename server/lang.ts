@@ -1,5 +1,5 @@
-// Navigation: one TypeScript language service worker (child process) for the last PR head used.
-import { spawn } from 'node:child_process';
+// Navigation: one TypeScript language service worker (child process) for the last PR head used, in the repo that holds it.
+import { execFile, spawn } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -63,9 +63,25 @@ export function startWorker({ repo, sha, tsPath, tsconfig, maxOldSpaceMB = 4096 
   return { child, sha, ready, request, exited: () => exited, kill: () => child.kill('SIGKILL') };
 }
 
+type Repo = { path: string; tsconfig?: string };
 type LangOptions = { REPO: string; config?: Config; tsPath?: string; tsconfig?: string; timeoutMs?: number; idleMs?: number; maxOldSpaceMB?: number };
 
+const hasCommit = (repo: string, sha: string) => new Promise<boolean>((resolve) => execFile('git', ['-C', repo, 'cat-file', '-e', `${sha}^{commit}`], (err) => resolve(!err)));
+
 export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsconfig, timeoutMs = 3000, idleMs = 15 * 60 * 1000, maxOldSpaceMB = 4096 }: LangOptions) {
+  const main: Repo = { path: REPO, tsconfig };
+  // the repo holding the sha: the default one first, then the other configured repos
+  const shaRepos = new Map<string, Repo>();
+  async function repoOfSha(sha: string): Promise<Repo> {
+    const known = shaRepos.get(sha);
+    if (known) return known;
+    for (const r of [main, ...(config?.repos || []).filter((x) => x.path && x.path !== REPO)]) {
+      if (!(await hasCommit(r.path, sha))) continue;
+      shaRepos.set(sha, r);
+      return r;
+    }
+    return main;
+  }
   let w: Worker | null = null;
   let status = 'idle';
   let initResult: unknown = null;
@@ -87,15 +103,15 @@ export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsco
     initResult = null;
   }
 
-  function ensure(sha: string | undefined): Promise<WorkerReply> {
+  function ensure(sha: string | undefined, repo: Repo = main): Promise<WorkerReply> {
     if (!sha || !SHA_RE.test(sha)) throw Object.assign(new Error('bad sha'), { code: 400 });
-    if (!REPO) return Promise.resolve({ error: 'no repo configured (repo.path)' });
+    if (!repo.path) return Promise.resolve({ error: 'no repo configured (repo.path)' });
     touch();
     if (w && w.sha === sha && !w.exited()) return w.ready;
     const crash = crashed.get(sha);
     if (crash && Date.now() - crash.at < CRASH_COOLDOWN) return Promise.resolve({ error: crash.error });
     if (w) w.kill();
-    const worker = startWorker({ repo: REPO, sha, tsPath, tsconfig, maxOldSpaceMB });
+    const worker = startWorker({ repo: repo.path, sha, tsPath, tsconfig: repo.tsconfig, maxOldSpaceMB });
     w = worker;
     status = 'indexing';
     initResult = null;
@@ -139,7 +155,7 @@ export function createLang({ REPO, config, tsPath, tsconfig = config?.repo?.tsco
     if (scope !== 'pr' || !['definition', 'references', 'hover', 'open'].includes(op)) return send(res, 404, { error: 'no route' });
     if (!SHA_RE.test(q.sha || '')) return send(res, 400, { error: 'sha required' });
     if (!q.path || q.path.startsWith('/') || q.path.split('/').includes('..')) return send(res, 400, { error: 'bad path' });
-    const ready = ensure(q.sha);
+    const ready = ensure(q.sha, await repoOfSha(q.sha));
     if (status === 'indexing') return send(res, 202, { status: 'indexing' });
     const init = await ready;
     if (init.error) return send(res, 200, { error: init.error });

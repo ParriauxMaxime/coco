@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rowKey } from './stack.ts';
 import { errorMessage, errorStatus } from './core-types.ts';
-import type { Config } from './config.ts';
+import type { Config, RepoOf } from './config.ts';
 import type { CodeApi, CommentsApi, ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, Work, Works } from './core-types.ts';
 
 const MAX_BODY = 5000;
@@ -33,15 +33,15 @@ export function parseFindings(md: string): Finding[] {
     });
 }
 
-type Deps = { REPO: string; config: Config; works: Works; comments: CommentsApi; code: CodeApi; reviewAgent: ReviewAgentApi };
+type Deps = { REPO: string; config: Config; works: Works; comments: CommentsApi; code: CodeApi; reviewAgent: ReviewAgentApi; repoOf?: RepoOf };
 
-export function createReviewImport({ REPO, config, works, comments, code, reviewAgent }: Deps) {
-  const REVIEWS = config.repo.reviewsDir;
+export function createReviewImport({ REPO, config, works, comments, code, reviewAgent, repoOf = () => ({ ...config.repo, path: REPO }) }: Deps) {
   async function candidates(work: Work) {
-    const dirs = REPO ? [path.join(REPO, REVIEWS)] : [];
+    const { path: repo, reviewsDir } = repoOf(work);
+    const dirs = repo ? [path.join(repo, reviewsDir)] : [];
     for (const s of work.stack || []) {
-      const wt = s.planned?.branch && (await reviewAgent.worktreeFor(s.planned.branch));
-      if (wt) dirs.push(path.join(wt, REVIEWS));
+      const wt = s.planned?.branch && (await reviewAgent.worktreeFor(s.planned.branch, repo));
+      if (wt) dirs.push(path.join(wt, reviewsDir));
     }
     const files = [...new Set(dirs)].flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.md')).map((f) => path.join(d, f)) : []));
     return files

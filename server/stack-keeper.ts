@@ -52,22 +52,26 @@ type Deps = {
   works: Pick<Works, 'get' | 'save' | 'prInfo'>;
   reviewAgent: Pick<ReviewAgentApi, 'exec' | 'timeline' | 'worktreeFor' | 'branchSha' | 'sameDir' | 'agentsList'>;
   jobs?: Pick<Jobs, 'wrap'>;
+  repoOf?: (work: Work | null) => { path: string; github: string; defaultBranch?: string };
 };
 
-export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: Deps) {
-  const opts = { github: config.repo.github, branch: config.repo.defaultBranch || 'main' };
-  const BASE = `origin/${opts.branch}`;
+export function createStackKeeper({ REPO, config, works, reviewAgent, jobs, repoOf = () => ({ ...config.repo, path: REPO }) }: Deps) {
   const exec = (cmd: string, args: string[]) => reviewAgent.exec(cmd, args);
   const git = (cwd: string, args: string[]) => exec('git', ['-C', cwd, ...args]);
   const out = (r: { ok: boolean; stdout: string }) => (r.ok ? r.stdout.trim() : '');
+  // the work's repo path and its keepPlan options
+  const repoFor = (work: Work | null) => {
+    const r = repoOf(work);
+    return { path: r.path, opts: { github: r.github, branch: r.defaultBranch || 'main' } };
+  };
 
-  async function rows(work: Work): Promise<KeepRow[]> {
+  async function rows(work: Work, repo: string): Promise<KeepRow[]> {
     return Promise.all((work.stack || []).map(async (s) => {
       const key = rowKey(s);
       const pr = s.number ? await works.prInfo(s.number) : null;
       const branch = pr?.head || s.planned?.branch || null;
       const headOid = pr?.state === 'MERGED' ? pr.headOid || null : null;
-      const [tip, worktree] = branch ? await Promise.all([reviewAgent.branchSha(branch), reviewAgent.worktreeFor(branch)]) : [null, null];
+      const [tip, worktree] = branch ? await Promise.all([reviewAgent.branchSha(branch, repo), reviewAgent.worktreeFor(branch, repo)]) : [null, null];
       return { key, number: s.number || null, state: pr?.state || 'LOCAL', branch, tip, headOid, worktree, keptFor: s.keeper?.parent ?? null };
     }));
   }
@@ -75,12 +79,13 @@ export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: De
   async function plan(slug: string) {
     const work = works.get(slug);
     if (!work) throw new HttpError(404, 'no such work');
-    if (!REPO) throw new HttpError(503, 'no repo configured (repo.path)');
-    const all = await rows(work);
+    const { path: repo, opts } = repoFor(work);
+    if (!repo) throw new HttpError(503, 'no repo configured (repo.path)');
+    const all = await rows(work, repo);
     const first = keepPlan(all, opts);
     if (first.parent) {
       const child = all.find((r) => r.key === first.steps[0].key);
-      if (child) child.containsParent = Boolean(first.parent.headOid && child.tip && (await git(REPO, ['merge-base', '--is-ancestor', first.parent.headOid, child.tip])).ok);
+      if (child) child.containsParent = Boolean(first.parent.headOid && child.tip && (await git(repo, ['merge-base', '--is-ancestor', first.parent.headOid, child.tip])).ok);
     }
     return keepPlan(all, opts);
   }
@@ -107,13 +112,15 @@ export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: De
   async function apply(slug: string) {
     const { parent, steps } = await plan(slug);
     if (!parent) throw new HttpError(400, 'nothing to keep: no open child of a merged PR');
+    const { path: repo, opts } = repoFor(works.get(slug));
+    const BASE = `origin/${opts.branch}`;
     if (steps[0].skip) throw new HttpError(409, steps[0].skip);
     const agents = await reviewAgent.agentsList();
     for (const s of steps) {
       const why = await busy(s, agents);
       if (why) throw new HttpError(409, why);
     }
-    const fetched = await git(REPO, ['fetch', '--no-tags', 'origin', opts.branch]);
+    const fetched = await git(repo,['fetch', '--no-tags', 'origin', opts.branch]);
     if (!fetched.ok) throw new HttpError(500, `git fetch origin ${opts.branch}: ${fetched.stderr.slice(0, 200)}`);
     const results: KeepResult[] = [];
     let prev: { tipBefore: string | null; tipAfter: string } | null = null;
@@ -124,12 +131,12 @@ export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: De
       }
       const cwd = s.worktree || path.join(os.tmpdir(), `cc-keep-${crypto.randomBytes(3).toString('hex')}`);
       const temp = s.worktree ? null : cwd;
-      if (temp && !(await git(REPO, ['worktree', 'add', temp, s.branch])).ok) {
+      if (temp && !(await git(repo,['worktree', 'add', temp, s.branch])).ok) {
         results.push({ key: s.key, branch: s.branch, error: `cannot check out ${s.branch}` });
         break;
       }
       try {
-        const onto = prev ? prev.tipAfter : out(await git(REPO, ['rev-parse', BASE]));
+        const onto = prev ? prev.tipAfter : out(await git(repo,['rev-parse', BASE]));
         const upstream = prev ? prev.tipBefore : s.upstream;
         if (!upstream) throw new HttpError(500, `no upstream sha to rebase ${s.branch} from`);
         const r = await git(cwd, ['rebase', '--onto', onto, upstream, s.branch]);
@@ -141,11 +148,11 @@ export function createStackKeeper({ REPO, config, works, reviewAgent, jobs }: De
         }
         const tipAfter = out(await git(cwd, ['rev-parse', 'HEAD']));
         const moved = movePaseoBase(s.worktree, s.onto);
-        if (s.number) await git(REPO, ['update-ref', `refs/cocopilot/base/${s.number}`, onto]);
+        if (s.number) await git(repo,['update-ref', `refs/cocopilot/base/${s.number}`, onto]);
         prev = { tipBefore: s.tipBefore, tipAfter };
         results.push({ key: s.key, branch: s.branch, tipBefore: s.tipBefore, tipAfter, worktreeJson: moved, push: s.push, ghBase: s.ghBase });
       } finally {
-        if (temp) await git(REPO, ['worktree', 'remove', '--force', temp]);
+        if (temp) await git(repo,['worktree', 'remove', '--force', temp]);
       }
     }
     const done = results.flatMap((r) => (r.tipAfter ? [{ ...r, tipAfter: r.tipAfter }] : []));

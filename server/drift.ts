@@ -30,12 +30,14 @@ export type Drift = { drift: DriftItem[]; next: DriftItem[]; heads: DriftHead[];
 
 type KitPiece = { id: string; label: string; state: string; expected?: boolean; madeFor: string | null; at: string | null; source: string | null };
 type Rows = { key: RowKey; number: number | null; pr: PrInfo | null; branch: string | null; tip: string | null; personas: string[]; gates: Work['stack'][number]['gates'] };
+type RepoOfWork = { path?: string; github?: string; defaultBranch?: string };
 type Deps = {
-  config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: { path?: string; github?: string; defaultBranch?: string } };
+  config: Pick<Config, 'gateSkills' | 'kitKinds' | 'skillOverrides' | 'methodSkill'> & { repo: RepoOfWork };
+  repoOf?: (work: Work) => RepoOfWork;
   DATA?: string;
   works: { get(slug: string): Work | null; prInfo(n: number | null | undefined, fresh?: boolean): Promise<PrInfo>; listArtifacts?(slug: string): Artifact[]; changed?(slug: string, what?: Change): void; dropPr?(n: number): void };
   kit: { view(slug: string, key: string): Promise<{ pieces: KitPiece[] }> };
-  reviewAgent: { exec: Exec; branchSha(branch: string): Promise<string | null>; worktreeFor?(branch: string): Promise<string | null> };
+  reviewAgent: { exec: Exec; branchSha(branch: string, repo?: string): Promise<string | null>; worktreeFor?(branch: string, repo?: string): Promise<string | null> };
   comments: { list(slug: string, key: RowKey): { comments?: Pick<Comment, 'author' | 'sha'>[] } };
   reviewPlan: { planOf(slug: string, n: RowKey): { headSha?: string | null } | null | undefined };
   rowDir?(slug: string, key: RowKey): Promise<string | null>;  // the directory of the workspace remembered for a row
@@ -44,15 +46,13 @@ type Deps = {
 
 const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 
-export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir, jobs }: Deps) {
-  const DEFAULT = config.repo.defaultBranch || 'main';
-  const GH = config.repo.github || '';
+export function createDrift({ config, DATA, works, kit, reviewAgent, comments, reviewPlan, rowDir, jobs, repoOf = () => config.repo }: Deps) {
   const cached = swrCache<Drift>(TTL_MS, cacheFile(DATA, 'drift'));
   const openPrs = swrCache<{ number: number; base: string; head: string }[]>(TTL_MS, cacheFile(DATA, 'open-prs'));
-  const git = (args: string[]) => reviewAgent.exec('git', ['-C', config.repo.path || '.', ...args]);
+  const git = (repo: RepoOfWork, args: string[]) => reviewAgent.exec('git', ['-C', repo.path || '.', ...args]);
 
-  const listOpen = (): Promise<{ number: number; base: string; head: string }[]> =>
-    openPrs('open', async () => {
+  const listOpen = (GH: string): Promise<{ number: number; base: string; head: string }[]> =>
+    openPrs(`open:${GH}`, async () => {
       const r = await reviewAgent.exec('gh', ['pr', 'list', ...(GH ? ['--repo', GH] : []), '--state', 'open', '--limit', '100', '--json', 'number,baseRefName,headRefName']);
       try {
         return (JSON.parse(r.stdout) as { number: number; baseRefName: string; headRefName: string }[]).map((p) => ({ number: p.number, base: p.baseRefName, head: p.headRefName }));
@@ -61,12 +61,12 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       }
     });
 
-  const commits = async (range: string) => Number((await git(['rev-list', '--count', range])).stdout.trim()) || 0;
-  async function headOf(tip: string | null, remote: string): Promise<Omit<DriftHead, 'key'>> {
+  const commits = async (repo: RepoOfWork, range: string) => Number((await git(repo, ['rev-list', '--count', range])).stdout.trim()) || 0;
+  async function headOf(repo: RepoOfWork, tip: string | null, remote: string): Promise<Omit<DriftHead, 'key'>> {
     if (!tip) return { state: 'remote' };
     if (sameSha(tip, remote)) return { state: 'pushed' };
-    if ((await git(['merge-base', '--is-ancestor', remote, tip])).ok) return { state: 'ahead', count: await commits(`${remote}..${tip}`) };
-    if ((await git(['merge-base', '--is-ancestor', tip, remote])).ok) return { state: 'behind', count: await commits(`${tip}..${remote}`) };
+    if ((await git(repo, ['merge-base', '--is-ancestor', remote, tip])).ok) return { state: 'ahead', count: await commits(repo, `${remote}..${tip}`) };
+    if ((await git(repo, ['merge-base', '--is-ancestor', tip, remote])).ok) return { state: 'behind', count: await commits(repo, `${tip}..${remote}`) };
     return { state: 'diverged' };
   }
 
@@ -75,17 +75,19 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     return skill ? `gate:${gate}:${skill}` : null;
   };
 
-  const shown = (r: DriftRun) => (r.type === 'push' ? `git push origin ${r.branch}` : `gh pr edit ${r.number}${GH ? ` --repo ${GH}` : ''} --base ${r.base}`);
-  // never a force push: a diverged branch has no run
-  const toRun = (r: DriftRun, label: string, copy: string): Pick<DriftItem, 'action' | 'also' | 'run'> => ({ action: { type: 'run', command: shown(r), label }, also: { type: 'copy', command: shown(r), label: copy }, run: r });
+  const shown = (r: DriftRun, GH: string) => (r.type === 'push' ? `git push origin ${r.branch}` : `gh pr edit ${r.number}${GH ? ` --repo ${GH}` : ''} --base ${r.base}`);
 
   async function compute(slug: string, fresh = false): Promise<Drift> {
     const work = works.get(slug);
     if (!work) throw Object.assign(new Error('no such work'), { status: 404 });
+    const repo = repoOf(work);
+    const GH = repo.github || '';
+    // never a force push: a diverged branch has no run
+    const toRun = (r: DriftRun, label: string, copy: string): Pick<DriftItem, 'action' | 'also' | 'run'> => ({ action: { type: 'run', command: shown(r, GH), label }, also: { type: 'copy', command: shown(r, GH), label: copy }, run: r });
     const rows: Rows[] = await Promise.all((work.stack || []).map(async (s) => {
       const pr = s.number ? await works.prInfo(s.number, fresh) : null;
       const branch = pr?.head || s.planned?.branch || null;
-      return { key: rowKey(s) as RowKey, number: s.number || null, pr, branch, tip: branch ? await reviewAgent.branchSha(branch) : null, personas: s.personas || [], gates: s.gates };
+      return { key: rowKey(s) as RowKey, number: s.number || null, pr, branch, tip: branch ? await reviewAgent.branchSha(branch, repo.path) : null, personas: s.personas || [], gates: s.gates };
     }));
     const drift: DriftItem[] = [];
     const next: DriftItem[] = [];
@@ -95,8 +97,8 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     for (const r of rows.filter((x) => x.number && x.pr?.state === 'OPEN')) {
       const pr = r.pr as PrInfo;
       const remote = pr.headOid || null;
-      const head = remote ? await headOf(r.tip, remote) : null;
-      const own = pr.base && BRANCH.test(pr.base) ? await commits(`origin/${pr.base}..${r.tip || remote}`) : undefined;
+      const head = remote ? await headOf(repo, r.tip, remote) : null;
+      const own = pr.base && BRANCH.test(pr.base) ? await commits(repo, `origin/${pr.base}..${r.tip || remote}`) : undefined;
       if (head) heads.push({ key: r.key, ...head, ...(own === undefined ? {} : { commits: own }) });
       const tidy = skillEntry('history');
       if (own && own > TIDY_FROM) add(drift, r.key, 'history', `${own} commits on top of ${pr.base}: tidy the history`, tidy ? { type: 'dispatch', entry: tidy, label: 'Tidy history' } : null);
@@ -141,7 +143,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     const open = rows.filter((r) => r.number && r.pr?.state === 'OPEN');
     for (const [i, r] of open.entries()) {
       const below = open[i - 1];
-      const want = below?.branch || DEFAULT;
+      const want = below?.branch || repo.defaultBranch || 'main';
       if (r.pr?.base && r.pr.base !== want) {
         const fix = r.number && BRANCH.test(want) ? toRun({ type: 'base', number: r.number, base: want }, 'Fix base', 'Copy base fix') : null;
         add(drift, r.key, 'stack', `GitHub bases ${keyLabel(r.key)} on ${r.pr.base}, the work stacks it on ${want}`, fix?.action ?? null, fix ? { also: fix.also, run: fix.run } : {});
@@ -149,7 +151,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     }
     // a row's agents run in its remembered workspace: it must be the worktree on the PR's head branch (a branch is checked out in one worktree only, so two means a stale name)
     const withBranch = open.filter((r) => r.branch);
-    const trees = rowDir && withBranch.length ? await gitWorktrees(reviewAgent.exec, config.repo.path || '.') : [];
+    const trees = rowDir && withBranch.length ? await gitWorktrees(reviewAgent.exec, repo.path || '.') : [];
     for (const r of rowDir ? withBranch : []) {
       const kept = await rowDir?.(slug, r.key);
       if (!kept) continue;
@@ -160,7 +162,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     }
     const mine = new Set(rows.map((r) => r.number));
     const byBranch = new Map(open.map((r) => [r.branch, r]));
-    for (const p of open.length ? await listOpen().catch(() => []) : []) {
+    for (const p of open.length ? await listOpen(GH).catch(() => []) : []) {
       const parent = byBranch.get(p.base);
       if (parent && !mine.has(p.number)) add(drift, p.number, 'stack-missing', `#${p.number} is stacked on ${keyLabel(parent.key)} on GitHub but not in this work`, { type: 'tab', tab: 'stack', label: 'Open stack' });
     }
@@ -169,10 +171,10 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
 
   const view = (slug: string, fresh = false) => cached(slug, () => compute(slug), fresh);
 
-  const argvOf = async (r: DriftRun): Promise<[string, string[], Record<string, unknown>]> => {
-    if (r.type === 'base') return ['gh', ['pr', 'edit', String(r.number), ...(GH ? ['--repo', GH] : []), '--base', r.base], {}];
+  const argvOf = async (r: DriftRun, repo: RepoOfWork): Promise<[string, string[], Record<string, unknown>]> => {
+    if (r.type === 'base') return ['gh', ['pr', 'edit', String(r.number), ...(repo.github ? ['--repo', repo.github] : []), '--base', r.base], {}];
     // in the branch's worktree when it has one, so the repo's pre-push hooks see that tree
-    const cwd = (await reviewAgent.worktreeFor?.(r.branch)) || config.repo.path || '.';
+    const cwd = (await reviewAgent.worktreeFor?.(r.branch, repo.path)) || repo.path || '.';
     return ['git', ['-C', cwd, 'push', 'origin', r.branch], { timeout: PUSH_MS }];
   };
   const running = new Set<string>();
@@ -190,7 +192,7 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
       const item = (await cached(slug, () => compute(slug, true), true)).drift.find((i) => i.id === id);
       if (!item?.run || item.action?.type !== 'run') throw new HttpError(409, 'this item no longer applies: nothing was run');
       if (command !== item.action.command) throw new HttpError(409, `the item reads "${item.action.command}", not what was sent: nothing was run`);
-      const [cmd, args, opts] = await argvOf(item.run);
+      const [cmd, args, opts] = await argvOf(item.run, repoOf(work));
       const r = await reviewAgent.exec(cmd, args, opts);
       if (r.ok) {
         cached.drop(slug);
