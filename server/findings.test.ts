@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claimOf, confidenceOf, findingKey, githubSourceOf, reviewerOf, reviewSource, settle, severityOf } from './findings.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { claimOf, confidenceOf, createFindings, findingKey, githubSourceOf, reviewerOf, reviewSource, settle, severityOf } from './findings.ts';
+import type { AgentComment, Work } from './core-types.ts';
 
 const raw = (r: { key: string; path?: string; claim: string }) => ({ n: null, source: 'review-as:bob', body: '', url: null, ...r });
 
@@ -58,4 +62,60 @@ test('bot groups from config name their own reviewer group', () => {
   assert.equal(githubSourceOf('bob', bots), 'github:bob');
   assert.equal(reviewerOf('tracker', bots).group, 'tracker');
   assert.equal(reviewerOf('tracker').group, 'agents');
+});
+
+// a board on one planned row holding two agent comments; threads records what accept and dismiss send
+function board() {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-findings-'));
+  const key = 'b:feat:x';
+  const stored = [
+    { id: 'c1', path: 'a.ts', startLine: 1, endLine: 1, body: 'Null check missing', author: 'agent', status: 'open', createdAt: '2026-10-29' },
+    { id: 'c2', path: 'b.ts', startLine: 2, endLine: 2, body: 'Wrong default', author: 'agent', status: 'open', createdAt: '2026-10-29' },
+  ];
+  const posts: { key: string; text: string; groupId?: string | null }[] = [];
+  const released: string[] = [];
+  const findings = createFindings({
+    DATA,
+    REPO: DATA,
+    config: { owner: { login: 'alice' }, repo: { github: 'acme/widgets', reviewsDir: 'reviews' } },
+    works: { get: () => ({ slug: 'w', title: 'W', stack: [{ number: null, planned: { branch: 'feat/x', title: 'X' } }] }) as unknown as Work, remark: () => null },
+    comments: { list: () => ({ comments: stored as unknown as AgentComment[] }), add: async () => ({ id: 'new' }), update: async () => null },
+    code: { ensureRefs: async () => ({ headSha: 'abc' }), prFilesFromGit: async () => [{ filename: 'a.ts' }, { filename: 'b.ts' }] },
+    reviewPlan: { planState: () => ({ plan: null, watch: null }), watch: () => null },
+    reviewAgent: { worktreeFor: async () => null, rowPr: async () => ({ head: 'feat/x' }) },
+    threads: {
+      release: async (_slug, k) => (released.push(k), { key: k, outcome: 'none' }),
+      post: async (_slug, k, input) => (posts.push({ key: k, text: input.text, groupId: input.groupId }), { groupId: 'g1' }),
+    },
+  });
+  const keyOf = async (id: string) => (await findings.collect('w')).rows.find((r) => r.commentId === id)!.key;
+  const settled = () => new Promise((ok) => setTimeout(ok, 10));
+  return { findings, key, posts, released, keyOf, settled };
+}
+
+test('accepting findings starts a fix agent per finding with the note, and releases nothing', async () => {
+  const { findings, key, posts, released, keyOf, settled } = board();
+  assert.equal(findings.acceptedComment('w', key, 'c1'), false);
+  const res = await findings.act('w', { action: 'accept', keys: [await keyOf('c1'), await keyOf('c2')], note: 'keep the API', pr: null });
+  await settled();
+  assert.equal(res.dispatched, 2);
+  assert.deepEqual(posts.map((p) => [p.key, p.groupId]), [[`c.${key.replaceAll(':', '~')}.c1`, undefined], [`c.${key.replaceAll(':', '~')}.c2`, undefined]]);
+  assert.match(posts[0].text, /^Accepted: fix this finding\.[\s\S]*\n\nkeep the API$/);
+  assert.deepEqual(released, []);
+  assert.equal(findings.acceptedComment('w', key, 'c1'), true);
+});
+
+test('accepting together puts the findings of a PR in one new agent', async () => {
+  const { findings, posts, keyOf, settled } = board();
+  await findings.act('w', { action: 'accept', keys: [await keyOf('c1'), await keyOf('c2')], together: true, pr: null });
+  await settled();
+  assert.deepEqual(posts.map((p) => p.groupId), ['new', 'g1']);
+});
+
+test('dismissing a finding releases its agent and starts none', async () => {
+  const { findings, posts, released, keyOf, settled } = board();
+  await findings.act('w', { action: 'dismiss', keys: [await keyOf('c1')], reason: 'not a bug', pr: null });
+  await settled();
+  assert.equal(posts.length, 0);
+  assert.equal(released.length, 1);
 });

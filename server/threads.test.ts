@@ -471,6 +471,22 @@ test('the first prompt of a code group carries the settled decisions, the other 
   assert.ok(next.length < first.length / 2, `follow-up ${next.length} vs first ${first.length}`);
 });
 
+test('an agent on a finding not accepted only discusses it, every turn; once accepted the rule is gone', async () => {
+  const { threads, post, daemon, read, reply } = setup();
+  let accepted = false;
+  threads.setFindingActor(async () => {}, () => accepted);
+  const a1 = await post(A, 'Is this real?');
+  await until(() => daemon.calls.sent.length === 1, 'first dispatch');
+  assert.match(daemon.calls.sent[0].text, /Alice has not accepted this finding yet: answer, investigate, recommend, but change no file and commit nothing/);
+  reply(a1.waiting.replyPath, 'Yes.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  accepted = true;
+  await post(A, 'Accepted: fix this finding.');
+  await until(() => daemon.calls.sent.length === 2, 'follow-up');
+  assert.doesNotMatch(daemon.calls.sent[1].text, /has not accepted/);
+});
+
 test('a thread shows the agent commit that carries its comment trailer until it is on the PR branch, by trailer or by patch-id, and points at its Approve', async () => {
   const commit = 'f'.repeat(40);
   const git = { cherry: '', grep: '' };

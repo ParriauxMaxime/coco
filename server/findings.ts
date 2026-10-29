@@ -70,11 +70,15 @@ type FindingsOptions = {
     watch(slug: string, n: RowKey, change: { index: number; state: string | null; note?: string }): unknown;
   };
   reviewAgent: { worktreeFor(branch: string, repo?: string): Promise<string | null>; rowPr(work: Work, index: number): Promise<{ head?: string | null }> };
-  threads: { release(slug: string, key: string): Promise<{ key: string; outcome: string }> };
+  threads: {
+    release(slug: string, key: string): Promise<{ key: string; outcome: string }>;
+    post(slug: string, key: string, input: { text: string; model?: string | null; groupId?: string | null; attachments?: unknown }): Promise<{ groupId?: string | null }>;
+  };
   exec?: Exec;
   repoOf?: RepoOf;
 };
-type ActBody = { action?: string; keys?: unknown; reason?: string; pr?: string | number | null };
+// accept: note goes to the fix agent with the ask to fix; together puts a PR's findings in one agent instead of one per file
+type ActBody = { action?: string; keys?: unknown; reason?: string; pr?: string | number | null; note?: string; model?: string | null; together?: boolean; attachments?: unknown };
 const SEVERITY_WORDS: [RegExp, string][] = [
   [/\bnon-blocking\b/i, 'minor'],
   [/\b(blocking|critical)\b/i, 'blocking'],
@@ -391,7 +395,30 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return c.id;
   }
 
-  async function act(slug: string, { action, keys, reason = '', pr = null }: ActBody) {
+  // each accepted finding goes to a fix agent in the background: one per file (threads groups a PR's file), or one per PR when together
+  const FIX = 'Accepted: fix this finding. When the fix is not obvious (several fair options, a product call), ask with a card before changing code.';
+  function dispatchFixes(slug: string, accepted: Row[], { note = '', model, together = false, attachments }: Pick<ActBody, 'note' | 'model' | 'together' | 'attachments'>) {
+    const text = note.trim() ? `${FIX}\n\n${note.trim()}` : FIX;
+    const post = (r: Row, groupId?: string | null) => threads.post(slug, `c.${String(r.n).replaceAll(':', '~')}.${r.commentId}`, { text, model, groupId, attachments });
+    if (!together) return accepted.forEach((r) => void post(r).catch(() => {}));
+    const byPr = new Map<string, Row[]>();
+    for (const r of accepted) byPr.set(String(r.n), [...(byPr.get(String(r.n)) || []), r]);
+    for (const rows of byPr.values()) {
+      void (async () => {
+        const first = await post(rows[0], 'new');
+        for (const r of rows.slice(1)) await post(r, first.groupId).catch(() => {});
+      })().catch(() => {});
+    }
+  }
+
+  // an agent may change code for an accepted finding only, the owner's own comments being accepted
+  const acceptedComment = (slug: string, n: RowKey, id: string) => {
+    if (Object.values(readLedger(slug)).some((e) => e.status === 'accepted' && e.commentId === id)) return true;
+    const c = (comments.list(slug, n).comments || []).find((x) => x.id === id);
+    return Boolean(c && (!c.author || c.author === ME));
+  };
+
+  async function act(slug: string, { action, keys, reason = '', pr = null, ...fix }: ActBody) {
     if (!action || !['accept', 'dismiss', 'reopen'].includes(action)) throw new HttpError(400, "action must be 'accept', 'dismiss' or 'reopen'");
     if (!Array.isArray(keys) || !keys.length) throw new HttpError(400, 'keys required');
     const only = pr === null ? null : parseKey(pr);
@@ -400,12 +427,16 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     const at = new Date().toISOString();
     const done: string[] = [];
     const settled: string[] = [];
+    const fixes: Row[] = [];
+    let unanchored = 0;
     for (const key of new Set<string>(keys)) {
       const row = rows.find((r) => r.key === key);
       if (!row) throw new HttpError(404, `no such finding ${key}`);
       if (action === 'accept') {
         const commentId = await accept(slug, row);
         ledger[key] = { status: 'accepted', at, commentId };
+        if (commentId && row.n !== null) fixes.push({ ...row, commentId });
+        else unanchored += 1;
       } else if (action === 'dismiss') {
         if (row.commentId && row.n !== null && ['open', 'sent', 'outdated'].includes(row.status ?? '')) await comments.update(slug, row.n, row.commentId, { status: 'declined', ...(reason ? { resolution: { ...(row.resolution || {}), note: reason }, remark: reason } : {}) });
         else if (row.source === 'coco' && row.n !== null && row.watchIndex !== undefined && !row.commentId) reviewPlan.watch(slug, row.n, { index: row.watchIndex, state: 'dismissed', ...(reason ? { note: reason } : {}) });
@@ -417,14 +448,15 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         delete ledger[key];
       }
       done.push(key);
-      if (action !== 'reopen' && row.commentId) settled.push(`c.${String(row.n).replaceAll(':', '~')}.${row.commentId}`);
+      if (action !== 'accept' && row.commentId) settled.push(`c.${String(row.n).replaceAll(':', '~')}.${row.commentId}`);
     }
     writeLedger(slug, ledger);
     forget(slug);
-    // a settled finding no longer needs its dispatched agent
+    // a dismissed or reopened finding no longer needs its agent; an accepted one gets its fix agent
     const pruned: { key: string; outcome: string; reason?: string }[] = [];
     for (const threadKey of settled) pruned.push(await threads.release(slug, threadKey).catch((e) => ({ key: threadKey, outcome: 'error', reason: errText(e) })));
-    return { done, pruned: pruned.filter((p) => p.outcome !== 'none'), ...(await rowsOf(slug, only, false)), left: LEFT };
+    dispatchFixes(slug, fixes, fix);
+    return { done, pruned: pruned.filter((p) => p.outcome !== 'none'), ...(action === 'accept' ? { dispatched: fixes.length, unanchored } : {}), ...(await rowsOf(slug, only, false)), left: LEFT };
   }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
@@ -457,5 +489,5 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return act(slug, { action, keys: [row.key], reason, pr: String(n) });
   }
 
-  return { handle, collect, act, actOnComment, snapshot };
+  return { handle, collect, act, actOnComment, acceptedComment, snapshot };
 }

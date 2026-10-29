@@ -433,29 +433,40 @@ marked accepted); Dismiss asks a one-line reason (declines a comment,
 dismisses a watch point, otherwise a `## Review remarks` line). The toast
 offers Undo. The selected finding opens on the right: chips, title, PR,
 file:line (opens the diff), body, Accept / Dismiss… / Reopen / Open on
-GitHub, then its agent thread (cards, composer; "Dismiss with this reason"
-uses the typed text). A new finding with a file shows the composer with
-"Accept & ask agent": it accepts the finding as a comment and starts the
-thread with your text. While the group's agent is alive and has seen the thread ("agent live"),
-a message goes out as a new turn only (the message, what changed since its
-last answer, the reply path), not the whole brief again. Accept or dismiss
-releases the finding's thread from its group and prunes the group's agent,
-worktree and branch once no item is left; it keeps them while the agent is
-answering or a suggested commit is not applied. "prune agent" in a thread
-does the same by hand.
+GitHub, then its agent thread (cards, composer; "Accept with this note" and
+"Dismiss with this reason" use the typed text).
 
-"Fix accepted (N)" in the view header opens the stack fix dialog (the rows
-bottom-up, one commit per finding or per row, the model) and starts a stack
-fix (`POST …/stack-fix` with `select: "accepted"`), then opens its
-`stack-<id>` tab; the last run sits beside it as "Stack fix <status>". It is
-limited to the open comments whose finding is accepted in `findings.json`;
-`select` also takes `{ "<row key>": [comment ids] }`, and no `select` keeps
-every open comment. The brief adds each comment's triage: the board note,
-your thread messages and the agent's last reply; the agent follows the
-outcome agreed there and declines anything needing a GitHub write, with the
-drafted text in its note. Sent findings show `sent` until the run settles.
-An agent running in a row's worktree refuses the run, except the one that
-asked for it (`requestedBy`).
+Accept starts the fix: each accepted finding with a comment goes to its
+thread's agent with "Accepted: fix this finding" and your note (`POST
+…/findings` with `note`, `model`, `attachments`), in the background. Findings
+on one file of a PR share an agent; "Accept together" in the bulk bar (two or
+more ticked) gives the PR's ticked findings one new agent (`together: true`).
+The agent works in its own worktree off the row's branch, asks with cards
+when the fix is not obvious, and suggests a commit you Approve (cherry-picked
+onto the row's branch, the finding then resolved). A finding without a file
+or line has no comment and gets no agent (the toast says how many). An
+accepted row shows where its agent stands: working, asks you, commit ready.
+A new finding with a file shows the composer with "Accept & fix": the same
+accept, with your text as note. Before Accept, the thread of a finding is
+discussion only ("Ask agent"): its agent is told every turn to answer and
+change no code until you accept. While the group's agent is alive and has
+seen the thread ("agent live"), a message goes out as a new turn only (the
+message, what changed since its last answer, the reply path), not the whole
+brief again. Dismiss or Reopen releases the finding's thread from its group
+and prunes the group's agent, worktree and branch once no item is left; it
+keeps them while the agent is answering or a suggested commit is not
+applied. "prune agent" in a thread does the same by hand.
+
+A stack fix (one agent bottom-up over the rows, `POST …/stack-fix`) still
+runs from the stack: `select: "accepted"` limits it to the open comments
+whose finding is accepted in `findings.json`, `select` also takes `{ "<row
+key>": [comment ids] }`, and no `select` keeps every open comment; the last
+run sits in the Findings header as "Stack fix <status>". The brief adds each
+comment's triage: the board note, your thread messages and the agent's last
+reply; the agent follows the outcome agreed there and declines anything
+needing a GitHub write, with the drafted text in its note. Sent findings
+show `sent` until the run settles. An agent running in a row's worktree
+refuses the run, except the one that asked for it (`requestedBy`).
 
 Thread agents reply in typed blocks, not markdown: `{ "blocks": [...] }` to
 `threads/<key>-<msg>-reply.json`, rendered like a finding card (a
@@ -1466,8 +1477,9 @@ a finding with no file or line lands on the cocopilot work's first row (the work
 whose repo is `cocopilot`, or `cocoWork` in the config) with your words, the
 agent and work that raised it, and the agent answers with its link
 (`#/work/<slug>/findings-<row>/f-<id>`, opening the Findings tab on it). The same
-title updates the finding. Nothing is dispatched; no fix agent starts and the
-Fix accepted run skips these findings.
+title updates the finding. Nothing is dispatched until you accept it: then its
+fix agent starts in the cocopilot repo like any accepted finding; stack fix
+runs skip these findings.
 
 ### Screenshots (agents see coco)
 

@@ -298,9 +298,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   const findingRule = [
     `Only when ${OWNER} asks you to accept, dismiss or edit this finding, add to the reply JSON`,
     '`"finding": { "action": "accept" | "dismiss", "reason": "…", "patch": { "title", "severity", "confidence", "summary", "recommendation", "blocks" } }`',
-    '(each part optional; dismiss needs a reason). cocopilot applies it after your turn; accept or dismiss may end your session. Never on your own initiative,',
+    '(each part optional; dismiss needs a reason). cocopilot applies it after your turn: accept sends you the ask to fix it, dismiss may end your session. Never on your own initiative,',
     `except one case: when ${OWNER} picks an option that leaves the code unchanged, dismiss the finding in that same reply with the option as reason, without asking.`,
   ].join(' ');
+  const discussRule = `- ${OWNER} has not accepted this finding yet: answer, investigate, recommend, but change no file and commit nothing. Once ${OWNER} accepts it, a message asks you for the fix.`;
   const askRule = (key: string, kind: string) => [
     `To have ${OWNER} pick between options, call cocopilot \`ask\` (a choice card) with \`thread: "${key}"\`, never a list to answer in text; the pick comes back as a new message.`,
     ...(kind === 'decision' ? ['An option with `effect: { "type": "take_decision", "option": "<card option key>" }` takes the decision on that card option when picked, without a new turn: only keys the card has.'] : []),
@@ -317,7 +318,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     ...(kind === 'comment' ? [findingRule] : []),
   ].join(' ');
 
-  function buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup, earlier }: { work: Work; ref: Ref; item: Item; thread: Thread; text: string; group: Group; replyPath: string; cardPath: string; pr: ThreadPr | null; setup: string[]; earlier: string | null }) {
+  function buildPrompt({ work, ref, item, thread, text, group, replyPath, cardPath, pr, setup, earlier, discuss }: { work: Work; ref: Ref; item: Item; thread: Thread; text: string; group: Group; replyPath: string; cardPath: string; pr: ThreadPr | null; setup: string[]; earlier: string | null; discuss: boolean }) {
     const history = thread.messages.filter((m) => m.role !== 'system').map((m) => `**${m.role === 'user' ? Owner : 'You'}:** ${m.text}${m.suggestion ? ` _(suggestion ${m.suggestion.state})_` : ''}`);
     const label = ref.kind === 'decision' ? '' : keyLabel(ref.n);
     const about = {
@@ -352,6 +353,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       comment: [
         `- You work in your own worktree on branch \`${group.branch}\`, branched off the PR head; stay on it. To suggest a change, make it and commit ONE commit with the trailer \`Cc-Comment: ${item.id}\`, self-contained. ${Owner} presses Approve, which cherry-picks that commit onto the PR worktree (\`${pr?.head}\`). coco shows each commit you make in this thread by itself: never amend or re-commit only to make it show. Never cherry-pick, merge or push onto the PR branch yourself. A suggestion shown as "dismissed" is ${Owner}'s call, not a failure. When you disagree, say why instead of changing it.`,
         `- When ${Owner}'s message is a question ("what do you recommend?", "why?", "options?"), answer it. Do not commit.`,
+        ...(discuss ? [discussRule] : []),
         ...SHARED_RULES,
       ],
     }[ref.kind];
@@ -378,7 +380,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   }
 
   // the agent still holds this thread in its context: only the new turn goes out, with what changed since its last answer
-  function followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId, steer, setup }: { ref: Ref; item: Item; thread: Thread; text: string; replyPath: string; cardPath: string; agentId: string; steer: boolean; setup: string[] }) {
+  function followUpPrompt({ ref, item, thread, text, replyPath, cardPath, agentId, steer, setup, discuss }: { ref: Ref; item: Item; thread: Thread; text: string; replyPath: string; cardPath: string; agentId: string; steer: boolean; setup: string[]; discuss: boolean }) {
     const lastSeen = thread.messages.findLastIndex((m) => m.agentId === agentId && m.role !== 'system');
     const lastSuggestion = thread.messages.slice(0, lastSeen + 1).findLast((m) => m.suggestion)?.suggestion;
     const since = [
@@ -395,6 +397,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       text,
       '',
       ...(steer ? ['Take it into account in the work in flight. A reply you already wrote for the previous message stays; this message gets its own reply file below.', ''] : []),
+      ...(discuss ? [discussRule, ''] : []),
       `Same rules as your first turn. Reply with cocopilot \`post_reply\` (\`{ "blocks": [...], "thread": "${thread.key}" }\`; fallback: the same JSON written to \`${replyPath}\`)${ref.kind === 'decision' ? `; a card change goes to \`${cardPath}\`` : ''}.`,
       '',
       ...(setup.length ? [setup[0].replace('## ', '## Changed since: '), ...setup.slice(1)] : []),
@@ -681,7 +684,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     route(slug, group.id, key, msg.id);
     const sendPrompt = (setup: string[]) => {
       writeGroup(slug, group);
-      const prompt = seen ? followUpPrompt({ ref, item, thread: prev, text, replyPath, cardPath, agentId: s.agentId, steer: Boolean(busy), setup }) : buildPrompt({ work, ref, item, thread: prev, text, group, replyPath, cardPath, pr, setup, earlier: fixed });
+      const discuss = ref.kind === 'comment' && Boolean(findingAccepted) && !findingAccepted?.(slug, ref.n, ref.id);
+      const prompt = seen ? followUpPrompt({ ref, item, thread: prev, text, replyPath, cardPath, agentId: s.agentId, steer: Boolean(busy), setup, discuss }) : buildPrompt({ work, ref, item, thread: prev, text, group, replyPath, cardPath, pr, setup, earlier: fixed, discuss });
       const messageId = files.length ? crypto.randomUUID() : null;
       if (messageId) uploads?.record(s.agentId, { messageId, text: prompt, at: msg.ts, attachments: files.map(uploadRef) });
       const steering = s.busy();
@@ -896,7 +900,12 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   // what an agent asked to do to its own finding (only on the owner's request, per its prompt): edit it now, accept or dismiss once the thread lock is free
   const PATCHABLE = ['title', 'severity', 'confidence', 'summary', 'recommendation', 'blocks'];
   let findingActor: FindingActor | null = null;
-  const setFindingActor = (fn: FindingActor) => (findingActor = fn);
+  // whether the owner accepted a comment's finding: an agent on one not accepted only discusses it
+  let findingAccepted: ((slug: string, n: RowKey, id: string) => boolean) | null = null;
+  const setFindingActor = (fn: FindingActor, accepted?: (slug: string, n: RowKey, id: string) => boolean) => {
+    findingActor = fn;
+    findingAccepted = accepted ?? null;
+  };
   const addNote = (slug: string, key: string, text: string) => withLock(`${slug}:${key}`, () => {
     const thread = read(slug, key);
     thread.messages.push(message('system', text));

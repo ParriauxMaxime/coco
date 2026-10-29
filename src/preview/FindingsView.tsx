@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import Markdown from '../components/Markdown.tsx';
 import { FindingBody } from '../components/Blocks.tsx';
 import { CodeRefScope } from '../components/CodeRefs.tsx';
-import Thread, { ThreadComposer, refreshThreads, threadKey } from '../components/Thread.tsx';
+import Thread, { ThreadComposer, refreshThreads, threadKey, useThreadsOf } from '../components/Thread.tsx';
 import type { Verdict } from '../components/Thread.tsx';
 import { toast } from '../components/Toast.tsx';
 import { pendingClass } from '../components/action.ts';
@@ -15,7 +15,7 @@ import Icon from './Icon.tsx';
 import ImportReview from './ImportReview.tsx';
 import Modal from './Modal.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
-import { FixDialog, StackRunChip, useStackFix } from './StackFixDialog.tsx';
+import { StackRunChip, useStackFix } from './StackFixDialog.tsx';
 import { Loading } from './pages/Page.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prTitle } from './data.ts';
@@ -55,6 +55,18 @@ const parsePick = (text: string) => text.split(/[\s,]+/).filter(Boolean).flatMap
 type Group = { id: string; head: ReactNode; rows: FindingRow[] };
 type Pending = { action: FindingAction; keys: Set<string> };
 type Send = (text: string, model?: string, files?: UploadRef[]) => Promise<boolean>;
+type Fix = { note?: string; model?: string; attachments?: string[]; together?: boolean };
+
+const commentThread = (r: FindingRow) => (r.commentId && r.n != null ? threadKey.comment(String(r.n), r.commentId) : null);
+
+// where an accepted finding's fix agent stands, from its thread summary
+function FixState({ slug, r }: { slug: string; r: FindingRow }) {
+  const key = commentThread(r);
+  const s = useThreadsOf(slug).summaries[key ?? ''];
+  if (!s) return null;
+  const [label, tone] = s.asks ? ['asks you', 'dp-warn'] : s.open ? ['commit ready', 'dp-ok'] : s.waiting ? ['working', ''] : [null, ''];
+  return label ? <span className={`dp-chip dp-fi-fix ${tone}`}>{label}</span> : null;
+}
 
 function Picker({ on, label, onToggle }: { on: boolean; label: string; onToggle: () => void }) {
   return (
@@ -121,7 +133,8 @@ function Detail({ slug, r, bucket, pr, inFlight, busy, onAct, onDismiss, onDispa
   const structured = Boolean(r.blocks?.length);
   const place = r.path ? `${r.path}${r.line ? `:${r.line}` : ''}` : '';
   const live = bucket === 'open' || bucket === 'accepted';
-  const verdicts: Verdict[] = live ? [{ label: 'Dismiss with this reason', title: 'Dismiss the finding, the text as its reason', pending: inFlight === 'dismiss', on: (text) => onDismiss(text) }] : [];
+  const dismissal: Verdict[] = live ? [{ label: 'Dismiss with this reason', title: 'Dismiss the finding, the text as its reason', pending: inFlight === 'dismiss', on: (text) => onDismiss(text) }] : [];
+  const verdicts: Verdict[] = bucket === 'open' ? [{ label: 'Accept with this note', title: 'Accept the finding: its fix agent starts with the text as note', pending: inFlight === 'accept', on: (text) => void onDispatch(text) }, ...dismissal] : dismissal;
   const jump = () => r.n != null && r.path && openCodeAt(slug, r.n, r.path, r.line, { group: useWorkbench.getState().otherGroup() });
   const dispatch: Send = async (text, model, files) => {
     setSending(true);
@@ -180,20 +193,20 @@ function Detail({ slug, r, bucket, pr, inFlight, busy, onAct, onDismiss, onDispa
       {r.commentId && r.n != null ? (
         <div className="dp-fi-thread">
           <div className="dp-sec-t">Agent thread</div>
-          <Thread key={r.key} slug={slug} threadKey={threadKey.comment(String(r.n), r.commentId)} verdicts={verdicts} onSettled={onSettled} />
+          <Thread key={r.key} slug={slug} threadKey={threadKey.comment(String(r.n), r.commentId)} verdicts={verdicts} discuss={bucket === 'open'} onSettled={onSettled} />
         </div>
       ) : r.path && r.n != null && r.status === 'new' ? (
         <div className="dp-fi-thread">
-          <div className="dp-sec-t">Ask an agent</div>
+          <div className="dp-sec-t">Fix agent</div>
           <ThreadComposer
             key={r.key}
             draft={`finding:${slug}:${r.key}`}
             withModel
             busy={busy || sending}
             pending={sending ? 'send' : inFlight}
-            sendLabel="Accept & ask agent"
-            verdicts={verdicts}
-            placeholder="Accepts the finding as a comment, then asks a scoped agent about it or for a fix (markdown, ↵)"
+            sendLabel="Accept & fix"
+            verdicts={dismissal}
+            placeholder="Accepts the finding, then a fix agent starts with this text as note; it asks you when unsure and suggests a commit you approve (markdown, ↵)"
             onSend={dispatch}
           />
         </div>
@@ -217,7 +230,6 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [pick, setPick] = useState('');
   const [importing, setImporting] = useState(false);
-  const [fixing, setFixing] = useState(false);
   const [asking, setAsking] = useState<string[] | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -265,8 +277,8 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     refreshThreads(d.slug);
     onReload();
   };
-  const act = async (action: FindingAction, keys: string[], reason = '') => {
-    if (!keys.length || pending) return;
+  const act = async (action: FindingAction, keys: string[], reason = '', fix: Fix = {}) => {
+    if (!keys.length || pending) return false;
     if (current && keys.includes(current.key)) {
       const i = order.indexOf(current);
       const after = [...order.slice(i + 1), ...order.slice(0, i).reverse()].find((r) => !keys.includes(r.key));
@@ -274,14 +286,17 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     }
     setPending({ action, keys: new Set(keys) });
     try {
-      const next = await api.findingAction(d.slug, { action, keys, reason, pr: null });
+      const next = await api.findingAction(d.slug, { action, keys, reason, pr: null, ...fix });
       settle(next);
       setPicked(new Set());
       setPick('');
       const pruned = (next.pruned || []).map((p) => (p.outcome === 'pruned' ? `agent of group ${p.group} pruned` : p.outcome === 'left' ? `left group ${p.group}, its agent stays for ${p.others} other item(s)` : `agent kept: ${p.reason}`));
-      toast.success([`${DONE[action]} ${plural(keys.length)}`, ...pruned].join(' · '), action === 'reopen' ? {} : { undo: () => actRef.current('reopen', keys) });
+      const fixing = [...(next.dispatched ? [`fix agent${fix.together ? '' : 's'} starting for ${next.dispatched}`] : []), ...(next.unanchored ? [`${next.unanchored} without a file: no agent`] : [])];
+      toast.success([`${DONE[action]} ${plural(keys.length)}`, ...fixing, ...pruned].join(' · '), action === 'reopen' ? {} : { undo: () => actRef.current('reopen', keys) });
+      return true;
     } catch (e) {
       toast.error(errorMessage(e));
+      return false;
     } finally {
       setPending(null);
     }
@@ -289,25 +304,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
   const actRef = useRef(act);
   actRef.current = act;
   const dismiss = (keys: string[], reason?: string) => (reason ? act('dismiss', keys, reason) : setAsking(keys));
-  const dispatch = (r: FindingRow): Send => async (text, model, files = []) => {
-    let next: FindingsResponse;
-    try {
-      next = await api.findingAction(d.slug, { action: 'accept', keys: [r.key], reason: '', pr: null });
-    } catch (e) {
-      toast.error(errorMessage(e));
-      return false;
-    }
-    const row = next.rows.find((x) => x.key === r.key);
-    const sent = row?.commentId
-      ? await api.postThread(d.slug, threadKey.comment(String(row.n), row.commentId), { text, ...(model ? { model } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) }).then(() => true, (e) => { toast.error(errorMessage(e)); return false; })
-      : false;
-    settle(next);
-    if (row) {
-      setStatus(bucketOf(row, next.left || left));
-      setSel(row.key);
-    }
-    return sent;
-  };
+  const dispatch = (r: FindingRow): Send => (note, model, files = []) => act('accept', [r.key], '', { note, ...(model ? { model } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}) });
   const refresh = (fresh: boolean) => {
     if (fresh) setRefreshing(true);
     return api.findings(d.slug, null, fresh).then(setBoard, (e) => fresh && toast.error(errorMessage(e))).finally(() => setRefreshing(false));
@@ -357,7 +354,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     const onKey = (e: KeyboardEvent) => {
       const t = e.target instanceof HTMLElement ? e.target : null;
       const pane = root.current?.closest('.wb-group');
-      if (!root.current?.offsetParent || (pane && !pane.classList.contains('focus')) || importing || fixing || asking || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
+      if (!root.current?.offsetParent || (pane && !pane.classList.contains('focus')) || importing || asking || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
       const i = current ? order.indexOf(current) : -1;
       const b = current ? bucketOf(current, left) : null;
       const run = (fn: () => unknown) => { e.preventDefault(); fn(); };
@@ -369,13 +366,18 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [order, current, busy, importing, fixing, asking]);
+  }, [order, current, busy, importing, asking]);
+  // the fix agents' chips follow their threads while the accepted list shows
+  useEffect(() => {
+    if (status !== 'accepted') return undefined;
+    const t = setInterval(() => refreshThreads(d.slug), 10000);
+    return () => clearInterval(t);
+  }, [status, d.slug]);
   const currentPr = current ? nOf(current) || null : null;
   useEffect(() => { onCurrentPr?.(currentPr); }, [currentPr]);
 
   if (!board) return <Loading what="Collecting findings…" />;
   const prFilterIds = Array.from(new Set([...Object.keys(prCounts), ...(prFilter === null ? [] : [prFilter])])).sort((a, b) => at(a) - at(b));
-  const toFix = stackFix.open.reduce((sum, r) => sum + (r.accepted || 0), 0);
   const lastRun = stackFix.runs[0];
   const flight = (r: FindingRow) => (pending?.keys.has(r.key) ? pending.action : null);
 
@@ -388,7 +390,6 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
         </div>
         <span className="dp-sp" />
         {lastRun && <StackRunChip run={lastRun} />}
-        <button type="button" className={`dp-btn dp-sm${toFix ? ' dp-primary' : ''}`} disabled={!toFix || lastRun?.status === 'running'} title="One agent fixes every accepted, still open finding of the stack, with your notes and threads" onClick={() => setFixing(true)}><Icon name="wrench" size={12} />Fix accepted ({toFix})</button>
         <div className="dp-filters">
           <button type="button" className={group === 'pr' ? 'dp-on' : 'dp-off'} onClick={() => setGroup('pr')}>By PR</button>
           <button type="button" className={group === 'severity' ? 'dp-on' : 'dp-off'} onClick={() => setGroup('severity')}>By severity</button>
@@ -397,7 +398,6 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
         <button type="button" className={`dp-btn dp-ghost dp-sm dp-fi-refresh${pendingClass(refreshing)}`} disabled={refreshing} title={board.at ? `Saved ${stamp(board.at)}: ask GitHub and the reviews again` : 'Ask GitHub and the reviews again'} aria-label="Refresh" onClick={() => refresh(true)}><Icon name="refresh" size={12} className={refreshing ? 'dp-spin' : undefined} /></button>
       </div>
       {importing && <ImportReview slug={d.slug} onClose={() => setImporting(false)} onDone={() => { void refresh(true); onReload(); }} />}
-      {fixing && <FixDialog slug={d.slug} open={stackFix.open} select="accepted" onClose={() => setFixing(false)} onSent={() => { setFixing(false); stackFix.reload(); void refresh(true); }} />}
       {asking && <DismissDialog count={asking.length} onClose={() => setAsking(null)} onDismiss={(reason) => { const keys = asking; setAsking(null); void act('dismiss', keys, reason); }} />}
 
       {rows.length === 0 ? (
@@ -424,7 +424,8 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
                 <input className="dp-inp dp-fi-pickbox" value={pick} placeholder="pick 1-3, 5, 7" aria-label="Pick findings by number" onChange={(e) => applyPick(e.target.value)} />
                 <span className="dp-sp" />
                 {chosen.length > 0 && <span className="dp-xs dp-t3 dp-fi-picked">{chosen.length} picked</span>}
-                <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending?.action === 'accept' && pending.keys.size > 1)}`} disabled={busy || !toAccept.length} onClick={() => act('accept', toAccept)}><Icon name="check" size={12} />Accept{toAccept.length ? ` ${toAccept.length}` : ''}</button>
+                <button type="button" className={`dp-btn dp-sm dp-primary${pendingClass(pending?.action === 'accept' && pending.keys.size > 1)}`} disabled={busy || !toAccept.length} title="Accept: a fix agent per file starts on them" onClick={() => act('accept', toAccept)}><Icon name="check" size={12} />Accept{toAccept.length ? ` ${toAccept.length}` : ''}</button>
+                {toAccept.length > 1 && <button type="button" className={`dp-btn dp-sm${pendingClass(pending?.action === 'accept' && pending.keys.size > 1)}`} disabled={busy} title="Accept: one fix agent per PR takes them all" onClick={() => act('accept', toAccept, '', { together: true })}>Accept together</button>}
                 <button type="button" className={`dp-btn dp-sm${pendingClass(pending?.action === 'dismiss' && pending.keys.size > 1)}`} disabled={busy || !toDismiss.length} onClick={() => dismiss(toDismiss)}>Dismiss{toDismiss.length ? ` ${toDismiss.length}` : ''}…</button>
               </div>
               {order.length === 0 && <div className="dp-fi-none dp-t3">Nothing {status} here{hidden.length ? ` (${hidden.join(', ')} hidden)` : ''}.</div>}
@@ -443,6 +444,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
                         <span className="dp-fi-main">
                           <span className="dp-fi-claim" title={titleOf(r)}>{titleOf(r)}</span>
                           <span className="dp-fi-meta dp-xs dp-t3">
+                            {status === 'accepted' && <FixState slug={d.slug} r={r} />}
                             {group === 'severity' && (p ? <PrChip pr={p} onOpen={onOpenPr} /> : r.n != null ? <span className="dp-prb">#{r.n}</span> : null)}
                             {loc(r) && <span className="dp-mono dp-ell dp-fi-loc" title={r.path}>{loc(r)}</span>}
                             <span className="dp-ell dp-fi-by">{byName(r)}</span>

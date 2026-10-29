@@ -156,7 +156,7 @@ const stackFix = createStackFix({ DATA, REPO, config, works, comments, code, rev
 const reviewImport = createReviewImport({ REPO, config, works, comments, code, reviewAgent, repoOf });
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key), chatted: (slug, key) => cards.chattedInThread(slug, key), worktrees: agentWorktrees, models, jobs, repoOf });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, jobs, repoOf });
-threads.setFindingActor(findings.actOnComment);
+threads.setFindingActor(findings.actOnComment, findings.acceptedComment);
 const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags, repoOf });

@@ -463,9 +463,13 @@ export type FindingsResponse = {
   at?: string;
   errors?: string[];
   pruned?: { outcome: string; group: string; others?: number; reason?: string }[];
+  // accept: findings handed to a fix agent, and those that cannot have one (no file or line to anchor)
+  dispatched?: number;
+  unanchored?: number;
 };
 export type FindingAction = 'accept' | 'dismiss' | 'reopen';
-export type FindingActionBody = { action: FindingAction; keys: string[]; reason?: string; pr: string | null };
+// accept starts a fix agent per file (together: one per PR), told the note
+export type FindingActionBody = { action: FindingAction; keys: string[]; reason?: string; pr: string | null; note?: string; model?: string; together?: boolean };
 
 export type Gate = {
   id: string;

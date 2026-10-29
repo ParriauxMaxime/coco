@@ -214,7 +214,8 @@ function useThreadStream(slug: string, key: string, onChange: () => void, onLive
 // a scoped agent on one item: dispatch, follow its work live, read its answer, approve or dismiss what it suggests; writing to it never waits for it
 // verdicts: [{ label, title, on(note) }] buttons that use the box text as remark instead of dispatching it
 // bare: inside its group agent's tab, whose header carries the group's actions; the thread keeps only what a message waits on
-type ThreadProps = { slug: string; threadKey: string; onSettled?: () => void; verdicts?: Verdict[]; autoFocus?: boolean; bare?: boolean };
+// discuss: a finding not accepted yet, its agent answers without changing code
+type ThreadProps = { slug: string; threadKey: string; onSettled?: () => void; verdicts?: Verdict[]; autoFocus?: boolean; bare?: boolean; discuss?: boolean };
 function EarlierTurns({ hidden, onMore }: { hidden: number; onMore: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const more = useRef(onMore);
@@ -266,7 +267,7 @@ function inboundOf(server: ThreadInbound[], local: Sent[]) {
   return [...server.map((s) => ({ key: s.id, text: s.text, files: s.files ?? [] })), ...mine.map((p) => ({ key: p.nonce, text: p.text, files: p.files }))];
 }
 
-export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false, bare = false }: ThreadProps) {
+export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false, bare = false, discuss = false }: ThreadProps) {
   const { groups, summaries } = useThreadsOf(slug);
   const seen = useSeen(`thread:${slug}:${key}`);
   const [thread, setThread] = useState<ThreadData | null>(null);
@@ -441,11 +442,11 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         busy={false}
         pending={pending}
         withModel={!group}
-        sendLabel={!group ? 'Start agent' : waiting ? 'Send while it works' : 'Send'}
+        sendLabel={!group ? (discuss ? 'Ask agent' : 'Start agent') : waiting ? 'Send while it works' : 'Send'}
         verdicts={verdicts}
         autoFocus={autoFocus}
         persona={thread.persona}
-        placeholder={waiting ? 'Write while it works: the message reaches the agent mid-turn (markdown, ↵)' : thread.messages.length ? 'Reply or ask for a change (markdown, ↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ↵)' : decision ? 'Ask about the card or for a card change (markdown, ↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ↵)'}
+        placeholder={waiting ? 'Write while it works: the message reaches the agent mid-turn (markdown, ↵)' : discuss ? 'Ask the agent about it: it changes no code until you accept, or accept or dismiss with this text as note (markdown, ↵)' : thread.messages.length ? 'Reply or ask for a change (markdown, ↵)' : plan ? 'Ask a scoped agent about the plan, or re-plan with this text as guidance (markdown, ↵)' : decision ? 'Ask about the card or for a card change (markdown, ↵)' : 'Ask the agent about it or for a fix (it suggests a commit you approve), or close it with this text as reason (markdown, ↵)'}
         onSend={send}
         onStop={thread.waiting?.agentId ? () => api.agentStop(thread.waiting?.agentId ?? '') : undefined}
       />
