@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { rowKey } from './stack.ts';
 import { defaultExec } from './placement.ts';
+import { cacheFile, swrCache } from './swr.ts';
 import type { Exec, PaseoProject } from './placement.ts';
 import type { RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, Send, Work } from './core-types.ts';
@@ -21,6 +22,7 @@ type Deps = {
   repoFor: (work: Work) => RepoConfig;
 };
 
+const TTL_MS = 30000;
 const samePath = (a: string | undefined, b: string | undefined) => Boolean(a && b) && path.resolve(a as string) === path.resolve(b as string);
 const why = (r: { stdout: string; stderr: string }) => (r.stderr || r.stdout).trim().slice(0, 300);
 
@@ -85,6 +87,10 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
     }
   }
 
+  // the page's read: the last list at once, git and Paseo asked again in the background once it is TTL_MS old or expired
+  const cached = swrCache<WorkWorktree[]>(TTL_MS, cacheFile(DATA, 'worktrees'));
+  const listCached = (slug: string) => cached(slug, () => list(slug));
+
   // the worktrees of a work: each row's (its remembered workspace, else the one on its branch) and any other workspace of the work's project; never the clone nor the project root
   async function list(slug: string): Promise<WorkWorktree[]> {
     const work = works.get(slug);
@@ -141,6 +147,7 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
       out.removed.push(wt.path);
       out.unarchived.push(...r.unarchived);
     }
+    cached.drop(slug);
     return out;
   }
 
@@ -159,7 +166,7 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
       writeNotices(readNotices().filter((n) => n.id !== a));
       return send(res, 200, { ok: true });
     }
-    if (root === 'works' && a && b === 'worktrees' && !c) return send(res, 200, await list(a));
+    if (root === 'works' && a && b === 'worktrees' && !c) return send(res, 200, await listCached(a));
     if (root === 'works' && a && b === 'worktrees' && c === 'remove' && req.method === 'POST') {
       const body: { paths?: unknown } = JSON.parse((await readBody(req)) || '{}');
       const paths = Array.isArray(body.paths) ? body.paths.filter((p): p is string => typeof p === 'string') : [];
@@ -170,5 +177,6 @@ export function createWorktrees({ DATA, exec = defaultExec, listWorkspaces, work
     return send(res, 404, { error: 'no route' });
   }
 
-  return { list, remove, noticeArchived, notices, handle };
+  // expire: a work whose stack or agents changed still answers at once, and asks git and Paseo again
+  return { list, listCached, expire: cached.expire, remove, noticeArchived, notices, handle };
 }

@@ -12,6 +12,7 @@ import type { AgentSnapshot } from './permissions.ts';
 import { autoArchivable } from './finished-agents.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
 import { defaultExec } from './placement.ts';
+import { swrCache } from './swr.ts';
 import type { Exec } from './placement.ts';
 import { randomUUID } from 'node:crypto';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
@@ -22,6 +23,7 @@ import type { SubagentCount, Subagents } from './subagents.ts';
 const PAGE = 200;
 const SETTLE_MS = 500;
 const REFRESH_MS = 30000;
+const LIST_TTL_MS = 5000;
 const TITLE_MAX = 80;
 const TURN_END = ['turn_completed', 'turn_failed', 'turn_canceled'];
 
@@ -90,6 +92,10 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     return listed.map((a) => ({ ...a, subagents: (a.agentId && counts[a.agentId]) || { running: 0, total: 0 } }));
   }
 
+  // the GET's read: the last list at once, Paseo asked again in the background; a live watcher's refresh keeps it current
+  const cached = swrCache<WorkAgent[]>(LIST_TTL_MS);
+  onAgent((a) => a?.labels?.work && cached.expire(a.labels.work));
+
   async function listAgents(slug: string): Promise<Omit<WorkAgent, 'subagents'>[]> {
     const c = await client();
     if (!c.agents.list) throw new Error('this Paseo client cannot list agents');
@@ -109,8 +115,8 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     let last = '';
     let ids = new Set<string>();
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const refresh = async () => {
-      const body = await Promise.all([list(slug), serverOf()]).then(
+    const refresh = async (fresh = true) => {
+      const body = await Promise.all([cached(slug, () => list(slug), fresh), serverOf()]).then(
         ([agents, serverId]) => {
           ids = new Set(agents.flatMap((a) => (a.agentId ? [a.agentId] : [])));
           return JSON.stringify({ agents, serverId });
@@ -125,7 +131,9 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         void refresh();
       }, SETTLE_MS);
     };
-    void refresh();
+    // a list seen before shows at once, the fresh one follows
+    if (cached.has(slug)) void refresh(false).then(() => refresh());
+    else void refresh();
     const off = onAgent((a) => {
       if (!a || a.labels?.work === slug || ids.has(a.id)) soon();
     });
@@ -316,11 +324,13 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       }
       if (root === 'agent-chat' && a && b === 'unarchive' && req.method === 'POST') return send(res, 200, await unarchive(a));
       if (root === 'works' && b === 'agents' && c === 'events') return watchList(sseSink(req, res), a);
-      if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
+      if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await cached(a, () => list(a)), serverId: await serverOf() });
       if (root === 'works' && b === 'agents' && c === 'archive' && req.method === 'POST') {
         const { ids } = JSON.parse((await readBody(req)) || '{}');
         if (!Array.isArray(ids) || !ids.length) throw new HttpError(400, 'ids required');
-        return send(res, 200, await archive(a, ids.map(String)));
+        const done = await archive(a, ids.map(String));
+        cached.drop(a);
+        return send(res, 200, done);
       }
       if (root === 'agent-chat' && a && b === 'events') return await watchChat(sseSink(req, res), a);
       if (root === 'agent-chat' && a && !b && req.method === 'GET') return send(res, 200, await info(a));

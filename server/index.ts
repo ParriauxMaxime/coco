@@ -197,6 +197,7 @@ const paseoLink = createPaseoLink({ config, repoOf, works, comments, code, revie
 const devServers = createDevServers({ REPO, config, works, jobs });
 const worktrees = createWorktrees({ DATA, listWorkspaces: paseoAgents.listWorkspaces, works, repoFor: repos.repoFor });
 works.hooks.onAutoArchived = (w) => worktrees.noticeArchived(w).catch(() => {});
+works.onChange((slug) => worktrees.expire(slug));
 const workspaceGit = createWorkspaceGit({
   repos: config.repos,
   listWorkspaces: paseoAgents.listWorkspaces,
@@ -252,6 +253,8 @@ const permissions = createPermissions({
   locate: (agent) => whereOf(agent, { askOf: ask.byAgent, groupKind: threads.groupKind, workTitle: (slug) => works.get(slug)?.title || null, repoName: (id) => repos.byId(id)?.name || null }),
 });
 permissions.onAgent(jobs.onAgent);
+// an agent of a work may have made or left a worktree: its list is asked again on the next read
+permissions.onAgent((a) => a?.labels?.work && worktrees.expire(a.labels.work));
 permissions.onAgent((a) => {
   if (a?.lastUsage) agentUsage.record(a.id, isCocoAgent(a) ? fromPaseo(a.lastUsage) : contextOf(a.lastUsage));
 });
@@ -445,8 +448,9 @@ function readFeedback() {
 const paseoCache = swrCache<RunResult>(5000, cacheFile(DATA, 'paseo'));
 const paseo = (args: string[], cached: boolean) => (cached ? paseoCache(args.join(' '), () => run('paseo', args)) : run('paseo', args));
 
-async function agents(cached = false) {
-  const [a, w] = await Promise.all([paseo(['ls', '--json'], cached), paseo(['workspace', 'ls', '--json'], cached)]);
+// served from the last Paseo answer, asked again in the background (paseoCache)
+async function agents() {
+  const [a, w] = await Promise.all([paseo(['ls', '--json'], true), paseo(['workspace', 'ls', '--json'], true)]);
   const parse = <T>(r: RunResult): T[] => {
     try {
       return JSON.parse(r.stdout);
@@ -674,7 +678,7 @@ async function api(req: Req, res: Res, url: URL) {
       const personas = listPersonas();
       const skills = listSkills().filter((s) => !PREFIX || mine(s.name));
       const feedback = readFeedback();
-      const [ag, pj] = await Promise.all([agents(true), paseo(['project', 'ls', '--json'], true)]);
+      const [ag, pj] = await Promise.all([agents(), paseo(['project', 'ls', '--json'], true)]);
       let projectCount = 0;
       try { projectCount = JSON.parse(pj.stdout).length; } catch {}
       const read = (n: string) => (fs.existsSync(path.join(PERSONAS, n)) ? fs.readFileSync(path.join(PERSONAS, n), 'utf8') : '');

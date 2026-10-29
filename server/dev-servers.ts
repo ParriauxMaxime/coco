@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { keyLabel, rowKey } from './stack.ts';
 import type { Jobs } from './jobs.ts';
+import { swrCache } from './swr.ts';
 
 type RowKey = number | string;
 type StackRow = { number?: number | null; planned?: { branch?: string } };
@@ -200,6 +201,8 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
     }));
     return { on: true, board, rows };
   }
+  // the page polls: the last view at once, git and the plugin asked again in the background once it is BOARD_FRESH_MS old
+  const views = swrCache<Awaited<ReturnType<typeof workView>>>(BOARD_FRESH_MS);
 
   const relay = (send: Send, res: ServerResponse, reply: Reply) => {
     if ('down' in reply) return send(res, 503, { error: `dev servers off: ${reply.down}`, code: 'dev_servers_off' });
@@ -243,10 +246,10 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
       if (a === 'works' && b) {
         const work = works.get(b);
         if (!work) return send(res, 404, { error: 'no such work' });
-        if (!c && req.method === 'GET') return send(res, 200, await workView(work));
+        if (!c && req.method === 'GET') return send(res, 200, await views(work.slug, () => workView(work)));
         if (c === 'rows' && d && e && req.method === 'POST') {
           const key = decodeURIComponent(d);
-          const act = () => rowAction(work, key, e, body);
+          const act = () => rowAction(work, key, e, body).finally(() => views.drop());
           // start and stop are jobs: a refused or failed call fails it with the plugin's answer
           const reply = jobs && (e === 'start' || e === 'stop')
             ? await jobs.wrap({ work: work.slug, pr: key, action: `dev-server:${e}`, label: `${e === 'start' ? 'Start' : 'Stop'} dev server ${keyLabel(key)}`, kind: 'command' }, async () => {
@@ -286,6 +289,7 @@ export function createDevServers({ REPO, config, works, exec = defaultExec, fetc
   async function forget(worktree: string): Promise<string> {
     const reply = await call('POST', '/api/forget', { cwd: worktree }, ACTION_MS);
     lastBoard = null;
+    views.drop();
     if ('down' in reply) throw new Error(reply.down);
     if (reply.status >= 400) throw new Error(reply.body?.error?.message || `the dev servers API answered ${reply.status}`);
     const r = reply.body as { kept?: string; stopped?: boolean } | undefined;
