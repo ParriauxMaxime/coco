@@ -44,7 +44,7 @@ const viewOf = (items: WaitingItem[]): WaitingView => {
 export const forget = (ids: string[]) => useStore.setState((s) => (s.view ? { view: viewOf(s.view.items.filter((i) => !ids.includes(i.id))) } : s));
 
 // whether the element is on screen: not in a hidden tab or pane (the workbench keeps inactive tabs mounted), nor in a hidden browser tab
-function useShown() {
+export function useShown() {
   const [el, setEl] = useState<HTMLElement | null>(null);
   const [shown, setShown] = useState(false);
   useEffect(() => {

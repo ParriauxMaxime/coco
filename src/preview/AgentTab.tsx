@@ -32,6 +32,7 @@ import { GitPanel, openWorkspaceCommit, useAgentWorkspace } from './GitPanel.tsx
 import { FilesPanel, openWorkspaceFile } from './FilesPanel.tsx';
 import { TerminalPanel } from './TerminalPanel.tsx';
 import { BrowserPanel, useAgentBrowser } from './BrowserPanel.tsx';
+import { ArchiveCountdown, RestoreButton } from './AutoArchive.tsx';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -238,16 +239,17 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
     ...(browserTabs.length ? [BROWSER] : []),
   ];
   const toApprove = keys.reduce((n, k) => n + (summaries[k].open ?? 0), 0);
-  const pinned = toApprove > 0 && (
+  const pinned = toApprove > 0 ? (
     <div className="dp-thr-pend dp-ag-pend">
       <button type="button" className="dp-chip dp-info" title="Its threads hold each suggested commit with Review commit, Verify, Approve and Dismiss" onClick={() => setPicked('thread')}>
         <Icon name="eye" size={12} />{toApprove === 1 ? 'a suggested commit' : `${toApprove} suggested commits`} to approve · Thread
       </button>
     </div>
-  );
+  ) : listed?.autoArchive && state !== 'archived' && <ArchiveCountdown agentId={agentId} turn={listed.updatedAt} />;
+  const actions = <>{group?.status === 'active' && <GroupActions slug={slug} group={group} keys={keys} summaries={summaries} />}{state === 'archived' && !group && <RestoreButton agentId={agentId} />}</>;
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
-      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} actions={group?.status === 'active' && <GroupActions slug={slug} group={group} keys={keys} summaries={summaries} />} handoff />
+      <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} actions={actions} handoff />
       {view === 'changes' && wsId ? <GitPanel wsId={wsId} onOpenCommit={openWorkspaceCommit(wsId)} />
         : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} onOpenTab={openWorkspaceFile(wsId)} />
         : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} />

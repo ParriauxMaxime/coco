@@ -244,6 +244,8 @@ export const api = {
   newAgentPlaces: (work?: string | null) => get<NewAgentPlaces>(`/api/new-agent${work ? `?work=${encodeURIComponent(work)}` : ''}`),
   newAgent: (body: NewAgentBody) => post<NewAgentStarted>('/api/new-agent', body),
   agentStop: (agentId: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/stop`).then(jsonOrError<{ ok: boolean }>),
+  agentArchive: (agentId: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/archive`).then(jsonOrError<{ ok: boolean; archived: boolean }>),
+  agentUnarchive: (agentId: string) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/unarchive`).then(jsonOrError<{ ok: boolean; unarchived: boolean }>),
   cards: (agentId: string) => fetch(`/api/agent-chat/${encodeURIComponent(agentId)}/cards`).then(jsonOrError<Card[]>),
   card: (id: string) => fetch(`/api/cards/${encodeURIComponent(id)}`).then(jsonOrError<Card>),
   answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { LAST_WORD_MS, createWaiting } from './waiting.ts';
-import { createFinishedAgents } from './finished-agents.ts';
+import { autoArchivable, createFinishedAgents } from './finished-agents.ts';
 import type { LastWord } from './finished-agents.ts';
 import type { AgentSnapshot } from './permissions.ts';
 import type { Card } from './cards.ts';
@@ -278,4 +278,17 @@ test('finished agents: dispatch, New agent, setup, ritual, linked and hand-off a
   assert.equal(f.changed(agents[0]), false);
   assert.equal(f.changed({ ...agents[0], status: 'running' }), true);
   assert.equal(f.changed(agents[8]), false, 'an agent it does not track changes nothing');
+});
+
+test('a done one-job agent archives itself; an Ask chat, a thread, a New agent, a hand-off or anything open on the owner never does', () => {
+  const none = { openCards: 0, handedOff: () => false };
+  const done = (kind: string, extra: Partial<AgentSnapshot> = {}): AgentSnapshot => ({ id: `a-${kind}`, status: 'idle', labels: { source: 'cocopilot', kind }, ...extra });
+  for (const kind of ['review-plan', 'dispatch', 'gate', 'review', 'stack-fix']) assert.equal(autoArchivable(done(kind), none), true, kind);
+  for (const kind of ['agent', 'setup', 'cc-group', 'brief', 'handoff', 'ask']) assert.equal(autoArchivable(done(kind), none), false, kind);
+  assert.equal(autoArchivable(done('dispatch', { labels: { kind: 'dispatch', ask: 'c1' } }), none), false, 'an Ask chat');
+  assert.equal(autoArchivable(done('gate', { status: 'running' }), none), false, 'still working');
+  assert.equal(autoArchivable(done('gate', { archivedAt: '2026-10-21T08:00:00Z' }), none), false, 'archived already');
+  assert.equal(autoArchivable(done('gate', { pendingPermissions: [{ id: 'p1', kind: 'tool', name: 'Bash' }] }), none), false, 'a permission waits');
+  assert.equal(autoArchivable(done('gate'), { ...none, openCards: 1 }), false, 'a card waits');
+  assert.equal(autoArchivable(done('dispatch'), { ...none, handedOff: (id) => id === 'a-dispatch' }), false, "a hand-off's successor");
 });

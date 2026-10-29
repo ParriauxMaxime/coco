@@ -54,7 +54,7 @@ export type DaemonAgent = {
   timeline: { subscribe(handler: (m: TimelineMessage) => void): Unsubscribe; refetch?(opts: { direction: 'tail' | 'before' | 'after'; cursor?: Cursor; limit: number; projection: 'projected' }): Promise<TimelinePage> };
   send(text: string, opts?: { activeTurnBehavior?: string } & AgentInput): Promise<unknown>;
   waitForFinish(timeoutMs?: number): Promise<WaitResult>;
-  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; currentModeId?: string | null; availableModes?: ModeEntry[] | null; cwd?: string | null; workspaceId?: string | null; lastUsage?: PaseoUsage | null } | null } | null>;
+  refresh(): Promise<{ agent?: { archivedAt?: unknown; status?: string | null; updatedAt?: string | null; title?: string | null; labels?: Record<string, string>; provider?: string | null; model?: string | null; thinkingOptionId?: string | null; currentModeId?: string | null; availableModes?: ModeEntry[] | null; cwd?: string | null; workspaceId?: string | null; lastUsage?: PaseoUsage | null; pendingPermissions?: PermissionRequest[] } | null } | null>;
   archive(): Promise<unknown>;
   // the slash commands and skills its live session loaded; a provider that cannot answer says so in error
   commands?(): Promise<{ commands?: { name: string; description?: string; argumentHint?: string; kind?: string }[]; error?: string | null }>;
@@ -96,6 +96,8 @@ export type DaemonClient = {
   setAgentThinkingOption?(agentId: string, thinkingOptionId: string | null): Promise<unknown>;
   setAgentMode?(agentId: string, modeId: string): Promise<unknown>;
   updateAgent?(agentId: string, updates: { name?: string }): Promise<unknown>;
+  // reloads an agent's session: on an archived one it is the Paseo app's Unarchive
+  refreshAgent?(agentId: string): Promise<unknown>;
   listAgentTimelinePrompts?(agentId: string): Promise<PromptIndex>;
   checkout?: CheckoutApi;
   files?: FilesApi;
@@ -156,7 +158,7 @@ export async function connectDaemon({ exec = defaultExec }: { exec?: Exec } = {}
     reconnect: () => raw.ensureConnected(),
   };
   const client = { ...api, close, connection, setAgentModel: (id: string, m: string | null) => raw.setAgentModel(id, m), setAgentThinkingOption: (id: string, t: string | null) => raw.setAgentThinkingOption(id, t) };
-  Object.assign(client, { setAgentMode: (id: string, m: string) => raw.setAgentMode(id, m), updateAgent: (id: string, u: { name?: string }) => raw.updateAgent(id, u), listAgentTimelinePrompts: (id: string) => raw.listAgentTimelinePrompts(id) });
+  Object.assign(client, { setAgentMode: (id: string, m: string) => raw.setAgentMode(id, m), updateAgent: (id: string, u: { name?: string }) => raw.updateAgent(id, u), refreshAgent: (id: string) => raw.refreshAgent(id),listAgentTimelinePrompts: (id: string) => raw.listAgentTimelinePrompts(id) });
   Object.assign(client, { listProviderSubagents:(id: string) => raw.listProviderSubagents(id), fetchProviderSubagentTimeline: (id: string, sub: string, opts?: Parameters<RawDaemon['fetchProviderSubagentTimeline']>[2]) => raw.fetchProviderSubagentTimeline(id, sub, opts), checkout: raw, files: raw });
   Object.assign(client, { terminalApi: raw, scheduleApi: raw, voiceApi: raw });
   // with reconnect on, the SDK's first connect waits for the daemon forever: past the deadline coco reports it unreachable and tries again later

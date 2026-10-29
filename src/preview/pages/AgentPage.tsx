@@ -7,6 +7,7 @@ import { FilesPanel } from '../FilesPanel.tsx';
 import { TerminalPanel } from '../TerminalPanel.tsx';
 import { focusCard } from '../chat/Card.tsx';
 import { useSeen, useWaitingByAgent } from '../waiting.ts';
+import { ArchiveCountdown, RestoreButton } from '../AutoArchive.tsx';
 import Icon from '../Icon.tsx';
 import type { AgentState } from '../agents.ts';
 import { ErrorNote, Loading } from './Page.tsx';
@@ -53,8 +54,8 @@ export default function AgentPage({ agentId, toWaiting = false }: { agentId: str
   return (
     <div ref={seen} className="dp-page dp-agpage" role="main">
       <section className="dp-agpage-chat">
-        <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={<>{views}{inWork}</>} handoff onRenamed={() => void load()} />
-        {view === 'changes' && wsId ? <GitPanel wsId={wsId} /> : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} /> : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} /> : <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} />}
+        <Header title={info.title} kind={info.kind} pr={info.pr} state={state} agentId={agentId} metrics={info} serverId={info.serverId} chips={<>{views}{inWork}</>} actions={state === 'archived' && <RestoreButton agentId={agentId} onRestored={() => void load()} />} handoff onRenamed={() => void load()} />
+        {view === 'changes' && wsId ? <GitPanel wsId={wsId} /> : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} /> : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} /> : <AgentTranscript agentId={agentId} state={state} who={info.kind} inline current={info.provider ? { provider: info.provider, thinking: info.thinking } : null} onSent={() => void load()} pinned={info.autoArchive && state !== 'archived' && <ArchiveCountdown agentId={agentId} turn={info.updatedAt} onArchived={() => void load()} />} />}
       </section>
     </div>
   );

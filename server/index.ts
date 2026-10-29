@@ -281,7 +281,7 @@ permissions.onAgent((a, removed) => {
 });
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, models, subagents, snapshots: createChatSnapshots(path.join(DATA, 'chat-snapshots')), keyOf: (slug, key) => String(currentKey(works.get(slug), parseKey(key) ?? key)) });
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, handedOff: () => handoff.successors(), models, subagents, snapshots: createChatSnapshots(path.join(DATA, 'chat-snapshots')), keyOf: (slug, key) => String(currentKey(works.get(slug), parseKey(key) ?? key)) });
 works.hooks.onClosed = (w) => workAgents.forget(w.slug);
 // a planned row that got its PR: what was kept under its branch key follows the number
 works.hooks.onRekeyed = (slug, from, to) => {

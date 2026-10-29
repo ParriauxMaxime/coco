@@ -9,6 +9,7 @@ import type { ChatSnapshot, ChatSnapshots } from './chat-snapshots.ts';
 import { fromPaseo } from './agent-usage.ts';
 import type { AgentUsage, PaseoUsage } from './agent-usage.ts';
 import type { AgentSnapshot } from './permissions.ts';
+import { autoArchivable } from './finished-agents.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
 import { defaultExec } from './placement.ts';
 import type { Exec } from './placement.ts';
@@ -25,8 +26,8 @@ const TITLE_MAX = 80;
 const TURN_END = ['turn_completed', 'turn_failed', 'turn_canceled'];
 
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
-// id is the agent's tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; subagents: SubagentCount } & Metrics;
+// id is the agent's tab: ask-<conversation> or ag-<Paseo agent>; autoArchive: its job is done and its chat archives it on a visible timer
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive: boolean; subagents: SubagentCount } & Metrics;
 // estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
 // contextTokens of contextMax: its context window at its last turn
 // openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
@@ -50,6 +51,8 @@ type Options = {
   closeAsk?: (id: string) => Promise<unknown>;
   // archives one agent through coco, which keeps its cards as when coco archives it itself; false once it is archived already
   archiveAgent?: (agentId: string) => Promise<boolean>;
+  // agents a hand-off started: they never archive themselves
+  handedOff?: () => string[];
   // a follow-up's model or thinking pick, applied to the agent before the message
   models?: Pick<Models, 'apply'>;
   subagents?: Pick<Subagents, 'counts' | 'onChange'>;
@@ -65,7 +68,12 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, handedOff = () => [], models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
+  const selfArchiving = (a: Parameters<typeof autoArchivable>[0] | null | undefined) => {
+    if (!a) return false;
+    const handed = new Set(handedOff());
+    return autoArchivable(a, { openCards: cards?.openCount(a.id) ?? 0, handedOff: (id) => handed.has(id) });
+  };
   const labelKey = (labels: Record<string, string> | null | undefined) => (labels?.pr ? keyOf(labels.work || '', labels.pr.replaceAll('~', ':')) : null);
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
@@ -90,9 +98,9 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     const seen = new Set(labelled.map((a) => a.id));
     const links = await Promise.all(linked(slug).filter((l) => !seen.has(l.agentId)).map(async (l) => ({ l, a: (await c.agents.ref(l.agentId).refresh().catch(() => null))?.agent ?? null })));
     return [
-      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, ...metrics(m.agentId) })),
-      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: labelKey(a.labels), status: statusOf(a), updatedAt: a.updatedAt || null, ...metrics(a.id, a.lastUsage) })),
-      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, ...metrics(l.agentId, a?.lastUsage) })),
+      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, autoArchive: false, ...metrics(m.agentId) })),
+      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: labelKey(a.labels), status: statusOf(a), updatedAt: a.updatedAt || null, autoArchive: selfArchiving(a), ...metrics(a.id, a.lastUsage) })),
+      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, autoArchive: selfArchiving(a && { ...a, id: l.agentId }), ...metrics(l.agentId, a?.lastUsage) })),
     ];
   }
 
@@ -277,6 +285,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       pr: labelKey(l),
       status: statusOf(found),
       updatedAt: found.updatedAt || null,
+      autoArchive: selfArchiving({ ...found, id: agentId }),
       provider: found.provider && found.model ? `${found.provider}/${found.model}` : found.provider || null,
       thinking: found.thinkingOptionId ?? null,
       mode: found.currentModeId ?? null,
@@ -286,7 +295,18 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     };
   }
 
-  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>[/events|place] · POST /api/agent-chat/<agentId>/messages|stop|archive
+  // an archived agent back as it was, as the Paseo app's Unarchive does it
+  async function unarchive(agentId: string) {
+    const c = await client();
+    if (!c.refreshAgent) throw new HttpError(501, 'this Paseo client cannot unarchive an agent');
+    const found = (await c.agents.ref(agentId).refresh())?.agent;
+    if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
+    if (!found.archivedAt) return { ok: true, unarchived: false };
+    await c.refreshAgent(agentId);
+    return { ok: true, unarchived: true };
+  }
+
+  // GET /api/works/<slug>/agents[/events] · GET /api/agent-chat/<agentId>[/events|place] · POST /api/agent-chat/<agentId>/messages|stop|archive|unarchive
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const [root, a, b, c] = parts;
     try {
@@ -294,6 +314,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
         if (!archiveAgent) throw new HttpError(501, 'archiving is not wired');
         return send(res, 200, { ok: true, archived: await archiveAgent(a) });
       }
+      if (root === 'agent-chat' && a && b === 'unarchive' && req.method === 'POST') return send(res, 200, await unarchive(a));
       if (root === 'works' && b === 'agents' && c === 'events') return watchList(sseSink(req, res), a);
       if (root === 'works' && b === 'agents' && !c) return send(res, 200, { agents: await list(a), serverId: await serverOf() });
       if (root === 'works' && b === 'agents' && c === 'archive' && req.method === 'POST') {

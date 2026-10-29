@@ -11,6 +11,14 @@ const KINDS = ['agent', 'dispatch', 'setup'];
 const TAIL = 30;
 const MAX_FETCHED = 40;
 const TITLE_MAX = 80;
+// one-job agents that archive themselves on a visible timer once done: a review plan, a dispatch, a gate or kit run, a review or stack fix
+const SELF_ARCHIVING = ['review-plan', 'dispatch', 'gate', 'review', 'stack-fix'];
+
+// whether an agent's job is done and it may archive itself: one of those kinds, idle, with no card or permission open on the owner;
+// never an Ask chat, a thread's agent, a New agent or a hand-off's successor
+export function autoArchivable(a: Pick<AgentSnapshot, 'id' | 'labels' | 'status' | 'pendingPermissions'> & { archivedAt?: unknown },{ openCards, handedOff }: { openCards: number; handedOff: (id: string) => boolean }) {
+  return !a.labels?.ask && SELF_ARCHIVING.includes(a.labels?.kind ?? '') && !a.archivedAt && a.status === 'idle' && !a.pendingPermissions?.length && !openCards && !handedOff(a.id);
+}
 
 export type LastWord = { agentId: string; title: string; work: string | null; pr: string | null; text: string; at: string };
 type Word = { text: string; at: string } | null;

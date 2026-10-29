@@ -622,9 +622,10 @@ export type NewAgentBody = { place: NewAgentPlace; prompt: string; attachments?:
 export type NewAgentStarted = { agentId: string; workspaceId: string; cwd: string; title: string };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
+// autoArchive: its job is done with nothing open on the owner, so its chat archives it on a visible 30 s timer
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
 // any Paseo agent, in a work or not (GET /api/agent-chat/<agentId>)
-export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; provider: string | null; thinking: string | null; mode?: string | null; workspaceId?: string | null; serverId: string | null; openCards: number } & AgentMetrics;
+export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; provider: string | null; thinking: string | null; mode?: string | null; workspaceId?: string | null; serverId: string | null; openCards: number } & AgentMetrics;
 // an agent handed to a fresh one (server/handoff.ts): step summary (the old one writes its briefing), starting, done or failed
 export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: 'summary' | 'starting' | 'done' | 'failed'; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null };
 // GET /api/agent-chat/<agentId>/handoff: to, its hand-off to a new agent; from, the one it took over from
