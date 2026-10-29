@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import Blocks from './Blocks.tsx';
@@ -198,6 +198,14 @@ function activityByMessage(events: ActivityEvent[]) {
   return out;
 }
 
+// the agent's reply to message i, before the next message of yours
+function replyOf(messages: ThreadMessage[], i: number) {
+  for (const m of messages.slice(i + 1)) {
+    if (m.role === 'user') return undefined;
+    if (m.role === 'agent') return m;
+  }
+}
+
 // the thread's agent activity over SSE (stored, then live), and a fresh thread on every change the server reports
 type Live = { starting?: ThreadStep | null; inbound?: ThreadInbound[] };
 function useThreadStream(slug: string, key: string, onChange: () => void, onLive: (live: Live) => void) {
@@ -282,10 +290,61 @@ function inboundOf(server: ThreadInbound[], local: Sent[]) {
   return [...server.map((s) => ({ key: s.id, text: s.text, files: s.files ?? [] })), ...mine.map((p) => ({ key: p.nonce, text: p.text, files: p.files }))];
 }
 
+// threads asked into view (a finding picked in the inspector), by key: once shown, the question waiting on you, else your last message
+const useFocusAsked = create<Record<string, number>>(() => ({}));
+export const focusThread = (key: string) => useFocusAsked.setState({ [key]: Date.now() });
+// an ask goes stale if its thread does not show by then
+const FOCUS_MS = 10000;
+const PIN_MS = 1500;
+const USER_INPUTS = ['wheel', 'pointerdown', 'touchstart', 'keydown'] as const;
+const scrollerOf = (el: HTMLElement) => {
+  for (let p = el.parentElement; p; p = p.parentElement) if (/auto|scroll/.test(getComputedStyle(p).overflowY) && p.scrollHeight > p.clientHeight) return p;
+  return null;
+};
+// held there while the diff and the thread lay out around it, until you scroll, click or type
+function pinInView(el: HTMLElement, center: boolean) {
+  const box = scrollerOf(el);
+  if (!box) return () => {};
+  const until = Date.now() + PIN_MS;
+  let frame = 0;
+  const stop = () => {
+    cancelAnimationFrame(frame);
+    USER_INPUTS.forEach((t) => box.removeEventListener(t, stop));
+  };
+  const pin = () => {
+    if (Date.now() > until) return stop();
+    const gap = center && el.offsetHeight < box.clientHeight ? (box.clientHeight - el.offsetHeight) / 2 : 16;
+    const top = Math.max(0, box.scrollTop + el.getBoundingClientRect().top - box.getBoundingClientRect().top - gap);
+    if (Math.abs(box.scrollTop - top) > 1) box.scrollTop = top;
+    frame = requestAnimationFrame(pin);
+  };
+  USER_INPUTS.forEach((t) => box.addEventListener(t, stop, { passive: true }));
+  pin();
+  return stop;
+}
+
 export default function Thread({ slug, threadKey: key, onSettled, verdicts = [], autoFocus = false, bare = false, discuss = false }: ThreadProps) {
   const { groups, summaries } = useThreadsOf(slug);
   const seen = useSeen(`thread:${slug}:${key}`);
+  const root = useRef<HTMLDivElement | null>(null);
+  const rootRef = useCallback((el: HTMLDivElement | null) => {
+    root.current = el;
+    seen(el);
+  }, [seen]);
   const [thread, setThread] = useState<ThreadData | null>(null);
+  const focusAsked = useFocusAsked((s) => s[key]);
+  const unpin = useRef<() => void>(undefined);
+  useEffect(() => () => unpin.current?.(), []);
+  useEffect(() => {
+    const el = root.current;
+    if (!focusAsked || Date.now() - focusAsked > FOCUS_MS || !thread || !el) return;
+    useFocusAsked.setState({ [key]: 0 });
+    const card = el.querySelector<HTMLElement>('.dp-cd.dp-attn');
+    const mine = [...el.querySelectorAll<HTMLElement>('.dp-msg-u')].at(-1);
+    const target = card ?? mine ?? el;
+    unpin.current?.();
+    unpin.current = pinInView(target, target === card);
+  }, [focusAsked, Boolean(thread)]);
   const [error, setError] = useState('');
   // which action is in flight: 'approve', 'dismiss', 'regroup', 'prune', 'rules' or a verdict label
   const [pending, setPending] = useState<string | null>(null);
@@ -359,7 +418,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     return true;
   };
 
-  if (!thread) return <div ref={seen} className={`dp-thr ${error ? 'dp-thr-err' : 'dp-thr-load'}`}>{error || 'Loading thread…'}</div>;
+  if (!thread) return <div ref={rootRef} className={`dp-thr ${error ? 'dp-thr-err' : 'dp-thr-load'}`}>{error || 'Loading thread…'}</div>;
   const byMsg = activityByMessage(activity);
   const kind = decision ? 'decision' : plan ? 'plan' : 'code';
   const cards = thread.cards ?? [];
@@ -376,7 +435,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const booting = posted.length > 0 && !thread.agent?.live && (Boolean(thread.starting) || !group);
   const from = asks.length > turns ? asks[asks.length - turns] : 0;
   return (
-    <div ref={seen} className="dp-thr">
+    <div ref={rootRef} className="dp-thr">
       {(!bare || thread.starting || thread.waiting?.deps || thread.agent?.deps === 'installing') && <div className="dp-thr-h">
         {(!bare || thread.starting) && <span className="dp-ell">{thread.starting ? `${thread.starting.text}… ${secs(thread.starting.at)} s` : group ? `Group ${groupLabel(group)}` : posted.length ? 'Starting an agent…' : thread.newGroup ? 'A new agent group on the next message' : decision || plan ? 'No agent yet: the first message starts one' : 'No group yet: joins the one on the same file, or starts one'}</span>}
         {group?.status === 'active' && thread.agent && (!bare || thread.waiting?.deps) && (
@@ -439,7 +498,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
                 </div>
               </div>
             )}
-            {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="dp-thr-acts"><Activity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} /></div>}
+            {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="dp-thr-acts"><Activity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} fold={{ from: m.ts, to: replyOf(thread.messages, i)?.ts }} /></div>}
           </React.Fragment>
         );
       })}

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { FindingBody } from '../../components/Blocks.tsx';
-import Thread, { ThreadComposer, ThreadToggle, notSent, postToThread, threadKey } from '../../components/Thread.tsx';
+import Thread, { ThreadComposer, ThreadToggle, focusThread, notSent, postToThread, threadKey } from '../../components/Thread.tsx';
 import type { Verdict } from '../../components/Thread.tsx';
 import type { UploadRef } from '../../types.ts';
 import { errorMessage } from '../../api.ts';
@@ -61,10 +61,11 @@ function VerdictRow({ onJump, verdicts, extra }: { onJump?: () => void; verdicts
 // thread keys shown open in the diff: survives a dispatched proposal turning into a comment and windowed card unmounts
 const openThreads = new Set<string>();
 const openers = new Map<string, () => void>();
-// unfold a comment card and open its thread, mounted now or once it scrolls into view
+// unfold a comment card and open its thread scrolled to what waits on you, mounted now or once it scrolls into view
 export function openCommentThread(key: string, id: string) {
   openThreads.add(key);
   foldedCards.delete(id);
+  focusThread(key);
   openers.get(key)?.();
 }
 

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import { callsLabel, countCalls, groupActivity, toolLabel } from '../../components/activity.ts';
+import type { ActivityItem } from '../../components/activity.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
 import PermissionCard from './Permission.tsx';
 import SubagentCallRow from './SubagentCall.tsx';
-import { isSubagentCall } from '../subagents.ts';
+import { elapsed, isSubagentCall, useNow } from '../subagents.ts';
 import { openLauncher } from '../launcher.ts';
 import type { ActivityEvent } from '../../types.ts';
 import './chat.css';
@@ -93,12 +94,24 @@ export function defaultEvent(e: ActivityEvent) {
   return null;
 }
 
+// the step a folded turn is on
+function stepOf(it: ActivityItem | undefined) {
+  if (it?.kind === 'tools') {
+    const c = it.calls.at(-1);
+    return [toolLabel(c?.name), c?.summary].filter(Boolean).join(' ');
+  }
+  return it?.kind === 'think' ? 'Thinking' : 'Starting';
+}
+
 // one agent's activity, Paseo style: a row per run of tool calls or thinking (expandable), its text rendered.
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 // issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
-type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode };
-export default function Activity({ events, active = false, issues: offer = false, renderEvent = defaultEvent }: Props) {
+// fold: one turn of a thread, its work (calls, thinking, narration) under one row timed from..to, naming the step under way;
+// a permission, an error and the text the turn ends on stay out
+type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode; fold?: { from?: string; to?: string } };
+export default function Activity({ events, active = false, issues: offer = false, renderEvent = defaultEvent, fold }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const now = useNow(1000, active && Boolean(fold?.from));
   const items = groupActivity(events, { active });
   const toggle = (i: number | string) => setOpen((o) => ({ ...o, [i]: !o[i] }));
   const tools = (calls: ActivityEvent[], key: number | string, label: string, running: boolean) => {
@@ -106,19 +119,35 @@ export default function Activity({ events, active = false, issues: offer = false
     const row = <Row key={key} icon="wrench" label={label} running={running} open={open[key]} onToggle={() => toggle(key)}>{calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
     return issues.length ? <React.Fragment key={key}>{row}{issues.map((x) => <IssueRow key={x.title} issue={x} />)}</React.Fragment> : row;
   };
+  const item = (it: ActivityItem, i: number) => {
+    if (it.kind === 'tools' && !it.calls.some(isSubagentCall)) return tools(it.calls, i, it.label, it.running);
+    if (it.kind === 'tools') return <React.Fragment key={i}>{segments(it.calls).map((s, j) => (Array.isArray(s) ? tools(s, `${i}.${j}`, callsLabel(countCalls(s)), active && s.some((c) => c.status === 'running')) : <SubagentCallRow key={s.id || `${i}.${j}`} c={s} active={active} />))}</React.Fragment>;
+    if (it.kind === 'think') return <Row key={i} icon="brain" label="Thinking" running={it.running} open={open[i]} onToggle={() => toggle(i)}><div className="dp-cv-think">{it.text}</div></Row>;
+    if (it.kind === 'live') return <div key={i} className="dp-cv-text"><Markdown text={it.text} /></div>;
+    if (it.kind === 'permission') return it.event.request ? <PermissionCard key={i} agentId={it.event.agentId} request={it.event.request} resolution={it.resolution} /> : null;
+    return <React.Fragment key={i}>{renderEvent(it.event)}</React.Fragment>;
+  };
   const last = items.at(-1);
   const settled = !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined);
+  const lastWork = items.findLastIndex((it) => it.kind === 'tools' || it.kind === 'think');
+  if (!fold || (lastWork < 0 && !active)) {
+    return (
+      <div className="dp-cv-acts">
+        {items.map(item)}
+        {active && settled && <div className="dp-cv-act dp-run"><span className="dp-cv-actrow"><Spin /><span className="dp-cv-actl">Working…</span></span></div>}
+      </div>
+    );
+  }
+  const stays = (it: ActivityItem, i: number) => it.kind === 'permission' || (it.kind === 'event' && (it.event.type === 'closed' || it.event.type === 'stderr' || Boolean(it.event.error))) || (i > lastWork && (it.kind === 'live' || (it.kind === 'event' && it.event.type === 'text')));
+  const took = fold.from && (active || fold.to) ? elapsed(fold.from, active ? now : Date.parse(fold.to ?? '')) : '';
+  const did = callsLabel(countCalls(items.flatMap((it) => (it.kind === 'tools' ? it.calls : []))));
+  const label = active ? `Working${took && ` ${took}`} · ${stepOf(items[lastWork])}` : [`Worked${took && ` ${took}`}`, did].filter(Boolean).join(' · ');
   return (
     <div className="dp-cv-acts">
-      {items.map((it, i) => {
-        if (it.kind === 'tools' && !it.calls.some(isSubagentCall)) return tools(it.calls, i, it.label, it.running);
-        if (it.kind === 'tools') return <React.Fragment key={i}>{segments(it.calls).map((s, j) => (Array.isArray(s) ? tools(s, `${i}.${j}`, callsLabel(countCalls(s)), active && s.some((c) => c.status === 'running')) : <SubagentCallRow key={s.id || `${i}.${j}`} c={s} active={active} />))}</React.Fragment>;
-        if (it.kind === 'think') return <Row key={i} icon="brain" label="Thinking" running={it.running} open={open[i]} onToggle={() => toggle(i)}><div className="dp-cv-think">{it.text}</div></Row>;
-        if (it.kind === 'live') return <div key={i} className="dp-cv-text"><Markdown text={it.text} /></div>;
-        if (it.kind === 'permission') return it.event.request ? <PermissionCard key={i} agentId={it.event.agentId} request={it.event.request} resolution={it.resolution} /> : null;
-        return <React.Fragment key={i}>{renderEvent(it.event)}</React.Fragment>;
-      })}
-      {active && settled && <div className="dp-cv-act dp-run"><span className="dp-cv-actrow"><Spin /><span className="dp-cv-actl">Working…</span></span></div>}
+      <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
+        <div className="dp-cv-acts">{items.map((it, i) => (stays(it, i) ? null : item(it, i)))}</div>
+      </Row>
+      {items.map((it, i) => (stays(it, i) ? item(it, i) : null))}
     </div>
   );
 }
