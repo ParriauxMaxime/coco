@@ -6,6 +6,7 @@ import type { NavMode } from './nav.ts';
 import { NavDepth, useNav } from './use-nav.ts';
 import type { Nav } from './use-nav.ts';
 import Drill from './Drill.tsx';
+import Expand from './Expand.tsx';
 import './nav.css';
 
 // one level of a surface: its crumb and its content. child(key) is the level opened under that item, which Expand nests
@@ -13,9 +14,9 @@ import './nav.css';
 export type Level = { key: string; label: string; render: (child: (key: string) => React.ReactNode) => React.ReactNode };
 // base: where in the path the first level's items open, past the levels of the surface this one sits in
 export type LayoutProps = { levels: Level[]; nav: Nav; width: number; base: number };
-type Layout = (p: LayoutProps) => React.ReactNode;
+type Layout = React.ComponentType<LayoutProps>;
 
-const LAYOUTS: Partial<Record<NavMode, Layout>> = { drill: Drill };
+const LAYOUTS: Partial<Record<NavMode, Layout>> = { drill: Drill, expand: Expand };
 
 export const hasLayout = (mode: NavMode) => mode === 'classic' || Boolean(LAYOUTS[mode]);
 
@@ -47,8 +48,8 @@ export default function NavLevels({ classic, levels, nav: own, className = '' }:
   const [width, ref] = useWidth();
   if (mode === 'classic') return <>{classic}</>;
   const fit = fitMode(mode, width);
-  const layout = LAYOUTS[fit] ?? LAYOUTS.drill;
-  return <div ref={ref} className={`dp-nav dp-nav-${fit} ${className}`}>{width > 0 && layout?.({ levels, nav: own ?? tab, width, base })}</div>;
+  const Layout = LAYOUTS[fit] ?? LAYOUTS.drill;
+  return <div ref={ref} className={`dp-nav dp-nav-${fit} ${className}`}>{width > 0 && Layout && <Layout levels={levels} nav={own ?? tab} width={width} base={base} />}</div>;
 }
 
 // an item's summary row: opens its level, or closes it when open; meta sits right, before the chevron

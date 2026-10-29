@@ -201,6 +201,15 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
     useFocus.setState({ focus: null });
   }, [focus]);
 
+  // a beta path to a decision the filters hide shows it: its bucket, every PR
+  const navId = beta ? nav.path[0] : undefined;
+  useEffect(() => {
+    const x = navId && !visible.some((v) => v.id === navId) ? all.find((v) => v.id === navId) : undefined;
+    if (!x) return;
+    setStatus(bucketOf(x));
+    setPrFilter(null);
+  }, [navId, all.length]);
+
   useEffect(() => {
     const list = root.current?.querySelector('.dp-dc-list');
     const row = current && list?.querySelector(`[data-dec="${CSS.escape(current.id)}"]`);

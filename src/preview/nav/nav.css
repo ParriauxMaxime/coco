@@ -28,6 +28,14 @@
 .dp-ncrumb-sep { color: var(--dp-t4); flex: none; }
 .dp-ncrumb-at { min-width: 0; flex: 1 1 auto; padding: 2px 4px; color: var(--dp-t1); font-weight: 600; }
 
+/* Expand: an opened item's level nests under its row */
+.dp-nav-expand .dp-nrow.dp-on .dp-nrow-c { transform: rotate(90deg); color: var(--dp-accent); }
+.dp-nkid { margin: 0 0 6px 18px; padding-left: 8px; border-left: 2px solid var(--dp-accent-t2); min-width: 0; }
+.dp-nkid > .dp-ndetail, .dp-nkid > .dp-fdetail { padding: 8px 8px 16px; }
+.dp-nkid > .dp-nav-pr { height: auto; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); margin: 4px 0 8px; }
+.dp-thr .dp-nkid { display: flex; flex-direction: column; gap: 10px; margin: 0 0 4px 6px; }
+.dp-sb-scroll .dp-nkid { margin: 0 0 4px 10px; padding-left: 4px; }
+
 /* a level's PR details: the PR tab's inspector, its height from its content */
 .dp-nlevel > .dp-nav-pr { height: auto; min-height: 100%; }
 
