@@ -39,6 +39,14 @@ export function pairOrigins(baseUrl: string, hosts: string[]) {
   return [...reachable.filter((o) => o.endsWith('.ts.net')), ...reachable.filter((o) => !o.endsWith('.ts.net'))];
 }
 
+export const pairUrl = (origin: string, code: string, apk = false) => `${origin}${PAIR_PATH}?code=${code}${apk ? '&then=apk' : ''}`;
+
+// the pairing link an agent hands the owner (MCP pair_link): the first reachable origin, the others as fallbacks
+export function pairLinks(origins: string[], { code, expiresAt }: { code: string; expiresAt: string }, apk = false) {
+  const [url, ...others] = origins.map((o) => pairUrl(o, code, apk));
+  return { url, others, expiresAt, note: `Works once, within ${CODE_MS / 60_000} minutes (until ${expiresAt}): open it on the phone to pair it${apk ? ', then the Android app downloads' : ''}.` };
+}
+
 export function deviceName(ua = '') {
   const app = ua.includes(ANDROID_UA) ? 'coco app' : /Firefox\//.test(ua) ? 'Firefox' : /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
   const model = ua.match(/Android [\d.]+; (?:[a-z]{2}[-_][a-z]{2}; )?([^;)]+?)(?: Build\/[^;)]*)?[;)]/i)?.[1];

@@ -291,6 +291,11 @@ A picked option whose effect did the work is not delivered.
   (`POST /api/agent-worktree/own-deps` with the agent's cwd and id). Returns
   at once with `{ started, already, note }`; coco messages the agent once
   they are installed (docs/guide.md, "Agent worktrees").
+- `pair_link({ apk? })`: a one-time phone pairing link for the owner away from
+  the Mac. Reads `GET /api/devices` for the reachable origins, mints a code
+  with `POST /api/devices/codes` (both local-only, as in Settings > Devices)
+  and returns `{ url, others, expiresAt, note }`; refused when no origin is
+  reachable (no tailnet name in `hosts`) or `apk` is asked with no APK file.
 - `screenshot({ url, width?, height?, waitMs?, selector?, eval?, colorScheme?, out? })`:
   the agent sees a page. `url` is a coco hash path (`#/work/<slug>/<tab>`,
   opened on the coco server) or a full http URL on loopback (any port, so a

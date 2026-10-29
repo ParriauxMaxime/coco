@@ -14,6 +14,7 @@ import { CONSULT_CAP, consultPack, pickPersona } from './consult.ts';
 import { rowKey } from './stack.ts';
 import { WORK_SECTIONS, readPrFindings, readReviewContext, slimWork } from './review-context.ts';
 import type { PrFacts } from './review-context.ts';
+import { pairLinks } from './devices.ts';
 
 const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const config = loadConfig({ APP });
@@ -478,7 +479,20 @@ server.tool('mark_row_landed', `Say a planned row shipped straight to the defaul
   return r.ok ? text(r.data) : refused(`landed refused: ${r.error}`);
 });
 
-server.tool('set_next', `Write the work's "What's next": ${OWNER}'s to-do as of now (review, merge, answer, push), shown first on the Plan tab. Not what agents are doing. clear: true removes it.`, {
+server.tool('pair_link', `A one-time link that pairs ${OWNER}'s phone with coco while ${OWNER} is away from the Mac: the same code Settings > Devices shows, good once within five minutes. Returns url (the first address a phone reaches coco under), others (the same code on the other addresses), expiresAt and a note; hand ${OWNER} the url as is.`, {
+  apk: z.boolean().optional().describe('true: after pairing, the link downloads the Android app'),
+}, async ({ apk }) => {
+  const d = await coco('GET', '/api/devices');
+  if (!d.ok) return refused(`pairing refused: ${d.error}`);
+  const origins = Array.isArray(d.data.origins) ? (d.data.origins as string[]) : [];
+  if (!origins.length) return refused('no address a phone can reach coco under: expose coco on the tailnet, add its name (e.g. mac.tailnet.ts.net) to hosts in coco.config.json, then restart coco');
+  if (apk && !d.data.apk) return refused('no Android app file on this Mac to download: call again without apk');
+  const c = await coco('POST', '/api/devices/codes');
+  if (!c.ok) return refused(`pairing refused: ${c.error}`);
+  return text(pairLinks(origins, c.data as { code: string; expiresAt: string }, apk));
+});
+
+server.tool('set_next',`Write the work's "What's next": ${OWNER}'s to-do as of now (review, merge, answer, push), shown first on the Plan tab. Not what agents are doing. clear: true removes it.`, {
   work: workArg,
   summary: z.string().max(400).optional().describe('one plain sentence'),
   blocks: richBlocks.optional().describe('a steps block for the actions in order, a callout for a blocker, a table for PRs to review'),

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { createDevices, deviceName, pairOrigins } from './devices.ts';
+import { createDevices, deviceName, pairLinks, pairOrigins } from './devices.ts';
 import { loopbackHosts } from './guard.ts';
 import type { Req, Res } from './core-types.ts';
 
@@ -97,4 +97,15 @@ test('device names come from the User-Agent', () => {
 test('the pairing addresses skip loopback, default to https and put tailnet names first', () => {
   assert.deepEqual(pairOrigins('http://127.0.0.1:8777', ['coco.localhost', 'Mac.Example.ts.net', 'localhost:8777']), ['https://mac.example.ts.net']);
   assert.deepEqual(pairOrigins('https://coco.example.com', ['coco.local', 'mac.example.ts.net']), ['https://mac.example.ts.net', 'https://coco.example.com', 'https://coco.local']);
+});
+
+test('the pairing link an agent hands over redeems on the first address, the others carry the same code', () => {
+  const { devices } = make();
+  const l = pairLinks(['https://mac.example.ts.net', 'https://coco.example.com'], devices.newCode(), true);
+  const url = new URL(l.url);
+  assert.equal(url.origin, 'https://mac.example.ts.net');
+  assert.equal(url.searchParams.get('then'), 'apk');
+  assert.deepEqual(l.others, [l.url.replace('https://mac.example.ts.net', 'https://coco.example.com')]);
+  assert.match(l.note, /once, within 5 minutes/);
+  assert.ok('token' in devices.redeem(url.searchParams.get('code')!));
 });
