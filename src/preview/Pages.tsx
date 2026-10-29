@@ -20,6 +20,7 @@ import SchedulesPage from './pages/SchedulesPage.tsx';
 import RulesPage from './pages/RulesPage.tsx';
 import AskPage from './pages/AskPage.tsx';
 import PurgePage from './pages/PurgePage.tsx';
+import SettingsPage from './pages/SettingsPage.tsx';
 import type { Overview } from '../types.ts';
 
 const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
@@ -33,6 +34,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (root === 'waiting') return { crumbs: [page('Waiting on you')], node: <WaitingPage ov={ov} /> };
   if (root === 'archive') return { crumbs: [page('Archive')], node: <ArchivePage /> };
   if (root === 'purge') return { crumbs: [page('Purge')], node: <PurgePage /> };
+  if (root === 'settings') return { crumbs: [page('Settings')], node: <SettingsPage /> };
   if (root === 'agents' && a?.split('?')[0] === 'new') {
     const place = new URLSearchParams(a.split('?')[1] || '').get('place');
     return { crumbs: [page('Agents', '#/agents'), page('New agent')], node: <NewAgentPage key={place || ''} place={place} /> };

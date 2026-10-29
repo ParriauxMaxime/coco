@@ -57,8 +57,8 @@ The server port and bind address are command-line arguments, not config:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `baseUrl` | `"http://127.0.0.1:8777"` | URL agents use to call cocopilot back (briefs, skills). Match the port you start the server on. |
-| `hosts` | `[]` | Extra Host names a reverse proxy serves cocopilot under, e.g. `["coco.local", "coco.tail1234.ts.net"]`. The server refuses any request whose Host is not `127.0.0.1`/`localhost` on its port or the vite port, the `baseUrl` host, or one of these; a write from a browser must also come from one of them (http or https Origin). |
+| `baseUrl` | `"http://127.0.0.1:8777"` | URL agents use to call cocopilot back (briefs, skills). Match the port you start the server on, and keep it on loopback: anything else needs a paired device (see Phone). |
+| `hosts` | `[]` | Extra Host names a reverse proxy serves cocopilot under, e.g. `["coco.local", "coco.tail1234.ts.net"]`. The server refuses any request whose Host is not `127.0.0.1`/`localhost` on its port or the vite port, the `baseUrl` host, or one of these; a write from a browser must also come from one of them (http or https Origin). A request through any of these hosts, or carrying a proxy header (`X-Forwarded-For`…), also needs a paired device (see Phone). |
 | `screenshot` | `{ "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "hosts": [] }` | The headless Chrome behind `/api/screenshot` and the agents' `screenshot` tool (guide: Screenshots). `chrome`: its binary; a missing one fails the capture with that path. `hosts`: host names it may open beyond coco and loopback, e.g. `["dev.example.com"]`. |
 | `browserHost` | `"auto"` | `"auto"`: while the Paseo desktop app is closed, coco hosts the agents' `browser_*` tools in that same headless Chrome, and steps down once the app is back (guide: Browser host). `"off"`: never. |
 | `dataDir` | `~/.cocopilot/data` (`<app>/data` when that folder exists, for older installs) | Where works, comments, findings, threads and caches are stored. Back it up; it is the only state. Keep it outside the checkout: `git clean -x` there would delete it. |
@@ -304,6 +304,32 @@ logDir, services, dedicatedDb, base }` and returns an object merged over
 your content and `settings.overlay`. `login(ctx)` gets `{ id, project,
 worktree, appDir, port, url, logDir, user?, path }` and returns `{ url,
 seed?, expiresAt?, user? }`; the seed's origin must be the origin of `url`.
+
+## Phone
+
+coco has no login: on the Mac, a request is let in when it comes from
+loopback with a `127.0.0.1`/`localhost` Host and no proxy header. Anything
+else, a phone through `tailscale serve` above all, needs a paired device:
+every path (pages, assets, API, event stream, artifacts) answers 401 to an
+unpaired one, but `/pair`.
+
+1. Expose coco on your tailnet: `tailscale serve --bg --https=443 http://127.0.0.1:8777`.
+   Any reverse proxy works the same way (Caddy, caddy-tailscale…).
+2. Add the name it serves under to `hosts` in coco.config.json, e.g.
+   `"hosts": ["mac.tail1234.ts.net"]`, and restart coco.
+3. On the Mac, open Settings > Devices and click Pair a phone. Scan the QR
+   with the phone (its camera, or the coco app), or open the link it shows.
+   A code pairs one device and lasts five minutes; the device keeps a cookie
+   for a year. Ten wrong codes in a minute lock pairing for that minute.
+4. For the Android app: build it once with `npm run apk` in `mobile/`
+   (see [mobile/README.md](../mobile/README.md)), tick "then download the
+   Android app" before scanning with the phone's camera, install the APK,
+   then pair the app with a new code.
+
+Settings > Devices lists the paired devices with when each was last seen;
+Revoke cuts one off at once, its open event stream included. Devices are
+paired and revoked from the Mac only. Tokens are stored as their sha256 in
+`<dataDir>/devices.json`.
 
 ## MCP config
 

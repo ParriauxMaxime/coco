@@ -122,6 +122,16 @@ export const dictationApi = {
   finish: (id: string) => postJson(dictUrl(id, 'finish')).then(jsonOrError<{ text: string }>),
   cancel: (id: string) => postJson(dictUrl(id, 'cancel')).then(jsonOrError<{ ok: boolean }>),
 };
+// paired phones (server/devices.ts), managed from this Mac only
+export type DeviceView = { id: string; name: string; createdAt: string; lastSeen: string };
+export type DevicesResponse = { devices: DeviceView[]; origins: string[]; apk: boolean };
+const devUrl = (id?: string) => `/api/devices${id ? `/${encodeURIComponent(id)}` : ''}`;
+export const devicesApi = {
+  list: () => getOrError<DevicesResponse>(devUrl()),
+  code: () => postJson(devUrl('codes')).then(jsonOrError<{ code: string; expiresAt: string }>),
+  rename: (id: string, name: string) => fetch(devUrl(id), { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ name }) }).then(jsonOrError<DeviceView>),
+  revoke: (id: string) => fetch(devUrl(id), { method: 'DELETE' }).then(jsonOrError<{ ok: boolean }>),
+};
 // a worktree with no Paseo workspace, by its path
 export const pathWsId = (dir: string) => `p.${btoa(String.fromCharCode(...new TextEncoder().encode(dir))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 

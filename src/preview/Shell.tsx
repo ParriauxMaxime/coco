@@ -35,6 +35,7 @@ const NAV: NavItem[] = [
   { href: '#/archive', root: 'archive', label: 'Archive', icon: 'archive' },
   { href: '#/purge', root: 'purge', label: 'Purge', icon: 'trash' },
   { href: '#/ask', root: 'ask', label: 'Ask coco', icon: 'message-square' },
+  { href: '#/settings', root: 'settings', label: 'Settings', icon: 'wrench' },
 ];
 
 const NARROW = '(max-width: 900px)';

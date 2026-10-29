@@ -5,8 +5,21 @@ export const AGENT_UA = 'CocoAgentBrowser';
 // a shell's input and output (a workspace's terminals, the event stream carrying them): a foreign Origin is refused on a read too
 const SHELL = /^\/api\/(events(\/|\?|$)|workspaces\/[^/]+\/(terminals|scripts)(\/|\?|$))/;
 
+const LOOPBACK_IP = /^(127\.\d+\.\d+\.\d+|::1|::ffff:127\.\d+\.\d+\.\d+)$/;
+const PROXY_HEADERS = ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip'];
+
+export const loopbackHosts = (port: number) => new Set([`127.0.0.1:${port}`, `localhost:${port}`, `127.0.0.1:${VITE_PORT}`, `localhost:${VITE_PORT}`]);
+
+// a request from this Mac itself: a loopback socket and Host, and no proxy between. tailscale serve connects from loopback too, but keeps
+// the client's Host (which a client can set to 127.0.0.1) and always adds X-Forwarded-For
+export function isLocal(loopback: Set<string>, req: { socket?: { remoteAddress?: string }; headers: Record<string, string | string[] | undefined> }) {
+  if (!LOOPBACK_IP.test(req.socket?.remoteAddress || '')) return false;
+  if (!loopback.has(String(req.headers.host || '').toLowerCase())) return false;
+  return PROXY_HEADERS.every((h) => req.headers[h] === undefined);
+}
+
 export function allowedHosts(port: number, baseUrl: string, extra: string[] = []): Set<string> {
-  const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `127.0.0.1:${VITE_PORT}`, `localhost:${VITE_PORT}`, ...extra.map((h) => h.toLowerCase())]);
+  const hosts = new Set([...loopbackHosts(port), ...extra.map((h) => h.toLowerCase())]);
   try {
     hosts.add(new URL(baseUrl).host);
   } catch {

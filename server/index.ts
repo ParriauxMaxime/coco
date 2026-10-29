@@ -74,7 +74,8 @@ import { createSpares } from './spares.ts';
 import { createScreenshots } from './screenshot.ts';
 import { cocoOrigins, createBrowserHost, createBrowserTabs, daemonLink } from './browser-host.ts';
 import { createAgentChecks } from './agent-checks.ts';
-import { VITE_PORT, allowedHosts, guard, guarded } from './guard.ts';
+import { VITE_PORT, allowedHosts, guard, guarded, loopbackHosts } from './guard.ts';
+import { APK_PATH, PAIR_PATH, createDevices, pairOrigins } from './devices.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
@@ -96,6 +97,10 @@ const BRIEFS = config.briefsDir;
 const PORT = Number(process.argv[2] || new URL(config.baseUrl).port || 8777);
 const BIND = process.argv[3] || '127.0.0.1';
 const HOSTS = allowedHosts(PORT, config.baseUrl, config.hosts);
+const LOOPBACK = loopbackHosts(PORT);
+// mobile/ builds the Android app here (npm run apk)
+const APK = path.join(APP, 'mobile', 'dist', 'coco.apk');
+const devices = createDevices({ file: path.join(DATA, 'devices.json'), loopback: LOOPBACK, origins: pairOrigins(config.baseUrl, config.hosts), apk: APK });
 const screenshots = createScreenshots({ chromePath: config.screenshot.chrome, origin: `http://${BIND === '0.0.0.0' || BIND === '::' ? '127.0.0.1' : BIND}:${PORT}`, hosts: [...config.hosts, ...config.screenshot.hosts] });
 // agents' tabs get a Chrome of their own: every request it makes to coco fails, which the screenshots of coco cannot have
 const agentChrome = createScreenshots({ chromePath: config.screenshot.chrome, origin: `http://127.0.0.1:${PORT}` });
@@ -633,6 +638,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'workspaces' && (b === 'terminals' || b === 'scripts')) return workspaceTerminals.handle(req, res, parts, readBody, send);
     if (root === 'schedules') return schedules.handle(req, res, parts, readBody, send);
     if (root === 'dictation') return dictation.handle(req, res, parts, readBody, send);
+    if (root === 'devices') return devices.handle(req, res, parts, readBody, send);
     // the work's Plan workspace (made on first use, as a read-only dispatch does), for its terminal
     if (root === 'works' && b === 'plan-workspace' && !c && req.method === 'POST') {
       if (!works.get(a)) return send(res, 404, { error: `no work ${a}` });
@@ -766,13 +772,25 @@ function serveStatic(res: Res, url: URL) {
   send(res, 200, page.html, 'text/html', 'no-store');
 }
 
+function serveApk(res: Res) {
+  if (!fs.existsSync(APK)) return send(res, 404, 'no Android app built yet: run `npm run apk` in mobile/', 'text/plain');
+  res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': fs.statSync(APK).size, 'Content-Disposition': 'attachment; filename="coco.apk"', 'Cache-Control': 'no-store' });
+  fs.createReadStream(APK).pipe(res);
+}
+
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-    if (guarded(url.pathname)) {
+    // from anywhere but this Mac, every path needs a paired device but the pairing itself
+    const who = devices.who(req);
+    if (!who && url.pathname !== PAIR_PATH) return devices.refuse(res, url.pathname);
+    if (guarded(url.pathname) || url.pathname === PAIR_PATH) {
       const denied = guard(HOSTS, req);
       if (denied) return send(res, 403, { error: denied });
     }
+    if (url.pathname === PAIR_PATH) return devices.pair(req, res, url);
+    if (who && who !== 'local') devices.hold(who, res);
+    if (url.pathname === APK_PATH) return serveApk(res);
     // module handlers are returned, not awaited, inside api's try: their rejections land here instead of killing the server
     if (url.pathname.startsWith('/api/')) return api(req, res, url).catch((e) => (res.headersSent ? res.end() : send(res, 500, { error: errorMessage(e) })));
     if (url.pathname.startsWith('/works/')) return works.serveArtifact(res, url.pathname, send);
