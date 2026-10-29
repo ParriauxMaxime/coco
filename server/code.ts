@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { branchOf, findRow, isLocal, parseKey, rowKey } from './stack.ts';
 import { errorMessage } from './core-types.ts';
+import { parseBlame } from './blame.ts';
+import type { Blame } from './blame.ts';
 import type { PrFile, ReadBody, Refs, RefsOptions, Req, Res, RowKey, Send, Works } from './core-types.ts';
 import type { RepoIdentity } from './config.ts';
 
@@ -313,6 +315,19 @@ function repoCode({ path: REPO, github: GITHUB, defaultBranch: BRANCH }: Repo, w
     return value;
   }
 
+  const blames = new Map<string, Blame>();
+  async function blameOf(refs: Pick<Refs, 'mergeBase' | 'headSha'>, sha: string, p: string): Promise<Blame> {
+    const key = `${refs.mergeBase}..${refs.headSha}:${sha}:${p}`;
+    const hit = touch(blames, key);
+    if (hit) return hit;
+    const r = await git(['blame', '--porcelain', sha, '--', p], { timeout: 30000 });
+    if (!r.ok) throw new HttpError(404, `git blame: ${r.stderr.trim().slice(0, 200)}`);
+    const pr = await git(['rev-list', `${refs.mergeBase}..${refs.headSha}`]);
+    const value = { ...parseBlame(r.stdout, new Set(pr.stdout.split('\n').filter(Boolean))), github: GITHUB || null };
+    lru(blames, key, value, BLOB_LRU);
+    return value;
+  }
+
   const moduleRel = (p: string) => {
     const rel = `/${p}`.startsWith(`${REPO}/`) ? `/${p}`.slice(REPO.length + 1) : p;
     return rel.split('/').includes('node_modules') && /\.([cm]?[jt]sx?|json)$/.test(rel) ? rel : null;
@@ -391,6 +406,7 @@ function repoCode({ path: REPO, github: GITHUB, defaultBranch: BRANCH }: Repo, w
     const p = checkPath(q.get('path'));
     if (action === 'file') return readFile(q.get('ref') === 'base' ? mergeBase : headSha, p);
     if (action === 'diff') return { path: p, mergeBase, headSha, unified: await diffOf({ mergeBase, headSha }, p, q.get('previous') ? checkPath(q.get('previous')) : null) };
+    if (action === 'blame') return blameOf({ mergeBase, headSha }, q.get('ref') === 'base' ? mergeBase : headSha, p);
     throw new HttpError(404, 'no route');
   }
 
@@ -399,7 +415,7 @@ function repoCode({ path: REPO, github: GITHUB, defaultBranch: BRANCH }: Repo, w
       const [root, kind, n, action] = parts;
       if (root === 'code' && kind === 'commit' && req.method === 'GET') return send(res, 200, await commitRoute(n, action, new URL(req.url || '/', 'http://x').searchParams));
       const number = parseKey(n);
-      if (root !== 'code' || kind !== 'pr' || req.method !== 'GET' || !number || !['refs', 'tree', 'file', 'diff', 'search'].includes(action)) return send(res, 404, { error: 'no route' });
+      if (root !== 'code' || kind !== 'pr' || req.method !== 'GET' || !number || !['refs', 'tree', 'file', 'diff', 'search', 'blame'].includes(action)) return send(res, 404, { error: 'no route' });
       const q = new URL(req.url || '/', 'http://x').searchParams;
       const refs = await ensureRefs(number, { fresh: action === 'refs' && q.get('fresh') === '1' });
       if (action === 'refs') return send(res, 200, { ...refs, files: await filesBetween(refs.mergeBase, refs.headSha) });
@@ -421,6 +437,7 @@ function repoCode({ path: REPO, github: GITHUB, defaultBranch: BRANCH }: Repo, w
         const previous = q.get('previous') ? checkPath(q.get('previous')) : null;
         return send(res, 200, { path: p, mergeBase: refs.mergeBase, headSha: refs.headSha, unified: await diffOf(refs, p, previous) });
       }
+      if (action === 'blame') return send(res, 200, await blameOf(refs, await resolveRef(refs, q.get('ref') || 'head'), checkPath(q.get('path'))));
       const term = q.get('q') || '';
       if (term.length < 2 || term.length > 200 || /[\0\n]/.test(term)) return send(res, 400, { error: 'q must be 2 to 200 characters' });
       const max = Math.min(Math.max(Number(q.get('max')) || 200, 1), 1000);

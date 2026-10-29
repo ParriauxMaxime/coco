@@ -125,8 +125,9 @@ type DesktopBodyProps = {
 
 function DesktopBody({ slug, n, refs, mode, path, texts, comments, zone, onCreate, reveal, sbs, active, group }: DesktopBodyProps) {
   useLangProviders(slug, n, refs?.headSha, active, () => group);
-  if (mode === 'diff') return <DiffView original={texts.original} modified={texts.modified} path={path} sideBySide={sbs} comments={comments} onCreateComment={onCreate} renderZone={zone} reveal={reveal} />;
-  return <CodeView text={texts.text} path={path} reveal={reveal} comments={comments.filter((c) => c.side === 'head')} onCreateComment={onCreate} renderZone={zone} />;
+  const blame = (side: Side) => codeApi.blame(n, side, side === 'base' ? refs.files.find((f) => f.filename === path)?.previous || path : path);
+  if (mode === 'diff') return <DiffView original={texts.original} modified={texts.modified} path={path} sideBySide={sbs} comments={comments} onCreateComment={onCreate} renderZone={zone} reveal={reveal} blame={blame} />;
+  return <CodeView text={texts.text} path={path} reveal={reveal} comments={comments.filter((c) => c.side === 'head')} onCreateComment={onCreate} renderZone={zone} blame={() => blame('head')} />;
 }
 
 export default function CodeTab({ tabId, group }: { tabId: string; group: number }) {

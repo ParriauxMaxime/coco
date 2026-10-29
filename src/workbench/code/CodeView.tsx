@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import type { editor } from 'monaco-editor/editor/editor.api';
 import { EDITOR_OPTIONS, acquireModel, attachCommentUx, flashLines, releaseModel, revealLine, useCommentLayer, useMonaco } from './editor-shared.ts';
 import type { CommentHandlers } from './editor-shared.ts';
+import { attachBlame } from './blame.ts';
+import type { Blame } from '../../../server/blame.ts';
 import type { Reveal } from './DiffView.tsx';
 import type { ReviewComment } from '../types.ts';
 import './code.css';
@@ -21,23 +23,28 @@ type Props = {
   onCreateComment?: CommentHandlers['onCreateComment'];
   onJump?: CommentHandlers['onJump'];
   renderZone?: (comment: ReviewComment) => ReactNode;
+  blame?: () => Promise<Blame>;
 };
 
-// single editor on the head file (navigation targets outside the PR diff); every comment is side 'head'
-const CodeView = forwardRef<CodeHandle, Props>(function CodeView({ text, path, line, reveal = null, comments = [], onCreateComment, onJump, renderZone }, ref) {
+// single editor on the head file (navigation targets outside the PR diff); every comment is side 'head'; blame: the file's, shown GitLens style
+const CodeView = forwardRef<CodeHandle, Props>(function CodeView({ text, path, line, reveal = null, comments = [], onCreateComment, onJump, renderZone, blame }, ref) {
   const { mod, error } = useMonaco();
   const hostRef = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<editor.IStandaloneCodeEditor | null>(null);
   const handlers = useRef<CommentHandlers>({});
   handlers.current = { onCreateComment, onJump };
+  const blameRef = useRef(blame);
+  blameRef.current = blame;
 
   useEffect(() => {
     if (!mod || !hostRef.current) return undefined;
     const { monaco } = mod;
     const single = monaco.editor.create(hostRef.current, EDITOR_OPTIONS);
     const detach = attachCommentUx(monaco, single, 'head', handlers);
+    const blamed = blameRef.current && attachBlame(monaco, single, () => blameRef.current!());
     setEditor(single);
     return () => {
+      blamed?.dispose();
       detach.dispose();
       setEditor(null);
       single.setModel(null);

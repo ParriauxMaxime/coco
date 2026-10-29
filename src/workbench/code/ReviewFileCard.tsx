@@ -2,6 +2,7 @@ import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { PathLabel, useTexts, sha256 } from '../tabs/Code.tsx';
 import { SevChip, fileCommentProps, lineSpan } from './CommentZone.tsx';
 import DiffView from './DiffView.tsx';
+import { codeApi } from './code-api.ts';
 import { useMonaco } from './editor-shared.ts';
 import { attachFolds } from './folds.ts';
 import LiteDiff from './LiteDiff.tsx';
@@ -96,7 +97,7 @@ function DesktopDiff({ n, rv, file, reveal, sbs, knownHeight, onReveal, onHeight
   if (texts.binary || texts.tooLarge) return <div className="rv-note">{texts.binary ? 'Binary file.' : 'File too large to show.'}</div>;
   return (
     <div className="rv-diff" ref={hostRef} style={{ height: contentH || knownHeight || estimateHeight(file) }}>
-      <DiffView original={texts.original} modified={texts.modified} path={path} sideBySide={sbs} comments={mine} onCreateComment={onCreate} renderZone={zone} reveal={reveal} options={CARD_OPTIONS} onEditor={setDiff} />
+      <DiffView original={texts.original} modified={texts.modified} path={path} sideBySide={sbs} comments={mine} onCreateComment={onCreate} renderZone={zone} reveal={reveal} options={CARD_OPTIONS} onEditor={setDiff} blame={(side) => codeApi.blame(n, side, side === 'base' ? file.previous || path : path)} />
     </div>
   );
 }

@@ -19,6 +19,8 @@
 .cc-comment-line.cc-outdated { background: repeating-linear-gradient(135deg, var(--dp-subtle) 0 6px, var(--dp-line) 6px 8px); }
 .cc-drag-line { background: var(--dp-accent-t2); }
 .cc-drag-margin { background: var(--dp-accent-t2); box-shadow: inset 3px 0 0 var(--dp-accent); }
+.cc-blame { margin-left: 3em; color: var(--dp-t4); font-style: italic; opacity: .85; cursor: default; }
+.cc-blame-pr { color: color-mix(in srgb, var(--dp-accent) 70%, var(--dp-t4)); }
 .cc-flash { animation: cc-flash-fade 1.5s ease-out forwards; }
 @keyframes cc-flash-fade { 0%, 60% { background: color-mix(in srgb, var(--dp-warn) 28%, transparent); } 100% { background: transparent; } }
 

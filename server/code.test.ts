@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import { createCode } from './code.ts';
+import type { Blame } from './blame.ts';
 
 let dir = '';
 let code: ReturnType<typeof createCode>;
@@ -66,6 +67,19 @@ const seed = async (u: string) => {
   await code.handle(req, new ServerResponse(req), p, async () => '', (_r, status, body) => void Object.assign(out, { status, body }));
   return out;
 };
+
+test('blame: each line names its last commit, those of the PR flagged', async () => {
+  await code.ensureRefs(1, { headSha: head, baseSha: base });
+  const { body, status } = await seed(`/api/code/pr/1/blame?path=mod.txt`);
+  const b = body as unknown as Blame;
+  assert.equal(status, 200);
+  assert.deepEqual(b.lines, [base, head, base, head]);
+  assert.deepEqual(b.commits[head], { author: 't', email: 't@t', time: b.commits[head].time, summary: 'two', inPr: true });
+  assert.equal(b.commits[base].inPr, false);
+  assert.equal(b.github, 'acme/widgets');
+  assert.deepEqual((await seed(`/api/code/pr/1/blame?ref=base&path=mod.txt`)).body, { ...b, lines: [base, base, base], commits: { [base]: b.commits[base] } });
+  assert.equal(((await seed(`/api/code/commit/${head}/blame?path=mod.txt`)).body as unknown as Blame).lines.length, 4);
+});
 
 test('commit: files and texts of one commit against its parent', async () => {
   const refs = (await seed(`/api/code/commit/${head}/refs`)).body;

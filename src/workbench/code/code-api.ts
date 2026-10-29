@@ -1,4 +1,5 @@
 import type { PrKey } from '../types.ts';
+import type { Blame } from '../../../server/blame.ts';
 
 const json = async (res: Response) => {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -14,6 +15,7 @@ export const codeApi = {
   tree: (n: PrKey, ref = 'head') => fetch(`${base(n)}/tree?${qs({ ref })}`).then(json),
   diff: (n: PrKey, path: string, previous?: string) => fetch(`${base(n)}/diff?${qs(previous ? { path, previous } : { path })}`).then(json),
   search: (n: PrKey, q: string) => fetch(`${base(n)}/search?${qs({ q })}`).then(json),
+  blame: (n: PrKey, ref: 'base' | 'head', path: string): Promise<Blame> => fetch(`${base(n)}/blame?${qs({ ref, path })}`).then(json),
 };
 
 // one commit against its parent: from the configured repo, or from a workspace's own checkout
@@ -21,6 +23,7 @@ const commitApiAt = (commitBase: (sha: string) => string) => ({
   refs: (sha: string) => fetch(`${commitBase(sha)}/refs`).then(json),
   file: (sha: string, ref: 'base' | 'head', path: string) => fetch(`${commitBase(sha)}/file?${qs({ ref, path })}`).then(json),
   diff: (sha: string, path: string, previous?: string) => fetch(`${commitBase(sha)}/diff?${qs(previous ? { path, previous } : { path })}`).then(json),
+  blame: (sha: string, ref: 'base' | 'head', path: string): Promise<Blame> => fetch(`${commitBase(sha)}/blame?${qs({ ref, path })}`).then(json),
 });
 export const commitApi = commitApiAt((sha) => `/api/code/commit/${sha}`);
 export const workspaceCommitApi = (wsId: string) => commitApiAt((sha) => `/api/workspaces/${encodeURIComponent(wsId)}/git/commit/${sha}`);

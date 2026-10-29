@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import type { editor } from 'monaco-editor/editor/editor.api';
 import { EDITOR_OPTIONS, acquireModel, attachCommentUx, flashLines, releaseModel, revealLine, useCommentLayer, useMonaco } from './editor-shared.ts';
 import type { CommentHandlers } from './editor-shared.ts';
+import { attachBlame } from './blame.ts';
+import type { Blame } from '../../../server/blame.ts';
 import type { MonacoApi, ReviewComment, Side } from '../types.ts';
 import './code.css';
 
@@ -28,16 +30,19 @@ type Props = {
   options?: editor.IDiffEditorConstructionOptions;
   onEditor?: (diff: editor.IStandaloneDiffEditor | null) => void;
   scope?: string;
+  blame?: (side: Side) => Promise<Blame>;
 };
 
 // original = base text, modified = head text; comments on side 'base' live in the left editor, 'head' in the right one
-// options: extra createDiffEditor options (creation only) · onEditor(diffEditor | null)
-const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, modified, path, sideBySide = true, readOnly = true, comments = [], onCreateComment, onJump, renderZone, decorationsRef, reveal = null, options, onEditor, scope }, ref) {
+// options: extra createDiffEditor options (creation only) · onEditor(diffEditor | null) · blame(side): the side's blame, shown GitLens style
+const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, modified, path, sideBySide = true, readOnly = true, comments = [], onCreateComment, onJump, renderZone, decorationsRef, reveal = null, options, onEditor, scope, blame }, ref) {
   const { mod, error } = useMonaco();
   const hostRef = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<editor.IStandaloneDiffEditor | null>(null);
   const handlers = useRef<CommentHandlers & { onEditor?: Props['onEditor'] }>({});
   handlers.current = { onCreateComment, onJump, onEditor };
+  const blameRef = useRef(blame);
+  blameRef.current = blame;
 
   useEffect(() => {
     if (!mod || !hostRef.current) return undefined;
@@ -51,7 +56,8 @@ const DiffView = forwardRef<DiffHandle, Props>(function DiffView({ original, mod
       diffAlgorithm: 'advanced',
       ...options,
     });
-    const detach = [attachCommentUx(monaco, diff.getOriginalEditor(), 'base', handlers), attachCommentUx(monaco, diff.getModifiedEditor(), 'head', handlers)];
+    const sides: [editor.ICodeEditor, Side][] = [[diff.getOriginalEditor(), 'base'], [diff.getModifiedEditor(), 'head']];
+    const detach = sides.flatMap(([ed, side]) => [attachCommentUx(monaco, ed, side, handlers), ...(blameRef.current ? [attachBlame(monaco, ed, () => blameRef.current!(side))] : [])]);
     setEditor(diff);
     handlers.current.onEditor?.(diff);
     return () => {
