@@ -134,6 +134,15 @@ test('an optional folder the main checkout lacks is installed in the worktree, s
   assert.equal(ready.checks[0].available, true);
 });
 
+test('a folder whose parent is not in the checkout does not apply: nothing is installed or reported missing', async (t) => {
+  const { main, wt } = fixture(t);
+  const web = { path: 'web/node_modules', lockfile: 'web/package-lock.json', install: ['sh', '-c', 'mkdir node_modules'], optional: true };
+  const aw = createAgentWorktrees({ config: settings(main, { deps: [...deps('true'), web], checks: [] }) });
+  const r = await aw.prepare(wt);
+  assert.equal(r.state, 'ready');
+  assert.deepEqual(r.deps.map((d) => d.path), ['node_modules']);
+});
+
 test("coco's run of the checks on a commit: each check on the files it covers, a failure keeps its output, a check lacking what it needs is skipped", async (t) => {
   const { main, wt } = fixture(t);
   const commit = (file: string) => {

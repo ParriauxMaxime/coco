@@ -123,12 +123,8 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}>
           <div className="dp-pr-kids">
-            {r.state !== 'planned' && (
-              <>
-                <div className={`dp-view${isOpen(`review-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`review-${r.key}`)}><Icon name="file" size={14} /><span>Review code</span></div>
-                <div className={`dp-view${isOpen(`findings-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`findings-${r.key}`)}><Icon name="flag" size={14} /><span>Findings</span>{n > 0 && <span className="dp-count" title={`${n} open`}>{n}</span>}</div>
-              </>
-            )}
+            <div className={`dp-view${isOpen(`review-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`review-${r.key}`)}><Icon name="file" size={14} /><span>Review code</span></div>
+            <div className={`dp-view${isOpen(`findings-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`findings-${r.key}`)}><Icon name="flag" size={14} /><span>Findings</span>{n > 0 && <span className="dp-count" title={`${n} open`}>{n}</span>}</div>
             <AgentList g={g} label={r.label} onOpen={go} onNew={() => go(`ask-new-${r.key}`)} arc={arc} starting={starting(r.key)} />
           </div>
         </div>

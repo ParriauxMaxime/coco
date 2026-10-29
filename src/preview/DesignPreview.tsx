@@ -75,7 +75,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     ...layouts.list.map((l, i) => ({ id: `l-${l.id}`, label: `Layout: ${l.name}`, hint: i < 9 ? `⌥${i + 1}` : 'layout', icon: 'columns' as const, run: () => applyLayout(l) })),
     { id: 'split', label: 'Move the tab to the other pane', hint: '⌘\\', icon: 'columns', run: split },
     ...d.prs.map((p) => ({ id: `pr-${prKey(p)}`, label: `${p.number ? `#${p.number}` : 'planned'} ${prTitle(p)}`, hint: prState(p), icon: 'git-pull-request' as const, run: () => openPr(prKey(p)) })),
-    ...d.prs.filter((p) => p.number).map((p) => ({ id: `review-${p.number}`, label: `Review #${p.number} ${prTitle(p)}`, hint: 'code', icon: 'file' as const, run: () => open(`review-${p.number}`) })),
+    ...d.prs.map((p) => ({ id: `review-${prKey(p)}`, label: `Review ${p.number ? `#${p.number}` : prLabel(prKey(p))} ${prTitle(p)}`, hint: 'code', icon: 'file' as const, run: () => open(`review-${prKey(p)}`) })),
   ];
 
   useEffect(() => {

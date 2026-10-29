@@ -24,6 +24,15 @@ import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RunResult, Sen
 // what a work change touched: the work itself, its stack, review plan, drift or artifacts
 export type Change = 'work' | 'stack' | 'plan' | 'drift' | 'artifacts';
 
+// rows that kept their branch but changed key (a planned row that got its PR): [old key, new key]
+export const rekeyed = (before: StackRow[], after: StackRow[]): [RowKey, RowKey][] =>
+  after.flatMap((row) => {
+    const to = rowKey(row);
+    const old = row.planned?.branch ? before.find((s) => s.planned?.branch === row.planned?.branch) : null;
+    const from = rowKey(old);
+    return from != null && to != null && from !== to && !after.some((s) => rowKey(s) === from) ? [[from, to] as [RowKey, RowKey]] : [];
+  });
+
 const HOME = os.homedir();
 const defaultRun = (cmd: string, args: string[], opts: ExecFileOptions = {}) =>
   new Promise<RunResult>((resolve) => {
@@ -123,7 +132,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = defaultRun }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'>; run?: typeof defaultRun }) {
-  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onClosed?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
+  const hooks: { onRekeyed?: (slug: string, from: RowKey, to: RowKey) => void; onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onClosed?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (github: string, args: string[]) => (github ? run('gh', args) : Promise.resolve(noRepo));
@@ -170,6 +179,13 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     const before = get(work.slug);
     if (before && before.title !== work.title) Promise.resolve(hooks.onRetitled?.(work)).catch(() => {});
     fs.writeFileSync(file(work.slug), JSON.stringify(work, null, 1));
+    for (const [from, to] of rekeyed(before?.stack || [], work.stack || [])) {
+      try {
+        hooks.onRekeyed?.(work.slug, from, to);
+      } catch (e) {
+        console.error(`rekey ${keyLabel(from)} → ${keyLabel(to)} of ${work.slug}: ${errorMessage(e)}`);
+      }
+    }
     changed(work.slug, what ?? (before && JSON.stringify(before.stack) !== JSON.stringify(work.stack) ? 'stack' : 'work'));
     // the parent's Overview lists this work's title, state and What's next
     const seen = (w: Work | null) => JSON.stringify([w?.title, w?.archived, w?.next]);
@@ -223,6 +239,42 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     return fetch(number);
   };
   const prNode = (number: number, fresh = false, github = githubOf(number)) => prCache(prKey(github, number), () => fetchPrs(github, number), fresh);
+
+  // the open or merged PR of a branch, from this repo, not a fork's; one GraphQL call per repo for the branches asked together
+  const headCache = swrCache<number | null>(60000, cacheFile(DATA, 'pr-heads'), { minFreshMs: GITHUB_MIN_FRESH_MS });
+  const headBatchers = new Map<string, (branch: string) => Promise<number | null>>();
+  const prOfBranch = (github: string, branch: string, fresh = false) => {
+    let fetch = headBatchers.get(github);
+    if (!fetch) headBatchers.set(github, (fetch = batcher<string, number | null>(async (branches) => {
+      const [owner, name] = github.split('/');
+      const query = `query{repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){${branches.map((b, i) => `h${i}:pullRequests(headRefName:${JSON.stringify(b)},states:[OPEN,MERGED],first:5,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number isCrossRepository}}`).join(' ')}}}`;
+      const r = await run('gh', ['api', 'graphql', '-f', `query=${query}`]);
+      const repo = parseJson<{ data?: { repository?: Record<string, { nodes: { number: number; isCrossRepository: boolean }[] } | null> } }>(r, {}).data?.repository;
+      if (!repo) throw new Error(r.stderr.slice(0, 200));
+      return new Map(branches.map((b, i) => [b, repo[`h${i}`]?.nodes.find((n) => !n.isCrossRepository)?.number ?? null]));
+    })));
+    return headCache(`${github} ${branch}`, () => fetch(branch), fresh);
+  };
+
+  // a planned row whose branch got a PR (its agent opened it) takes that PR's number; save moves what was kept under the branch key
+  async function linkOpened(work: Work, fresh = false) {
+    const github = githubOfWork(work);
+    const planned = (work.stack || []).filter((s) => !s.number && s.planned?.branch);
+    if (!github || !planned.length) return work;
+    const found = await Promise.all(planned.map((s) => prOfBranch(github, s.planned?.branch as string, fresh).catch(() => null)));
+    const held = new Set(list().filter((w) => githubOfWork(w) === github).flatMap((w) => (w.stack || []).map((s) => s.number)));
+    const linked = planned.flatMap((s, i) => {
+      const n = found[i];
+      return n && !held.has(n) ? (held.add(n), [{ s, n }]) : [];
+    });
+    if (!linked.length) return work;
+    work.timeline = work.timeline || [];
+    for (const { s, n } of linked) {
+      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'github', text: `${s.planned?.branch} opened as #${n}: its planned row now follows the PR` });
+      s.number = n;
+    }
+    return save(work);
+  }
 
   // `github`: the work's repo when the caller has the work, else the repo of the work holding that number
   async function prInfo(number: number | null | undefined, fresh = false, github?: string): Promise<PrInfo> {
@@ -416,8 +468,9 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   }
 
   async function detail(slug: string, fresh = false) {
-    const work = get(slug);
-    if (!work) return null;
+    const stored = get(slug);
+    if (!stored) return null;
+    const work = stored.archived ? stored : await linkOpened(stored, fresh);
     const prs = await stackInfo(work, fresh);
     const events = recordChanges(slug, prs);
     const artifacts = listArtifacts(slug);

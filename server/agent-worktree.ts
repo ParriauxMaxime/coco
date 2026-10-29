@@ -138,7 +138,9 @@ export function createAgentWorktrees({ config, run = defaultRun, notify = async 
     const repo = config.repos.find((x) => x.path && sameReal(x.path, repoPath)) || null;
     const cfg = repoSetting(config as Config, repo as RepoConfig | null, 'agentWorktree');
     if (!cfg || (!cfg.deps?.length && !cfg.checks?.length)) return null;
-    return { cfg: { deps: cfg.deps || [], checks: cfg.checks || [] }, main: expandHome(cfg.mainCheckout || repo?.path || repoPath), marks: path.join(gitDir, MARKER) };
+    // a folder whose parent is not in this checkout belongs to another repo sharing the top-level setting
+    const deps = (cfg.deps || []).filter((d) => realDir(path.dirname(path.join(root, d.path))));
+    return { cfg: { deps, checks: cfg.checks || [] }, main: expandHome(cfg.mainCheckout || repo?.path || repoPath), marks: path.join(gitDir, MARKER) };
   }
 
   const lockDiffers = (root: string, main: string, d: DepsEntry) => (d.lockfile ? hashOf(readOr(path.join(root, d.lockfile))) !== hashOf(readOr(path.join(main, d.lockfile))) : false);
