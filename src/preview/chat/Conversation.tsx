@@ -1,6 +1,7 @@
 import React from 'react';
 import Markdown from '../../components/Markdown.tsx';
 import Icon from '../Icon.tsx';
+import { CocoAvatar } from '../parts.tsx';
 import Activity from './Activity.tsx';
 import CardView from './Card.tsx';
 import type { Pending, Run } from './conversation.ts';
@@ -18,7 +19,7 @@ type CardProps = { onCard?: (c: Card) => void; newest?: string };
 function AgentTurn({ parts, active, who, onCard, newest }: { parts: Part[]; active: boolean; who: string } & CardProps) {
   return (
     <div className="dp-msg-a">
-      {who === 'coco' ? <span className="dp-cocoav">c</span> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
+      {who === 'coco' ? <CocoAvatar /> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
       <div className="dp-cv-body">
         <div className="dp-who">{who}</div>
         {parts.map((p, i) => (Array.isArray(p) ? <Activity key={i} events={p} active={active && i === parts.length - 1} issues={who === 'coco'} fold={FOLD} /> : <CardView key={p.id} card={p} onCard={onCard} focus={p.id === newest} />))}

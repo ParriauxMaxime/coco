@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
+import { CocoAvatar } from '../parts.tsx';
 import { CardsWaiting } from '../chat/Card.tsx';
 import { Composer, Log } from '../chat/Composer.tsx';
 import Conversation from '../chat/Conversation.tsx';
@@ -123,7 +124,7 @@ export default function AskPage({ convId }: { convId?: string }) {
             <>
               <div className="dp-agent-log dp-ag-start">
                 <div className="dp-ag-hello">
-                  <span className="dp-cocoav">c</span>
+                  <CocoAvatar />
                   <div className="dp-ag-h">What should coco look into?</div>
                   <p className="dp-t3">Follow up as long as you like, even while it works. It reads and proposes; you apply. Nothing is pushed, posted or sent.</p>
                   <div className="dp-ag-ex">{EXAMPLES.map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>

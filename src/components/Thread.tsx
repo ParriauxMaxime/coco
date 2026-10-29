@@ -11,7 +11,7 @@ import { confirmDialog } from './Dialogs.tsx';
 import { pendingClass } from './action.ts';
 import { useSeen } from '../preview/waiting.ts';
 import Icon from '../preview/Icon.tsx';
-import { Avatar, PersonaName } from '../preview/parts.tsx';
+import { Avatar, CocoAvatar, PersonaName } from '../preview/parts.tsx';
 import Activity from '../preview/chat/Activity.tsx';
 import CardView from '../preview/chat/Card.tsx';
 import { mergeCards } from '../preview/chat/cards.ts';
@@ -563,7 +563,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
               </div>
             ) : (
               <div className="dp-msg-a" id={`thr-${m.id}`}>
-                {m.role === 'system' ? <span className="dp-cocoav">c</span> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
+                {m.role === 'system' ? <CocoAvatar /> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
                 <div className="dp-thr-body">
                   <div className="dp-who">{m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>
                   {m.files?.length ? <SentFiles files={m.files} /> : null}

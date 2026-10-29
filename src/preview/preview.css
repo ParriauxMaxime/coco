@@ -392,7 +392,11 @@ html[data-theme="dark"] .dp .dp-tip kbd { border-color: rgba(0,0,0,.2); color: #
 .dp-msg-a .dp-who { font-size: 12px; font-weight: 600; margin-bottom: 2px; display: flex; gap: 6px; align-items: center; }
 .dp-msg-a p { margin: 0 0 8px; } .dp-msg-a p:last-child { margin-bottom: 0; }
 .dp-msg-a ul { margin: 0 0 8px; padding-left: 18px; } .dp-msg-a li { margin: 2px 0; }
-.dp-cocoav { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, #5e5ce6, #8b5cf6); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.dp-cocoav { width: 22px; height: 22px; display: block; flex: none; --dp-mark-card: #f3ecdc; --dp-mark-eye: #1c1f29; }
+html[data-theme="dark"] .dp-cocoav { --dp-mark-card: #262a3a; --dp-mark-eye: #f3ecdc; }
+.dp-cocoav-card { fill: var(--dp-mark-card); }
+.dp-cocoav-eye { fill: var(--dp-mark-eye); }
+.dp-ag-hello .dp-cocoav { width: 32px; height: 32px; }
 .dp-acts { border-left: 1px solid var(--dp-line); margin: 2px 0 8px 2px; padding-left: 10px; }
 .dp-act { display: flex; align-items: center; gap: 8px; height: 22px; font-size: 12px; color: var(--dp-t2); }
 .dp-act svg.dp-i { width: 13px; height: 13px; color: var(--dp-t3); }

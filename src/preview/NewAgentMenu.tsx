@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from './Icon.tsx';
+import { CocoAvatar } from './parts.tsx';
 import { openLauncher } from './launcher.ts';
 
 // a work's New agent: Ask coco (reads, answers, proposes) or a free agent from the launcher, in the work's place
@@ -28,7 +29,7 @@ export default function NewAgentMenu({ onAsk, place }: { onAsk: () => void; plac
         <div className="dp-pop dp-on dp-newmenu-pop" role="menu">
           <div className="dp-pop-s">
             <div role="menuitem" className="dp-mi dp-newmenu-mi" onClick={pick(onAsk)}>
-              <span className="dp-cocoav">c</span>
+              <CocoAvatar />
               <span className="dp-newmenu-t"><b>Ask coco</b><span className="dp-xs dp-t3">Reads the work, its PRs and code; answers and proposes</span></span>
             </div>
             <div role="menuitem" className="dp-mi dp-newmenu-mi" onClick={pick(() => openLauncher({ place }))}>

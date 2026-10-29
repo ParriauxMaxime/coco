@@ -12,6 +12,7 @@ import { nonceOf, useAskConversation } from './chat/conversation.ts';
 import { WorkContext, useWork } from '../workbench/use-work.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import Icon from './Icon.tsx';
+import { CocoAvatar } from './parts.tsx';
 import { AgentDot } from './AgentsSection.tsx';
 import { STATE_LABEL, paseoLink, prLabel, stateOf, useServerId, useWorkAgent } from './agents.ts';
 import type { AgentState } from './agents.ts';
@@ -81,7 +82,7 @@ export function NewAgentTab({ tabId }: { tabId: string }) {
       <div className="dp-vbar"><Icon name="bot" size={14} /><span className="dp-title">New agent</span><span className="dp-chip">{pr ? prLabel(pr) : 'work'}</span></div>
       <div className="dp-agent-log dp-ag-start">
         <div className="dp-ag-hello">
-          <span className="dp-cocoav">c</span>
+          <CocoAvatar />
           <div className="dp-ag-h">Ask coco about {pr ? prLabel(pr) : w.title}</div>
           <p className="dp-t3">It reads the work, its PRs and the code{pr ? ' in that PR\'s worktree' : ''}, answers and proposes; you apply. Nothing is pushed, posted or sent.</p>
           <div className="dp-ag-ex">{(pr ? PR_EXAMPLES : EXAMPLES).map((e) => <button key={e} type="button" className="dp-btn dp-sm" onClick={() => void start(e)}>{e}</button>)}</div>
