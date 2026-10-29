@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
-import Thread, { ThreadToggle, threadKey, threadLabel, useThreadSummary, useThreadsOf } from '../../components/Thread.tsx';
+import Thread, { ThreadToggle, refreshThreads, threadKey, threadLabel, useThreadSummary, useThreadsOf } from '../../components/Thread.tsx';
+import CardView from '../../preview/chat/Card.tsx';
 import { useWork } from '../use-work.ts';
 import { useWorkbench } from '../workbench-store.ts';
 import { useLocal } from '../tabs/Code.tsx';
@@ -10,14 +11,14 @@ import { isLive } from '../../../server/decisions.ts';
 import { CommentActions, confirmDelete, SevChip, SureChip, WatchActions, lineSpan, remarkVerdicts, setStatus } from './CommentZone.tsx';
 import { reviewApi } from './use-comments.ts';
 import { toast } from '../../components/Toast.tsx';
-import { errorMessage } from '../../api.ts';
+import { api, errorMessage } from '../../api.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import ReviewPlan from './ReviewPlan.tsx';
 import Fold from './Fold.tsx';
 import { TONE } from './ReviewSidebar.tsx';
 import type { ReactNode } from 'react';
 import type { ReviewHandle } from './use-comments.ts';
-import type { Decision } from '../../types.ts';
+import type { Card, Decision } from '../../types.ts';
 import type { PrKey, Proposal, ReviewComment, ReviewRun } from '../types.ts';
 import './code.css';
 
@@ -30,7 +31,7 @@ type Item = { id: string; ts: string; open: boolean; hot: boolean; rank?: number
 
 const MODE: Record<string, string> = { send: 'dp-tone dp-st-merged', cwd: 'dp-info', 'checkout-pr': '' };
 const FILTERS = ['all', 'open', 'to review'];
-const SEVERITY_RANK: Record<string, number> = { blocking: 0, major: 1, minor: 2, nit: 3, undefined: 2 };
+export const SEVERITY_RANK: Record<string, number> = { blocking: 0, major: 1, minor: 2, nit: 3, undefined: 2 };
 const fail = (e: unknown) => toast.error(errorMessage(e));
 const latest = (...ts: (string | undefined)[]) => ts.filter(Boolean).sort().at(-1) || '';
 const since = (iso?: string) => {
@@ -93,11 +94,26 @@ function CommentRow({ c, rv, slug, open, onToggle, onJump, ts }: { c: ReviewComm
   );
 }
 
-// one line per remark: where, what, and the state of its agent; a click opens it in the review code
-function CompactRow({ c, slug, n, ts, coco, onJump }: { c: ReviewComment; slug: string; n: PrKey; ts: string; coco?: boolean; onJump: Jump }) {
-  const s = useThreadSummary(slug, threadKey.comment(n, c.id));
-  const agent = coco ? '' : threadLabel(s, '');
+// the oldest question a remark's agent waits on, answered from the inspector; stamp refetches it when the thread moves
+function WaitingCard({ slug, threadKey: key, stamp }: { slug: string; threadKey: string; stamp: string }) {
+  const [card, setCard] = useState<Card | null>(null);
+  useEffect(() => {
+    api.thread(slug, key).then((t) => setCard(t.cards?.find((x) => x.status === 'open' && x.kind !== 'post') ?? null), () => {});
+  }, [slug, key, stamp]);
+  if (!card) return null;
   return (
+    <div className="rv-compact-card">
+      <CardView card={card} onCard={(x) => { setCard(x.status === 'open' ? x : null); refreshThreads(slug); }} />
+    </div>
+  );
+}
+
+// one line per remark: where, what, and the state of its agent; a click opens it in the review code, a question it waits on shows under it
+function CompactRow({ c, slug, n, ts, coco, onJump }: { c: ReviewComment; slug: string; n: PrKey; ts: string; coco?: boolean; onJump: Jump }) {
+  const key = threadKey.comment(n, c.id);
+  const s = useThreadSummary(slug, key);
+  const agent = coco ? '' : threadLabel(s, '');
+  const row = (
     <button type="button" className={`rv-item rv-compact${coco ? ' rv-wp' : ` rv-cm cc-st-${c.status}`}`} title={`${c.path}:${c.startLine} · open in the review code`} onClick={() => onJump(c)}>
       <span className="rv-act-h">
         {coco ? <span className="dp-chip dp-tone dp-st-merged"><Icon name="bot" size={12} />coco suggests</span> : <span className={`dp-chip ${TONE[c.status] ?? ''}`}>{c.status}</span>}
@@ -110,6 +126,8 @@ function CompactRow({ c, slug, n, ts, coco, onJump }: { c: ReviewComment; slug: 
       {agent && <span className={`rv-compact-ag${s?.asks || s?.open ? ' dp-hot' : ''}`}>{s?.waiting ? <span className="dp-ag-dot dp-ag-running dp-thr-spin" aria-hidden /> : <Icon name="message-square" size={12} />}{agent}</span>}
     </button>
   );
+  if (coco || !s?.asks) return row;
+  return <div className="rv-compact-w">{row}<WaitingCard slug={slug} threadKey={key} stamp={`${s.lastTs}:${s.asks}`} /></div>;
 }
 
 type DecisionRowProps = { d: Decision; slug: string; open: boolean; onToggle: () => void; ts: string; onDecide: (body: Record<string, unknown>) => Promise<void>; onReply: () => unknown };

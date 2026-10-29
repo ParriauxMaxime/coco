@@ -21,13 +21,13 @@ import { useNow } from '../preview/subagents.ts';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import { commitTabId } from '../workbench/code/ids.ts';
-import type { ActivityEvent, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadInbound, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
+import type { ActivityEvent, Block, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadInbound, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
 import './thread.css';
 
 const POLL_MS = 10000;
-// a long thread shows its last turns (a turn starts at one of your messages); earlier ones load by threes when scrolled to
-const SHOWN_TURNS = 3;
-const MORE_TURNS = 3;
+// a long thread shows its last turns (a turn starts at one of your messages), those already read one line each; earlier ones load when scrolled to
+const SHOWN_TURNS = 8;
+const MORE_TURNS = 8;
 const OPEN = ['pending', 'queued', 'conflict'];
 const STATE_CHIP: Record<string, string> = { pending: 'dp-info', queued: 'dp-warn', conflict: 'dp-bad', applied: 'dp-ok', dismissed: '' };
 const STATE_NOTE: Record<string, string> = { queued: 'approved, applies when the PR worktree is free', conflict: 'does not apply on the PR branch', superseded: 'the agent rewrote this commit: approve the newer one' };
@@ -206,6 +206,42 @@ function replyOf(messages: ThreadMessage[], i: number) {
   }
 }
 
+const lineOf = (text?: string) => (text || '').replace(/[#*`>_|]/g, '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+const blocksLine = (blocks?: Block[]) => lineOf(blocks?.map((b) => ('text' in b ? b.text : 'caption' in b ? b.caption : '')).find(Boolean));
+
+// your turns already read, one line each (from your message to the next one): none waits on you, its agent or your Approve
+type ReadTurn = { end: number; reply: string; commit?: SuggestionData };
+function readTurns(messages: ThreadMessage[], asks: number[], waitingMsg: string | undefined, seenAt: string | null) {
+  const out = new Map<number, ReadTurn>();
+  asks.slice(0, -1).forEach((start, k) => {
+    const turn = messages.slice(start, asks[k + 1]);
+    if (turn.some((m) => m.id === waitingMsg || (m.suggestion && isOpenSuggestion(m.suggestion)) || (seenAt && (m.ts ?? '') > seenAt))) return;
+    const reply = turn.find((m) => m.role === 'agent');
+    out.set(start, { end: asks[k + 1], reply: reply ? lineOf(reply.text) || blocksLine(reply.blocks) : '', commit: turn.findLast((m) => m.suggestion?.kind === 'commit')?.suggestion });
+  });
+  return out;
+}
+
+function TurnLine({ you, turn, open, onClick }: { you: string; turn: ReadTurn; open: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className={`dp-thr-turn${open ? ' dp-open' : ''}`} aria-expanded={open} title={open ? 'Fold this turn back to one line' : 'Show this turn'} onClick={onClick}>
+      <Icon name="chevron-right" size={12} className="dp-cv-caret" />
+      <span className="dp-thr-turn-you dp-ell">{you}</span>
+      {turn.reply && <span className="dp-ell">→ {turn.reply}</span>}
+      {turn.commit && <span className={`dp-chip ${STATE_CHIP[turn.commit.state] ?? ''}`}><code>{turn.commit.commit.slice(0, 7)}</code>{turn.commit.state}</span>}
+    </button>
+  );
+}
+
+// what came in since you last read the thread: replies, commits, questions
+function NewSince({ messages, cards, seenAt }: { messages: ThreadMessage[]; cards: Card[]; seenAt: string }) {
+  const replies = messages.filter((m) => m.role === 'agent').length;
+  const commits = messages.flatMap((m) => (m.suggestion?.kind === 'commit' ? [m.suggestion.commit.slice(0, 7)] : []));
+  const asks = cards.filter((c) => c.status === 'open' && c.kind !== 'post' && c.createdAt > seenAt).length;
+  const parts = [replies && `${replies} repl${replies > 1 ? 'ies' : 'y'}`, commits.length && `commit ${commits.join(', ')}`, asks && `${asks} question${asks > 1 ? 's' : ''} for you`].filter(Boolean);
+  return <div className="dp-thr-new" role="separator"><span>New since you last looked{parts.length ? ` · ${parts.join(' · ')}` : ''}</span></div>;
+}
+
 // the thread's agent activity over SSE (stored, then live), and a fresh thread on every change the server reports
 type Live = { starting?: ThreadStep | null; inbound?: ThreadInbound[] };
 function useThreadStream(slug: string, key: string, onChange: () => void, onLive: (live: Live) => void) {
@@ -352,6 +388,12 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const sending = usePosting((s) => s[key] ?? NONE);
   const [note, setNote] = useState('');
   const [turns, setTurns] = useState(SHOWN_TURNS);
+  const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set());
+  // the newest message you had read when the thread opened; what came after stays unfolded under a "new" line
+  const seenKey = `cc.thr.seen:${slug}:${key}`;
+  const [seenAt] = useState(() => { try { return localStorage.getItem(seenKey); } catch { return null; } });
+  const lastTs = thread?.messages.at(-1)?.ts;
+  useEffect(() => { if (lastTs) try { localStorage.setItem(seenKey, lastTs); } catch {} }, [seenKey, lastTs]);
   const waiting = Boolean(thread?.waiting);
   const settled = useRef(onSettled);
   settled.current = onSettled;
@@ -434,6 +476,20 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   // no live agent yet: the first message starts one, the others wait for it
   const booting = posted.length > 0 && !thread.agent?.live && (Boolean(thread.starting) || !group);
   const from = asks.length > turns ? asks[asks.length - turns] : 0;
+  const read = readTurns(thread.messages, asks, thread.waiting?.msgId, seenAt);
+  const folded = new Set<number>();
+  for (const [start, t] of read) if (!unfolded.has(thread.messages[start].id)) for (let j = start; j < t.end; j++) folded.add(j);
+  const fresh = seenAt ? thread.messages.findIndex((m) => (m.ts ?? '') > seenAt) : -1;
+  const openCardsAt = (i: number) => slots.get(i)?.some((c) => c.status === 'open') && cardsAt(i);
+  const youOf = (m: ThreadMessage) => {
+    const answered = m.card ? CARD_MSG.exec(m.text ?? '') : null;
+    return answered ? `${answered[2] === 'answered' ? 'Answered' : `Card ${answered[2]}`}: ${titles.get(answered[1]) ?? 'a question'}` : lineOf(m.text) || blocksLine(m.blocks) || 'Files';
+  };
+  const unfold = (id: string) => setUnfolded((s) => {
+    const next = new Set(s);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
   return (
     <div ref={rootRef} className="dp-thr">
       {(!bare || thread.starting || thread.waiting?.deps || thread.agent?.deps === 'installing') && <div className="dp-thr-h">
@@ -476,10 +532,15 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       {from > 0 && <EarlierTurns hidden={from} onMore={() => setTurns((t) => t + MORE_TURNS)} />}
       {thread.messages.map((m, i) => {
         if (i < from) return slots.get(i)?.some((c) => c.status === 'open') ? <React.Fragment key={m.id}>{cardsAt(i)}</React.Fragment> : null;
+        const turn = read.get(i);
+        const line = turn && <TurnLine you={youOf(m)} turn={turn} open={!folded.has(i)} onClick={() => unfold(m.id)} />;
+        if (folded.has(i)) return <React.Fragment key={m.id}>{openCardsAt(i)}{line}</React.Fragment>;
         const answered = m.card && m.role === 'user' ? CARD_MSG.exec(m.text ?? '') : null;
         return (
           <React.Fragment key={m.id}>
+            {i === fresh && i > 0 && seenAt &&<NewSince messages={thread.messages.slice(i)} cards={cards} seenAt={seenAt} />}
             {cardsAt(i)}
+            {line}
             {answered ? <CardMessage verb={answered[2]} title={titles.get(answered[1])} /> : m.role === 'system' && !m.agentId ? <div className="dp-thr-sys">{m.text}</div> : m.role === 'user' ? (
               <div className="dp-msg-u dp-cv-u">
                 {(m.model || m.steer || m.turn === 'follow-up') && <div className="dp-cv-unote">{[m.model, m.steer ? 'while it worked' : m.turn === 'follow-up' ? 'new turn' : ''].filter(Boolean).join(' · ')}</div>}

@@ -141,7 +141,7 @@ export default function Activity({ events, active = false, issues: offer = false
   const stays = (it: ActivityItem, i: number) => it.kind === 'permission' || (it.kind === 'event' && (it.event.type === 'closed' || it.event.type === 'stderr' || Boolean(it.event.error))) || (i > lastWork && (it.kind === 'live' || (it.kind === 'event' && it.event.type === 'text')));
   const took = fold.from && (active || fold.to) ? elapsed(fold.from, active ? now : Date.parse(fold.to ?? '')) : '';
   const did = callsLabel(countCalls(items.flatMap((it) => (it.kind === 'tools' ? it.calls : []))));
-  const label = active ? `Working${took && ` ${took}`} · ${stepOf(items[lastWork])}` : [`Worked${took && ` ${took}`}`, did].filter(Boolean).join(' · ');
+  const label = active ? `Working${took && ` ${took}`} · ${stepOf(items[lastWork])}` : [took && `Worked ${took}`, did].filter(Boolean).join(' · ') || 'Worked';
   return (
     <div className="dp-cv-acts">
       <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>

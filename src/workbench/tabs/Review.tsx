@@ -7,9 +7,9 @@ import { treeOrder } from '../code/FileList.tsx';
 import { isLocalKey, keyLabel, reviewKeyOfTab } from '../code/ids.ts';
 import ReviewSidebar, { TONE } from '../code/ReviewSidebar.tsx';
 import ReviewFileCard, { StepHeader } from '../code/ReviewFileCard.tsx';
-import ReviewActivity from '../code/ReviewActivity.tsx';
+import ReviewActivity, { SEVERITY_RANK } from '../code/ReviewActivity.tsx';
 import { openCommentThread } from '../code/CommentZone.tsx';
-import { threadKey } from '../../components/Thread.tsx';
+import { threadKey, useThreadsOf } from '../../components/Thread.tsx';
 import Fold from '../code/Fold.tsx';
 import { useInspector } from '../../preview/inspector-state.ts';
 import { CodeRefScope } from '../../components/CodeRefs.tsx';
@@ -302,14 +302,32 @@ export default function Review({ tabId }: { tabId: string }) {
     openCommentThread(threadKey.comment(n, asked.c.id), asked.c.id);
   }, [asked, Boolean(opened)]);
 
+  // the remarks whose agent waits on your answer, worst first, then in file order
+  const { summaries } = useThreadsOf(slug);
+  const fileAt = (c: ReviewComment) => order.findIndex((f) => f.filename === c.path);
+  const questions = rv.comments.filter((c) => summaries[threadKey.comment(n, c.id)]?.asks).sort((a, b) => SEVERITY_RANK[a.severity ?? 'undefined'] - SEVERITY_RANK[b.severity ?? 'undefined'] || fileAt(a) - fileAt(b) || a.startLine - b.startLine);
+  const questionsRef = useRef(questions);
+  questionsRef.current = questions;
+  const lastQuestion = useRef<string | null>(null);
+  const nextQuestion = useCallback((step: number) => {
+    const list = questionsRef.current;
+    const i = list.findIndex((c) => c.id === lastQuestion.current);
+    const c = list[i < 0 ? (step > 0 ? 0 : list.length - 1) : (i + step + list.length) % list.length];
+    if (!c) return;
+    lastQuestion.current = c.id;
+    jump(c);
+    openCommentThread(threadKey.comment(n, c.id), c.id);
+  }, [jump, n]);
+
   useEffect(() => {
     if (!active) return undefined;
     const on = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || (e.key !== 'j' && e.key !== 'k') || typing(e.target)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || !'jknN'.includes(e.key) || e.key.length !== 1 || typing(e.target)) return;
       const s = useWorkbench.getState();
       if (s.groups.find((g) => g.id === s.focused)?.active !== tabId) return;
       e.preventDefault();
       e.stopPropagation();
+      if (e.key === 'n' || e.key === 'N') return nextQuestion(e.key === 'n' ? 1 : -1);
       const list = orderRef.current;
       const i = list.findIndex((f) => f.filename === activeRef.current);
       const next = list[Math.min(list.length - 1, Math.max(0, i + (e.key === 'j' ? 1 : -1)))];
@@ -317,7 +335,7 @@ export default function Review({ tabId }: { tabId: string }) {
     };
     addEventListener('keydown', on, true);
     return () => removeEventListener('keydown', on, true);
-  }, [active, tabId, goTo]);
+  }, [active, tabId, goTo, nextQuestion]);
 
   const rvCards = useMemo(() => rv, [rv.comments, rv.drafts, rv.refs, rv.proposals]);
   const setAll = (on: boolean) => setOpened(new Set(on ? order.map((f) => f.filename) : []));
@@ -381,6 +399,7 @@ export default function Review({ tabId }: { tabId: string }) {
         <span className="dp-sp" />
         {lang && <span className={`dp-chip ${lang.tone} rv-lang`} title={lang.tip}>{lang.label}</span>}
         <span className="rv-acts">
+          {questions.length > 0 && <button type="button" className="dp-btn dp-sm rv-asks" title="Go to the next question a remark's agent waits on, worst first (n, shift+n back)" onClick={() => nextQuestion(1)}><span className="dp-ag-dot dp-ag-waiting" />{questions.length} question{questions.length > 1 ? 's' : ''}<kbd>n</kbd></button>}
           <button type="button" className="dp-btn dp-sm dp-ghost" title="Every remark on this PR in one list" onClick={() => { const s = useWorkbench.getState(); s.open(`findings-${n}`, { group: s.otherGroup() }); }}><Icon name="flag" size={12} /><span className="rv-lbl">Findings</span></button>
           <button type="button" className="dp-btn dp-sm dp-ghost" title="Expand all files" disabled={!order.length} onClick={() => setAll(true)}><Icon name="chevron-down" size={12} /><span className="rv-lbl">Expand all</span></button>
           <button type="button" className="dp-btn dp-sm dp-ghost" title="Collapse all files" disabled={!order.length} onClick={() => setAll(false)}><Icon name="chevron-right" size={12} /><span className="rv-lbl">Collapse all</span></button>

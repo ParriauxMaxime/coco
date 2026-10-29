@@ -9,6 +9,8 @@ import { SentFiles } from './Attachments.tsx';
 import './chat.css';
 
 const LIVE = ['delta', 'think_delta'];
+// a run logs no times: a folded turn says what it did, not for how long
+const FOLD = {};
 
 type Part = ActivityEvent[] | Card;
 type CardProps = { onCard?: (c: Card) => void; newest?: string };
@@ -19,7 +21,7 @@ function AgentTurn({ parts, active, who, onCard, newest }: { parts: Part[]; acti
       {who === 'coco' ? <span className="dp-cocoav">c</span> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
       <div className="dp-cv-body">
         <div className="dp-who">{who}</div>
-        {parts.map((p, i) => (Array.isArray(p) ? <Activity key={i} events={p} active={active && i === parts.length - 1} issues={who === 'coco'} /> : <CardView key={p.id} card={p} onCard={onCard} focus={p.id === newest} />))}
+        {parts.map((p, i) => (Array.isArray(p) ? <Activity key={i} events={p} active={active && i === parts.length - 1} issues={who === 'coco'} fold={FOLD} /> : <CardView key={p.id} card={p} onCard={onCard} focus={p.id === newest} />))}
       </div>
     </div>
   );
