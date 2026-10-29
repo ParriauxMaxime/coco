@@ -84,7 +84,9 @@ export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgen
 
 // milestones: open PRs by current milestone, missing until the stack view computed them once
 export type WorkProgress = { merged: number; landed: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean; milestones?: Record<string, number> };
-export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null; parent?: string | null };
+// a stack row as the sidebar shows it without opening the work (server/work-summary.ts)
+export type SummaryRow = { key: string; number: number | null; title: string; state: 'planned' | 'landed' | 'merged' | 'closed' | 'draft' | 'review' | 'approved' | 'changes'; ci: string | null };
+export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null; parent?: string | null; rows?: SummaryRow[]; openFindings?: number; openDecisions?: number };
 export type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
 // a repo's page: its live works in sidebar order with their what's-next line, the owner's open PRs no work holds, its brief lessons and rule files
 export type RepoPage = {

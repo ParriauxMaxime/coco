@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { itemsOf, useWaiting } from './waiting.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
-import { AgentList, JobRow, agentCounts, useArchive } from './AgentsSection.tsx';
+import { AgentList, agentCounts, useArchive } from './AgentsSection.tsx';
 import { agentOf, groupAgents, prLabel, useWorkAgents } from './agents.ts';
 import type { AgentGroup } from './agents.ts';
 import { isDone, prKey, prState, prTitle } from './data.ts';
@@ -11,7 +11,7 @@ import { usePersistedList, workHref } from './prefs.ts';
 import { findingsKeyOfTab, prOfTab } from '../workbench/code/ids.ts';
 import { isLive, useJobs } from '../jobs.ts';
 import type { WorkPr } from '../workbench/types.ts';
-import type { WorkSummary } from '../types.ts';
+import type { SummaryRow, WorkSummary } from '../types.ts';
 
 export const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: 'plan', label: 'Overview', icon: 'home' },
@@ -24,7 +24,6 @@ export const VIEWS: { id: string; label: string; icon: IconName }[] = [
 ];
 
 // fold ids carry a colon so no PR key can take them
-const OVERVIEW = ':overview';
 const MERGED = ':merged';
 const PLANNED = ':planned';
 
@@ -52,14 +51,16 @@ type Props = {
   w: WorkSummary;
   open?: (id: string) => void;
   isOpen?: (id: string) => boolean;
-  count?: (id: string) => number | undefined;
   prs?: WorkPr[];
-  findings?: (key: string) => number;
   focused?: string;
 };
 
-// a work's tree: the Overview group (views, jobs, work agents), then its open PRs, merged and planned ones folded; off its page each entry opens the work on that tab
-export function WorkViews({ w, open, isOpen = () => false, count, prs = [], findings, focused = '' }: Props) {
+// a stack row of a work not open, from the overview's summary
+const summaryRow = (r: SummaryRow): Row => ({ key: r.key, pr: null, state: r.state, label: r.number ? `#${r.number}` : prLabel(r.key), title: r.title });
+
+// a work's tree: its agents, then its open PRs, merged and planned ones folded; the views, Timeline, Notes and Artifacts open from
+// the work's Overview, its tabs and ⌘K. Off its page each entry opens the work on that tab
+export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '' }: Props) {
   const live = Boolean(open);
   const go = (id: string) => (open ? open(id) : (location.hash = `${workHref(w.slug)}/${id}`));
   const data = useWorkAgents(w.slug, live);
@@ -71,17 +72,13 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
   const countsAt = (key: string | null) => ({ running: agentCounts(byPr.get(key)).running, waiting: itemsOf(queue, w.slug, key).length });
   const jobs = useJobs(w.slug);
   const working = new Set(jobs.filter(isLive).map((j) => j.pr));
-  // agents already list themselves; commands, syncs and setup steps show while they run or after they failed
-  const commands = jobs.filter((j) => j.kind !== 'agent' && (isLive(j) || j.state === 'failed' || j.state === 'lost'));
   const listed = new Set((data?.agents || []).map((a) => a.agentId));
   const starting = (key: string | null) => jobs.filter((j) => j.kind === 'agent' && isLive(j) && j.pr === key && !(j.agentId && listed.has(j.agentId)));
   const steps = useMilestones(live ? w.slug : null);
   const { list, toggle, set } = usePersistedList(`cc.dp.tree.${w.slug}`, (l) => l);
 
-  const rows: Row[] = [
-    ...prs.map((pr) => ({ key: prKey(pr), pr, state: prState(pr), label: pr.number ? `#${pr.number}` : prLabel(prKey(pr)), title: prTitle(pr) })),
-    ...groups.filter((g) => g.pr !== null && !prs.some((p) => prKey(p) === g.pr)).map((g) => ({ key: g.pr || '', pr: null, state: '', label: g.label, title: g.title })),
-  ];
+  const stack: Row[] = prs.length ? prs.map((pr) => ({ key: prKey(pr), pr, state: prState(pr), label: pr.number ? `#${pr.number}` : prLabel(prKey(pr)), title: prTitle(pr) })) : (w.rows || []).map(summaryRow);
+  const rows: Row[] = [...stack, ...groups.filter((g) => g.pr !== null && !stack.some((r) => r.key === g.pr)).map((g) => ({ key: g.pr || '', pr: null, state: '', label: g.label, title: g.title }))];
   const opened = rows.filter((r) => !isDone(r.state) && r.state !== 'planned');
   const merged = rows.filter((r) => isDone(r.state));
   const planned = rows.filter((r) => r.state === 'planned');
@@ -108,7 +105,6 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
     const on = list.includes(r.key);
     const g = byPr.get(r.key);
     const step = steps[r.key];
-    const n = findings?.(r.key) || 0;
     const tip = [r.label, r.title].filter(Boolean).join(' ');
     return (
       <React.Fragment key={r.key}>
@@ -122,8 +118,6 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}>
           <div className="dp-pr-kids">
-            <div className={`dp-view${isOpen(`review-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`review-${r.key}`)}><Icon name="file" size={14} /><span>Review code</span></div>
-            <div className={`dp-view${isOpen(`findings-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`findings-${r.key}`)}><Icon name="flag" size={14} /><span>Findings</span>{n > 0 && <span className="dp-count" title={`${n} open`}>{n}</span>}</div>
             <AgentList g={g} label={r.label} onOpen={go} onNew={() => go(`ask-new-${r.key}`)} arc={arc} starting={starting(r.key)} />
           </div>
         </div>
@@ -144,37 +138,12 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
     );
   };
 
-  const ovOn = !list.includes(OVERVIEW);
   const closed = merged.filter((r) => r.state === 'closed').length;
   const landed = merged.filter((r) => r.state === 'landed').length;
   return (
     <div className="dp-views">
-      <div className={`dp-view dp-ov-head${isOpen('plan') ? ' dp-open' : ''}`} onClick={() => go('plan')}>
-        {caret(OVERVIEW, ovOn)}
-        <Icon name="home" size={14} /><span className="dp-grow">Overview</span>
-        {!ovOn && <Counts {...countsAt(null)} job={commands.some(isLive)} />}
-      </div>
-      <div className={`dp-collapse${ovOn ? ' dp-open' : ''}`}>
-        <div className="dp-ov-kids">
-          {VIEWS.slice(1).map((v) => {
-            const c = count ? count(v.id) : v.id === 'stack' ? w.stack || undefined : undefined;
-            return (
-              <div key={v.id} className={`dp-view${isOpen(v.id) ? ' dp-open' : ''}`} onClick={() => go(v.id)}>
-                <Icon name={v.icon} size={14} /><span>{v.label}</span>
-                {c !== undefined && <span className="dp-count">{c}</span>}
-              </div>
-            );
-          })}
-          {commands.length > 0 && (
-            <div className="dp-ag-group">
-              <div className="dp-ag-gh"><span className="dp-grow">Jobs</span></div>
-              {commands.map((j) => <JobRow key={j.id} j={j} />)}
-            </div>
-          )}
-          {data?.error && !groups.length && <div className="dp-ag-note">{data.error}</div>}
-          <AgentList g={byPr.get(null)} label="the work" onOpen={go} onNew={() => go('ask')} arc={arc} starting={starting(null)} />
-        </div>
-      </div>
+      {data?.error && !groups.length && <div className="dp-ag-note">{data.error}</div>}
+      <AgentList g={byPr.get(null)} label="the work" onOpen={go} onNew={() => go('ask')} arc={arc} starting={starting(null)} />
       {opened.map(prRow)}
       {fold(MERGED, [[merged.length - closed - landed, 'merged'], [landed, 'landed'], [closed, 'closed']].filter(([n]) => n).map(([n, word]) => `${n} ${word}`).join(' · '), merged)}
       {fold(PLANNED, `${planned.length} planned`, planned)}

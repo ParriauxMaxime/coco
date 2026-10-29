@@ -106,6 +106,7 @@ interface PrFile {
   status: string;
 }
 interface Snapshot {
+  title?: string;
   state?: string;
   isDraft?: boolean;
   ci?: string;
@@ -484,7 +485,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     const events: string[] = [];
     for (const pr of prs) {
       if (pr.error || !pr.number) continue;
-      const cur: Snapshot = { state: pr.state, isDraft: pr.isDraft, ci: pr.ci, reviewDecision: pr.reviewDecision, sha: pr.sha, reviewers: Object.fromEntries((pr.reviewers || []).map((r) => [r.login, r.state])) };
+      const cur: Snapshot = { title: pr.title, state: pr.state, isDraft: pr.isDraft, ci: pr.ci, reviewDecision: pr.reviewDecision, sha: pr.sha, reviewers: Object.fromEntries((pr.reviewers || []).map((r) => [r.login, r.state])) };
       next[pr.number] = cur;
       const old = prev[pr.number];
       if (!old) continue;

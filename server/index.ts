@@ -34,6 +34,8 @@ import { rekeyWorkFiles } from './rekey.ts';
 import { createBriefWriter } from './brief-writer.ts';
 import { createJudge } from './judge.ts';
 import { createStackKeeper, needsKeeping } from './stack-keeper.ts';
+import { openDecisions, summaryRows } from './work-summary.ts';
+import type { PrSnap } from './work-summary.ts';
 import { createInbox } from './inbox.ts';
 import { createKit } from './kit.ts';
 import { createDrift } from './drift.ts';
@@ -496,10 +498,13 @@ function listReviews() {
 // {field} or {a|b} (first non-empty) from the launch body, plus {briefsDir} and {owner}
 const fillRitual = (template: string | undefined, body: Record<string, unknown>) => fillTemplate(String(template || ''), { ...body, ...ritualVars() });
 
-// sidebar progress from the last GitHub snapshot, no gh call per overview poll
-function workProgress(w: Work) {
+const readSnap = (w: Work): Record<string, PrSnap> => {
   const snapFile = path.join(DATA, 'works', '.snapshots', `${w.slug}.json`);
-  const snap: Record<string, { state?: string; isDraft?: boolean; reviewDecision?: string | null; ci?: string }> = fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
+  return fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
+};
+
+// sidebar progress from the last GitHub snapshot, no gh call per overview poll
+function workProgress(w: Work, snap: Record<string, PrSnap>) {
   const out = { merged: 0, landed: 0, ready: 0, draft: 0, planned: 0, closed: 0, attention: false, restack: needsKeeping(w, snap) };
   for (const s of w.stack || []) {
     const st = s.number ? snap[s.number] : null;
@@ -516,7 +521,11 @@ function workProgress(w: Work) {
   return { ...out, milestones };
 }
 
-const summarize = (w: Work) => ({ slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w), updatedAt: w.updatedAt, archived: w.archived || null, parent: w.parent || null });
+// rows, openFindings, openDecisions: what the sidebar shows of a work without opening it
+const summarize = (w: Work) => {
+  const snap = readSnap(w);
+  return { slug: w.slug, title: w.title, repo: repos.repoFor(w).id, projectName: w.projectName, stack: (w.stack || []).length, progress: workProgress(w, snap), updatedAt: w.updatedAt, archived: w.archived || null, parent: w.parent || null, rows: summaryRows(w, snap), openFindings: findings.openCount(w.slug), openDecisions: openDecisions(w) };
+};
 
 type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
 const loosePrCache = swrCache<LoosePr[]>(60000, cacheFile(DATA, 'loose-prs'));

@@ -51,8 +51,6 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   }, [d.prs]);
   const ciRun = d.prs.filter((p) => p.ci === 'pending').length;
   const ciBad = d.prs.filter((p) => p.ci === 'failure').length;
-  const openFindings = (d.findings?.rows || []).filter((f) => f.status === 'open').length;
-  const tabCount: Record<string, number | undefined> = { stack: d.prs.length, findings: openFindings || undefined, decisions: (d.work.w.decisions || []).length || undefined };
   const agents = useAgentList(slug) || [];
 
   // a planned row that got its PR: its open tabs follow the number
@@ -100,9 +98,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     return () => removeEventListener('keydown', on);
   });
 
-  const prFindings = (key: string) => (d.findings?.rows || []).filter((f) => f.status === 'open' && String(f.n) === key).length;
   const views = (w: WorkSummary) => w.slug !== slug ? <WorkViews w={w} /> : (
-    <WorkViews w={w} open={open} isOpen={(id) => groups.some((g) => g.tabs.includes(id))} count={(id) => tabCount[id]} prs={d.prs} findings={prFindings} focused={focusedTab} />
+    <WorkViews w={w} open={open} isOpen={(id) => groups.some((g) => g.tabs.includes(id))} prs={d.prs} focused={focusedTab} />
   );
   const openPrs = d.prs.filter((p) => p.number && !['merged', 'closed'].includes(prState(p)));
 

@@ -87,11 +87,18 @@ export function SegBar({ w, thin = true }: { w: WorkSummary; thin?: boolean }) {
 }
 export const workDot = (w: WorkSummary) => (w.progress.attention ? 'dp-st-changes' : w.progress.ready + w.progress.draft ? 'dp-st-draft' : 'dp-st-planned dp-hollow');
 
+// a work's open findings or decisions, opening that board
+function Badge({ slug, view, n, icon, what }: { slug: string; view: string; n?: number; icon: IconName; what: string }) {
+  if (!n) return null;
+  const go = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); location.hash = `${workHref(slug)}/${view}`; };
+  return <button type="button" className="dp-wbadge" title={`${n} open ${what}${n === 1 ? '' : 's'}: open the board`} onClick={go}><Icon name={icon} size={12} />{n}</button>;
+}
+
 function WorkRow({ w, on, expanded, onToggle, views, depth = 0 }: { w: WorkSummary; on: boolean; expanded: boolean; onToggle: () => void; views: React.ReactNode; depth?: number }) {
   const p = w.progress;
   return (
     <>
-      <a className={`dp-work dp-work2${depth ? ' dp-work-sub' : ''}${on ? ' dp-on' : ''}`} style={depth > 1 ? { marginLeft: 14 * depth } : undefined} href={workHref(w.slug)} title={depth ? `${w.title}, spun off the work above` : w.title} onClick={() => { if (!expanded) onToggle(); }}>
+      <a className={`dp-work dp-work2${depth ? ' dp-work-sub' : ''}${on ? ' dp-on' : ''}`} style={depth > 1 ? { marginLeft: 14 * depth } : undefined} href={workHref(w.slug)} title={depth ? `${w.title}, spun off the work above` : w.title}>
         <span className="dp-work-top">
           <button type="button" className={`dp-caret${expanded ? ' dp-open' : ''}`} aria-label={expanded ? 'Collapse' : 'Expand'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}><Icon name="chevron-right" size={12} /></button>
           <span className={`dp-dot dp-lg ${workDot(w)}`} />
@@ -101,6 +108,8 @@ function WorkRow({ w, on, expanded, onToggle, views, depth = 0 }: { w: WorkSumma
         </span>
         <span className="dp-work-bar">
           <SegBar w={w} />
+          <Badge slug={w.slug} view="findings" n={w.openFindings} icon="flag" what="finding" />
+          <Badge slug={w.slug} view="decisions" n={w.openDecisions} icon="scale" what="decision" />
           <span className="dp-pc">{w.archived ? 'archived' : `${p.merged + p.landed}/${w.stack - p.closed}`}</span>
         </span>
       </a>
@@ -116,20 +125,53 @@ const nested = (list: WorkSummary[]) => {
   return under(list.filter((w) => !w.parent || !here.has(w.parent)), 0);
 };
 
+// several repos and works stay unfolded at once, per device; the open work's repo and row unfold while it is open and fold back
+// once you leave it, unless you folded or unfolded them by hand meanwhile
 function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: string; views: (w: WorkSummary) => React.ReactNode; repo?: string }) {
   const works = new Map((ov?.works || []).filter((w) => !w.archived).map((w) => [w.slug, w]));
   const repos = (ov?.repos || []).filter((r) => !repo || r.id === repo);
-  const { list: expanded, toggle } = usePersistedList('cc.dp.expanded', (l) => (!slug || l.includes(slug) ? l : [...l, slug]));
+  const { list: expanded, set: setExpanded } = usePersistedList('cc.dp.expanded', (l) => l);
+  const { list: folded, set: setFolded } = usePersistedList('cc.dp.repos.folded', (l) => l);
+  const repoOfSlug = slug ? works.get(slug)?.repo : undefined;
+  // the open work shows unfolded without being saved so; a fold or unfold by hand during the visit is saved and wins
+  const [touched, setTouched] = useState<{ slug?: string; work?: boolean; repo?: boolean }>({});
+  const mine = touched.slug === slug ? touched : {};
+  const repoOpen = (id: string) => repo !== undefined || !folded.includes(id) || (id === repoOfSlug && !mine.repo);
+  const workOpen = (s: string) => expanded.includes(s) || (s === slug && !mine.work);
+  const flipRepo = (id: string) => {
+    const open = repoOpen(id);
+    if (id === repoOfSlug) setTouched({ ...mine, slug, repo: true });
+    setFolded((l) => (open ? [...l.filter((x) => x !== id), id] : l.filter((x) => x !== id)));
+  };
+  const flipWork = (s: string) => {
+    const open = workOpen(s);
+    if (s === slug) setTouched({ ...mine, slug, work: true });
+    setExpanded((l) => (open ? l.filter((x) => x !== s) : [...l.filter((x) => x !== s), s]));
+  };
   return (
     <>
-      {repos.map((r) => (
-        <React.Fragment key={r.id}>
-          {!repo && <a className="dp-repo" href={`#/repo/${r.id}`}><Icon name="git-branch" size={14} /><span>{r.name}</span><span className="dp-gh-name">{r.github.split('/')[0]}</span></a>}
-          {nested(r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w))).map(({ w, depth }) => (
-            <WorkRow key={w.slug} w={w} depth={depth} on={w.slug === slug} expanded={expanded.includes(w.slug)} onToggle={() => toggle(w.slug)} views={views(w)} />
-          ))}
-        </React.Fragment>
-      ))}
+      {repos.map((r) => {
+        const open = repoOpen(r.id);
+        return (
+          <React.Fragment key={r.id}>
+            {!repo && (
+              <div role="button" tabIndex={0} aria-expanded={open} className={`dp-repo dp-repo-fold${open ? '' : ' dp-folded'}`} title={open ? `Fold ${r.name}` : `Unfold ${r.name}`} onClick={() => flipRepo(r.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flipRepo(r.id); } }}>
+                <span className={`dp-caret${open ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span>
+                <Icon name="git-branch" size={14} /><span className="dp-ell">{r.name}</span>
+                <span className="dp-gh-name">{r.github.split('/')[0]}</span>
+                <a className="dp-ibtn dp-repo-go" href={`#/repo/${r.id}`} title={`${r.name}: repo page`} aria-label={`${r.name} repo page`} onClick={(e) => e.stopPropagation()}><Icon name="external-link" size={12} /></a>
+              </div>
+            )}
+            <div className={`dp-collapse${open ? ' dp-open' : ''}`}>
+              <div>
+                {nested(r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w))).map(({ w, depth }) => (
+                  <WorkRow key={w.slug} w={w} depth={depth} on={w.slug === slug} expanded={workOpen(w.slug)} onToggle={() => flipWork(w.slug)} views={views(w)} />
+                ))}
+              </div>
+            </div>
+          </React.Fragment>
+        );
+      })}
     </>
   );
 }

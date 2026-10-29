@@ -389,6 +389,18 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     }
     return refresh(slug, only);
   }
+  // a work's open findings on its last saved board, for the sidebar's badge: counted once per board, not on each overview read
+  const counted = new Map<string, { at: string; n: number }>();
+  function openCount(slug: string) {
+    const hit = cache.get(`${slug}|null`);
+    let at = hit ? String(hit.at) : '';
+    if (!hit) try { at = String(fs.statSync(snapFile(slug, null)).mtimeMs); } catch { return 0; }
+    const seen = counted.get(slug);
+    if (seen?.at === at) return seen.n;
+    const n = (snapshot(slug, null)?.rows || []).filter((r) => LEFT.includes(r.status ?? '')).length;
+    counted.set(slug, { at, n });
+    return n;
+  }
   function snapshot(slug: string, only: RowKey | null): Board | null {
     const hit = cache.get(`${slug}|${only}`);
     if (hit) return { ...hit.data, at: new Date(hit.at).toISOString() };
@@ -596,5 +608,5 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return act(slug, { action, keys: [row.key], reason, pr: String(n) });
   }
 
-  return { handle, watch, collect, act, actOnComment, acceptedComment, snapshot, importGithub };
+  return { handle, watch, collect, act, actOnComment, acceptedComment, snapshot, openCount, importGithub };
 }
