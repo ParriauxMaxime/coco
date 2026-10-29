@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { itemsOf, useWaiting } from './waiting.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
-import { AgentList, agentCounts, ago, useArchive } from './AgentsSection.tsx';
+import { AgentList, JobRow, agentCounts, useArchive } from './AgentsSection.tsx';
 import { agentOf, groupAgents, prLabel, useWorkAgents } from './agents.ts';
 import type { AgentGroup } from './agents.ts';
 import { prKey, prState, prTitle } from './data.ts';
@@ -74,6 +74,8 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
   const working = new Set(jobs.filter(isLive).map((j) => j.pr));
   // agents already list themselves; commands, syncs and setup steps show while they run or after they failed
   const commands = jobs.filter((j) => j.kind !== 'agent' && (isLive(j) || j.state === 'failed' || j.state === 'lost'));
+  const listed = new Set((data?.agents || []).map((a) => a.agentId));
+  const starting = (key: string | null) => jobs.filter((j) => j.kind === 'agent' && isLive(j) && j.pr === key && !(j.agentId && listed.has(j.agentId)));
   const steps = useMilestones(live ? w.slug : null);
   const { list, toggle, set } = usePersistedList(`cc.dp.tree.${w.slug}`, (l) => l);
 
@@ -127,7 +129,7 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
                 <div className={`dp-view${isOpen(`findings-${r.key}`) ? ' dp-open' : ''}`} onClick={() => go(`findings-${r.key}`)}><Icon name="flag" size={14} /><span>Findings</span>{n > 0 && <span className="dp-count" title={`${n} open`}>{n}</span>}</div>
               </>
             )}
-            <AgentList g={g} label={r.label} onOpen={go} onNew={() => go(`ask-new-${r.key}`)} arc={arc} />
+            <AgentList g={g} label={r.label} onOpen={go} onNew={() => go(`ask-new-${r.key}`)} arc={arc} starting={starting(r.key)} />
           </div>
         </div>
       </React.Fragment>
@@ -170,17 +172,11 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
           {commands.length > 0 && (
             <div className="dp-ag-group">
               <div className="dp-ag-gh"><span className="dp-grow">Jobs</span></div>
-              {commands.map((j) => (
-                <div key={j.id} className="dp-view dp-ag" title={[j.label, j.error].filter(Boolean).join(' · ')}>
-                  {isLive(j) ? <span className="dp-ag-dot dp-ag-running" /> : <span className="dp-ag-dot dp-ag-failed" />}
-                  <span className="dp-ell dp-grow">{j.label}</span>
-                  <span className="dp-ag-ago">{isLive(j) ? ago(j.startedAt) : j.state}</span>
-                </div>
-              ))}
+              {commands.map((j) => <JobRow key={j.id} j={j} />)}
             </div>
           )}
           {data?.error && !groups.length && <div className="dp-ag-note">{data.error}</div>}
-          <AgentList g={byPr.get(null)} label="the work" onOpen={go} onNew={() => go('ask')} arc={arc} />
+          <AgentList g={byPr.get(null)} label="the work" onOpen={go} onNew={() => go('ask')} arc={arc} starting={starting(null)} />
         </div>
       </div>
       {opened.map(prRow)}

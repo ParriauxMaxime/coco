@@ -6,6 +6,8 @@ import { SidebarSubagents, SubagentCount } from './Subagents.tsx';
 import { ContextRing } from './Ring.tsx';
 import { STATE_LABEL, reloadWorkAgents } from './agents.ts';
 import type { AgentGroup, AgentState, ListedAgent } from './agents.ts';
+import { isLive } from '../jobs.ts';
+import type { Job } from '../types.ts';
 
 export const AgentDot = ({ state }: { state: AgentState }) => <span className={`dp-ag-dot dp-ag-${state}`} title={STATE_LABEL[state]} />;
 
@@ -74,20 +76,32 @@ function AgentRow({ a, onOpen, arc }: { a: ListedAgent; onOpen: (id: string) => 
   );
 }
 
-// a group's agents, live first then its archived fold; + opens a new agent tab on its PR or the work, the archive button archives its idle agents
-export function AgentList({ g, label, onOpen, onNew, arc }: { g: AgentGroup | undefined; label: string; onOpen: (id: string) => void; onNew: () => void; arc: Archive }) {
+export function JobRow({ j, tip }: { j: Job; tip?: string }) {
+  return (
+    <div className="dp-view dp-ag" title={[j.label, j.error, tip].filter(Boolean).join(' · ')}>
+      <span className={`dp-ag-dot dp-ag-${isLive(j) ? 'running' : 'failed'}`} />
+      <span className="dp-ell dp-grow">{j.label}</span>
+      <span className="dp-ag-ago">{isLive(j) ? ago(j.startedAt) : j.state}</span>
+    </div>
+  );
+}
+
+// a group's agents, live first then its archived fold; + opens a new agent tab on its PR or the work, the archive button archives its idle agents;
+// starting: agent jobs whose agent is not listed yet (worktree, brief and deps come before it)
+export function AgentList({ g, label, onOpen, onNew, arc, starting = [] }: { g: AgentGroup | undefined; label: string; onOpen: (id: string) => void; onNew: () => void; arc: Archive; starting?: Job[] }) {
   const [folded, setFolded] = useState(true);
-  if (!g || (!g.live.length && !g.archived.length)) return <div className="dp-view dp-ag-new" title={`New agent on ${label}`} onClick={onNew}><Icon name="plus" size={12} /><span>New agent</span></div>;
-  const done = settled(g.live);
+  if (!starting.length && (!g || (!g.live.length && !g.archived.length))) return <div className="dp-view dp-ag-new" title={`New agent on ${label}`} onClick={onNew}><Icon name="plus" size={12} /><span>New agent</span></div>;
+  const done = settled(g?.live ?? []);
   return (
     <div className="dp-ag-group">
       <div className="dp-ag-gh">
         <Icon name="bot" size={12} /><span className="dp-grow">Agents</span>
-        {done.length > 0 && <ArchiveButton id={`group:${g.pr ?? ''}`} ids={done.map((a) => a.id)} arc={arc} title={`Archive the ${done.length} idle agent${done.length === 1 ? '' : 's'} here`} armedTitle={`Click again to archive ${done.length}; working ones stay`} />}
+        {done.length > 0 && <ArchiveButton id={`group:${g?.pr ?? ''}`} ids={done.map((a) => a.id)} arc={arc} title={`Archive the ${done.length} idle agent${done.length === 1 ? '' : 's'} here`} armedTitle={`Click again to archive ${done.length}; working ones stay`} />}
         <button type="button" className="dp-ibtn dp-ag-add" title={`New agent on ${label}`} onClick={onNew}><Icon name="plus" size={12} /></button>
       </div>
-      {g.live.map((a) => <AgentRow key={a.id} a={a} onOpen={onOpen} arc={arc} />)}
-      {g.archived.length > 0 && (
+      {starting.map((j) => <JobRow key={j.id} j={j} tip="Starting: its chat opens once the agent runs" />)}
+      {g?.live.map((a) => <AgentRow key={a.id} a={a} onOpen={onOpen} arc={arc} />)}
+      {g && g.archived.length > 0 && (
         <>
           <div className="dp-view dp-ag-fold" onClick={() => setFolded((f) => !f)}>
             <span className={`dp-caret${folded ? '' : ' dp-open'}`}><Icon name="chevron-right" size={12} /></span>

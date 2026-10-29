@@ -722,7 +722,9 @@ that opens the agent, then a ✓ for a minute, or a failure with Retry and
 dismiss. The status bar shows "n jobs running" (and failures) with the list,
 the PR's milestone pill, its Stack row and its sidebar row spin while a job
 runs on it, and the work sidebar's Overview group lists running or failed
-commands under Jobs. Each job's end is
+commands under Jobs. An agent job whose agent does not exist yet (worktree,
+brief and dependencies come first) shows in its PR's or the work's Agents
+list with its elapsed time, until the agent it starts takes its place. Each job's end is
 toasted once. Routes: `GET /api/jobs?work=<slug>`, `POST
 /api/jobs/<id>/dismiss`, topic `jobs` (optional work).
 
