@@ -148,6 +148,21 @@ function Suggestion({ onReview, ...props }: SuggestionActionsProps & { onReview:
   );
 }
 
+// the commits waiting on your Approve, kept by the composer however far up (or in a hidden turn) their message is
+function PendingCommits({ threadKey: key, messages }: { threadKey: string; messages: ThreadMessage[] }) {
+  const open = messages.filter((m) => m.suggestion?.kind === 'commit' && isOpenSuggestion(m.suggestion));
+  if (!open.length) return null;
+  return (
+    <div className="dp-thr-pend">
+      {open.map((m) => (
+        <button key={m.id} type="button" className={`dp-chip ${STATE_CHIP[m.suggestion!.state]}`} title="Read the suggested commit's diff in a tab, then Approve or Dismiss it" onClick={() => openCommitTab(key, m.id)}>
+          <Icon name="eye" size={12} />suggested commit <code>{m.suggestion!.commit.slice(0, 7)}</code> · {m.suggestion!.state}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const nonceOf = () => Math.random().toString(36).slice(2, 12);
 
 // messages posted and not confirmed yet, by thread: a first message can leave before its thread is mounted (a new comment's Start agent)
@@ -437,6 +452,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
           <Markdown text={p.text} />
         </div>
       ))}
+      <PendingCommits threadKey={key} messages={thread.messages} />
       <ThreadComposer
         draft={`thread:${slug}:${key}`}
         busy={false}

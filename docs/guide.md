@@ -449,7 +449,11 @@ accepted row shows where its agent stands: working, asks you, commit ready.
 A new finding with a file shows the composer with "Accept & fix": the same
 accept, with your text as note. Before Accept, the thread of a finding is
 discussion only ("Ask agent"): its agent is told every turn to answer and
-change no code until you accept. While the group's agent is alive and has
+change no code until you accept; asking it for the fix (a card option that
+changes the code, "fix it") is accepting, and the agent accepts the finding
+itself. An open suggested commit stays as a chip above the thread's composer
+(Review commit, then Approve), and an agent tab's Transcript says how many
+wait, linking to its Thread. While the group's agent is alive and has
 seen the thread ("agent live"), a message goes out as a new turn only (the
 message, what changed since its last answer, the reply path), not the whole
 brief again. Dismiss or Reopen releases the finding's thread from its group

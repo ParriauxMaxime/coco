@@ -18,6 +18,9 @@
 .dp-thr-sys::before { content: ''; position: absolute; left: 0; top: 9px; width: 12px; height: 1px; background: var(--dp-line-2); }
 .dp-thr .dp-cd-sent { align-self: flex-end; }
 .dp-thr .dp-composer.dp-tcomp { padding: 0; }
+.dp-thr-pend { display: flex; flex-wrap: wrap; gap: 6px; }
+.dp-thr-pend .dp-chip { cursor: pointer; }
+.dp-ag-pend { flex: none; width: 100%; max-width: 752px; margin: 0 auto; padding: 8px 16px 0; }
 .dp-thr .dp-tcomp .dp-composer-in { max-width: none; }
 /* model, verdicts and send wrap in a narrow detail pane instead of overlapping */
 .dp-tcomp .dp-comp-f { flex-wrap: wrap; row-gap: 4px; }

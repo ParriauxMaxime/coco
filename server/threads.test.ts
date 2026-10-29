@@ -478,6 +478,7 @@ test('an agent on a finding not accepted only discusses it, every turn; once acc
   const a1 = await post(A, 'Is this real?');
   await until(() => daemon.calls.sent.length === 1, 'first dispatch');
   assert.match(daemon.calls.sent[0].text, /Alice has not accepted this finding yet: answer, investigate, recommend, but change no file and commit nothing/);
+  assert.match(daemon.calls.sent[0].text, /asking for the fix \(.*\) is that acceptance: add `"finding": \{ "action": "accept" \}`/);
   reply(a1.waiting.replyPath, 'Yes.');
   daemon.finish(daemon.calls.created[0].id);
   await until(() => !read(A).waiting, 'turn end');

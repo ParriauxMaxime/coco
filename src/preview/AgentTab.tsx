@@ -174,9 +174,9 @@ const NOTE_ONLY = ['meta', 'stderr'];
 
 // an agent's chat under any header: lead on top, its timeline, permissions, open cards and composer;
 // fallback follows when Paseo has no timeline for it (only notes came back); inline: outside a work, subagents open in a dialog
-// current: its model and thinking when the caller knows them, else the overview's
-type TranscriptProps = { agentId: string; state: AgentState; who: string; lead?: React.ReactNode; fallback?: React.ReactNode; inline?: boolean; current?: Choice | null; onSent?: () => void };
-export function AgentTranscript({ agentId, state, who, lead, fallback, inline = false, current, onSent }: TranscriptProps) {
+// current: its model and thinking when the caller knows them, else the overview's; pinned: what waits on you, kept over the composer
+type TranscriptProps = { agentId: string; state: AgentState; who: string; lead?: React.ReactNode; fallback?: React.ReactNode; inline?: boolean; current?: Choice | null; onSent?: () => void; pinned?: React.ReactNode };
+export function AgentTranscript({ agentId, state, who, lead, fallback, inline = false, current, onSent, pinned }: TranscriptProps) {
   const { events, pending, send, cards, merge } = useAgentChat(agentId);
   const gone = events.length > 0 && events.every((e) => NOTE_ONLY.includes(e.type));
   const archived = state === 'archived';
@@ -196,6 +196,7 @@ export function AgentTranscript({ agentId, state, who, lead, fallback, inline = 
       </SubagentParent.Provider>
       <CardsWaiting cards={cards} />
       <SubagentBar agentId={agentId} inline={inline} />
+      {pinned}
       <Composer
         draft={`agent:${agentId}`}
         placeholder={archived ? 'This agent is archived' : gone ? 'Paseo no longer knows this agent' : 'Message this agent (↵, ⇧↵ new line)'}
@@ -236,6 +237,14 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
     ...(wsId ? [CHANGES, FILES, TERMINAL] : []),
     ...(browserTabs.length ? [BROWSER] : []),
   ];
+  const toApprove = keys.reduce((n, k) => n + (summaries[k].open ?? 0), 0);
+  const pinned = toApprove > 0 && (
+    <div className="dp-thr-pend dp-ag-pend">
+      <button type="button" className="dp-chip dp-info" title="Its threads hold each suggested commit with Review commit, Verify, Approve and Dismiss" onClick={() => setPicked('thread')}>
+        <Icon name="eye" size={12} />{toApprove === 1 ? 'a suggested commit' : `${toApprove} suggested commits`} to approve · Thread
+      </button>
+    </div>
+  );
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
       <Header title={listed?.title || `Agent ${agentId.slice(0, 8)}`} kind={listed?.kind || 'agent'} pr={listed?.pr ?? null} state={state} agentId={agentId} metrics={listed} chips={<ViewSeg views={views} value={view} onPick={setPicked} />} actions={group?.status === 'active' && <GroupActions slug={slug} group={group} keys={keys} summaries={summaries} />} handoff />
@@ -243,7 +252,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
         : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} onOpenTab={openWorkspaceFile(wsId)} />
         : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} />
         : view === 'browser' ? <BrowserPanel tabs={browserTabs} />
-        : view === 'thread' ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} />}
+        : view === 'thread' ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} pinned={pinned} />}
     </div>
   );
 }

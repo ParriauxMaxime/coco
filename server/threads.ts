@@ -299,9 +299,10 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     `Only when ${OWNER} asks you to accept, dismiss or edit this finding, add to the reply JSON`,
     '`"finding": { "action": "accept" | "dismiss", "reason": "…", "patch": { "title", "severity", "confidence", "summary", "recommendation", "blocks" } }`',
     '(each part optional; dismiss needs a reason). cocopilot applies it after your turn: accept sends you the ask to fix it, dismiss may end your session. Never on your own initiative,',
-    `except one case: when ${OWNER} picks an option that leaves the code unchanged, dismiss the finding in that same reply with the option as reason, without asking.`,
+    `except two cases, in that same reply and without asking: when ${OWNER} picks an option that leaves the code unchanged, dismiss the finding with the option as reason;`,
+    `when ${OWNER} picks an option that changes the code or asks you to fix it, accept the finding.`,
   ].join(' ');
-  const discussRule = `- ${OWNER} has not accepted this finding yet: answer, investigate, recommend, but change no file and commit nothing. Once ${OWNER} accepts it, a message asks you for the fix.`;
+  const discussRule = `- ${OWNER} has not accepted this finding yet: answer, investigate, recommend, but change no file and commit nothing. Once ${OWNER} accepts it, a message asks you for the fix. ${OWNER} asking for the fix (an option that changes the code, "fix it") is that acceptance: add \`"finding": { "action": "accept" }\` to that reply, never ask where or whether to accept.`;
   const askRule = (key: string, kind: string) => [
     `To have ${OWNER} pick between options, call cocopilot \`ask\` (a choice card) with \`thread: "${key}"\`, never a list to answer in text; the pick comes back as a new message.`,
     ...(kind === 'decision' ? ['An option with `effect: { "type": "take_decision", "option": "<card option key>" }` takes the decision on that card option when picked, without a new turn: only keys the card has.'] : []),
