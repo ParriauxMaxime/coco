@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import Markdown from '../components/Markdown.tsx';
 import { FindingBody } from '../components/Blocks.tsx';
@@ -18,9 +18,6 @@ import Modal from './Modal.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { StackRunChip, useStackFix } from './StackFixDialog.tsx';
 import { Loading } from './pages/Page.tsx';
-import NavLevels, { NavHead, NavRow, useNavMode } from './nav/NavLevels.tsx';
-import type { Level } from './nav/NavLevels.tsx';
-import { useNav } from './nav/use-nav.ts';
 import { usePhone } from './Shell.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prTitle } from './data.ts';
@@ -270,10 +267,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     });
   }, [visible, group, d.prs]);
   const order = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
-  // a beta navigation mode opens a finding as the level under the list, from the tab's path
-  const beta = useNavMode() !== 'classic';
-  const nav = useNav();
-  const current = beta ? order.find((r) => r.key === nav.path[0]) : order.find((r) => r.key === sel) || order[0];
+  const current = order.find((r) => r.key === sel) || order[0];
   const chosen = order.filter((r) => picked.has(r.key));
   const toAccept = chosen.filter((r) => bucketOf(r, left) === 'open').map((r) => r.key);
   const toDismiss = chosen.filter((r) => ['open', 'accepted'].includes(bucketOf(r, left))).map((r) => r.key);
@@ -356,16 +350,6 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     return () => removeEventListener('hashchange', relink);
   }, [rows]);
 
-  // a beta path to a finding the filters hide shows it: its bucket, its reviewer, every PR
-  const navKey = beta ? nav.path[0] : undefined;
-  useEffect(() => {
-    const r = navKey && !order.some((x) => x.key === navKey) ? rows.find((x) => x.key === navKey) : undefined;
-    if (!r) return;
-    if (hidden.includes(r.source)) setHidden(hidden.filter((s) => s !== r.source));
-    setPrFilter((p) => (p === null ? p : nOf(r)));
-    setStatus(bucketOf(r, left));
-  }, [navKey, rows]);
-
   useEffect(() => {
     const list = root.current?.querySelector('.dp-fi-list');
     const row = current && list?.querySelector(`[data-fk="${CSS.escape(current.key)}"]`);
@@ -381,7 +365,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     const onKey = (e: KeyboardEvent) => {
       const t = e.target instanceof HTMLElement ? e.target : null;
       const pane = root.current?.closest('.wb-group');
-      if (beta || !root.current?.offsetParent || (pane && !pane.classList.contains('focus')) || importing || asking || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
+      if (!root.current?.offsetParent || (pane && !pane.classList.contains('focus')) || importing || asking || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
       const i = current ? order.indexOf(current) : -1;
       const b = current ? bucketOf(current, left) : null;
       const run = (fn: () => unknown) => { e.preventDefault(); fn(); };
@@ -393,7 +377,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [order, current, busy, importing, asking, beta]);
+  }, [order, current, busy, importing, asking]);
   // the fix agents' chips follow their threads while the accepted list shows
   useShownInterval(() => refreshThreads(d.slug), 10000, status === 'accepted');
   const currentPr = current ? nOf(current) || null : null;
@@ -403,22 +387,8 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
   const prFilterIds = Array.from(new Set([...Object.keys(prCounts), ...(prFilter === null ? [] : [prFilter])])).sort((a, b) => at(a) - at(b));
   const lastRun = stackFix.runs[0];
   const flight = (r: FindingRow) => (pending?.keys.has(r.key) ? pending.action : null);
-  const detail = (r: FindingRow) => (
-    <Detail
-      slug={d.slug}
-      r={r}
-      bucket={bucketOf(r, left)}
-      pr={prOf(nOf(r))}
-      inFlight={flight(r)}
-      busy={busy}
-      onAct={(action) => act(action, [r.key])}
-      onDismiss={(reason) => dismiss([r.key], reason)}
-      onDispatch={dispatch(r)}
-      onSettled={() => { void refresh(false); }}
-    />
-  );
 
-  const classic = (
+  return (
     <div className={`dp-fi${phone ? (opened && current ? ' dp-fi-one' : ' dp-fi-many') : ''}`} ref={root}>
       <div className="dp-vbar">
         <span className="dp-title">Findings</span>
@@ -497,7 +467,18 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
             {current ? (
               <div className="dp-fdetail">
                 {phone && <button type="button" className="dp-btn dp-ghost dp-fi-up" onClick={() => { location.hash = withoutFinding(); }}><Icon name="chevron-left" size={14} />Findings<span className="dp-count">{order.length}</span></button>}
-                {detail(current)}
+                <Detail
+                  slug={d.slug}
+                  r={current}
+                  bucket={bucketOf(current, left)}
+                  pr={prOf(nOf(current))}
+                  inFlight={flight(current)}
+                  busy={busy}
+                  onAct={(action) => act(action, [current.key])}
+                  onDismiss={(reason) => dismiss([current.key], reason)}
+                  onDispatch={dispatch(current)}
+                  onSettled={() => { void refresh(false); }}
+                />
               </div>
             ) : (
               <div className="dp-fdetail dp-fi-pick dp-t3">Select a finding.</div>
@@ -506,44 +487,5 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
         </>
       )}
     </div>
-  );
-
-  const list = (child: (key: string) => ReactNode) => (
-    <div className="dp-fi dp-fi-nav">
-      <div className="dp-filters dp-nfilters">
-        {BUCKETS.map((b) => <button key={b} type="button" className={status === b ? 'dp-on' : 'dp-off'} onClick={() => setStatus(b)}>{b[0].toUpperCase() + b.slice(1)} <span>{bucketCounts[b]}</span></button>)}
-      </div>
-      {rows.length === 0 && <div className="dp-fi-none dp-t3">No findings yet. Reviews of this work’s PRs post their findings here.</div>}
-      {rows.length > 0 && order.length === 0 && <div className="dp-fi-none dp-t3">Nothing {status} here{hidden.length ? ` (${hidden.join(', ')} hidden)` : ''}.</div>}
-      {groups.map((g) => (
-        <div key={g.id}>
-          <NavHead>{g.head}<span className="dp-sp" /><span className="dp-count">{g.rows.length}</span></NavHead>
-          {g.rows.map((r) => (
-            <React.Fragment key={r.key}>
-              <NavRow
-                on={r.key === current?.key}
-                onOpen={() => nav.open(0, r.key, true)}
-                className={flight(r) ? 'dp-fi-busy' : ''}
-                icon={<span className={`dp-sev ${sevClass(r.severity)}`} title={r.severity || 'unrated'}><i /></span>}
-                title={titleOf(r)}
-                sub={[loc(r), byName(r), ago(r.ts)].filter(Boolean).join(' · ')}
-                meta={status === 'accepted' ? <FixState slug={d.slug} r={r} /> : null}
-              />
-              {child(r.key)}
-            </React.Fragment>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-  const levels: Level[] = [
-    { key: 'findings', label: 'Findings', render: list },
-    ...(current ? [{ key: current.key, label: titleOf(current), render: () => <div className="dp-fdetail">{detail(current)}</div> }] : []),
-  ];
-  return (
-    <>
-      {beta && asking && <DismissDialog count={asking.length} onClose={() => setAsking(null)} onDismiss={(reason) => { const keys = asking; setAsking(null); void act('dismiss', keys, reason); }} />}
-      <NavLevels classic={classic} levels={levels} />
-    </>
   );
 }

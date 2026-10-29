@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from '../components/Markdown.tsx';
 import { FindingBody, Inline } from '../components/Blocks.tsx';
@@ -13,9 +13,6 @@ import RowsPicker from './chat/RowsPicker.tsx';
 import Icon from './Icon.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { prKey, prTitle } from './data.ts';
-import NavLevels, { NavHead, NavRow, useNavMode } from './nav/NavLevels.tsx';
-import type { Level } from './nav/NavLevels.tsx';
-import { useNav } from './nav/use-nav.ts';
 import type { PreviewData } from './data.ts';
 import type { CardOption, Decision, ThreadSummary, WorkDetail } from '../types.ts';
 import type { DecisionChoice, DecisionView, WorkPr } from '../workbench/types.ts';
@@ -179,10 +176,7 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
     return keys.map((k) => ({ id: k || 'work', pr: prRow(k), rows: shown.filter((x) => prOf(x) === k).sort((a, b) => Number(bucketOf(a) !== 'open') - Number(bucketOf(b) !== 'open')) }));
   }, [inStatus, prFilter, d.prs]);
   const visible = groups.flatMap((g) => g.rows);
-  // a beta navigation mode opens a decision as the level under the list, from the tab's path
-  const beta = useNavMode() !== 'classic';
-  const nav = useNav();
-  const current = beta ? visible.find((x) => x.id === nav.path[0]) : visible.find((x) => x.id === sel) || visible[0];
+  const current = visible.find((x) => x.id === sel) || visible[0];
 
   useEffect(() => {
     if (!focus) return;
@@ -191,7 +185,6 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
       setStatus(bucketOf(target));
       setPrFilter(null);
       setSel(target.id);
-      if (beta) nav.open(0, target.id);
     } else if (focus.pr !== undefined) {
       const mine = all.filter((x) => prOf(x) === focus.pr && isLive(x));
       setStatus(mine.some((x) => bucketOf(x) === 'open') ? 'open' : 'all');
@@ -200,15 +193,6 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
     }
     useFocus.setState({ focus: null });
   }, [focus]);
-
-  // a beta path to a decision the filters hide shows it: its bucket, every PR
-  const navId = beta ? nav.path[0] : undefined;
-  useEffect(() => {
-    const x = navId && !visible.some((v) => v.id === navId) ? all.find((v) => v.id === navId) : undefined;
-    if (!x) return;
-    setStatus(bucketOf(x));
-    setPrFilter(null);
-  }, [navId, all.length]);
 
   useEffect(() => {
     const list = root.current?.querySelector('.dp-dc-list');
@@ -224,14 +208,14 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target instanceof HTMLElement ? e.target : null;
-      if (beta || !root.current?.offsetParent || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
+      if (!root.current?.offsetParent || e.metaKey || e.ctrlKey || e.altKey || t?.closest('input, textarea, select, [contenteditable]')) return;
       const i = current ? visible.indexOf(current) : -1;
       if (e.key === 'j' && visible[i + 1]) setSel(visible[i + 1].id);
       else if (e.key === 'k' && visible[i - 1]) setSel(visible[i - 1].id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, current, beta]);
+  }, [visible, current]);
   const currentPr = current ? prOf(current) || null : null;
   useEffect(() => { onCurrentPr?.(currentPr); }, [currentPr]);
 
@@ -241,9 +225,8 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
     setTimeout(() => setCopied(''), 2500);
   };
   const prFilterIds = Object.keys(prCounts).sort((a, b) => at(a) - at(b));
-  const detail = (x: DecisionView) => <DecisionDetail d={x} slug={d.slug} pr={prRow(prOf(x))} onOpenPr={onOpenPr} onDecide={d.work.decide} onReload={() => d.work.load()} keys />;
 
-  const classic = (
+  return (
     <div className="dp-dc" ref={root}>
       <div className="dp-vbar">
         <span className="dp-title">Decisions</span>
@@ -303,7 +286,7 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
             </div>
             {current ? (
               <div key={`${current.id}-${current.status}-${current.decidedAt || ''}-${current.archivedAt || ''}`} className="dp-fdetail dp-dc-detail">
-                {detail(current)}
+                <DecisionDetail d={current} slug={d.slug} pr={prRow(prOf(current))} onOpenPr={onOpenPr} onDecide={d.work.decide} onReload={() => d.work.load()} keys />
               </div>
             ) : (
               <div className="dp-fdetail dp-fi-pick dp-t3">Select a decision.</div>
@@ -313,42 +296,4 @@ export default function DecisionsView({ d, onOpenPr, onCurrentPr }: { d: Preview
       )}
     </div>
   );
-
-  const list = (child: (key: string) => React.ReactNode) => (
-    <div className="dp-dc dp-dc-nav">
-      <div className="dp-filters dp-nfilters">
-        {BUCKETS.map((b) => <button key={b} type="button" className={status === b ? 'dp-on' : ''} onClick={() => { setStatus(b); setPrFilter(null); }}>{b[0].toUpperCase() + b.slice(1)} <span>{counts[b]}</span></button>)}
-      </div>
-      {all.length === 0 && <div className="dp-fi-none dp-t3">No decisions yet. Agents add them with upsert_decision.</div>}
-      {all.length > 0 && visible.length === 0 && <div className="dp-fi-none dp-t3">Nothing {status} here.</div>}
-      {groups.map((g) => (
-        <div key={g.id}>
-          <NavHead>{g.pr ? <PrChip pr={g.pr} onOpen={onOpenPr} /> : g.id !== 'work' && <span className="dp-prb">#{g.id}</span>}<span className="dp-ell">{g.pr ? prTitle(g.pr) : g.id === 'work' ? 'Whole work' : ''}</span><span className="dp-sp" /><span className="dp-count">{g.rows.length}</span></NavHead>
-          {g.rows.map((x) => {
-            const b = bucketOf(x);
-            const lead = leading(x);
-            return (
-              <React.Fragment key={x.id}>
-                <NavRow
-                  on={x.id === current?.id}
-                  onOpen={() => nav.open(0, x.id, true)}
-                  className={b === 'archived' ? 'dp-dim' : ''}
-                  icon={<span className={`dp-dc-dot dp-dc-${b === 'archived' ? 'arch' : b}`} title={b} />}
-                  title={x.title}
-                  sub={lead ? `${x.status === 'taken' ? '✓' : '→'} ${lead}` : x.question}
-                  meta={<Waiting s={summaries[threadKey.decision(x.id)]} />}
-                />
-                {child(x.id)}
-              </React.Fragment>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-  const levels: Level[] = [
-    { key: 'decisions', label: 'Decisions', render: list },
-    ...(current ? [{ key: current.id, label: current.title, render: () => <div key={`${current.id}-${current.status}-${current.decidedAt || ''}`} className="dp-fdetail dp-dc-detail">{detail(current)}</div> }] : []),
-  ];
-  return <NavLevels classic={classic} levels={levels} />;
 }

@@ -10,12 +10,6 @@
 .dp-dev-big { font: 600 22px/28px var(--dp-mono); letter-spacing: .12em; color: var(--dp-t1); user-select: all; }
 .dp-dev-hint { margin-bottom: 14px; padding: 10px 12px; border: 1px dashed var(--dp-line); border-radius: var(--dp-r2); font-size: 12.5px; line-height: 19px; color: var(--dp-t2); }
 .dp-dev-hint code { font: 11.5px var(--dp-mono); }
-.dp-beta-nav { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 10px; }
-.dp-beta-opt { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-panel); cursor: pointer; }
-.dp-beta-opt:hover { border-color: var(--dp-line-2); }
-.dp-beta-opt.dp-on { border-color: var(--dp-accent); box-shadow: 0 0 0 1px var(--dp-accent); }
-.dp-beta-opt input { margin: 3px 0 0; accent-color: var(--dp-accent); }
-.dp-beta-optb { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; line-height: 17px; min-width: 0; }
 .dp-beta-more { font-size: 12px; }
 .dp-beta-more .dp-ctl-row { grid-template-columns: 110px auto; justify-content: start; }
 .dp-beta-more .dp-ctl-sub .dp-ctl-row { grid-template-columns: 98px auto; }

@@ -1,7 +1,4 @@
-import { usePrefs } from './preview/prefs.ts';
-
-// nav: the beta navigation mode a view was seen in, left out for Classic
-type UiEvent = { at: string; t: 'view' | 'click'; hash: string; ms?: number; label?: string; cls?: string; nav?: string };
+type UiEvent = { at: string; t: 'view' | 'click'; hash: string; ms?: number; label?: string; cls?: string };
 
 const queue: UiEvent[] = [];
 const now = () => new Date().toISOString();
@@ -23,8 +20,7 @@ export function watchUsage() {
   let since = performance.now();
   const leave = () => {
     const ms = Math.round(performance.now() - since);
-    const nav = usePrefs.getState().nav;
-    if (document.visibilityState === 'visible' && ms >= 500) queue.push({ at: now(), t: 'view', hash, ms, ...(nav === 'classic' ? {} : { nav }) });
+    if (document.visibilityState === 'visible' && ms >= 500) queue.push({ at: now(), t: 'view', hash, ms });
     since = performance.now();
   };
   setInterval(() => {

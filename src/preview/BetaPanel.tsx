@@ -4,14 +4,14 @@ import Icon from './Icon.tsx';
 import { CHOICES, useBetaPanel, usePrefs } from './prefs.ts';
 
 // the design choices and the theme, in the ⌘. panel and on Settings > Beta
-export function BetaChoices({ skip }: { skip?: string }) {
+export function BetaChoices() {
   const prefs = usePrefs();
   const theme = useTheme();
   return (
     <>
       <div className="dp-ctl-sub">
         <div className="dp-xs dp-t3">Design choices · • = recommended</div>
-        {CHOICES.filter((c) => c.key !== skip).map((c) => (
+        {CHOICES.map((c) => (
           <div key={c.key} className="dp-ctl-row">
             <span className="dp-t2">{c.label}</span>
             <div className="dp-seg">

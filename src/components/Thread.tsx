@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import Markdown from './Markdown.tsx';
 import Blocks from './Blocks.tsx';
@@ -21,9 +21,6 @@ import { SentFiles } from '../preview/chat/Attachments.tsx';
 import { useNow } from '../preview/subagents.ts';
 import { CARD_MSG, CardMessage } from '../preview/chat/Conversation.tsx';
 import { useWorkbench } from '../workbench/workbench-store.ts';
-import NavLevels from '../preview/nav/NavLevels.tsx';
-import type { Level } from '../preview/nav/NavLevels.tsx';
-import { NavDepth, useNav } from '../preview/nav/use-nav.ts';
 import { commitTabId } from '../workbench/code/ids.ts';
 import type { ActivityEvent, Block, Card, Suggestion as SuggestionData, SuggestionAction, Thread as ThreadData, ThreadGroup, ThreadInbound, ThreadMessage, ThreadStep, ThreadSummary, UploadRef, VerifyRun } from '../types.ts';
 import './thread.css';
@@ -414,8 +411,6 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   const [note, setNote] = useState('');
   const [turns, setTurns] = useState(SHOWN_TURNS);
   const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set());
-  const nav = useNav();
-  const navDepth = useContext(NavDepth);
   // the newest message you had read when the thread opened; what came after stays unfolded under a "new" line
   const seenKey = `cc.thr.seen:${slug}:${key}`;
   const [seenAt] = useState(() => { try { return localStorage.getItem(seenKey); } catch { return null; } });
@@ -509,55 +504,6 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
     if (!next.delete(id)) next.add(id);
     return next;
   });
-  const earlier = (m: ThreadMessage, i: number) => (slots.get(i)?.some((c) => c.status === 'open') ? <React.Fragment key={m.id}>{cardsAt(i)}</React.Fragment> : null);
-  const message = (m: ThreadMessage, i: number, line: React.ReactNode) => {
-    const answered = m.card && m.role === 'user' ? CARD_MSG.exec(m.text ?? '') : null;
-    return (
-      <React.Fragment key={m.id}>
-        {i === fresh && i > 0 && seenAt &&<NewSince messages={thread.messages.slice(i)} cards={cards} seenAt={seenAt} />}
-        {cardsAt(i)}
-        {line}
-        {answered ? <CardMessage verb={answered[2]} title={titles.get(answered[1])} /> : m.role === 'system' && !m.agentId ? <div className="dp-thr-sys">{m.text}</div> : m.role === 'user' ? (
-          <div className="dp-msg-u dp-cv-u">
-            {(m.model || m.steer || m.turn === 'follow-up') && <div className="dp-cv-unote">{[m.model, m.steer ? 'while it worked' : m.turn === 'follow-up' ? 'new turn' : ''].filter(Boolean).join(' · ')}</div>}
-            {m.files?.length ? <SentFiles files={m.files} /> : null}
-            {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
-          </div>
-        ) : (
-          <div className="dp-msg-a" id={`thr-${m.id}`}>
-            {m.role === 'system' ? <CocoAvatar /> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
-            <div className="dp-thr-body">
-              <div className="dp-who">{m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>
-              {m.files?.length ? <SentFiles files={m.files} /> : null}
-              {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
-              {m.choices && <OldChoices m={m} />}
-              {m.suggestion && <Suggestion s={m.suggestion} onReview={() => openCommitTab(key, m.id)}verify={thread.verifies?.[m.suggestion.commit]} onVerify={() => verify(m.suggestion!.commit)} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
-            </div>
-          </div>
-        )}
-        {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="dp-thr-acts"><Activity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} fold={{ from: m.ts, to: replyOf(thread.messages, i)?.ts }} /></div>}
-      </React.Fragment>
-    );
-  };
-  // a beta navigation mode: each read turn is one row of the thread, its messages the level under it
-  const turnKey = (start: number) => `t-${thread.messages[start].id}`;
-  const turnOf = new Map<number, number>();
-  for (const [start, t] of read) for (let j = start; j < t.end; j++) turnOf.set(j, start);
-  const openTurn = [...read.keys()].find((start) => turnKey(start) === nav.path[navDepth]);
-  const levels: Level[] = [
-    {
-      key: 'thread',
-      label: 'Thread',
-      render: (child) => thread.messages.map((m, i) => {
-        if (i < from) return earlier(m, i);
-        const turn = read.get(i);
-        if (turn) return <React.Fragment key={m.id}>{openCardsAt(i)}<TurnLine you={youOf(m)} turn={turn} open={openTurn === i} onClick={() => nav.open(navDepth, turnKey(i), true)} />{child(turnKey(i))}</React.Fragment>;
-        if (turnOf.has(i)) return <React.Fragment key={m.id}>{openCardsAt(i)}</React.Fragment>;
-        return message(m, i, null);
-      }),
-    },
-    ...(openTurn === undefined ? [] : [{ key: turnKey(openTurn), label: youOf(thread.messages[openTurn]), render: () => thread.messages.slice(openTurn, read.get(openTurn)?.end).map((m, j) => message(m, openTurn + j, null)) }]),
-  ];
   return (
     <div ref={rootRef} className="dp-thr">
       {(!bare || thread.starting || thread.waiting?.deps || thread.agent?.deps === 'installing') && <div className="dp-thr-h">
@@ -598,13 +544,39 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
         </div>
       )}
       {from > 0 && <EarlierTurns hidden={from} onMore={() => setTurns((t) => t + MORE_TURNS)} />}
-      <NavLevels classic={<>{thread.messages.map((m, i) => {
-        if (i < from) return earlier(m, i);
+      {thread.messages.map((m, i) => {
+        if (i < from) return slots.get(i)?.some((c) => c.status === 'open') ? <React.Fragment key={m.id}>{cardsAt(i)}</React.Fragment> : null;
         const turn = read.get(i);
         const line = turn && <TurnLine you={youOf(m)} turn={turn} open={!folded.has(i)} onClick={() => unfold(m.id)} />;
         if (folded.has(i)) return <React.Fragment key={m.id}>{openCardsAt(i)}{line}</React.Fragment>;
-        return message(m, i, line);
-      })}</>} levels={levels} />
+        const answered = m.card && m.role === 'user' ? CARD_MSG.exec(m.text ?? '') : null;
+        return (
+          <React.Fragment key={m.id}>
+            {i === fresh && i > 0 && seenAt &&<NewSince messages={thread.messages.slice(i)} cards={cards} seenAt={seenAt} />}
+            {cardsAt(i)}
+            {line}
+            {answered ? <CardMessage verb={answered[2]} title={titles.get(answered[1])} /> : m.role === 'system' && !m.agentId ? <div className="dp-thr-sys">{m.text}</div> : m.role === 'user' ? (
+              <div className="dp-msg-u dp-cv-u">
+                {(m.model || m.steer || m.turn === 'follow-up') && <div className="dp-cv-unote">{[m.model, m.steer ? 'while it worked' : m.turn === 'follow-up' ? 'new turn' : ''].filter(Boolean).join(' · ')}</div>}
+                {m.files?.length ? <SentFiles files={m.files} /> : null}
+                {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+              </div>
+            ) : (
+              <div className="dp-msg-a" id={`thr-${m.id}`}>
+                {m.role === 'system' ? <CocoAvatar /> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
+                <div className="dp-thr-body">
+                  <div className="dp-who">{m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>
+                  {m.files?.length ? <SentFiles files={m.files} /> : null}
+                  {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
+                  {m.choices && <OldChoices m={m} />}
+                  {m.suggestion && <Suggestion s={m.suggestion} onReview={() => openCommitTab(key, m.id)}verify={thread.verifies?.[m.suggestion.commit]} onVerify={() => verify(m.suggestion!.commit)} busy={busy} pending={pending?.startsWith(`${m.id}:`) ? pending.split(':')[1] : null} onDecide={(action) => act(`${m.id}:${action}`, () => api.suggestion(slug, key, m.id, action))} />}
+                </div>
+              </div>
+            )}
+            {(byMsg[m.id] || m.id === thread.waiting?.msgId) && <div className="dp-thr-acts"><Activity events={byMsg[m.id] || []} active={m.id === thread.waiting?.msgId} fold={{ from: m.ts, to: replyOf(thread.messages, i)?.ts }} /></div>}
+          </React.Fragment>
+        );
+      })}
       {cardsAt(thread.messages.length)}
       {thread.starting && <StartSteps step={thread.starting} now={now} />}
       {posted.map((p, i) => (

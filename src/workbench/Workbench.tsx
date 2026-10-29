@@ -13,7 +13,6 @@ import { CodeRefRoot } from '../components/CodeRefs.tsx';
 import { ErrorNote, Loading } from '../preview/pages/Page.tsx';
 import { findRun, loadReview, useReviewStore } from './code/use-comments.ts';
 import { Visible } from '../resource.ts';
-import { NavScope } from '../preview/nav/use-nav.ts';
 import type { Edge, Group as GroupData, Handle as HandleData, PrKey, Rect, RefFile, WorkData } from './types.ts';
 
 type Zone = Edge | 'center';
@@ -170,7 +169,7 @@ function Group({ g, groups, ctx, focused, merged, max, rect, drag }: GroupProps)
         {g.tabs.map((id) => {
           const d = tabDef(id);
           if (!seen.has(id) && id !== shown) return null;
-          return <div key={id} className={`wb-pane ${d.flush ? 'flush' : ''}`} data-tab={id} hidden={id !== g.active}><Visible.Provider value={id === shown}><NavScope.Provider value={id}><d.Component tabId={id} group={g.id} /></NavScope.Provider></Visible.Provider></div>;
+          return <div key={id} className={`wb-pane ${d.flush ? 'flush' : ''}`} data-tab={id} hidden={id !== g.active}><Visible.Provider value={id === shown}><d.Component tabId={id} group={g.id} /></Visible.Provider></div>;
         })}
         {drag && <DropZone g={g} drag={drag} />}
       </div>

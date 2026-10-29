@@ -12,8 +12,6 @@ import { findingsKeyOfTab, prOfTab } from '../workbench/code/ids.ts';
 import { isLive, useJobs } from '../jobs.ts';
 import type { WorkPr } from '../workbench/types.ts';
 import type { WorkSummary } from '../types.ts';
-import { NavHead, NavRow } from './nav/NavLevels.tsx';
-import { useWorkbench } from '../workbench/workbench-store.ts';
 
 export const VIEWS: { id: string; label: string; icon: IconName }[] = [
   { id: 'plan', label: 'Overview', icon: 'home' },
@@ -41,12 +39,6 @@ const prOfFocus = (slug: string, tab: string) => {
   return m ? m[1] : (tab && agentOf(slug, tab)?.pr) || null;
 };
 
-// the PR the open work's focused tab is about: the sidebar's PR level in a beta navigation mode
-export function useFocusedPr(slug?: string) {
-  const tab = useWorkbench((s) => (slug && s.slug === slug ? s.groups.find((g) => g.id === s.focused)?.active ?? '' : ''));
-  return slug && tab ? prOfFocus(slug, tab) : null;
-}
-
 function Counts({ running, waiting, job }: { running: number; waiting: number; job?: boolean }) {
   return (
     <>
@@ -56,12 +48,8 @@ function Counts({ running, waiting, job }: { running: number; waiting: number; j
   );
 }
 
-// a beta navigation mode's sidebar level: 'work' lists the work's views and PRs, a PR key that PR's review, findings and agents; child is what Expand nests under a PR row
-export type ViewsLevel = { part: string; child: (key: string) => React.ReactNode };
-
 type Props = {
   w: WorkSummary;
-  level?: ViewsLevel;
   open?: (id: string) => void;
   isOpen?: (id: string) => boolean;
   count?: (id: string) => number | undefined;
@@ -71,7 +59,7 @@ type Props = {
 };
 
 // a work's tree: the Overview group (views, jobs, work agents), then its open PRs, merged and planned ones folded; off its page each entry opens the work on that tab
-export function WorkViews({ w, level, open, isOpen = () => false, count, prs = [], findings, focused = '' }: Props) {
+export function WorkViews({ w, open, isOpen = () => false, count, prs = [], findings, focused = '' }: Props) {
   const live = Boolean(open);
   const go = (id: string) => (open ? open(id) : (location.hash = `${workHref(w.slug)}/${id}`));
   const data = useWorkAgents(w.slug, live);
@@ -159,48 +147,6 @@ export function WorkViews({ w, level, open, isOpen = () => false, count, prs = [
   const ovOn = !list.includes(OVERVIEW);
   const closed = merged.filter((r) => r.state === 'closed').length;
   const landed = merged.filter((r) => r.state === 'landed').length;
-
-  if (level?.part === 'work') {
-    const prNav = (r: Row) => (
-      <React.Fragment key={r.key}>
-        <NavRow
-          on={focusKey === r.key}
-          onOpen={() => go(focusKey === r.key ? 'plan' : `pr-${r.key}`)}
-          icon={<span className={`dp-dot dp-st-${r.state || 'closed'}${r.state === 'planned' || !r.state ? ' dp-hollow' : ''}`} />}
-          title={r.title}
-          sub={[r.label, steps[r.key]].filter(Boolean).join(' · ')}
-          meta={<Counts {...countsAt(r.key)} job={working.has(r.key)} />}
-        />
-        {level.child(r.key)}
-      </React.Fragment>
-    );
-    const group = (label: string, rs: Row[]) => rs.length > 0 && <><NavHead>{label}<span className="dp-count">{rs.length}</span></NavHead>{rs.map(prNav)}</>;
-    return (
-      <div className="dp-views dp-nlist">
-        {VIEWS.map((v) => {
-          const c = count ? count(v.id) : v.id === 'stack' ? w.stack || undefined : undefined;
-          return <NavRow key={v.id} on={isOpen(v.id) && focused === v.id} onOpen={() => go(v.id)} icon={<Icon name={v.icon} size={14} />} title={v.label} meta={c !== undefined && <span className="dp-count">{c}</span>} />;
-        })}
-        {commands.length > 0 && <div className="dp-ag-group"><div className="dp-ag-gh"><span className="dp-grow">Jobs</span></div>{commands.map((j) => <JobRow key={j.id} j={j} />)}</div>}
-        <AgentList g={byPr.get(null)} label="the work" onOpen={go} onNew={() => go('ask')} arc={arc} starting={starting(null)} />
-        {group('Open PRs', opened)}
-        {group('Done', merged)}
-        {group('Planned', planned)}
-      </div>
-    );
-  }
-  if (level) {
-    const r = rows.find((x) => x.key === level.part);
-    const n = findings?.(level.part) || 0;
-    return (
-      <div className="dp-views dp-nlist">
-        {r && <NavHead>{r.label} · {r.title}</NavHead>}
-        <NavRow on={isOpen(`review-${level.part}`) && focused === `review-${level.part}`} onOpen={() => go(`review-${level.part}`)} icon={<Icon name="file" size={14} />} title="Review code" />
-        <NavRow on={isOpen(`findings-${level.part}`) && focused === `findings-${level.part}`} onOpen={() => go(`findings-${level.part}`)} icon={<Icon name="flag" size={14} />} title="Findings" meta={n > 0 && <span className="dp-count" title={`${n} open`}>{n}</span>} />
-        <AgentList g={byPr.get(level.part)} label={r?.label || level.part} onOpen={go} onNew={() => go(`ask-new-${level.part}`)} arc={arc} starting={starting(level.part)} />
-      </div>
-    );
-  }
   return (
     <div className="dp-views">
       <div className={`dp-view dp-ov-head${isOpen('plan') ? ' dp-open' : ''}`} onClick={() => go('plan')}>
