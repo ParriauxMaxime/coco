@@ -315,6 +315,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   ].join(' ');
   const replyRule = (replyPath: string, kind: string, key: string) => [
     `Last step of your turn: call cocopilot \`post_reply\` with \`{ "blocks": [...], "thread": "${key}" }\` (typed blocks, never markdown); a refusal names the bad field: fix it and call again. Only if the tool is missing or keeps failing, write the same JSON \`{ "blocks": [...] }\` to \`${replyPath}\`.`,
+    `What ${OWNER} sees of this thread (your suggested commits and their Approve state, coco's checks, open cards, the finding's status) is in cocopilot \`get_thread\`: read it there, never guess at the UI.`,
     `Blocks (full reference: "Blocks" in \`${BLOCKS_DOC}\`): \`text\` (1-3 sentences), \`steps\` ({ title, items, outcome }), \`table\` ({ caption, columns, rows; a cell may be { text, tone } }),`,
     '`suggestion` ({ path, startLine, endLine, lang, after }: the code you propose at those lines; cocopilot shows it as a diff), `code` ({ path, line, lang, code }), `diagram` ({ mermaid, caption }), `callout` ({ tone, title, text }).',
     'Inline text: **bold**, `code`, path/file.ts:12 refs and <risk>…</risk> <warn> <ok> <note> marks. Lead with the answer; short.',
@@ -891,16 +892,23 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
   async function readReply(repo: string, file: string, sha?: string | null): Promise<Reply> {
     const raw = fs.readFileSync(file, 'utf8').trim();
     if (file.endsWith('.md')) return { text: raw };
-    let blocks: Block[];
-    let dropped: string[];
-    let finding: Finding | null;
+    let json: { blocks?: unknown; finding?: unknown };
     try {
-      const json = JSON.parse(raw);
-      ({ blocks, dropped } = salvageBlocks(json.blocks));
-      finding = json.finding && typeof json.finding === 'object' ? json.finding : null;
+      json = JSON.parse(raw);
     } catch (e) {
       return { text: raw, error: errText(e) };
     }
+    return replyOf(repo, json, sha);
+  }
+  async function replyOf(repo: string, json: { blocks?: unknown; finding?: unknown }, sha?: string | null): Promise<Reply> {
+    let blocks: Block[];
+    let dropped: string[];
+    try {
+      ({ blocks, dropped } = salvageBlocks(json.blocks));
+    } catch (e) {
+      return { text: JSON.stringify(json), error: errText(e) };
+    }
+    const finding = json.finding && typeof json.finding === 'object' ? (json.finding as Finding) : null;
     // a suggestion's `before` is read at the agent's base, never trusted
     for (const b of blocks.filter((x) => x.type === 'suggestion')) {
       const r = sha ? await git(repo, ['show', `${sha}:${b.path}`]) : { ok: false, stdout: '' };
@@ -1385,14 +1393,39 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     follow(slug, key).catch(() => {});
   }
 
+  // the threads an agent's open groups hold
+  const heldBy = (agentId: string) => works.list().filter((w) => !w.archived).flatMap((w) => listGroups(w.slug).filter((g) => g.status === 'active' && g.agentId === agentId).flatMap((g) => g.items.map((key) => ({ slug: w.slug, key }))));
+
+  // the get_thread tool: what an agent cannot see of its thread in coco, the item's status, its suggestions with their state and checks, open cards
+  async function view(slug: string, key: string) {
+    const { work, ref } = check(slug, key);
+    const thread = await ingest(slug, key);
+    const item = itemOf(slug, work, ref) as (Item & { status?: string }) | null;
+    const group = thread.groupId ? readGroup(slug, thread.groupId) : null;
+    const clip = (s: string) => (s.length > 600 ? `${s.slice(0, 600)}…` : s);
+    return {
+      work: slug,
+      key,
+      label: threadLabel(slug, work, key, new Map()),
+      link: threadLink(slug, key),
+      item: item ? { title: item.title ?? null, path: item.path ?? null, line: item.startLine ?? null, status: item.status ?? null } : null,
+      turn: thread.waiting ? { agentId: thread.waiting.agentId, since: thread.waiting.sentAt } : null,
+      group: group && { id: group.id, kind: group.kind, status: group.status, agentId: group.agentId, ...(group.kind === 'code' ? { branch: group.branch, worktree: group.worktree, unlinked: readCommits(slug, group.id).unlinked ?? [] } : {}) },
+      suggestions: thread.messages.flatMap((m): Record<string, unknown>[] => {
+        const s = m.suggestion;
+        if (!s) return [];
+        const common = { msgId: m.id, ts: m.ts, state: s.state, ...(s.error ? { error: s.error } : {}) };
+        return s.kind === 'commit' ? [{ ...common, commit: s.commit, ...(s.from ? { from: s.from } : {}), files: s.files, ...(s.appliedCommit ? { applied: s.appliedCommit } : {}), ...(s.checks ? { checks: s.checks.state } : {}) }] : [{ ...common, card: s.fields }];
+      }),
+      cards: cardsOf(slug, key).filter((c) => c.status === 'open').map((c) => ({ id: c.id, title: c.title })),
+      messages: thread.messages.slice(-6).map((m) => ({ role: m.role, ts: m.ts, text: clip(m.text) })),
+    };
+  }
+
   // the post_reply tool: the agent's reply blocks, checked like post_blocks, written as the reply file the thread waits on, then read at once.
-  // The thread is the named one, else the only one waiting on the agent
+  // The thread is the named one, else the only one waiting on the agent; with no turn waiting (an agent answering a steer), the reply joins a thread it holds
   async function postReply(agentId: string, input: { blocks?: unknown; finding?: unknown; thread?: unknown }) {
-    const waiting = works.list().filter((w) => !w.archived).flatMap((w) => listThreads(w.slug).filter((t) => t.waiting?.agentId === agentId).map((t) => ({ slug: w.slug, thread: t })));
-    const named = typeof input.thread === 'string' && input.thread ? waiting.filter((x) => x.thread.key === input.thread) : waiting;
-    if (!named.length) throw new HttpError(404, input.thread ? `thread: no thread "${input.thread}" waits on this agent` : 'no thread waits on this agent');
-    if (named.length > 1) throw new HttpError(400, `thread: several threads wait on this agent, name one of ${named.map((x) => x.thread.key).join(', ')}`);
-    const [{ slug, thread }] = named;
+    const asked = typeof input.thread === 'string' ? input.thread.trim().split(/["'\s>]/)[0] : '';
     let blocks: Block[];
     try {
       blocks = validateBlocks(input.blocks);
@@ -1401,10 +1434,36 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     }
     const { finding } = input;
     if (finding != null && (typeof finding !== 'object' || Array.isArray(finding))) throw new HttpError(400, 'finding must be an object { action?, reason?, patch? }');
-    const file = thread.waiting!.replyPath;
-    writeJson(file, { blocks, ...(finding ? { finding } : {}) });
+    const waiting = works.list().filter((w) => !w.archived).flatMap((w) => listThreads(w.slug).filter((t) => t.waiting?.agentId === agentId).map((t) => ({ slug: w.slug, thread: t })));
+    const named = asked ? waiting.filter((x) => x.thread.key === asked) : waiting;
+    if (named.length > 1) throw new HttpError(400, `thread: several threads wait on this agent, name one of ${named.map((x) => x.thread.key).join(', ')}`);
+    if (!named.length) return appendReply(agentId, asked, { blocks, ...(finding ? { finding } : {}) });
+    const [{ slug, thread }] = named;
+    writeJson(thread.waiting!.replyPath, { blocks, ...(finding ? { finding } : {}) });
     await ingest(slug, thread.key);
     return { ok: true, thread: thread.key, blocks: blocks.length };
+  }
+
+  async function appendReply(agentId: string, asked: string, json: { blocks: Block[]; finding?: unknown }) {
+    const mine = heldBy(agentId);
+    const target = asked ? mine.filter((x) => x.key === asked) : mine;
+    const holds = mine.length ? `; this agent holds ${mine.map((x) => x.key).join(', ')}` : '';
+    if (!target.length) throw new HttpError(404, `${asked ? `thread: no thread "${asked}" waits on this agent or is held by it` : 'no thread waits on this agent'}${holds}`);
+    if (target.length > 1) throw new HttpError(400, `thread: this agent holds several threads, name one of ${target.map((x) => x.key).join(', ')}`);
+    const [{ slug, key }] = target;
+    const { ref } = check(slug, key);
+    const group = await withLock(`${slug}:${key}`, async () => {
+      const thread = read(slug, key);
+      const g = readGroup(slug, thread.groupId);
+      const reply = await replyOf(repoPath(slug), json, g?.kind === 'code' ? await worktreeHead(g) : null);
+      thread.messages.push(message('agent', reply.text, { agentId, groupId: thread.groupId ?? undefined, ...(reply.blocks ? { blocks: reply.blocks } : {}) }));
+      if (reply.finding && ref.kind === 'comment') for (const note of await applyFinding(slug, ref, key, reply.finding)) thread.messages.push(message('system', note));
+      write(slug, thread);
+      return g;
+    });
+    // a commit made in that turn becomes the thread's suggestion, as at the end of a waited turn
+    if (group?.kind === 'code') void sweep(slug, group.id).catch(() => 0);
+    return { ok: true, thread: key, blocks: json.blocks.length, appended: true };
   }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
@@ -1448,6 +1507,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     watch,
     post,
     postReply,
+    heldBy,
+    view,
     ingest,
     turnEnded,
     summaries,

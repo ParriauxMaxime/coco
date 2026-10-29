@@ -35,9 +35,9 @@ const TITLE_MAX = 60;
 const ENDED = ['MERGED', 'CLOSED'];
 
 // the workflow of coco's own checkout, put in the composer for the owner to keep, edit or delete
-export const appNote = (baseUrl: string) => [
+export const APP_NOTE = [
   'This is coco\'s own checkout. When the change is done: commit it on main (one descriptive sentence, no push),',
-  `restart coco with \`curl -X POST ${baseUrl.replace(/\/$/, '')}/api/server/restart\`, then check the UI with the cocopilot screenshot tool before you report.`,
+  'restart coco with the cocopilot restart_coco tool (it waits until coco is back), then check the UI with the cocopilot screenshot tool before you report.',
 ].join(' ');
 
 const slugOf = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').filter(Boolean).slice(0, 4).join('-').slice(0, 30) || 'agent';
@@ -126,7 +126,7 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
       : [];
     return {
       app,
-      appNote: appNote(config.baseUrl),
+      appNote: APP_NOTE,
       repos: config.repos.map((r) => ({ id: r.id, name: r.name, defaultBranch: r.defaultBranch, app: r.id === app })),
       works: live.map((w) => ({ slug: w.slug, title: w.title, repo: w.repo || config.repos[0]?.id || null })),
       rows,

@@ -267,7 +267,22 @@ A picked option whose effect did the work is not delivered.
   the `post_blocks` validator; a refusal names the field (`blocks[1].rows`,
   `thread`). It writes the thread's `-reply.json` and reads it at once; the
   file stays the fallback. `thread` is needed only when several threads wait
-  on the agent.
+  on the agent. With no turn waiting (the agent answers a steer), the reply
+  joins the named thread its group holds, or the only one: a new agent
+  message, its `finding` applied and its commits swept as at a turn's end; the
+  refusal lists the threads the agent holds.
+- `get_thread({ thread?, work? })`: what a thread agent cannot see in coco
+  (`GET /api/agent-chat/<agentId>/threads?key=&work=`): the item and its
+  status, the running turn, each suggestion's state, checks, error and
+  applied commit, open cards, the code group's branch, worktree and unlinked
+  commits, the last six messages. Without `thread`, every thread its open
+  groups hold; `work` reads a thread it does not hold.
+- `restart_coco()`: `POST /api/server/restart`, then `GET /api/server` every
+  second until `startedAt` changes (3 minutes at most); returns
+  `{ running, head, behind, startedAt }`, or the new lines of
+  `server-restart.log` when the install or build failed. Every MCP call to
+  coco waits up to 20 s while coco refuses connections, so a call made during
+  a restart lands once it is back.
 - `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
   `propose_rules`: same names and inputs as before, now posting a proposal
   card (`action`) and returning `{ id, status: 'open', note }`.
@@ -318,6 +333,9 @@ own work); a refusal comes back as a tool error naming the field.
 | `attach_media` | `POST /api/works/<slug>/media` with a file on disk; returns `src` and a `media` block |
 | `import_artifact` | `POST /api/works/<slug>/artifacts` |
 | `get_drift` | `GET /api/works/<slug>/drift`: `{ drift, next }` items with `kind`, `text` and the owner's action; read only |
+| `set_finding_status` | `GET /api/works/<slug>/findings?pr=<n>` to find the row by comment id or board key, then `POST /api/works/<slug>/findings` with `action` `fixed` (needs `commit`; the comment turns `fixed` with `resolution.commit`), `dismiss` (needs `reason`) or `reopen`; the thread is released as from the board |
+| `get_artifacts` | read only, from `<data>/works/<slug>/artifacts` and its `.meta.json`: each artifact's `name`, `pr`, `kind`, `headSha`, `current` (that head is still the PR's, `GET /api/code/pr/<n>/refs`), `size`, `path`; `name` returns a text artifact's `content` (200 KB at most) |
+| `list_work_agents` | read only: `GET /api/works/<slug>/agents` and `GET /api/jobs?work=<slug>`, filtered to `pr`; the 15 latest jobs, newest first; the caller is `you: true` |
 | `consult_persona` | read only, no route and no model: `{ login?, question, path?, pr? }` returns a text pack of at most 6000 characters (`server/consult.ts`): the persona's review-style (else main file) and authoring-style rules by keyword overlap with question and path plus its top rules, its mined past comments on similar paths, and the instruction to answer as them in 3-6 lines then offer an `ask` card with their pick `recommended`. Without `login`: the reviewer mapped to `path`, else the PR row's or work's first persona |
 | `set_next` | `PUT /api/works/<slug>` with `{ next }`, `clear` sends `null` |
 

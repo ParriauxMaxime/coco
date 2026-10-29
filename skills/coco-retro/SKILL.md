@@ -2,7 +2,7 @@
 name: coco-retro
 description: "Self-improvement round for cocopilot: read the owner's recent conversations with coco agents, spot friction (corrections, repeats, workarounds, dismissed cards, going back to another tool), rank it with evidence, then ship the picked fixes straight to coco's main. Use when the owner says \"retro\", \"self-improvement round\", \"what annoyed me today\", \"evaluate our last conversations\", or asks why they still leave coco for something."
 argument-hint: "[since: 2026-10-28 | 1d | last]"
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, mcp__cocopilot__list_works, mcp__cocopilot__get_work, mcp__cocopilot__propose_work_scaffold, mcp__cocopilot__propose_stack_edit, mcp__cocopilot__mark_row_landed, mcp__cocopilot__set_next, mcp__cocopilot__propose_rules, mcp__cocopilot__screenshot, mcp__cocopilot__post_blocks, mcp__cocopilot__ask
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, mcp__cocopilot__list_works, mcp__cocopilot__get_work, mcp__cocopilot__propose_work_scaffold, mcp__cocopilot__propose_stack_edit, mcp__cocopilot__mark_row_landed, mcp__cocopilot__set_next, mcp__cocopilot__propose_rules, mcp__cocopilot__screenshot, mcp__cocopilot__restart_coco, mcp__cocopilot__post_blocks, mcp__cocopilot__ask
 ---
 
 # coco-retro
@@ -75,8 +75,8 @@ For each row, in order, once the owner approved the work:
 - Build on `main` (or a worktree merged back fast-forward). Follow the repo's
   rules files and the style of the code around the change.
 - Tests and typecheck green, then commit in the repo's message style.
-- `POST /api/server/restart`, wait until `GET /api/server` shows the new sha,
-  then `screenshot` the page the fix touches and look at it.
+- `restart_coco` (it waits until coco runs the new sha), then `screenshot` the
+  page the fix touches and look at it.
 - `mark_row_landed` on the row with the commit.
 
 Every three or four rows: run the whole test suite and screenshot the main

@@ -74,12 +74,13 @@ function board() {
   ];
   const posts: { key: string; text: string; groupId?: string | null }[] = [];
   const released: string[] = [];
+  const updates: [string, Record<string, unknown>][] = [];
   const make = () => createFindings({
     DATA,
     REPO: DATA,
     config: { owner: { login: 'alice' }, repo: { github: 'acme/widgets', reviewsDir: 'reviews' } },
     works: { get: () => ({ slug: 'w', title: 'W', stack: [{ number: null, planned: { branch: 'feat/x', title: 'X' } }] }) as unknown as Work, remark: () => null },
-    comments: { list: () => ({ comments: stored as unknown as AgentComment[] }), add: async () => ({ id: 'new' }), update: async () => null },
+    comments: { list: () => ({ comments: stored as unknown as AgentComment[] }), add: async () => ({ id: 'new' }), update: async (_slug, _n, id, patch) => (updates.push([id, patch]), Object.assign(stored.find((c) => c.id === id)!, patch)) },
     code: { ensureRefs: async () => ({ headSha: 'abc' }), prFilesFromGit: async () => [{ filename: 'a.ts' }, { filename: 'b.ts' }] },
     reviewPlan: { planState: () => ({ plan: null, watch: null }), watch: () => null },
     reviewAgent: { worktreeFor: async () => null, rowPr: async () => ({ head: 'feat/x' }) },
@@ -91,7 +92,7 @@ function board() {
   const findings = make();
   const keyOf = async (id: string) => (await findings.collect('w')).rows.find((r) => r.commentId === id)!.key;
   const settled = () => new Promise((ok) => setTimeout(ok, 10));
-  return { findings, make, stored, key, posts, released, keyOf, settled };
+  return { findings, make, stored, key, posts, released, updates, keyOf, settled };
 }
 
 type Served = { rows: unknown[]; stale?: boolean };
@@ -205,4 +206,16 @@ test('dismissing a finding releases its agent and starts none', async () => {
   await settled();
   assert.equal(posts.length, 0);
   assert.equal(released.length, 1);
+});
+
+test('a fix landed outside its thread marks the finding fixed with its commit and releases the agent; reopening undoes it', async () => {
+  const { findings, key, posts, released, updates, keyOf } = board();
+  const c1 = await keyOf('c1');
+  await assert.rejects(findings.act('w', { action: 'fixed', keys: [c1], pr: null }), /commit required/);
+  await findings.act('w', { action: 'fixed', keys: [c1], commit: '0347afebc2b', reason: 'applied by hand', pr: null });
+  assert.deepEqual(updates, [['c1', { status: 'fixed', resolution: { commit: '0347afebc2b', note: 'applied by hand' } }]]);
+  assert.deepEqual(released, [`c.${key.replaceAll(':', '~')}.c1`]);
+  assert.equal(posts.length, 0);
+  await findings.act('w', { action: 'reopen', keys: [await keyOf('c1')], pr: null });
+  assert.deepEqual(updates.at(-1), ['c1', { status: 'open' }]);
 });

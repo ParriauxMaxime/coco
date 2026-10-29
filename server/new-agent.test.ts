@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appNote, createNewAgent, freshBranch } from './new-agent.ts';
+import { APP_NOTE, createNewAgent, freshBranch } from './new-agent.ts';
 import { DEFAULTS } from './config.ts';
 import { checkMode } from './models.ts';
 import type { Catalog } from './models.ts';
@@ -84,7 +84,7 @@ test('places list every repo with coco’s own marked, the live works, and a wor
   assert.deepEqual(p.repos.map((r) => [r.id, r.app]), [['widgets', false], ['cocopilot', true]]);
   assert.deepEqual(p.works.map((w) => w.slug), ['csv']);
   assert.deepEqual(p.rows, [{ key: '101', label: '#101', title: '' }, { key: 'b:feat:csv-docs', label: 'feat/csv-docs', title: 'Docs' }]);
-  assert.match(appNote('http://127.0.0.1:8777/'), /commit it on main[\s\S]*curl -X POST http:\/\/127\.0\.0\.1:8777\/api\/server\/restart[\s\S]*screenshot/);
+  assert.match(APP_NOTE, /commit it on main[\s\S]*restart_coco[\s\S]*screenshot/);
   assert.match(freshBranch('!!!'), /^agent\/agent-[0-9a-f]{4}$/);
 });
 

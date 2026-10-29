@@ -809,6 +809,30 @@ test('post_reply checks the blocks like post_blocks, writes the reply file the t
   assert.deepEqual(read(A).messages.map((m) => [m.role, m.text]), [['user', 'Add the null check'], ['agent', 'Null check added.']]);
 });
 
+test('with no turn waiting, post_reply joins the thread the agent holds; get_thread shows that thread', async () => {
+  const { threads, post, daemon, read, reply } = setup();
+  const a1 = await post(A, 'Add the null check');
+  await until(() => daemon.calls.sent.length === 1, 'dispatch');
+  const agent = daemon.calls.created[0].id;
+  reply(a1.waiting.replyPath, 'Null check added.');
+  daemon.finish(agent);
+  await until(() => read(A).waiting === null, 'turn ends');
+  assert.deepEqual(threads.heldBy(agent), [{ slug: SLUG, key: A }]);
+
+  await assert.rejects(threads.postReply(agent, { blocks: [{ type: 'text', text: 'x' }], thread: B }), /no thread "c\.7\.bb22" waits on this agent or is held by it; this agent holds c\.7\.aa11/);
+  const out = await threads.postReply(agent, { blocks: [{ type: 'text', text: 'Applied by hand in 0347afe.' }], thread: `${A}">\n` });
+  assert.deepEqual(out, { ok: true, thread: A, blocks: 1, appended: true });
+  await threads.postReply(agent, { blocks: [{ type: 'text', text: 'Still applied.' }] });
+  assert.deepEqual(read(A).messages.slice(-2).map((m) => [m.role, m.text, m.blocks]), [['agent', 'Applied by hand in 0347afe.', [{ type: 'text', text: 'Applied by hand in 0347afe.' }]], ['agent', 'Still applied.', [{ type: 'text', text: 'Still applied.' }]]]);
+
+  const v = await threads.view(SLUG, A);
+  assert.equal(v.label, 'widgets.ts:3');
+  assert.deepEqual(v.item, { title: null, path: 'src/widgets.ts', line: 3, status: 'open' });
+  assert.equal(v.turn, null);
+  assert.equal(v.group?.agentId, agent);
+  assert.deepEqual(v.messages.map((m) => [m.role, m.text]).at(-1), ['agent', 'Still applied.']);
+});
+
 test('a Cc-Comment line names its comment wherever it sits in the message and in any case; blank lines and other trailers do not hide it', () => {
   assert.deepEqual(commentIdsOf('fix: guard the null\n\nBody.\n\nCc-Comment: daa6b3861438\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n'), ['daa6b3861438'], 'blank line before the last trailer paragraph');
   assert.deepEqual(commentIdsOf('fix\n\nSigned-off-by: A <a@x.io>\nCc-Comment: aa11\nCo-Authored-By: Claude <noreply@anthropic.com>'), ['aa11'], 'among other trailers');

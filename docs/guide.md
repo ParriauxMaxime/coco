@@ -1510,8 +1510,10 @@ the tool call, read-only.
 
 The same MCP carries the agents' writes to the work, in place of curl:
 `upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact`,
-`mark_row_landed` and `set_next`, each defaulting to the agent's work and row; the HTTP routes stay
-for you, scripts and sessions without the MCP.
+`mark_row_landed`, `set_next` and `set_finding_status`, each defaulting to the agent's work and row; the HTTP routes stay
+for you, scripts and sessions without the MCP. It reads for them too: `get_thread` shows a thread agent
+its own thread as you see it (the Approve queue, checks, open cards), `get_artifacts` the pieces other
+agents imported, `list_work_agents` who runs on the work, and `restart_coco` restarts coco and waits for it.
 
 When you ask any coco agent for a change to coco itself ("read local head, not
 origin"), it calls `flag_coco_issue` instead of saying another session owns it:

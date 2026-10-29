@@ -73,7 +73,7 @@ const syncTask = (pr: string) => [
 
 // kit agents of one PR run side by side: each makes its own piece and keeps what the others wrote in the body
 const kitScope = (kind: string) => [
-  `Make only the ${kind} kit piece. The other pieces of this PR have their own agents: never make them; use the ones already imported for this PR (get_work artifacts) where the body needs them.`,
+  `Make only the ${kind} kit piece. The other pieces of this PR have their own agents: never make them; use the ones already imported for this PR (cocopilot get_artifacts reads them; list_work_agents tells whether their agent still runs) where the body needs them.`,
   kind === 'video' ? 'Once imported, put the video in the PR body yourself, under `## Demo`.' : '',
   'Right before `gh pr edit`, read the live body again with `gh pr view` and keep what another agent put there since.',
 ].filter(Boolean).join(' ');

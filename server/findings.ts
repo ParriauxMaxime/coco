@@ -86,7 +86,8 @@ type FindingsOptions = {
   repoOf?: RepoOf;
 };
 // accept: note goes to the fix agent with the ask to fix; together puts a PR's findings in one agent instead of one per file
-type ActBody = { action?: string; keys?: unknown; reason?: string; pr?: string | number | null; note?: string; model?: string | null; together?: boolean; attachments?: unknown };
+// fixed: the commit that fixed a PR comment's finding, landed outside its thread's Approve (by hand, by another agent)
+type ActBody = { action?: string; keys?: unknown; reason?: string; pr?: string | number | null; note?: string; model?: string | null; together?: boolean; attachments?: unknown; commit?: string };
 const SEVERITY_WORDS: [RegExp, string][] = [
   [/\bnon-blocking\b/i, 'minor'],
   [/\b(blocking|critical)\b/i, 'blocking'],
@@ -518,9 +519,10 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return Boolean(c && (!c.author || c.author === ME));
   };
 
-  async function act(slug: string, { action, keys, reason = '', pr = null, ...fix }: ActBody) {
-    if (!action || !['accept', 'dismiss', 'reopen'].includes(action)) throw new HttpError(400, "action must be 'accept', 'dismiss' or 'reopen'");
+  async function act(slug: string, { action, keys, reason = '', pr = null, commit, ...fix }: ActBody) {
+    if (!action || !['accept', 'dismiss', 'reopen', 'fixed'].includes(action)) throw new HttpError(400, "action must be 'accept', 'dismiss', 'reopen' or 'fixed'");
     if (!Array.isArray(keys) || !keys.length) throw new HttpError(400, 'keys required');
+    if (action === 'fixed' && !/^[0-9a-f]{7,40}$/i.test(String(commit ?? ''))) throw new HttpError(400, 'commit required: the sha that fixed it');
     const only = pr === null ? null : parseKey(pr);
     const { rows } = await rowsOf(slug, only, false);
     const ledger = readLedger(slug);
@@ -542,8 +544,11 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         else if (row.source === 'coco' && row.n !== null && row.watchIndex !== undefined && !row.commentId) reviewPlan.watch(slug, row.n, { index: row.watchIndex, state: 'dismissed', ...(reason ? { note: reason } : {}) });
         else if (reason) works.remark(slug, { n: row.n ?? 'stack', where: row.path ? `${row.path.split('/').pop()} L${row.line || '?'}` : `"${row.claim.slice(0, 60)}"`, verdict: `${row.source} finding dismissed`, text: reason });
         ledger[key] = { status: 'dismissed', at, reason: reason.trim(), commentId: row.commentId || undefined };
+      } else if (action === 'fixed') {
+        if (!row.commentId || row.n === null) throw new HttpError(400, `${key} is not a comment on a PR: only those record a fix commit`);
+        await comments.update(slug, row.n, row.commentId, { status: 'fixed', resolution: { ...(row.resolution || {}), commit: String(commit), note: reason.trim() || 'fixed outside the thread' } });
       } else {
-        if (row.commentId && row.n !== null && row.status === 'declined') await comments.update(slug, row.n, row.commentId, { status: 'open' });
+        if (row.commentId && row.n !== null && (row.status === 'declined' || row.status === 'fixed')) await comments.update(slug, row.n, row.commentId, { status: 'open' });
         if (row.source === 'coco' && row.n !== null && row.watchIndex !== undefined && !row.commentId) reviewPlan.watch(slug, row.n, { index: row.watchIndex, state: null });
         delete ledger[key];
       }

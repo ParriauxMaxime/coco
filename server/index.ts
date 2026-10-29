@@ -637,6 +637,17 @@ async function api(req: Req, res: Res, url: URL) {
         return send(res, httpStatus(e), { error: errorMessage(e) });
       }
     }
+    // the get_thread tool: the named thread of any work, else the threads the agent holds
+    if (root === 'agent-chat' && b === 'threads' && req.method === 'GET') {
+      try {
+        const [slug, key] = [url.searchParams.get('work'), url.searchParams.get('key')];
+        const at = key ? (slug ? [{ slug, key }] : threads.heldBy(a).filter((x) => x.key === key)) : threads.heldBy(a);
+        if (key && !at.length) return send(res, 404, { error: `thread: ${key} is not held by this agent: pass work with it` });
+        return send(res, 200, { threads: await Promise.all(at.map((x) => threads.view(x.slug, x.key))) });
+      } catch (e) {
+        return send(res, httpStatus(e), { error: errorMessage(e) });
+      }
+    }
     if (root === 'agent-chat' && b === 'subagents') return subagents.handle(req, res, parts, send);
     if (root === 'agent-chat' && a && b === 'handoff') return handoff.handle(req, res, parts, readBody, send);
     if (root === 'agent-chat' && AGENT_CONTROLS.includes(b)) return agentControls.handle(req, res, parts, readBody, send);

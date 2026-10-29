@@ -232,13 +232,8 @@ const AGENT_ID = process.env.PASEO_AGENT_ID || null;
 const refused = (message: string) => ({ ...text(message), isError: true });
 async function postCard(card: Record<string, unknown>) {
   if (!AGENT_ID) return { error: 'no PASEO_AGENT_ID in this MCP server environment: cards need a Paseo agent started by coco' };
-  try {
-    const r = await fetch(new URL('/api/cards', config.baseUrl), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...card, agentId: AGENT_ID }) });
-    const body = await r.json().catch(() => ({}));
-    return r.ok ? { id: String(body.id) } : { error: String(body.error || `coco answered ${r.status}`) };
-  } catch (e) {
-    return { error: `cannot reach coco at ${config.baseUrl}: ${e instanceof Error ? e.message : String(e)}` };
-  }
+  const r = await coco('POST', '/api/cards', { ...card, agentId: AGENT_ID });
+  return r.ok ? { id: String(r.data.id) } : { error: r.error };
 }
 const typedBlocks = z.array(z.looseObject({ type: z.string() })).describe('typed blocks, 16 at most: text {text}, callout {tone: risk|warn|ok|note, title?, text}, steps {title?, items[], outcome?}, diagram {mermaid, caption?}, code {path?, line?, lang?, code, caption?}, table {columns[], rows: cell[][], caption?}, media {kind: image|video, src: /api/works/<slug>/media/<file>, caption?}. Inline text takes **bold**, *italic*, `code`, path/file.ts:12 refs and <risk|warn|ok|note>…</…> marks');
 const cardOption = z.object({ key: z.string().describe('short id returned in the answer'), label: z.string().max(120), details: z.string().max(500).optional(), consequence: z.string().max(200).optional().describe('one line: what happens if picked, and the risk'), recommended: z.boolean().optional(), confidence: z.number().min(0).max(100).optional() });
@@ -278,14 +273,21 @@ server.tool('post_blocks', `Show ${OWNER} a rich result in coco (tables, diagram
 });
 
 type Reply = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
-async function coco(method: string, route: string, body?: unknown, type = 'application/json'): Promise<Reply> {
-  try {
-    const payload = body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body);
-    const r = await fetch(new URL(route, config.baseUrl), { method, ...(payload === undefined ? {} : { headers: { 'Content-Type': type }, body: payload }) });
-    const data = await r.json().catch(() => ({}));
-    return r.ok ? { ok: true, data } : { ok: false, error: String(data.error || `coco answered ${r.status}`) };
-  } catch (e) {
-    return { ok: false, error: `cannot reach coco at ${config.baseUrl}: ${e instanceof Error ? e.message : String(e)}` };
+// a restarting coco refuses connections for a few seconds: a call waits that long for it before giving up
+const RECONNECT_MS = 20000;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const connectionRefused = (e: unknown) => (e as { cause?: { code?: string } })?.cause?.code === 'ECONNREFUSED';
+async function coco(method: string, route: string, body?: unknown, type = 'application/json', patience = RECONNECT_MS): Promise<Reply> {
+  const payload = body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body);
+  for (const until = Date.now() + patience; ; await sleep(500)) {
+    try {
+      const r = await fetch(new URL(route, config.baseUrl), { method, ...(payload === undefined ? {} : { headers: { 'Content-Type': type }, body: payload }) });
+      const data = await r.json().catch(() => ({}));
+      return r.ok ? { ok: true, data } : { ok: false, error: String(data.error || `coco answered ${r.status}`) };
+    } catch (e) {
+      if (connectionRefused(e) && Date.now() < until) continue;
+      return { ok: false, error: `cannot reach coco at ${config.baseUrl}: ${e instanceof Error ? e.message : String(e)}` };
+    }
   }
 }
 type Place = { work: string | null; pr: string | null };
@@ -520,6 +522,109 @@ server.tool('post_reply', `Your reply to ${OWNER} in a coco thread (the last ste
   if (!AGENT_ID) return refused('no PASEO_AGENT_ID in this MCP server environment: replies need a Paseo agent started by coco');
   const r = await coco('POST', `/api/agent-chat/${encodeURIComponent(AGENT_ID)}/reply`, { blocks, thread, finding });
   return r.ok ? text(r.data) : refused(`reply refused: ${r.error}`);
+});
+
+server.tool('get_thread', `Your coco thread as ${OWNER} sees it, instead of guessing at the UI: its item (a finding's title, line and status: open, sent, fixed, declined, outdated), whether a turn of yours is under way, each suggestion (a commit's state: pending, queued, conflict, applied, dismissed; coco's checks on it, its error, the commit Approve applied), the open cards and the last messages; for a code group its branch, worktree and the commits no item took. Without thread: every thread you hold.`, {
+  thread: z.string().optional().describe('thread key (c.<row>.<comment id>, d.<decision id>, p.<row>); omit for every thread you hold'),
+  work: workArg.describe('the work of a thread you do not hold'),
+}, async ({ thread, work }) => {
+  if (!AGENT_ID && !(thread && work)) return refused('no PASEO_AGENT_ID in this MCP server environment: pass thread and work');
+  const q = new URLSearchParams({ ...(thread ? { key: thread.trim() } : {}), ...(work ? { work } : {}) });
+  const r = await coco('GET', `/api/agent-chat/${encodeURIComponent(AGENT_ID ?? '-')}/threads${q.size ? `?${q}` : ''}`);
+  if (!r.ok) return refused(`thread refused: ${r.error}`);
+  const threads = Array.isArray(r.data.threads) ? r.data.threads : [];
+  return text(threads.length ? threads : { threads, note: 'this agent holds no thread' });
+});
+
+server.tool('set_finding_status', `Settle a finding on ${OWNER}'s Findings board: fixed, with the commit that fixed it when it landed outside its thread's Approve (by hand, by another agent); dismissed, with the reason later agents read; or reopened. Its thread's agent and worktree are released as when ${OWNER} does it. Accepting stays with ${OWNER}: it starts a fix agent.`, {
+  work: workArg,
+  pr: rowArg.optional().describe("default this agent's PR"),
+  id: z.string().describe("the finding: its comment id (get_pr_findings, the last part of a thread key) or its board key"),
+  status: z.enum(['fixed', 'dismissed', 'reopened']),
+  commit: z.string().optional().describe('fixed: the sha that fixed it'),
+  reason: z.string().max(300).optional().describe('dismissed: required, one sentence; fixed: a short note'),
+}, async ({ work: slugIn, pr: prIn, id, status, commit, reason }) => {
+  const t = await target(slugIn, prIn);
+  if (!t.slug) return refused(NO_WORK);
+  if (!t.pr) return refused(NO_PR);
+  if (status === 'fixed' && !commit) return refused('commit required: the sha that fixed it');
+  if (status === 'dismissed' && !reason?.trim()) return refused('reason required: why the code stays as it is');
+  const board = await coco('GET', `/api/works/${t.slug}/findings?pr=${encodeURIComponent(t.pr)}`);
+  if (!board.ok) return refused(`finding refused: ${board.error}`);
+  const rows = (Array.isArray(board.data.rows) ? board.data.rows : []) as { key: string; commentId?: string | null }[];
+  const want = id.trim();
+  const row = rows.find((r) => r.key === want || (r.commentId && r.commentId === want.split('.').pop()));
+  if (!row) return refused(`no finding ${want} on ${t.pr}: get_pr_findings lists them`);
+  const action = { fixed: 'fixed', dismissed: 'dismiss', reopened: 'reopen' }[status];
+  const r = await coco('POST', `/api/works/${t.slug}/findings`, { action, keys: [row.key], reason, commit, pr: t.pr });
+  return r.ok ? text({ key: row.key, status, released: r.data.pruned }) : refused(`finding refused: ${r.error}`);
+});
+
+const TEXT_ARTIFACT = /\.(md|mmd|txt|json|html|svg|csv|ya?ml)$/i;
+const ARTIFACT_MAX = 200_000;
+server.tool('get_artifacts', `The work's artifacts other agents imported (PR body drafts, diagrams, demo clips, review pages): name, kit kind, PR and the head it was made for (current: still the PR's head), size and absolute path. With name, a text artifact's content. Read them here, not by looking for the files on disk.`, {
+  work: workArg,
+  pr: rowArg.optional().describe("only this PR's artifacts"),
+  name: z.string().optional().describe(`one artifact: its content when it is text (${ARTIFACT_MAX / 1000} KB at most), else its path`),
+}, async ({ work: slugIn, pr: prIn, name }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  const dir = path.join(WORKS, decodeURIComponent(t.slug), 'artifacts');
+  let meta: Record<string, { pr?: string; kind?: string; headSha?: string; at?: string }> = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(dir, '.meta.json'), 'utf8')); } catch { /* no artifact made for a PR yet */ }
+  if (name) {
+    const file = path.resolve(dir, name);
+    if (path.dirname(file) !== dir || !fs.existsSync(file)) return refused(`no artifact "${name}": call without name to list them`);
+    const st = fs.statSync(file);
+    const about = { name, ...meta[name], path: file, size: st.size };
+    if (st.isDirectory()) return text({ ...about, files: fs.readdirSync(file).slice(0, 50) });
+    return text(TEXT_ARTIFACT.test(name) && st.size <= ARTIFACT_MAX ? { ...about, content: fs.readFileSync(file, 'utf8') } : about);
+  }
+  const only = prIn != null ? rowParam(prIn) : null;
+  const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !n.startsWith('.') && (!only || meta[n]?.pr === only)) : [];
+  const heads = new Map<string, string | undefined>();
+  for (const pr of new Set(names.flatMap((n) => (meta[n]?.headSha && meta[n].pr ? [meta[n].pr] : [])))) heads.set(pr, (await refsOf(pr)).headSha);
+  return text(names.map((n) => {
+    const m = meta[n];
+    const st = fs.statSync(path.join(dir, n));
+    const head = m?.pr ? heads.get(m.pr) : undefined;
+    return { name: n, ...m, ...(head && m?.headSha ? { current: head.startsWith(m.headSha) } : {}), size: st.size, ...(st.isDirectory() ? { dir: true } : {}), path: path.join(dir, n) };
+  }));
+});
+
+server.tool('list_work_agents', `Who works on a work now: each agent coco started or linked on it (title, kind such as a kit piece, review or fix, PR, status running, idle or archived, last update; you: true is you) and its latest jobs (dispatches, kit runs, syncs: state and error), newest first. Check it before making a piece another agent may already be making.`, {
+  work: workArg,
+  pr: rowArg.optional().describe('only this PR'),
+}, async ({ work: slugIn, pr: prIn }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  const only = prIn != null ? rowParam(prIn) : null;
+  const [a, j] = await Promise.all([coco('GET', `/api/works/${t.slug}/agents`), coco('GET', `/api/jobs?work=${t.slug}`)]);
+  if (!a.ok) return refused(`agents refused: ${a.error}`);
+  type Listed = { agentId?: string | null; kind?: string; title?: string; pr?: string | null; status?: string; updatedAt?: string | null; subagents?: { running?: number } };
+  type Job = { label?: string; action?: string; state?: string; pr?: string | null; agentId?: string | null; startedAt?: string; endedAt?: string; error?: string };
+  const mine = (pr?: string | null) => !only || String(pr ?? '') === only;
+  const agents = ((a.data.agents ?? []) as Listed[]).filter((x) => mine(x.pr)).map((x) => ({ agentId: x.agentId, kind: x.kind, title: x.title, pr: x.pr, status: x.status, updatedAt: x.updatedAt, ...(x.subagents?.running ? { subagents: x.subagents.running } : {}), ...(x.agentId && x.agentId === AGENT_ID ? { you: true } : {}) }));
+  const jobs = j.ok ? ((j.data.jobs ?? []) as Job[]).filter((x) => mine(x.pr)).slice(-15).reverse().map(({ label, action, state, pr, agentId, startedAt, endedAt, error }) => ({ label, action, state, pr, agentId, startedAt, endedAt, ...(error ? { error } : {}) })) : { error: j.error };
+  return text({ agents, jobs });
+});
+
+const RESTART_MS = 180000;
+server.tool('restart_coco', `Restart coco on its checkout's current commit, for an agent working on coco itself once its change is on that checkout: coco rebuilds its client first, and a failed install or build leaves the old server running. Waits until the new server answers and returns the commit it runs. Paseo agents, you included, keep running. Use it instead of curling /api/server/restart.`, {}, async () => {
+  const before = await coco('GET', '/api/server');
+  if (!before.ok) return refused(`restart refused: ${before.error}`);
+  const log = path.join(config.dataDir, 'server-restart.log');
+  const from = fs.existsSync(log) ? fs.statSync(log).size : 0;
+  const tail = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').slice(from).split('\n').filter(Boolean).slice(-15).join('\n') : '');
+  const r = await coco('POST', '/api/server/restart');
+  if (!r.ok) return refused(`restart refused: ${r.error}`);
+  for (const until = Date.now() + RESTART_MS; Date.now() < until; ) {
+    await sleep(1000);
+    if (/^restart: .*failed/m.test(tail())) return refused(`restart failed, coco keeps running ${before.data.running}:\n${tail()}`);
+    const now = await coco('GET', '/api/server', undefined, undefined, 0);
+    if (now.ok && now.data.startedAt !== before.data.startedAt) return text({ running: now.data.running, head: now.data.head, behind: now.data.behind, startedAt: now.data.startedAt });
+  }
+  return refused(`coco did not come back within ${RESTART_MS / 1000} s:\n${tail()}`);
 });
 
 server.tool('screenshot', `See a page as ${OWNER} would: coco renders it in a headless Chrome and returns the PNG plus the page's console errors. Use it to check a UI change yourself before you report, instead of asking ${OWNER} to reload. It shows what the running coco serves (${config.baseUrl}); to see your own worktree's build, run your server copy on a free port and pass its full URL.`, {
