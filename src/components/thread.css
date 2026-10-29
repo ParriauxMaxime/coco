@@ -19,6 +19,8 @@
 .dp-thr .dp-cd-sent { align-self: flex-end; }
 .dp-thr .dp-composer.dp-tcomp { padding: 0; }
 .dp-thr .dp-tcomp .dp-composer-in { max-width: none; }
+/* model, verdicts and send wrap in a narrow detail pane instead of overlapping */
+.dp-tcomp .dp-comp-f { flex-wrap: wrap; row-gap: 4px; }
 .dp-thr-err { font-size: 12px; color: var(--dp-bad); }
 .dp-thr-note { font-size: 12px; color: var(--dp-t3); }
 .dp-thr-load { padding: 6px 0; font-size: 12px; color: var(--dp-t3); }
