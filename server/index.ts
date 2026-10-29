@@ -80,7 +80,7 @@ import { errorMessage, httpStatus } from './core-types.ts';
 import { send, sendFile } from './http-send.ts';
 import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Work } from './core-types.ts';
-import { cacheFile, swrCache } from './swr.ts';
+import { cacheFile, mapLimit, swrCache } from './swr.ts';
 import { backfillParents, nextSummary } from './lineage.ts';
 import { backfillLanded } from './landed.ts';
 
@@ -809,6 +809,8 @@ http
     console.log(`cocopilot on http://${BIND}:${PORT}  (personas: ${PERSONAS})`);
     // after listen: a server that exits on a taken port never registers
     browserHost.start();
+    // a work's first worktrees read runs git status in each of its worktrees: warm them so no switch waits on it
+    void mapLimit(works.list().filter((w) => !w.archived), 2, (w) => worktrees.listCached(w.slug).catch(() => []));
   });
 process.once('exit', () => browserHost.stop());
 // a promise nobody awaited fails: logged, the server stays up (Node's default would exit)
