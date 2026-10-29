@@ -71,10 +71,11 @@ test('a restart loses the commands that ran and keeps following the agents; a di
   first.start(meta, () => new Promise<void>(() => {}));
   const agent = first.start({ ...meta, action: 'fix-findings', kind: 'agent' }, async () => ({ agentId: 'a1' }));
   await agent.done;
+  first.start({ ...meta, action: 'prompt:1', kind: 'agent' }, () => new Promise<void>(() => {}));
   const again = createJobs({ DATA });
-  assert.deepEqual(again.list('w').map((j) => [j.action, j.state]), [['drift:7:unpushed', 'lost'], ['fix-findings', 'running']]);
+  assert.deepEqual(again.list('w').map((j) => [j.action, j.state]), [['drift:7:unpushed', 'lost'], ['fix-findings', 'running'], ['prompt:1', 'lost']]);
   again.dismiss(again.list('w')[0].id);
-  assert.deepEqual(again.list('w').map((j) => j.action), ['fix-findings']);
+  assert.deepEqual(again.list('w').map((j) => j.action), ['fix-findings', 'prompt:1']);
 });
 
 test('a spare worktree cut by a restart leaves the list: the boot makes it again under a new job', () => {

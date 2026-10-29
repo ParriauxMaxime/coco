@@ -46,10 +46,10 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     try {
       jobs = dir ? JSON.parse(fs.readFileSync(fileOf(work), 'utf8')) : [];
     } catch {}
-    // a command cut by a restart cannot be followed again; an agent keeps running and reports through its events;
+    // a command cut by a restart cannot be followed again, nor an agent job cut before its agent started; a started agent keeps running and reports through its events;
     // a spare worktree or an agent worktree's install starts over on boot (spares.start, agentChecks.resume) under a new job, so its cut one leaves the list
     for (const j of jobs) {
-      if (!live(j) || (j.kind === 'agent' && j.settle !== 'promise')) continue;
+      if (!live(j) || (j.kind === 'agent' && j.settle !== 'promise' && j.agentId)) continue;
       const over = RESUMED.test(j.action);
       Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: over ? 'coco restarted while it ran: it starts over' : 'coco restarted while it ran', ...(over ? { dismissed: true } : {}) });
     }
