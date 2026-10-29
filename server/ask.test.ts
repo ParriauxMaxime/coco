@@ -316,8 +316,8 @@ test('a conversation runs at its tier: global without work or repo, the repo’s
   fs.writeFileSync(path.join(DATA, 'asks', `${old.id}.json`), JSON.stringify(old));
   const listed = async (scope: string) => (await call('GET', `/api/ask?scope=${scope}`, ['ask'])) as { id: string }[];
   assert.deepEqual((await listed('global')).map((c) => c.id).sort(), [global.id, old.id].sort());
-  assert.deepEqual((await listed('repo:widgets')).map((c) => c.id), [repo.id]);
-  assert.deepEqual((await listed('work:csv-export')).map((c) => c.id), [work.id]);
+  assert.deepEqual((await listed('repo:widgets')).map((c) => c.id), []);
+  assert.deepEqual((await listed('work:csv-export')).map((c) => c.id).sort(), [repo.id, work.id].sort());
 });
 
 test('a one-shot run (rules) archives its agent after the first turn and stays known as one-shot after a restart', async () => {

@@ -581,6 +581,13 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       run: async (card) => {
         const conv = convOf(card.agentId);
         const r = apply(scaffoldOf(card.action?.input ?? {}), { scope: conv?.scope ?? { kind: 'global' }, source: from(conv, card.agentId), replaceStack: card.answer?.values?.replaceStack === true, parent: card.work || conv?.workSlug });
+        // a repo or global conversation follows the work it scaffolded, so it is found on that work's page
+        if (conv && conv.scope.kind !== 'work') {
+          conv.scope = { kind: 'work', slug: r.slug };
+          conv.workSlug = r.slug;
+          save(conv);
+          return { ok: true, detail: `${r.created ? 'created' : 'updated'} work ${r.slug}${r.stackKept ? ', its stack kept' : ''}; this conversation moved to it`, link: `#/work/${r.slug}/ask-${conv.id}` };
+        }
         return { ok: true, detail: `${r.created ? 'created' : 'updated'} work ${r.slug}${r.stackKept ? ', its stack kept' : ''}`, link: `#/work/${r.slug}` };
       },
       posted: (card) => proposed(card, { kind: 'work', title: String(card.action?.input.title) }),
