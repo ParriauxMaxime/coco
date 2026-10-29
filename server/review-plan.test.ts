@@ -114,6 +114,34 @@ test('the plan prompt of a 250-file PR stays under 2k tokens: no diff, no file l
   assert.deepEqual(ctx.personas, [{ login: 'bob', hits: 250 }]);
 });
 
+test('auto starts one plan per stack row head: never twice at once, never again after a failed run, never off the stack', async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-auto-'));
+  let head = 'a'.repeat(40);
+  const work: Work = { slug: 'csv', title: 'CSV export', timeline: [], stack: [{ number: 7 }] };
+  const runs: ((e: Error) => void)[] = [];
+  const plan = createReviewPlan({
+    DATA,
+    REPO: DATA,
+    config: DEFAULTS,
+    code: { ensureRefs: async () => ({ number: 7, headSha: head, baseSha: 'c'.repeat(40), mergeBase: 'b'.repeat(40) }), prFilesFromGit: async () => [] },
+    works: { get: () => work, prInfo: async () => assert.fail(), personasForPaths: () => [], remark: () => null },
+    agents: { run: () => new Promise((_resolve, reject) => runs.push(reject)) },
+    place: async () => ({ workspaceId: 'wks_1', cwd: DATA }),
+  });
+  const started = async (n: number) => (await plan.auto('csv', n)).started;
+  const both = await Promise.all([started(7), started(7)]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual([both.sort(), runs.length], [[false, true], 1]);
+  assert.equal(await started(8), false);
+  runs[0](new Error('boom'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(DATA, 'works', 'csv', 'reviews', 'pr-7-plan.json'), 'utf8')).run.status, 'error');
+  assert.equal(await started(7), false);
+  head = 'd'.repeat(40);
+  assert.equal(await started(7), true);
+  assert.equal(runs.length, 2);
+});
+
 test('get_pr_findings lists settled findings with their thread end and dismissed watch points, which outlive a re-plan', () => {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-seen-'));
   const reviews = path.join(DATA, 'works', 'csv', 'reviews');

@@ -39,7 +39,7 @@ export const reviewApi = {
   brief: (slug: string, n: PrKey, runId: string) => fetch(`${prUrl(slug, n)}/review-runs/${runId}/brief`).then((r) => (r.ok ? r.text() : '')),
   pushed: (slug: string, n: PrKey, runId: string) => send('POST', `${prUrl(slug, n)}/review-runs/${runId}/pushed`),
   plan: (slug: string, n: PrKey) => fetch(`${prUrl(slug, n)}/review-plan`).then(json),
-  startPlan: (slug: string, n: PrKey, body?: { guidance: string }) => send('POST', `${prUrl(slug, n)}/review-plan`, body),
+  startPlan: (slug: string, n: PrKey, body?: { guidance?: string; auto?: boolean }) => send('POST', `${prUrl(slug, n)}/review-plan`, body),
   tick: (slug: string, n: PrKey, body: { headSha: string; path: string; on: boolean }) => send('PUT', `${prUrl(slug, n)}/review-plan/ticks`, body),
   watch: (slug: string, n: PrKey, body: { index: number; state: string; note?: string }) => send('PUT', `${prUrl(slug, n)}/review-plan/watch`, body),
   stackFix: (slug: string) => fetch(`/api/works/${slug}/stack-fix`).then(json),
@@ -133,6 +133,10 @@ const actions = (slug: string, n: PrKey) => ({
   startPlan: async (guidance?: string) => {
     await reviewApi.startPlan(slug, n, guidance ? { guidance } : undefined);
     await loadPlan(slug, n);
+  },
+  autoPlan: async () => {
+    const { started } = await reviewApi.startPlan(slug, n, { auto: true });
+    if (started) await loadPlan(slug, n);
   },
   tick: (path: string, on: boolean) => {
     const { plan } = entry(slug, n);

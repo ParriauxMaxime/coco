@@ -341,6 +341,12 @@ in a hidden category shows that category again.
 "Plan this review" starts a Paseo agent (`coco · Plan review …`, on
 `models.fast`) in the workspace of the PR's worktree (else the stack's top
 worktree, else the repo), archived once the plan is in.
+Opening the Review tab of an open stack row starts it on its own when there is
+no plan for the current head (none yet, or the head moved): `POST
+…/review-plan { auto: true }`, which the server runs only for a row of the
+work's stack, with no run in flight, and at most once per head. A head whose
+run failed, or that already had a run, waits for "Plan this review" or
+"Re-plan".
 Its prompt carries no diff and no file list: only the PR, the work, the head
 and merge-base shas and the git commands to read them (`git diff --name-status`
 lists the changed files, then `git diff`, `git show`, `git grep` at the head

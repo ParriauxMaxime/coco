@@ -58,7 +58,7 @@ export type PlanBody = {
   surface: { area: string; risk: string; entryPoints: string; note?: string }[];
 };
 export type PlanLogEntry = { kind: string; text: string };
-export type PlanRun = { status: string; startedAt: string; progress: string[]; log?: PlanLogEntry[]; error?: string };
+export type PlanRun = { status: string; startedAt: string; headSha?: string; progress: string[]; log?: PlanLogEntry[]; error?: string };
 export type FileCategory = { category: string; reason?: string };
 export type ReviewPlanState = {
   plan: PlanBody | null;

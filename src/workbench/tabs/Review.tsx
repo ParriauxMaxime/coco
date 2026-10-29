@@ -18,7 +18,7 @@ import { openCodeAt, useLangProviders, useLangStatus, useLocal } from './Code.ts
 import PrChip from '../../preview/PrChip.tsx';
 import Icon from '../../preview/Icon.tsx';
 import { stateLabel } from '../../preview/parts.tsx';
-import { prState } from '../../preview/data.ts';
+import { isDone, prState } from '../../preview/data.ts';
 import { errorMessage } from '../../api.ts';
 import type { Reveal } from '../code/DiffView.tsx';
 import type { RefFile, ReviewComment } from '../types.ts';
@@ -89,6 +89,16 @@ export default function Review({ tabId }: { tabId: string }) {
     return acc;
   }, {}), [files, cats]);
   const { counts } = rv;
+
+  // an open stack row with no plan for its head starts one on its own; the server keeps it to one run per head
+  const autoHead = useRef('');
+  const st = rv.plan;
+  const needsPlan = Boolean(st && pr && !isDone(prState(pr)) && st.run?.status !== 'running' && (!st.plan || st.stale) && st.run?.headSha !== st.headSha);
+  useEffect(() => {
+    if (!st || !needsPlan || !(active || hosted) || autoHead.current === st.headSha) return;
+    autoHead.current = st.headSha;
+    rv.autoPlan().catch(() => {});
+  }, [needsPlan, active, hosted, st?.headSha]);
 
   const mainRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);

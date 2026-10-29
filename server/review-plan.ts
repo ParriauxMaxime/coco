@@ -262,6 +262,8 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     return out;
   };
   const live = new Map<string, PlanRun>();
+  const starting = new Set<string>();
+  const autoTried = new Set<string>();
 
   const catCache = new Map<string, Cats>();
   async function categories(repo: string, refs: Pick<Refs, 'mergeBase' | 'headSha'>, files: PrFile[]) {
@@ -302,11 +304,13 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
 
   async function start(slug: string, n: RowKey, { guidance = '' }: { guidance?: unknown } = {}) {
     const k = `${slug}:${n}`;
-    if (live.get(k)?.status === 'running') return { ok: true, running: true };
+    if (live.get(k)?.status === 'running' || starting.has(k)) return { ok: true, running: true };
+    starting.add(k);
     const tracked = deferredJob(jobs, { work: slug, pr: n, action: 'review-plan', label: `Plan review ${keyLabel(n)}`, kind: 'agent', settle: 'promise' });
     const work = works.get(slug);
     const repo = repoOf(work).path;
     const prepared = await prepare(repo, n).catch((e) => {
+      starting.delete(k);
       tracked.reject(e);
       throw e;
     });
@@ -316,6 +320,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     const prompt = buildPrompt({ n, slug, refs, fileCount: files.length });
     const run: PlanRun = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, headSha: refs.headSha, error: '', cost: null, progress: [], log: [], proposal: null };
     live.set(k, run);
+    starting.delete(k);
     const note = (text: string) => {
       run.progress.push(text.replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1').slice(0, 160));
       if (run.progress.length > MAX_PROGRESS) run.progress.shift();
@@ -384,6 +389,20 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     return { ok: true };
   }
 
+  // the Review tab of a stack row with no plan for its head starts one; a head that had a run, done or failed, is not planned again on its own
+  async function auto(slug: string, n: RowKey) {
+    const k = `${slug}:${n}`;
+    if (!(works.get(slug)?.stack || []).some((s) => rowKey(s) === n)) return { ok: true, started: false };
+    if (live.has(k) || starting.has(k)) return { ok: true, started: false, running: true };
+    const { headSha } = await code.ensureRefs(n);
+    const data = read(slug, n);
+    const tried = `${k}:${headSha}`;
+    if (data.plan?.headSha === headSha || data.run?.headSha === headSha || autoTried.has(tried) || live.has(k) || starting.has(k)) return { ok: true, started: false };
+    autoTried.add(tried);
+    await start(slug, n);
+    return { ok: true, started: true };
+  }
+
   const tick = (slug: string, n: RowKey, { headSha, path: p, on }: { headSha: string; path: string; on?: boolean }) =>
     mutate(slug, n, (data) => {
       const list = new Set(data.ticks[headSha] || []);
@@ -422,7 +441,10 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       if (!works.get(slug)) return send(res, 404, { error: 'no such work' });
       const body = async () => JSON.parse((await readBody(req)) || '{}');
       if (!action && req.method === 'GET') return send(res, 200, await state(slug, n));
-      if (!action && req.method === 'POST') return send(res, 200, await start(slug, n, await body()));
+      if (!action && req.method === 'POST') {
+        const b = await body();
+        return send(res, 200, b.auto ? await auto(slug, n) : await start(slug, n, b));
+      }
       if (action === 'ticks' && req.method === 'PUT') return send(res, 200, tick(slug, n, await body()));
       if (action === 'watch' && req.method === 'PUT') return send(res, 200, watch(slug, n, await body()));
       return send(res, 404, { error: 'no route' });
@@ -431,5 +453,5 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     }
   }
 
-  return { handle, state, start, watch, planOf: (slug: string, n: RowKey) => read(slug, n).plan, planState: (slug: string, n: RowKey) => read(slug, n) };
+  return { handle, state, start, auto, watch, planOf: (slug: string, n: RowKey) => read(slug, n).plan, planState: (slug: string, n: RowKey) => read(slug, n) };
 }
