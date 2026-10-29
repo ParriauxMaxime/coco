@@ -117,7 +117,7 @@ test("new inline GitHub comments become findings by their reviewer, once, never 
   const inline = [
     { id: 101, user: 'bob', body: '**Null check** missing here\nmore', path: 'a.ts', line: 4, original_line: 4, start_line: 2, original_start_line: 2, side: 'RIGHT', commit_id: 'c0ffee', original_commit_id: 'c0ffee', created_at: '2026-10-29', html_url: 'https://github.com/acme/widgets/pull/7#discussion_r101' },
     { id: 102, user: 'alice', body: 'my own note', path: 'a.ts', line: 1, html_url: 'u' },
-    { id: 103, user: 'sentry[bot]', body: 'Bug: the default is wrong. Severity: high', path: 'b.ts', line: null, original_line: 9, side: 'RIGHT', commit_id: 'new', original_commit_id: 'old', created_at: '2026-10-29', html_url: 'https://github.com/acme/widgets/pull/7#discussion_r103' },
+    { id: 103, user: 'sentry[bot]', body: '[![issue](https://img.shields.io/badge/issue-EF4444)](https://sentry.io)\n\nBug: the [default](https://x.io) is wrong. Severity: high', path: 'b.ts', line: null, original_line: 9, side: 'RIGHT', commit_id: 'new', original_commit_id: 'old', created_at: '2026-10-29', html_url: 'https://github.com/acme/widgets/pull/7#discussion_r103' },
     { id: 104, user: 'alice-gh', body: 'gh user note', path: 'a.ts', line: 1, html_url: 'u' },
   ];
   const exec = async (_cmd: string, args: string[]) => {

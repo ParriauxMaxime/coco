@@ -440,7 +440,9 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     const line = x.line ?? x.original_line;
     if (!x.path || !line) return null;
     const startLine = Math.min(line, (x.line ? x.start_line : x.original_start_line) ?? line);
-    const firstLine = String(x.body).split('\n').map((l) => clean(l.replace(/<[^>]+>/g, ''))).find(Boolean) || claimOf(x.body) || x.path;
+    // bots open with badge images ([![issue](https://img.shields.io/…)](…)): the title is the first line of words
+    const words = (l: string) => clean(l.replace(/<[^>]+>/g, '').replace(/\[?!\[[^\]]*\]\([^)]*\)(\]\([^)]*\))?/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'));
+    const firstLine = String(x.body).split('\n').map(words).find(Boolean) || claimOf(x.body) || x.path;
     const title = firstLine.length > 100 ? `${firstLine.slice(0, 99)}…` : firstLine;
     const confidence = confidenceOf(x.body);
     const input = { path: x.path, startLine, endLine: line, body: String(x.body).slice(0, 5000), author: x.user.replace(/\[bot\]$/, '').replace(/[^\w.-]/g, '').slice(0, 40) || 'reviewer', title, severity: severityOf(x.body) || 'minor', ...(confidence === null ? {} : { confidence }), sources: [{ label: `${x.user} on GitHub`, url: x.html_url }], github: { id: x.id, login: x.user, url: x.html_url } };
