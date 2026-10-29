@@ -3,16 +3,15 @@ import { setThemeMode, useTheme } from '../theme.ts';
 import Icon from './Icon.tsx';
 import { CHOICES, useBetaPanel, usePrefs } from './prefs.ts';
 
-export default function BetaPanel() {
+// the design choices and the theme, in the ⌘. panel and on Settings > Beta
+export function BetaChoices({ skip }: { skip?: string }) {
   const prefs = usePrefs();
   const theme = useTheme();
-  const close = useBetaPanel((s) => s.close);
   return (
-    <div className="dp-ctl">
-      <div className="dp-row"><b>Beta features</b><span className="dp-sp" /><span className="dp-xs dp-t3">kept in this browser</span><button type="button" className="dp-ibtn" title="Hide  ⌘." onClick={close}><Icon name="x" size={14} /></button></div>
+    <>
       <div className="dp-ctl-sub">
         <div className="dp-xs dp-t3">Design choices · • = recommended</div>
-        {CHOICES.map((c) => (
+        {CHOICES.filter((c) => c.key !== skip).map((c) => (
           <div key={c.key} className="dp-ctl-row">
             <span className="dp-t2">{c.label}</span>
             <div className="dp-seg">
@@ -27,6 +26,16 @@ export default function BetaPanel() {
           {(['light', 'dark', 'system'] as const).map((m) => <button key={m} type="button" className={theme.mode === m ? 'dp-on' : ''} onClick={() => setThemeMode(m)}>{m}</button>)}
         </div>
       </div>
+    </>
+  );
+}
+
+export default function BetaPanel() {
+  const close = useBetaPanel((s) => s.close);
+  return (
+    <div className="dp-ctl">
+      <div className="dp-row"><b>Beta features</b><span className="dp-sp" /><a className="dp-xs" href="#/settings/beta" onClick={close}>Settings</a><button type="button" className="dp-ibtn" title="Hide  ⌘." onClick={close}><Icon name="x" size={14} /></button></div>
+      <BetaChoices />
     </div>
   );
 }

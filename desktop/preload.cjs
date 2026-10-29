@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('cocoDesktop', {
 
 const root = () => document.documentElement;
 window.addEventListener('DOMContentLoaded', () => root().classList.add('dp-desktop'));
-ipcRenderer.on('coco:fullscreen', (_e, on) => root().classList.toggle('dp-fullscreen', Boolean(on)));
+ipcRenderer.on('coco:open', (_e, hash) => { location.hash = hash; });
+ipcRenderer.on('coco:fullscreen',(_e, on) => root().classList.toggle('dp-fullscreen', Boolean(on)));

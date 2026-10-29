@@ -157,6 +157,35 @@ function refreshTray() {
   ]));
 }
 
+// opens a coco page in the window, e.g. #/settings/beta
+function openHash(hash) {
+  show();
+  const send = () => win.webContents.send('coco:open', hash);
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send); else send();
+}
+
+// Electron's default menu, with View > Beta… opening Settings > Beta
+function appMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { label: 'Beta…', click: () => openHash('#/settings/beta') },
+      ],
+    },
+    { role: 'windowMenu' },
+  ]));
+}
+
 ipcMain.on('coco:waiting', (_e, count) => {
   waiting = count;
   app.dock?.setBadge(count ? String(count) : '');
@@ -172,6 +201,7 @@ app.whenReady().then(() => {
   // packaged, the bundle carries the icon; run from source, Electron's own would show
   if (!app.isPackaged) app.dock?.setIcon(nativeImage.createFromPath(path.join(HERE, 'build', 'icon.png')));
   allowMic();
+  appMenu();
   tray = new Tray(nativeImage.createFromPath(path.join(HERE, 'build', 'trayTemplate.png')));
   tray.on('click', show);
   refreshTray();

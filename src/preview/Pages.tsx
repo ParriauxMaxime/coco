@@ -36,7 +36,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (root === 'works') return { crumbs: [page('Works')], node: <WorksPage /> };
   if (root === 'archive') return { crumbs: [page('Archive')], node: <ArchivePage /> };
   if (root === 'purge') return { crumbs: [page('Purge')], node: <PurgePage /> };
-  if (root === 'settings') return { crumbs: [page('Settings')], node: <SettingsPage /> };
+  if (root === 'settings') return { crumbs: [page('Settings')], node: <SettingsPage section={a} /> };
   if (root === 'agents' && a?.split('?')[0] === 'new') {
     const place = new URLSearchParams(a.split('?')[1] || '').get('place');
     return { crumbs: [page('Agents', '#/agents'), page('New agent')], node: <NewAgentPage key={place || ''} place={place} /> };

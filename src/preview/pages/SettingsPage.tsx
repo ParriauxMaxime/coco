@@ -5,6 +5,8 @@ import type { DeviceView, DevicesResponse } from '../../api.ts';
 import { ask, confirmDialog } from '../../components/Dialogs.tsx';
 import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
+import { BetaChoices } from '../BetaPanel.tsx';
+import { NAV_MODES, usePrefs } from '../prefs.ts';
 import { ago } from '../format.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section } from './Page.tsx';
 import './settings.css';
@@ -113,22 +115,51 @@ function DeviceRow({ d, onChange }: { d: DeviceView; onChange: () => void }) {
   );
 }
 
-export default function SettingsPage() {
+function Devices() {
   const [data, setData] = useState<DevicesResponse | null>(null);
   const [error, setError] = useState('');
   const load = useCallback(() => devicesApi.list().then(setData, (e) => setError(errorMessage(e))), []);
   useEffect(() => { load(); }, [load]);
-  const head = <PageHead icon="wrench" title="Settings" />;
-  if (error) return <Page>{head}<Section title="Devices"><ErrorNote>{error}</ErrorNote></Section></Page>;
-  if (!data) return <Page>{head}<Loading /></Page>;
+  if (error) return <Section id="settings-devices" title="Devices"><ErrorNote>{error}</ErrorNote></Section>;
+  if (!data) return <Section id="settings-devices" title="Devices"><Loading /></Section>;
+  return (
+    <Section id="settings-devices" title="Devices" count={data.devices.length} meta="phones that reach coco through tailscale serve or another proxy">
+      <p className="dp-dev-lead">Anything but this Mac needs a paired device to open coco. A code pairs one device, and revoking one cuts it off at once.</p>
+      <Pairing origins={data.origins} apk={data.apk} count={data.devices.length} refresh={load} />
+      {data.devices.length ? <div className="dp-rows">{data.devices.map((d) => <DeviceRow key={d.id} d={d} onChange={load} />)}</div> : <Empty icon="smartphone">No paired device.</Empty>}
+    </Section>
+  );
+}
+
+function Beta() {
+  const nav = usePrefs((s) => s.nav);
+  const set = usePrefs((s) => s.set);
+  return (
+    <Section id="settings-beta" title="Beta" meta="kept in this browser · also under ⌘.">
+      <div className="dp-beta-nav" role="radiogroup" aria-label="Navigation">
+        {NAV_MODES.map((m) => (
+          <label key={m.value} className={`dp-beta-opt${nav === m.value ? ' dp-on' : ''}`}>
+            <input type="radio" name="nav" checked={nav === m.value} onChange={() => set('nav', m.value)} />
+            <span className="dp-beta-optb"><b>{m.label}{m.value === 'classic' ? <span className="dp-xs dp-t3"> · default</span> : null}</b><span className="dp-t3">{m.hint}</span></span>
+          </label>
+        ))}
+      </div>
+      <p className="dp-dev-lead">Drill, Expand and Columns cover the sidebar, a work's Overview, Stack, Findings and Decisions, and threads. A mode too wide for the window opens as Drill.</p>
+      <div className="dp-beta-more"><BetaChoices skip="nav" /></div>
+    </Section>
+  );
+}
+
+// section: the part of the page to scroll to (#/settings/beta, which the desktop app's View > Beta… opens)
+export default function SettingsPage({ section }: { section?: string }) {
+  useEffect(() => {
+    if (section) document.getElementById(`settings-${section}`)?.scrollIntoView({ block: 'start' });
+  }, [section]);
   return (
     <Page>
-      {head}
-      <Section title="Devices" count={data.devices.length} meta="phones that reach coco through tailscale serve or another proxy">
-        <p className="dp-dev-lead">Anything but this Mac needs a paired device to open coco. A code pairs one device, and revoking one cuts it off at once.</p>
-        <Pairing origins={data.origins} apk={data.apk} count={data.devices.length} refresh={load} />
-        {data.devices.length ? <div className="dp-rows">{data.devices.map((d) => <DeviceRow key={d.id} d={d} onChange={load} />)}</div> : <Empty icon="smartphone">No paired device.</Empty>}
-      </Section>
+      <PageHead icon="wrench" title="Settings" />
+      <Beta />
+      <Devices />
     </Page>
   );
 }
