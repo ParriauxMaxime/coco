@@ -4,6 +4,8 @@ import type { editor as Ed, IDisposable } from 'monaco-editor/editor/editor.api'
 import type { Blame, BlameCommit } from '../../../server/blame.ts';
 import type { MonacoApi } from '../types.ts';
 
+// the inline text stays on its line; the hover has the whole subject
+const SUMMARY_MAX = 60;
 const UNITS: [number, string][] = [[31536000, 'year'], [2592000, 'month'], [604800, 'week'], [86400, 'day'], [3600, 'hour'], [60, 'minute']];
 const ago = (time: number) => {
   const s = Date.now() / 1000 - time;
@@ -40,7 +42,8 @@ export function attachBlame(monaco: MonacoApi, editor: Ed.ICodeEditor, load: () 
     deco.set([{
       range: new monaco.Range(line, end, line, end),
       options: {
-        after: { content: `${c.author}, ${ago(c.time)} • ${c.summary}`, inlineClassName: `cc-blame${c.inPr ? ' cc-blame-pr' : ''}` },
+        showIfCollapsed: true,
+        after: { content: `${c.author}, ${ago(c.time)} • ${c.summary.length > SUMMARY_MAX ? `${c.summary.slice(0, SUMMARY_MAX - 1)}…` : c.summary}`, inlineClassName: `cc-blame${c.inPr ? ' cc-blame-pr' : ''}` },
         hoverMessage: { value: hover(sha, c, blame?.github) },
       },
     }]);
