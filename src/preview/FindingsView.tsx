@@ -17,6 +17,7 @@ import Modal from './Modal.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { StackRunChip, useStackFix } from './StackFixDialog.tsx';
 import { Loading } from './pages/Page.tsx';
+import { usePhone } from './Shell.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
 import { prKey, prTitle } from './data.ts';
 import type { PreviewData } from './data.ts';
@@ -321,13 +322,22 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
   };
 
   // a deep link (#/work/<slug>/findings-<pr>/f-<commentId>) selects that finding once, and again when the link changes
+  // on a phone the list and the finding take the screen in turn: a finding in the link shows it alone, back goes to the list
   const linked = useRef<string | null>(null);
+  const phone = usePhone();
+  const [opened, setOpened] = useState(() => parseHash(location.hash)?.finding ?? null);
+  const withoutFinding = () => location.hash.replace(/\/f-[^/]*$/, '');
+  const openOne = (r: FindingRow) => {
+    setSel(r.key);
+    location.hash = `${withoutFinding()}/f-${encodeURIComponent(r.commentId || r.key)}`;
+  };
   useEffect(() => {
     const go = () => {
-      const id = parseHash(location.hash)?.finding;
-      const r = id && id !== linked.current ? rows.find((x) => x.commentId === id) : undefined;
+      const id = parseHash(location.hash)?.finding ?? null;
+      setOpened(id);
+      const r = id && id !== linked.current ? rows.find((x) => x.commentId === id || x.key === id) : undefined;
       if (!r) return;
-      linked.current = r.commentId ?? null;
+      linked.current = id;
       if (hidden.includes(r.source)) setHidden(hidden.filter((s) => s !== r.source));
       setPrFilter((p) => (p === null ? p : nOf(r)));
       setStatus(bucketOf(r, left));
@@ -382,7 +392,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
   const flight = (r: FindingRow) => (pending?.keys.has(r.key) ? pending.action : null);
 
   return (
-    <div className="dp-fi" ref={root}>
+    <div className={`dp-fi${phone ? (opened && current ? ' dp-fi-one' : ' dp-fi-many') : ''}`} ref={root}>
       <div className="dp-vbar">
         <span className="dp-title">Findings</span>
         <div className="dp-filters">
@@ -437,7 +447,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
                     const i = order.indexOf(r) + 1;
                     const on = picked.has(r.key);
                     return (
-                      <div key={r.key} data-fk={r.key} className={`dp-frow dp-fi-row${r.key === current?.key ? ' dp-sel' : ''}${on ? ' dp-fi-on' : ''}${status === 'dismissed' || status === 'resolved' ? ' dp-dim' : ''}${flight(r) ? ' dp-fi-busy' : ''}`} onClick={() => setSel(r.key)}>
+                      <div key={r.key} data-fk={r.key} className={`dp-frow dp-fi-row${r.key === current?.key ? ' dp-sel' : ''}${on ? ' dp-fi-on' : ''}${status === 'dismissed' || status === 'resolved' ? ' dp-dim' : ''}${flight(r) ? ' dp-fi-busy' : ''}`} onClick={() => (phone ? openOne(r) : setSel(r.key))}>
                         <Picker on={on} label={`Pick ${i}`} onToggle={() => togglePick([r.key])} />
                         <span className="dp-xs dp-t4 dp-num dp-fi-num">{i}</span>
                         <span className={`dp-sev ${sevClass(r.severity)}`} title={r.severity || 'unrated'}><i /></span>
@@ -459,6 +469,7 @@ export default function FindingsView({ d, pr, onOpenPr, onReload, onCurrentPr }:
             </div>
             {current ? (
               <div className="dp-fdetail">
+                {phone && <button type="button" className="dp-btn dp-ghost dp-fi-up" onClick={() => { location.hash = withoutFinding(); }}><Icon name="chevron-left" size={14} />Findings<span className="dp-count">{order.length}</span></button>}
                 <Detail
                   slug={d.slug}
                   r={current}

@@ -38,17 +38,26 @@ const NAV: NavItem[] = [
   { href: '#/settings', root: 'settings', label: 'Settings', icon: 'wrench' },
 ];
 
-const NARROW = '(max-width: 900px)';
-export const useNarrow = () => {
-  const [narrow, setNarrow] = useState(() => matchMedia(NARROW).matches);
+const useMedia = (query: string) => {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
   useEffect(() => {
-    const mq = matchMedia(NARROW);
-    const on = () => setNarrow(mq.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return narrow;
+    const mq = matchMedia(query);
+    const change = () => setOn(mq.matches);
+    mq.addEventListener('change', change);
+    return () => mq.removeEventListener('change', change);
+  }, [query]);
+  return on;
 };
+export const useNarrow = () => useMedia('(max-width: 900px)');
+// a phone: one column, a bottom bar instead of the status bar, Waiting as home
+export const PHONE = '(max-width: 640px)';
+export const usePhone = () => useMedia(PHONE);
+
+const PHONE_NAV: NavItem[] = [
+  { href: '#/waiting', root: 'waiting', label: 'Waiting', icon: 'clock' },
+  { href: '#/agents', root: 'agents', label: 'Agents', icon: 'bot' },
+  { href: '#/works', root: 'works', label: 'Works', icon: 'layers' },
+];
 
 const SEGMENTS: [keyof WorkSummary['progress'], string][] = [['merged', 'merged'], ['landed', 'landed'], ['ready', 'review'], ['draft', 'draft'], ['planned', 'planned'], ['closed', 'closed']];
 
@@ -202,6 +211,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
   const [waitOpen, setWaitOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const narrow = useNarrow();
+  const phone = usePhone();
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((p) => !p); }
@@ -323,7 +333,17 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
           {children}
         </div>
 
-        <footer className="dp-statusbar">
+        {phone ? (
+          <nav className="dp-phonenav">
+            {PHONE_NAV.map((n) => (
+              <a key={n.href} className={root === n.root || (n.root === 'works' && root === 'work') ? 'dp-on' : ''} href={n.href}>
+                <Icon name={n.icon} /><span>{n.label}</span>
+                {n.root === 'waiting' && owed > 0 && <span className="dp-count dp-acc">{owed}</span>}
+                {n.root === 'agents' && running > 0 && <span className="dp-count" title={`${running} running`}>{running}</span>}
+              </a>
+            ))}
+          </nav>
+        ) : <footer className="dp-statusbar">
           {status}
           {!slug && running > 0 && <a className="dp-sbi" href="#/agents"><span className="dp-dot dp-live" />{running} agent{running > 1 ? 's' : ''} running</a>}
           <JobsStatus onOpenAgent={(j) => { location.hash = j.work ? `#/work/${encodeURIComponent(j.work)}/ag-${j.agentId}` : `#/agents/${j.agentId}`; }} />
@@ -335,7 +355,7 @@ export default function Shell({ ov, root, crumbs, slug, attention, titleRight, v
           <ServerStatus />
           <span className="dp-sbi dp-sb-hint" onClick={() => setPalette(true)}><kbd>⌘</kbd><kbd>K</kbd>Commands</span>
           <span className="dp-sbi dp-sb-hint" onClick={toggleControls}><kbd>⌘</kbd><kbd>.</kbd>Beta</span>
-        </footer>
+        </footer>}
 
         {waitOpen && (
           <div className="dp-pop dp-on dp-waitpop">

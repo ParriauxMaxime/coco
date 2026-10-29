@@ -58,3 +58,18 @@ button.dp-fi-place:hover { color: var(--dp-accent); text-decoration: underline; 
 @container (max-width: 420px) {
   .dp-fi-by { display: none; }
 }
+@media (max-width: 640px) {
+  .dp-fi > .dp-vbar { padding: 4px 16px; }
+  .dp-fi > .dp-vbar > .dp-btn:not(.dp-fi-refresh), .dp-inp.dp-fi-pickbox { display: none; }
+  .dp-fi-prs, .dp-fi-who { padding-left: 16px; padding-right: 16px; }
+  .dp-fi-bulk { height: 44px; padding: 0 16px; }
+  .dp-fi-list .dp-fgrp { top: 44px; }
+  .dp-frow.dp-fi-row { min-height: 56px; padding: 10px 16px; }
+  .dp-fi-many .dp-fdetail { display: none; }
+  .dp-fx .dp-flist.dp-fi-list { flex: 1; max-height: none; border-bottom: 0; }
+  .dp-fi-one > :not(.dp-fx), .dp-fi-one .dp-flist { display: none; }
+  .dp-fi-one .dp-fdetail { padding: 4px 16px 32px; }
+  .dp-btn.dp-fi-up { height: 44px; margin-left: -10px; padding: 0 10px; gap: 4px; }
+  .dp-fdetail .dp-xs:has(> kbd), .dp .dp-fi-actions kbd { display: none; }
+  .dp-fi-actions .dp-btn { min-height: 44px; }
+}

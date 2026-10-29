@@ -56,3 +56,12 @@
   .wb-pane { padding: 12px 12px 60px; }
   .wb-pane.flush { padding: 0; }
 }
+@media (max-width: 640px) {
+  .wb-strip, .wb-tab-h { height: 44px; }
+  .wb-tab-h { max-width: 55vw; padding-left: 16px; }
+  .wb-tab-h .wb-x { opacity: 1; min-width: 32px; height: 32px; }
+  .wb-tabs .wb-new { min-width: 44px; height: 44px; }
+  .wb-acts { display: none; }
+  .wb-tab-h.enter { animation: none; }
+  .wb-pane { padding: 12px 16px 32px; }
+}

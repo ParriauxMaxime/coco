@@ -3,8 +3,11 @@ import Toasts from './components/Toast.tsx';
 import Dialogs from './components/Dialogs.tsx';
 import DesignPreview from './preview/DesignPreview.tsx';
 import Pages from './preview/Pages.tsx';
+import { PHONE } from './preview/Shell.tsx';
 
 const current = () => {
+  // a phone opens on what waits on you
+  if (!location.hash && matchMedia(PHONE).matches) history.replaceState(null, '', '#/waiting');
   const hash = location.hash || '#/';
   if (!hash.startsWith('#/design-preview')) return hash;
   const work = hash.replace(/^#\/design-preview/, '#/work');

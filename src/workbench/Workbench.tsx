@@ -83,6 +83,10 @@ function Strip({ g, groups, ctx, merged, max, drag }: { g: GroupData; groups: Gr
   const total = groups.reduce((n, x) => n + x.tabs.length, 0);
   const [over, setOver] = useState<number | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  // a phone's strip shows two tabs or so: the active one scrolls into it
+  useEffect(() => {
+    if (matchMedia('(max-width: 640px)').matches) tabsRef.current?.querySelector('[aria-selected=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [g.active]);
   const indexAt = (e: React.DragEvent) => {
     const heads = [...(tabsRef.current?.querySelectorAll('[role=tab]') ?? [])];
     const i = heads.findIndex((h) => { const b = h.getBoundingClientRect(); return e.clientX < b.left + b.width / 2; });

@@ -61,6 +61,15 @@
   .dp-page-in { padding: 16px 14px 48px; }
   .dp-phead { flex-direction: column; gap: 10px; }
 }
+@media (max-width: 640px) {
+  .dp-page-in { padding: 16px 16px 32px; }
+  .dp-phead { padding-bottom: 12px; }
+  .dp-phead .dp-psub { display: none; }
+  .dp-phead-act .dp-btn, .dp-psec-act .dp-btn { min-height: 44px; }
+  .dp-psec { padding-top: 16px; }
+  .dp-rowi { min-height: 56px; }
+  .dp-cards { grid-template-columns: minmax(0, 1fr); }
+}
 @media (prefers-reduced-motion: no-preference) {
   .dp-page-in { animation: dp-fade-in .16s ease-out; }
   .dp-card, .dp-tile-a, .dp-rowi { transition: background .12s, border-color .12s, box-shadow .12s; }

@@ -21,6 +21,7 @@ import RulesPage from './pages/RulesPage.tsx';
 import AskPage from './pages/AskPage.tsx';
 import PurgePage from './pages/PurgePage.tsx';
 import SettingsPage from './pages/SettingsPage.tsx';
+import WorksPage from './pages/WorksPage.tsx';
 import type { Overview } from '../types.ts';
 
 const dec = (s?: string) => (s ? decodeURIComponent(s) : undefined);
@@ -32,6 +33,7 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   if (!root) return { crumbs: [page('Dashboard')], node: <DashboardPage /> };
   if (root === 'inbox') return { crumbs: [page('Inbox')], node: <InboxPage /> };
   if (root === 'waiting') return { crumbs: [page('Waiting on you')], node: <WaitingPage ov={ov} /> };
+  if (root === 'works') return { crumbs: [page('Works')], node: <WorksPage /> };
   if (root === 'archive') return { crumbs: [page('Archive')], node: <ArchivePage /> };
   if (root === 'purge') return { crumbs: [page('Purge')], node: <PurgePage /> };
   if (root === 'settings') return { crumbs: [page('Settings')], node: <SettingsPage /> };

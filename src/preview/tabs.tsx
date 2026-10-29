@@ -32,6 +32,7 @@ import { TerminalTab } from './TerminalPanel.tsx';
 import { parseSubTab, subagentTitle } from './subagents.ts';
 import { baseName, findingsKeyOfTab, keyLabel, parseWsFileTab } from '../workbench/code/ids.ts';
 import type { PreviewData } from './data.ts';
+import { usePhone } from './Shell.tsx';
 
 export type PreviewCtx = { d: PreviewData; selected: string | null; select: (key: string) => void; openPr: (key: string) => void };
 
@@ -50,7 +51,9 @@ function OverviewTab() {
 }
 function StackTab() {
   const { d, selected, select } = usePreview();
-  return <div className="dp-tabview"><StackView d={d} selected={selected} onSelect={select} onOpen={(key) => open(`pr-${key}`)} /></div>;
+  // a tap on a phone opens the PR: there is no double click
+  const phone = usePhone();
+  return <div className="dp-tabview"><StackView d={d} selected={selected} onSelect={phone ? (key) => open(`pr-${key}`) : select} onOpen={(key) => open(`pr-${key}`)} /></div>;
 }
 function FindingsTab() {
   const { d, openPr } = usePreview();

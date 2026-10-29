@@ -13,3 +13,14 @@
 .dp-wt-reply { display: inline-flex; flex: 1; min-width: 220px; gap: 6px; }
 .dp-wt-reply input { flex: 1; min-width: 0; height: 24px; padding: 0 8px; border: 1px solid var(--dp-line-2); border-radius: var(--dp-r2); background: var(--dp-panel); color: var(--dp-t1); font: 12.5px var(--dp-f); }
 .dp-wt-reply input:focus { outline: none; border-color: var(--dp-accent); box-shadow: 0 0 0 3px var(--dp-focus); }
+@media (max-width: 640px) {
+  .dp-wt-row { gap: 8px; padding: 12px; }
+  .dp-wt-tick { width: 18px; height: 18px; }
+  .dp-wt-h { flex-wrap: wrap; row-gap: 4px; }
+  .dp-wt-h .dp-num { margin-left: auto; }
+  .dp-wt-title { order: 1; flex-basis: 100%; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .dp-wt-x { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .dp-wt-f .dp-btn { min-height: 44px; padding: 0 16px; }
+  .dp-wt-reply { flex-basis: 100%; min-width: 0; }
+  .dp-wt-reply input { height: 44px; font-size: 16px; }
+}

@@ -148,6 +148,17 @@
 @media (max-width: 900px) {
   .ct-rail { position: absolute; inset: 0 auto 0 0; z-index: 5; width: min(260px, 80vw); box-shadow: var(--dp-sh-3); }
 }
+@media (max-width: 640px) {
+  .rv-bar, .ct-bar { padding: 0 8px 0 16px; }
+  .rv-acts .dp-btn { width: 40px; height: 36px; }
+  .rv-acts .dp-btn.rv-asks { width: auto; padding: 0 8px; }
+  .dp .rv-asks kbd { display: none; }
+  /* long lines wrap under their text, past the line number and sign */
+  .lite-diff { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .lite-diff .ld-line { min-width: 0; }
+  .lite-diff .ld-add, .lite-diff .ld-del, .lite-diff .ld-ctx { padding-left: 58px; text-indent: -58px; }
+  .lite-diff .ld-line .dp-ld-no, .lite-diff .ld-line .ld-sign { text-indent: 0; }
+}
 
 /* review tab: plan-ordered file cards */
 .rv { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--dp-bg); }

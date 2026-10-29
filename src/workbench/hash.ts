@@ -48,7 +48,9 @@ export function startHashSync(slug: string) {
   };
   const unsub = store.subscribe((s, prev) => {
     if (s.slug !== slug || applying) return;
-    write(s, prev.slug === s.slug && !allTabs(prev).includes(focusedTab(s)));
+    // a new tab is a step back walks over; on a phone, where one tab shows at a time, every tab change is
+    const stepped = matchMedia('(max-width: 640px)').matches ? focusedTab(prev) !== focusedTab(s) : !allTabs(prev).includes(focusedTab(s));
+    write(s, prev.slug === s.slug && stepped);
   });
   addEventListener('hashchange', apply);
   addEventListener('popstate', apply);

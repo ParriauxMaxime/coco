@@ -66,3 +66,6 @@
 .dp-ck-fail > summary code { color: inherit; }
 .dp-ck-pre { margin: 4px 0 0; padding: 6px 8px; max-height: 240px; overflow: auto; border: 1px solid var(--dp-line); border-radius: var(--dp-r2); background: var(--dp-code); color: var(--dp-t1); font: 11.5px/17px var(--dp-mono); white-space: pre-wrap; word-break: break-word; }
 .dp-ck-spin { width: 10px; height: 10px; }
+@media (pointer: coarse), (max-width: 640px) {
+  .dp-thr-sugg .dp-btn, .dp-thr-sugg-f .dp-btn { min-height: 44px; padding: 0 14px; }
+}

@@ -16,11 +16,11 @@ const firstName = (p: Persona) => p.title.replace(/ — .*$/, '');
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '');
 const AGENT_TONE: Record<string, string> = { running: 'dp-ag-running', idle: 'dp-ag-done', error: 'dp-ag-failed' };
 
-function WorkCard({ w, repo }: { w: WorkSummary; repo?: string }) {
+export function WorkCard({ w, repo, href = workHref(w.slug) }: { w: WorkSummary; repo?: string; href?: string }) {
   const p = w.progress;
   const open = p.ready + p.draft;
   return (
-    <a className="dp-card dp-dash-work" href={workHref(w.slug)}>
+    <a className="dp-card dp-dash-work" href={href}>
       <span className="dp-card-t"><span className={`dp-dot dp-lg ${workDot(w)}`} /><span className="dp-ell dp-grow">{w.title}</span>{p.restack && <span className="dp-chip dp-warn">restack</span>}</span>
       <span className="dp-work-bar"><SegBar w={w} thin={false} /><span className="dp-pc">{p.merged + p.landed}/{w.stack - p.closed}</span></span>
       <span className="dp-card-s">
