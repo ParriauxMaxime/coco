@@ -132,7 +132,7 @@
 .rv-acts .dp-btn.dp-on { background: var(--dp-accent-t); border-color: color-mix(in srgb, var(--dp-accent) 30%, transparent); color: var(--dp-accent); box-shadow: none; }
 @container cr-bar (max-width: 920px) {
   .rv-acts .rv-lbl { display: none; }
-  .rv-acts .dp-btn { width: 26px; padding: 0; justify-content: center; }
+  .rv-acts .dp-btn:not(.rv-asks) { width: 26px; padding: 0; justify-content: center; }
 }
 @container cr-bar (max-width: 680px) { .rv-counts, .rv-lang { display: none; } }
 @container cr-bar (max-width: 480px) { .rv-state, .ct-bar .rv-stat { display: none; } }
