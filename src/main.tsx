@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import ErrorBoundary, { watchErrors } from './ErrorBoundary.tsx';
 import { watchUpdates } from './updates.ts';
+import { watchUsage } from './usage.ts';
 import './styles.css';
 import './workbench/workbench.css';
 
@@ -13,5 +14,6 @@ fit();
 
 watchErrors();
 watchUpdates();
+watchUsage();
 const root = document.getElementById('root');
 if (root) createRoot(root).render(<ErrorBoundary><App /></ErrorBoundary>);

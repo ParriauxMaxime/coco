@@ -587,6 +587,11 @@ async function api(req: Req, res: Res, url: URL) {
       console.error('client error', line);
       return send(res, 204, '');
     }
+    if (root === 'ui-events' && req.method === 'POST') {
+      const events = JSON.parse((await readBody(req)) || '[]');
+      if (Array.isArray(events) && events.length) fs.appendFileSync(path.join(DATA, 'ui-events.jsonl'), events.map((e) => `${JSON.stringify(e)}\n`).join(''));
+      return send(res, 204, '');
+    }
     if (root === 'screenshot' && (req.method === 'GET' || req.method === 'POST')) return screenshots.handle(req, res, url, readBody, send);
     if (root === 'browser') return browserHost.handle(req, res, parts, send);
     if (root === 'paseo-link') return paseoLink.handle(req, res, parts, readBody, send);

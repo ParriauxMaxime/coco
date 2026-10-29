@@ -28,6 +28,10 @@ only quotes, times and agent ids.
   `paseo logs <id> --since <window start> --json` for agents updated in the window.
 - **Cards**: `<data>/cards/*.json` (`COCO_DATA`, default `~/.cocopilot/data`):
   answered with free text in Other, dismissed, or left open after the agent ended.
+- **UI usage**: `<data>/ui-events.jsonl`, one line per event: `view` (`hash`, `ms` spent
+  there while the window showed) and `click` (`hash`, `label`, `cls`). Look for views
+  left within seconds, tabs never opened, the same click repeated in a row (nothing
+  happened), long dwell before a card answer, back-and-forth between two views.
 - **Errors**: `<data>/client-errors.log`, failures in `<data>/server-restart.log`.
 - **Flagged**: findings raised with `flag_coco_issue` on the coco work, still open.
 - **What changed**: `git log --since=<window start>` in the app repo, to mark
@@ -44,6 +48,7 @@ A friction is a moment where coco cost the owner time or trust. Signals, stronge
 5. A card answered in Other because no option fitted, or dismissed.
 6. An agent ended half done, an error, a restart that lost state.
 7. A question about where something is ("where are…", "how do I…").
+8. A UI pattern in `ui-events.jsonl`: repeated clicks, bounces, a view hopped through to reach another.
 
 Group signals by cause, not by message. Drop anything already fixed on `main`
 (name the sha) and anything listed under **Do not revisit** in the coco works' notes.
