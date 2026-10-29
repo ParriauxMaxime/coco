@@ -18,7 +18,7 @@ import type { AgentState } from './agents.ts';
 import { usageLine, usageTitle } from './format.ts';
 import { ContextRing } from './Ring.tsx';
 import { HandoffControls } from './Handoff.tsx';
-import Thread, { refreshThreads, threadLabel, useThreadsOf } from '../components/Thread.tsx';
+import Thread, { CommitBadges, refreshThreads, threadLabel, useThreadsOf } from '../components/Thread.tsx';
 import { confirmDialog } from '../components/Dialogs.tsx';
 import { pendingClass, useAction } from '../components/action.ts';
 import type { ActivityEvent, AgentMetrics, ModelChoice, ThreadGroup, ThreadSummary, UploadRef } from '../types.ts';
@@ -239,13 +239,8 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
     ...(browserTabs.length ? [BROWSER] : []),
   ];
   const toApprove = keys.reduce((n, k) => n + (summaries[k].open ?? 0), 0);
-  const pinned = toApprove > 0 ? (
-    <div className="dp-thr-pend dp-ag-pend">
-      <button type="button" className="dp-chip dp-info" title="Its threads hold each suggested commit with Review commit, Verify, Approve and Dismiss" onClick={() => setPicked('thread')}>
-        <Icon name="eye" size={12} />{toApprove === 1 ? 'a suggested commit' : `${toApprove} suggested commits`} to approve · Thread
-      </button>
-    </div>
-  ) : listed?.autoArchive && state !== 'archived' && <ArchiveCountdown agentId={agentId} turn={listed.updatedAt} />;
+  const commits = <CommitBadges keys={keys} summaries={summaries} className="dp-ag-pend" />;
+  const pinned = <>{commits}{!toApprove && listed?.autoArchive && state !== 'archived' && <ArchiveCountdown agentId={agentId} turn={listed.updatedAt} />}</>;
   const actions = <>{group?.status === 'active' && <GroupActions slug={slug} group={group} keys={keys} summaries={summaries} />}{state === 'archived' && !group && <RestoreButton agentId={agentId} />}</>;
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
@@ -254,7 +249,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
         : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} onOpenTab={openWorkspaceFile(wsId)} />
         : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} />
         : view === 'browser' ? <BrowserPanel tabs={browserTabs} />
-        : view === 'thread' ? <GroupThreads slug={slug} keys={keys} summaries={summaries} /> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} pinned={pinned} />}
+        : view === 'thread' ? <><GroupThreads slug={slug} keys={keys} summaries={summaries} />{commits}</> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} pinned={pinned} />}
     </div>
   );
 }

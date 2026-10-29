@@ -268,6 +268,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       groupId: t.groupId,
       open: t.messages.filter((m) => isOpenSuggestion(m.suggestion)).length,
       asks: cardsOf(slug, t.key).filter((c) => c.status === 'open').length,
+      commits: t.messages.flatMap((m) => (m.suggestion?.kind === 'commit' ? [{ msgId: m.id, commit: m.suggestion.commit, state: m.suggestion.state, ts: m.ts, ...(m.suggestion.appliedCommit ? { applied: m.suggestion.appliedCommit } : {}) }] : [])),
     }]));
   }
 

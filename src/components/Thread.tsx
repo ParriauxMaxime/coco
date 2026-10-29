@@ -55,6 +55,26 @@ export const openCommitTab = (key: string, msgId: string) => {
   const s = useWorkbench.getState();
   s.open(commitTabId(key, msgId), { group: s.otherGroup() });
 };
+const COMMIT_WORD: Record<string, string> = { pending: 'to approve', queued: 'approve again', conflict: 'conflict', applied: 'applied', dismissed: 'dropped', superseded: 'superseded' };
+const SHOWN_COMMITS = 6;
+// every commit an agent suggested across its threads, newest last: what is applied (with its sha on the PR branch) and what waits on you
+export function CommitBadges({ keys, summaries, className = '' }: { keys: string[]; summaries: Record<string, ThreadSummary>; className?: string }) {
+  const all = keys.flatMap((key) => (summaries[key]?.commits ?? []).map((c) => ({ ...c, key }))).sort((a, b) => a.ts.localeCompare(b.ts));
+  if (!all.length) return null;
+  const hidden = all.length - SHOWN_COMMITS;
+  return (
+    <div className={`dp-thr-pend dp-commit-badges ${className}`}>
+      {hidden > 0 && <span className="dp-chip" title={`${hidden} earlier commits, in the threads`}>+{hidden}</span>}
+      {all.slice(-SHOWN_COMMITS).map((c) => (
+        <button key={`${c.key}:${c.msgId}`} type="button" className={`dp-chip ${STATE_CHIP[c.state] ?? ''}`} title={`${summaries[c.key]?.label ?? c.key}: open the commit`} onClick={() => openCommitTab(c.key, c.msgId)}>
+          <Icon name={c.state === 'applied' ? 'check' : c.state === 'conflict' ? 'alert-triangle' : 'git-branch'} size={12} />
+          <code>{c.commit.slice(0, 7)}</code>{COMMIT_WORD[c.state] ?? c.state}{c.applied && <> as <code>{c.applied.slice(0, 7)}</code></>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const groupLabel =(g: ThreadGroup) => `${g.id} · ${g.model.split('/').pop()}${g.files ? ` · ${g.files.map((f) => f.split('/').pop()).join(', ')}` : ''}`;
 
 export const threadLabel = (s: ThreadSummary | undefined, idle: string) => (s?.asks ? `${s.asks === 1 ? 'a question' : `${s.asks} questions`} for you` : s?.waiting ? 'agent working…' : s?.open ? `${s.open} to review` : s?.count ? `thread · ${s.count}` : idle);

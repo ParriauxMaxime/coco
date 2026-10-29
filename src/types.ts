@@ -428,7 +428,8 @@ export type Thread = {
   verifies?: Record<string, VerifyRun>;
 };
 export type VerifyRun = { commit: string; startedAt: string; finishedAt?: string; status: 'running' | 'pass' | 'fail' | 'deps-pending' | 'stale-head'; checks: { name: string; ok: boolean; ms: number; tail?: string; skipped?: string }[]; note?: string; head?: string };
-export type ThreadSummary = { label?: string; count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number };
+export type ThreadCommit = { msgId: string; commit: string; state: string; ts: string; applied?: string };
+export type ThreadSummary = { label?: string; count: number; waiting?: boolean; lastTs?: string; groupId?: string | null; open?: number; asks?: number; commits?: ThreadCommit[] };
 // unlinked: commits of a code group's agent that no item took (no Cc-Comment line naming one, no single item in its turn), to link by hand
 export type UnlinkedCommit = { commit: string; subject: string; files: string[]; at: string };
 export type ThreadGroup = { id: string; agentId?: string | null; model: string; files?: string[]; status: string; items: unknown[]; kind: string; n: string | number; unlinked?: UnlinkedCommit[] };
