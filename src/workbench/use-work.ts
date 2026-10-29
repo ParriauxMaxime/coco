@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 import { api } from '../api.ts';
-import { subscribe, topic } from '../live.ts';
+import { topic } from '../live.ts';
+import { useResource } from '../resource.ts';
 import { ask } from '../components/Dialogs.tsx';
 import type { ImportArtifactBody, StackRow, WorkDetail, WorkPlan } from '../types.ts';
 import type { WorkData, WorkPr } from './types.ts';
@@ -17,36 +18,32 @@ export type LoadedWork = Omit<WorkData, 'w'> & { w: WorkDetail | null };
 const FRESH_ON_FOCUS_MS = 30000;
 const freshAt = new Map<string, number>();
 
+const POLL_MS = 30000;
+const SYNC_POLL_MS = 5000;
+
+// the work and its plan from the shared cache: a work opened again paints from what it last held while both reload; the server's
+// work events (saved, stack, plan, drift, artifacts) reload them, a burst making one load
 export function useWorkData(slug: string): LoadedWork {
-  const [w, setW] = useState<WorkDetail | null>(null);
-  const [plan, setPlan] = useState<WorkPlan | null>(null);
-  const [err, setErr] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const latest = useRef(0);
-  // only the newest load lands: a slow older one must not put the old work back
-  const load = (fresh = false) => {
-    const n = ++latest.current;
-    setRefreshing(true);
-    return Promise.all([api.work(slug, fresh), api.plan(slug)]).then(([d, p]) => { if (n === latest.current) { setW(d); setPlan(p); } }).catch((e: Error) => { if (n === latest.current) setErr(e.message); }).finally(() => { if (n === latest.current) setRefreshing(false); });
-  };
+  const topics = [topic('work', slug)];
+  const work = useResource<WorkDetail>(`/api/works/${slug}`, () => api.work(slug), { poll: POLL_MS, topics });
+  const syncing = Boolean(work.data?.notionStatus?.running);
+  const planned = useResource<WorkPlan>(`/api/works/${slug}/plan`, () => api.plan(slug), { poll: syncing ? SYNC_POLL_MS : POLL_MS, topics });
+  const w = work.data ?? null;
+  const plan = planned.data ?? null;
+  const err = w ? '' : work.err;
+  const refreshing = work.loading || planned.loading;
+  const load = (fresh = false) => Promise.all([work.reload(fresh ? () => api.work(slug, true) : undefined), planned.reload()]).then(() => {}, () => {});
   useEffect(() => {
-    load();
-    const t = setInterval(() => load(), 30000);
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       // every mounted view of the work hears the same focus: one GitHub refresh per slug and window
-      const fresh = Date.now() - (freshAt.get(slug) || 0) > FRESH_ON_FOCUS_MS;
-      if (fresh) freshAt.set(slug, Date.now());
-      load(fresh);
+      if (Date.now() - (freshAt.get(slug) || 0) < FRESH_ON_FOCUS_MS) return;
+      freshAt.set(slug, Date.now());
+      void work.reload(() => api.work(slug, true)).catch(() => {});
     };
     document.addEventListener('visibilitychange', onVisible);
-    // the server says this work changed (saved, stack, plan, drift, artifacts): events in a burst make one load
-    let soon: ReturnType<typeof setTimeout>;
-    const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(() => load(), 50); } });
-    return () => { clearInterval(t); clearTimeout(soon); document.removeEventListener('visibilitychange', onVisible); off(); };
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [slug]);
-  const syncing = Boolean(w?.notionStatus?.running);
-  useEffect(() => { if (!syncing) return; const t = setInterval(() => load(), 5000); return () => clearInterval(t); }, [syncing]);
   const prs: WorkPr[] = plan?.prs || w?.prs || [];
   const saveStack = async (stack: StackRow[]) => { await api.updateWork(slug, { stack }); await load(); };
   const saveMeta = async ({ title, description }: { title: string; description?: string }) => { await api.updateWork(slug, { title: title.slice(0, 100), description }); await load(); };

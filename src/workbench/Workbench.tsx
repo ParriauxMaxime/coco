@@ -12,6 +12,7 @@ import { openCodeAt } from './tabs/Code.tsx';
 import { CodeRefRoot } from '../components/CodeRefs.tsx';
 import { ErrorNote, Loading } from '../preview/pages/Page.tsx';
 import { findRun, loadReview, useReviewStore } from './code/use-comments.ts';
+import { Visible } from '../resource.ts';
 import type { Edge, Group as GroupData, Handle as HandleData, PrKey, Rect, RefFile, WorkData } from './types.ts';
 
 type Zone = Edge | 'center';
@@ -157,13 +158,18 @@ type GroupProps = { g: GroupData; groups: GroupData[]; ctx: WorkData; focused: b
 function Group({ g, groups, ctx, focused, merged, max, rect, drag }: GroupProps) {
   const { focus } = useWorkbench.getState();
   const tabDef = useTabDef();
+  // a tab mounts the first time it shows and stays mounted after: a restored layout reads and polls for its active tabs only
+  const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set(g.active ? [g.active] : []));
+  const shown = rect && g.active ? g.active : null;
+  if (shown && !seen.has(shown)) setSeen(new Set([...seen, shown]));
   return (
     <section className={`wb-group ${focused ? 'focus' : ''}`} style={rect && { left: rect.left, top: rect.top, width: rect.width, height: rect.height }} hidden={!rect} onMouseDownCapture={() => !merged && focus(g.id)}>
       <Strip g={g} groups={groups} ctx={ctx} merged={merged} max={max} drag={drag} />
       <div className="wb-body">
         {g.tabs.map((id) => {
           const d = tabDef(id);
-          return <div key={id} className={`wb-pane ${d.flush ? 'flush' : ''}`} data-tab={id} hidden={id !== g.active}><d.Component tabId={id} group={g.id} /></div>;
+          if (!seen.has(id) && id !== shown) return null;
+          return <div key={id} className={`wb-pane ${d.flush ? 'flush' : ''}`} data-tab={id} hidden={id !== g.active}><Visible.Provider value={id === shown}><d.Component tabId={id} group={g.id} /></Visible.Provider></div>;
         })}
         {drag && <DropZone g={g} drag={drag} />}
       </div>
