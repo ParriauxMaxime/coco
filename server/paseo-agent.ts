@@ -43,8 +43,8 @@ export type ActivityEvent = { type: string; id?: string | null; name?: string; k
 export type FollowerCallbacks = { onEntry?: (e: Entry) => void; onDelta?: (text: string, kind?: 'text' | 'think') => void; onToolStart?: (e: ToolStart) => void; onPermission?: (e: PermissionEvent) => void };
 export type WaitResult = { status: string; error?: string | null; lastMessage?: string | null; final?: { lastUsage?: { totalCostUsd?: number } | null } | null };
 type Unsubscribe = (() => void) & { ready?: Promise<unknown> };
-type Cursor = { epoch: string; seq: number };
-type TimelinePage = { entries: { item?: TimelineItem; timestamp?: string }[]; startCursor?: Cursor | null; hasOlder?: boolean };
+export type Cursor = { epoch: string; seq: number };
+type TimelinePage = { entries: { item?: TimelineItem; timestamp?: string }[]; startCursor?: Cursor | null; endCursor?: Cursor | null; hasOlder?: boolean; hasNewer?: boolean; reset?: boolean };
 export type DaemonAgent = {
   id: string;
   workspaceId?: string | null;
@@ -349,18 +349,37 @@ export function activityEvents({ keep, live, deltaMs = 100 }: { keep: (ev: Activ
 const HISTORY_PAGE = 200;
 const HISTORY_PAGES = 20;
 
-// an agent's whole timeline, oldest first, deltas merged into their messages
-export async function timelineOf(agent: Pick<DaemonAgent, 'timeline'>, maxPages = HISTORY_PAGES) {
+// an agent's whole timeline, oldest first, deltas merged into their messages, with the cursor of its last entry
+export async function timelineWithCursor(agent: Pick<DaemonAgent, 'timeline'>, maxPages = HISTORY_PAGES) {
   const { timeline } = agent;
-  if (!timeline.refetch) return [];
+  if (!timeline.refetch) return { entries: [], cursor: null };
   const pages: TimelinePage[] = [];
   let page = await timeline.refetch({ direction: 'tail', limit: HISTORY_PAGE, projection: 'projected' });
+  const cursor = page.endCursor ?? null;
   pages.unshift(page);
   while (page.hasOlder && page.startCursor && pages.length < maxPages) {
     page = await timeline.refetch({ direction: 'before', cursor: page.startCursor, limit: HISTORY_PAGE, projection: 'projected' });
     pages.unshift(page);
   }
-  return pages.flatMap((p) => p.entries);
+  return { entries: pages.flatMap((p) => p.entries), cursor };
+}
+
+export const timelineOf = async (agent: Pick<DaemonAgent, 'timeline'>, maxPages = HISTORY_PAGES) => (await timelineWithCursor(agent, maxPages)).entries;
+
+// the entries after a cursor; null when Paseo no longer knows its epoch (the timeline was rebuilt)
+export async function timelineAfter(agent: Pick<DaemonAgent, 'timeline'>, cursor: Cursor) {
+  const { timeline } = agent;
+  if (!timeline.refetch) return null;
+  const entries: TimelinePage['entries'] = [];
+  let at = cursor;
+  for (let n = 0; n < HISTORY_PAGES; n++) {
+    const page = await timeline.refetch({ direction: 'after', cursor: at, limit: HISTORY_PAGE, projection: 'projected' });
+    if (page.reset) return null;
+    entries.push(...page.entries);
+    at = page.endCursor ?? at;
+    if (!page.hasNewer) break;
+  }
+  return { entries, cursor: at };
 }
 export type AgentHistory = { status: string | null; archived: boolean; updatedAt: string | null; userMessages: { text: string; at: string | null }[] };
 export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };

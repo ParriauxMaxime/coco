@@ -3,8 +3,9 @@
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { sseSink } from './events.ts';
 import type { Sink } from './events.ts';
-import { TITLE_PREFIX, activityEvents, createFollower, timelineOf } from './paseo-agent.ts';
-import type { ActivityEvent, DaemonClient } from './paseo-agent.ts';
+import { TITLE_PREFIX, activityEvents, createFollower, timelineAfter, timelineWithCursor } from './paseo-agent.ts';
+import type { ActivityEvent, DaemonAgent, DaemonClient } from './paseo-agent.ts';
+import type { ChatSnapshot, ChatSnapshots } from './chat-snapshots.ts';
 import { fromPaseo } from './agent-usage.ts';
 import type { AgentUsage, PaseoUsage } from './agent-usage.ts';
 import type { AgentSnapshot } from './permissions.ts';
@@ -13,7 +14,7 @@ import { defaultExec } from './placement.ts';
 import type { Exec } from './placement.ts';
 import { randomUUID } from 'node:crypto';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
-import type { Upload, UploadRef, Uploads } from './uploads.ts';
+import type { Upload, UploadRef, Uploads, UserItem } from './uploads.ts';
 import type { Models } from './models.ts';
 import type { SubagentCount, Subagents } from './subagents.ts';
 
@@ -52,7 +53,9 @@ type Options = {
   // a follow-up's model or thinking pick, applied to the agent before the message
   models?: Pick<Models, 'apply'>;
   subagents?: Pick<Subagents, 'counts' | 'onChange'>;
+  snapshots?: Pick<ChatSnapshots, 'get' | 'put' | 'drop'>;
 };
+type TimelineEntries = Awaited<ReturnType<typeof timelineWithCursor>>['entries'];
 const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attachments } : {});
 
 const statusOf = (a: { archivedAt?: unknown; status?: string | null }): WorkAgentStatus => (a.archivedAt || a.status === 'closed' ? 'archived' : a.status === 'error' ? 'failed' : a.status === 'idle' ? 'done' : 'running');
@@ -60,7 +63,7 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, models, subagents }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, models, subagents, snapshots }: Options) {
   let server: Promise<string | null> | null = null;
   const serverOf = () => (server ||= serverId().catch(() => ((server = null), null)));
   const metrics = (agentId: string | null, live?: PaseoUsage | null): Metrics => {
@@ -127,9 +130,50 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     });
   }
 
-  // what the agent did so far, then each new step while the tab watches; the owner's messages come as user events
+  // timeline entries as chat events, the owner's messages as user events with their files
+  function replay(agentId: string, entries: TimelineEntries, filesOf?: (item: UserItem) => UploadRef[] | undefined) {
+    const events: ActivityEvent[] = [];
+    const keep = (ev: ActivityEvent) => events.push(ev);
+    const past = createFollower({ onEntry: activityEvents({ keep, live: keep }).onEntry, agentId });
+    for (const { item } of entries) {
+      if (item?.type === 'user_message') {
+        past.end();
+        keep({ type: 'user', text: item.text, ...withFiles(filesOf?.(item)) });
+      } else if (item) past.push({ agentId, event: { type: 'timeline', item } });
+    }
+    past.end();
+    return events;
+  }
+
+  // the chat so far: the snapshot and the entries after it, or the whole timeline when there is none or its epoch is gone;
+  // kept as the new snapshot once the agent is idle, snapshots ending on a finished turn so the next entries replay on their own
+  async function history(agentId: string, agent: DaemonAgent, found: { status?: string | null; archivedAt?: unknown; updatedAt?: string | null }, kept: ChatSnapshot | null) {
+    const since = kept && (await timelineAfter(agent, kept.cursor));
+    const { events, cursor } = kept && since
+      ? { events: [...kept.events, ...replay(agentId, since.entries, (item) => uploads?.latest(agentId, item))], cursor: since.cursor }
+      : await timelineWithCursor(agent).then(({ entries, cursor }) => ({ events: replay(agentId, entries, uploads?.pairer(agentId)), cursor }));
+    if (cursor && statusOf(found) !== 'running') snapshots?.put(agentId, { updatedAt: found.updatedAt ?? null, cursor, events });
+    return events;
+  }
+
+  // a coco agent ending a turn gets its snapshot while Paseo still holds its timeline
+  const running = new Set<string>();
+  onAgent((a) => {
+    if (!a || !snapshots) return;
+    if (statusOf(a) === 'running') return void running.add(a.id);
+    if (!running.delete(a.id) || !(a.labels?.work || snapshots.get(a.id))) return;
+    void (async () => {
+      const agent = (await client()).agents.ref(a.id);
+      const found = (await agent.refresh())?.agent;
+      const kept = snapshots.get(a.id);
+      if (found && kept?.updatedAt !== (found.updatedAt ?? null)) await history(a.id, agent, found, kept);
+    })().catch(() => {});
+  });
+
+  // what the agent did so far as one history event (its snapshot first when Paseo has newer), then each new step while the tab watches
   async function watchChat(sink: Sink, agentId: string) {
     const write = (ev: ActivityEvent) => sink.send(JSON.stringify(ev));
+    const writeHistory = (events: ActivityEvent[]) => sink.send(JSON.stringify(events), 'history');
     const writeCards = () => cards && sink.send(JSON.stringify(cards.ofAgent(agentId)), 'cards');
     writeCards();
     const offCards = cards?.onChange((id) => id === agentId && writeCards());
@@ -140,18 +184,19 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     });
     try {
       const agent = (await client()).agents.ref(agentId);
-      if (!(await agent.refresh())?.agent) return write({ type: 'meta', text: 'Paseo no longer knows this agent' });
-      const stream = activityEvents({ keep: write, live: write });
-      const past = createFollower({ onEntry: stream.onEntry, agentId });
-      const filesOf = uploads?.pairer(agentId);
-      for (const { item } of await timelineOf(agent)) {
-        if (item?.type === 'user_message') {
-          past.end();
-          write({ type: 'user', text: item.text, ...withFiles(filesOf?.(item)) });
-        } else if (item) past.push({ agentId, event: { type: 'timeline', item } });
+      const found = (await agent.refresh())?.agent;
+      if (!found) {
+        snapshots?.drop(agentId);
+        return write({ type: 'meta', text: 'Paseo no longer knows this agent' });
       }
-      past.end();
+      const kept = snapshots?.get(agentId) ?? null;
+      if (kept) writeHistory(kept.events);
+      if (kept?.updatedAt !== (found.updatedAt ?? null)) {
+        const events = await history(agentId, agent, found, kept);
+        if (!sink.closed) writeHistory(events);
+      }
       if (sink.closed) return;
+      const stream = activityEvents({ keep: write, live: write });
       const live = createFollower({ onEntry: stream.onEntry, onDelta: stream.onDelta, onToolStart: stream.onToolStart, agentId });
       off = agent.timeline.subscribe((m) => {
         const ev = m?.event;
@@ -202,6 +247,12 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       }
     }));
     return { archived: listed.map((a) => a.id).filter((id) => !failed.some((f) => f.id === id)), failed };
+  }
+
+  // an archived or deleted work's agents lose their snapshots
+  async function forget(slug: string) {
+    if (!snapshots) return;
+    for (const a of await listAgents(slug)) if (a.agentId) snapshots.drop(a.agentId);
   }
 
   // the work and stack row an agent's labels name
@@ -268,5 +319,5 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  return { list, handle, watchList, watchChat, say, placeOf, info };
+  return { list, handle, watchList, watchChat, say, placeOf, info, forget };
 }

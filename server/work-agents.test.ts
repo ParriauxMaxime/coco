@@ -5,6 +5,7 @@ import { Socket } from 'node:net';
 import { createWorkAgents } from './work-agents.ts';
 import type { DaemonClient } from './paseo-agent.ts';
 import type { AgentSnapshot } from './permissions.ts';
+import type { ChatSnapshot } from './chat-snapshots.ts';
 
 const ASK = '11111111-2222-3333-4444-555555555555';
 
@@ -25,6 +26,93 @@ function setup({ listed = [], refreshed = {} }: { listed?: AgentSnapshot[]; refr
   });
   return { agents, filters };
 }
+
+const cur = (seq: number, epoch = 'e1') => ({ epoch, seq });
+const said = (text: string) => ({ item: { type: 'user_message', text } });
+const answered = (text: string) => ({ item: { type: 'assistant_message', text } });
+
+// one agent with a timeline: tail returns `tail`, after returns `after` (or a reset); every refetch and kept snapshot recorded
+function chat({ updatedAt = 't2', status = 'idle', kept = null, tail = [], after = [], reset = false }: { updatedAt?: string; status?: string; kept?: ChatSnapshot | null; tail?: unknown[]; after?: unknown[]; reset?: boolean }) {
+  const fetched: { direction: string; cursor?: unknown }[] = [];
+  const put: ChatSnapshot[] = [];
+  const agent = {
+    refresh: async () => ({ agent: { id: 'a1', status, updatedAt } }),
+    timeline: {
+      subscribe: () => () => {},
+      refetch: async ({ direction, cursor }: { direction: string; cursor?: unknown }) => {
+        fetched.push({ direction, ...(cursor ? { cursor } : {}) });
+        if (direction === 'after') return reset ? { reset: true, entries: tail, endCursor: cur(9, 'e2') } : { entries: after, endCursor: after.length ? cur(7) : null, hasNewer: false };
+        return { entries: tail, endCursor: cur(5), hasOlder: false };
+      },
+    },
+  };
+  const client = { agents: { ref: () => agent } } as unknown as DaemonClient;
+  const agents = createWorkAgents({
+    client: async () => client,
+    asks: () => [],
+    linked: () => [],
+    onAgent: () => () => {},
+    serverId: async () => null,
+    snapshots: { get: () => kept, put: (_id, s) => void put.push(s), drop: () => {} },
+  });
+  const sent: { event?: string; data: unknown }[] = [];
+  const sink = { send: (json: string, event?: string) => void sent.push({ ...(event ? { event } : {}), data: JSON.parse(json) }), onClose: () => {}, closed: false };
+  return { run: () => agents.watchChat(sink, 'a1'), fetched, put, histories: () => sent.filter((s) => s.event === 'history').map((s) => s.data) };
+}
+
+test('an agent without a snapshot replays its whole timeline as one history event, kept as its snapshot once idle', async () => {
+  const c = chat({ tail: [said('go'), answered('done')] });
+  await c.run();
+  assert.deepEqual(c.histories(), [[{ type: 'user', text: 'go' }, { type: 'text', text: 'done' }]]);
+  assert.deepEqual(c.put, [{ updatedAt: 't2', cursor: cur(5), events: [{ type: 'user', text: 'go' }, { type: 'text', text: 'done' }] }]);
+});
+
+test('a running agent is replayed but not kept', async () => {
+  const c = chat({ status: 'running', tail: [said('go')] });
+  await c.run();
+  assert.equal(c.histories().length, 1);
+  assert.deepEqual(c.put, []);
+});
+
+test('a snapshot as recent as the agent is sent alone, without reading Paseo', async () => {
+  const events = [{ type: 'text', text: 'kept' }];
+  const c = chat({ kept: { updatedAt: 't2', cursor: cur(5), events } });
+  await c.run();
+  assert.deepEqual(c.histories(), [events]);
+  assert.deepEqual(c.fetched, []);
+});
+
+test('an older snapshot is sent first, then with the entries after its cursor', async () => {
+  const c = chat({ kept: { updatedAt: 't1', cursor: cur(5), events: [{ type: 'text', text: 'kept' }] }, after: [said('more'), answered('again')] });
+  await c.run();
+  assert.deepEqual(c.fetched, [{ direction: 'after', cursor: cur(5) }]);
+  assert.deepEqual(c.histories(), [[{ type: 'text', text: 'kept' }], [{ type: 'text', text: 'kept' }, { type: 'user', text: 'more' }, { type: 'text', text: 'again' }]]);
+  assert.deepEqual(c.put.map((s) => [s.updatedAt, s.cursor]), [['t2', cur(7)]]);
+});
+
+test('a snapshot whose epoch Paseo no longer knows gives way to the whole timeline', async () => {
+  const c = chat({ kept: { updatedAt: 't1', cursor: cur(5), events: [{ type: 'text', text: 'stale' }] }, reset: true, tail: [answered('fresh')] });
+  await c.run();
+  assert.deepEqual(c.fetched.map((f) => f.direction), ['after', 'tail']);
+  assert.deepEqual(c.histories().at(-1), [{ type: 'text', text: 'fresh' }]);
+});
+
+test("an archived or deleted work's agents lose their snapshots, and so does an agent Paseo forgot", async () => {
+  const dropped: string[] = [];
+  const client = { agents: { list: async () => ({ entries: [{ agent: { id: 'review', labels: { work: 'csv' }, status: 'idle' } }] }), ref: () => ({ refresh: async () => ({ agent: null }) }) } } as unknown as DaemonClient;
+  const agents = createWorkAgents({
+    client: async () => client,
+    asks: () => [],
+    linked: () => [{ agentId: 'hand', key: 12, title: null }],
+    onAgent: () => () => {},
+    serverId: async () => null,
+    snapshots: { get: () => null, put: () => {}, drop: (id) => void dropped.push(id) },
+  });
+  await agents.forget('csv');
+  assert.deepEqual(dropped, ['review', 'hand']);
+  await agents.watchChat({ send: () => {}, onClose: () => {}, closed: false }, 'gone');
+  assert.deepEqual(dropped, ['review', 'hand', 'gone']);
+});
 
 test("a work's agents: its Ask conversations, the Paseo agents labelled with it and those linked to its rows, each once with its status and row", async () => {
   const { agents, filters } = setup({

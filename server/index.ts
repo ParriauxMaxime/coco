@@ -56,6 +56,7 @@ import type { ProviderUsage } from './paseo-agent.ts';
 import { createPermissions, isCocoAgent, whereOf } from './permissions.ts';
 import { createPaseoHealth } from './paseo-health.ts';
 import { contextOf, createAgentUsage, fromPaseo } from './agent-usage.ts';
+import { createChatSnapshots } from './chat-snapshots.ts';
 import { createWorkAgents } from './work-agents.ts';
 import { AGENT_CONTROLS, createAgentControls } from './agent-controls.ts';
 import { createSubagents } from './subagents.ts';
@@ -268,7 +269,8 @@ permissions.onAgent((a, removed) => {
 });
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
-const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, models, subagents });
+const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, models, subagents, snapshots: createChatSnapshots(path.join(DATA, 'chat-snapshots')) });
+works.hooks.onClosed = (w) => workAgents.forget(w.slug);
 const agentControls = createAgentControls({ client: paseoAgents.client, models, renamed: (agentId, title) => void ask.rename(agentId, title) });
 const handoff = createHandoff({ DATA, owner: config.owner.name, defaultModel: config.models.default, client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), models, link: paseoLink });
 const finished = createFinishedAgents({ client: paseoAgents.client, agents: permissions.agents, linked: () => paseoLink.linked(), successors: handoff.successors, maxAgeMs: LAST_WORD_MS });

@@ -1287,7 +1287,15 @@ Pull based, no webhooks:
   the server having dropped its cached drift first), `work-agents:<slug>`,
   `agent-chat:<agentId>`, `ask:<convId>`, `thread:<slug>:<key>` (arguments
   URI-encoded); each message is `{ topic, event, data }`, `open` starting the
-  topic's replay (a chat replays its timeline, cards come on subscribe). The
+  topic's replay (a chat replays its timeline as one `history` event, cards
+  come on subscribe). An idle or archived agent's replay is kept in
+  `data/chat-snapshots/<agent>.json` with its last timeline cursor, written
+  when a coco agent ends a turn or on its first open: the tab shows it at
+  once, and when Paseo's `updatedAt` moved, reads only the entries after the
+  cursor and sends `history` again (the whole timeline when Paseo rebuilt it).
+  Archiving or deleting a work drops its agents' snapshots, as does opening an
+  agent Paseo no longer knows.
+  The
   page reconnects with backoff and resubscribes, also when the server's 25 s
   ping stops. The old per-topic SSE routes still answer.
 - Personas and skills are read from disk on each request.

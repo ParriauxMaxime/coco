@@ -123,7 +123,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'> }) {
-  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
+  const hooks: { onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onClosed?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (args: string[]) => (GITHUB ? run('gh', args) : Promise.resolve(noRepo));
@@ -378,6 +378,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
       work.timeline.unshift({ ts: new Date().toISOString(), kind: 'archive', text: 'unarchived by hand; auto-archive off for this work' });
     }
     const saved = save(work);
+    if (archived) Promise.resolve(hooks.onClosed?.(saved)).catch(() => {});
     if (archived && reason === 'auto') hooks.onAutoArchived?.(saved);
     return saved;
   }
@@ -479,6 +480,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs }: { DA
     if (req.method === 'DELETE') {
       // full=1: also its folder (threads, artifacts, findings) and what coco made for it in Paseo and git
       const full = query().get('full') === '1';
+      await Promise.resolve(hooks.onClosed?.(work)).catch(() => {});
       const done = full ? await Promise.resolve(hooks.forgetWork?.(work)).catch((e) => [`cleanup failed: ${errorMessage(e)}`]) || [] : [];
       fs.rmSync(file(a));
       if (full) fs.rmSync(path.join(ROOT, a), { recursive: true, force: true });

@@ -20,7 +20,7 @@ const AGENT = /^[\w-]{1,80}$/;
 export type Upload = { id: string; fileName: string; mimeType: string; size: number; path: string };
 export type UploadRef = Omit<Upload, 'path'>;
 export type SentMessage = { messageId: string; text: string; at: string; attachments: UploadRef[] };
-type UserItem = { text?: string; messageId?: string };
+export type UserItem = { text?: string; messageId?: string };
 
 const MAGIC: Record<string, (b: Buffer) => boolean> = {
   'image/png': (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),

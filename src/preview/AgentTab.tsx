@@ -129,7 +129,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   );
 }
 
-// any Paseo agent of the work: its timeline replayed then followed, the owner's messages included
+// any Paseo agent of the work: its timeline as one history (sent again when the server read newer entries) then followed, the owner's messages included
 function useAgentChat(agentId: string) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [pending, setPending] = useState<{ nonce: string; text: string; attachments?: UploadRef[] }[]>([]);
@@ -142,6 +142,11 @@ function useAgentChat(agentId: string) {
       open: () => {
         setEvents([]);
         card.open();
+      },
+      history: (evs: ActivityEvent[]) => {
+        setEvents(evs);
+        const said = new Set(evs.flatMap((e) => (e.type === 'user' ? [e.text] : [])));
+        setPending((p) => p.filter((x) => !said.has(x.text)));
       },
       message: (ev: ActivityEvent) => {
         setEvents((prev) => [...prev, ev]);
