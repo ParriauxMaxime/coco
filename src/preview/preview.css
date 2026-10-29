@@ -615,7 +615,7 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
 .dp-ag-bar > :not(.dp-title, .dp-sp, .dp-ag-usage) { flex: none; white-space: nowrap; }
 .dp-ag-bar > .dp-ag-usage { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dp-tabview.dp-agtab { container: ag-tab / inline-size; }
-@container ag-tab (max-width: 760px) { .dp-ag-paseo, .dp-ag-bar > .dp-ag-usage { display: none; } }
+@container ag-tab (max-width: 900px) { .dp-ag-lbl, .dp-ag-bar > .dp-ag-usage { display: none; } }
 .dp-ag-usage { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dp-ag-start { display: flex; align-items: center; justify-content: center; }
 .dp-ag-hello { max-width: 520px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }

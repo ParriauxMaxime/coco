@@ -56,7 +56,7 @@ export function Header({ title, kind, pr, state, agentId, metrics, chips, action
       <span className="dp-xs dp-t3"><ContextRing used={metrics?.contextTokens} max={metrics?.contextMax} label /></span>
       {actions}
       {handoff && agentId && <HandoffControls agentId={agentId} metrics={metrics} archived={state === 'archived'} />}
-      {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} /><span className="dp-ag-paseo">Open in Paseo</span></a>}
+      {href && <a className="dp-btn dp-sm" href={href} title="Open this agent in the Paseo app"><Icon name="external-link" size={14} /><span className="dp-ag-lbl">Open in Paseo</span></a>}
     </div>
   );
 }
@@ -269,11 +269,11 @@ function GroupActions({ slug, group, keys, summaries }: { slug: string; group: T
       {talked.length > 0 && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'rules')}`} disabled={busy} title="coco distills the corrections of this agent's threads into proposed work rules" onClick={() => run('rules', async () => {
         await Promise.all(talked.map((threadKey) => api.proposeRules(slug, { scope: 'work', threadKey })));
         toast.success('coco is proposing rules: keep or drop them in the Rules tab');
-      })}><Icon name="book" size={12} />Rules</button>}
+      })}><Icon name="book" size={12} /><span className="dp-ag-lbl">Rules</span></button>}
       {!waiting && <button type="button" className={`dp-btn dp-sm dp-ghost${pendingClass(pending === 'prune')}`} disabled={busy} title="Archive the group's agent and worktree, delete its branch" onClick={async () => (await confirmDialog({ title: `Prune the agent of group ${group.id}?`, body: `${group.items.length} item(s): archive its agent and worktree, delete its branch.`, ok: 'Prune', danger: true })) && run('prune', async () => {
         await api.closeGroup(slug, group.id);
         await refreshThreads(slug);
-      })}><Icon name="archive" size={12} />Prune agent</button>}
+      })}><Icon name="archive" size={12} /><span className="dp-ag-lbl">Prune agent</span></button>}
     </>
   );
 }
