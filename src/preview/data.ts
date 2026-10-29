@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.ts';
+import { subscribe, topic } from '../live.ts';
 import { usePendingPermissions } from './chat/Permission.tsx';
 import { itemsOf, useWaiting } from './waiting.ts';
 import { stateKey } from '../components/PrBadge.tsx';
@@ -55,7 +56,9 @@ export function usePreviewData(slug: string): PreviewData {
     };
     load();
     const t = setInterval(load, 30000);
-    return () => clearInterval(t);
+    // the board is served from the last one: the server says when its refresh landed a different one
+    const off = subscribe(topic('findings', slug), { message: () => void api.findings(slug, null).then(setFindings, () => {}) });
+    return () => { clearInterval(t); off(); };
   }, [slug]);
   return { slug, work, prs: work.prs, overview, findings, agents, pending, waiting, dev };
 }

@@ -311,6 +311,7 @@ events.topic('works', works.watch);
 events.topic('work', works.watchWork);
 events.topic('jobs', jobs.watch);
 events.topic('work-agents', workAgents.watchList);
+events.topic('findings', findings.watch);
 events.topic('agent-chat', workAgents.watchChat);
 events.topic('subagents', subagents.watchList);
 events.topic('subagent', subagents.watchTimeline);

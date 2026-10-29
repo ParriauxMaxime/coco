@@ -74,7 +74,7 @@ function board() {
   ];
   const posts: { key: string; text: string; groupId?: string | null }[] = [];
   const released: string[] = [];
-  const findings = createFindings({
+  const make = () => createFindings({
     DATA,
     REPO: DATA,
     config: { owner: { login: 'alice' }, repo: { github: 'acme/widgets', reviewsDir: 'reviews' } },
@@ -88,10 +88,38 @@ function board() {
       post: async (_slug, k, input) => (posts.push({ key: k, text: input.text, groupId: input.groupId }), { groupId: 'g1' }),
     },
   });
+  const findings = make();
   const keyOf = async (id: string) => (await findings.collect('w')).rows.find((r) => r.commentId === id)!.key;
   const settled = () => new Promise((ok) => setTimeout(ok, 10));
-  return { findings, key, posts, released, keyOf, settled };
+  return { findings, make, stored, key, posts, released, keyOf, settled };
 }
+
+type Served = { rows: unknown[]; stale?: boolean };
+const getBoard = async (findings: ReturnType<typeof createFindings>) => {
+  let out: Served | null = null;
+  await findings.handle({ method: 'GET', url: '/api/works/w/findings' } as never, {} as never, ['works', 'w', 'findings'], async () => '', ((_res: unknown, _status: number, body: Served) => void (out = body)) as never);
+  return out as unknown as Served;
+};
+
+test('the board GET answers from the saved board at once, refreshes it behind, and its topic says when the refresh differs', async () => {
+  const { findings, make, stored, settled } = board();
+  const first = await getBoard(findings);
+  assert.equal(first.stale, undefined);
+  assert.equal(first.rows.length, 2);
+  // after a restart: the saved board at once, flagged stale while it is asked again
+  const again = make();
+  const heard: unknown[] = [];
+  again.watch({ send: (json) => void heard.push(JSON.parse(json)), onClose: () => {}, closed: false }, 'w');
+  stored.pop();
+  const served = await getBoard(again);
+  assert.equal(served.stale, true);
+  assert.equal(served.rows.length, 2);
+  await settled();
+  assert.deepEqual(heard, [{ slug: 'w' }]);
+  const now = await getBoard(again);
+  assert.equal(now.stale, undefined);
+  assert.equal(now.rows.length, 1);
+});
 
 test('accepting findings starts a fix agent per finding with the note, and releases nothing', async () => {
   const { findings, key, posts, released, keyOf, settled } = board();

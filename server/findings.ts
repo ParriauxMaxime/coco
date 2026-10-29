@@ -7,12 +7,17 @@ import { execFile } from 'node:child_process';
 import { parseFindings } from './review-import.ts';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import type { Jobs } from './jobs.ts';
-import { GITHUB_MIN_FRESH_MS, cacheFile, swrCache } from './swr.ts';
+import { GITHUB_MIN_FRESH_MS, cacheFile, mapLimit, swrCache } from './swr.ts';
+import type { Sink } from './events.ts';
 import type { Block, Source } from './blocks.ts';
 import type { RepoIdentity, RepoOf } from './config.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
 
 const GH_TTL_MS = 120000;
+// stack PRs whose GitHub remarks are read at once
+const GH_PARALLEL = 4;
+// a board younger than this is served without asking again
+const BOARD_FRESH_MS = 15000;
 const IMPORT_EVERY_MS = 60000;
 const MAX_CLAIM = 200;
 
@@ -329,16 +334,17 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     const ledger = readLedger(slug);
     const imported = readImported(slug);
     const out: Row[] = [];
-    for (const r of rows.filter((x) => only === null || x.key === only)) {
+    const shown = rows.filter((x) => only === null || x.key === only);
+    const github = await mapLimit(shown, GH_PARALLEL, (r) => (r.number ? githubRows(repoOf(work).github, r.number, r.headSha, imported) : Promise.resolve([])));
+    for (const [i, r] of shown.entries()) {
       const { plan, watch } = reviewPlan.planState(slug, r.key);
       const coco = (plan?.watchPoints || []).map((w, index): Row => {
         const claim = claimOf(w.body);
         return { key: findingKey('coco', w.path, claim), n: r.key, source: 'coco', severity: w.severity || severityOf(w.body), confidence: w.confidence, path: w.path, line: w.startLine, endLine: w.endLine, claim, body: w.body, url: null, ts: plan?.createdAt, watchIndex: index, sha: plan?.headSha };
       });
-      const gh = r.number ? await githubRows(repoOf(work).github, r.number, r.headSha, imported) : [];
       const mine = raw.filter((x) => x.n === r.key);
       const stored = comments.list(slug, r.key).comments || [];
-      out.push(...settle([...mine, ...coco, ...gh], { comments: stored, ledger, watch: watch || {}, me: ME, botGroups: BOTS }).map((x) => ({ ...x, n: x.n ?? r.key })));
+      out.push(...settle([...mine, ...coco, ...github[i]], { comments: stored, ledger, watch: watch || {}, me: ME, botGroups: BOTS }).map((x) => ({ ...x, n: x.n ?? r.key })));
     }
     if (only === null) out.push(...settle(raw.filter((x) => x.n === null), { ledger, me: ME, botGroups: BOTS }));
     return { rows: out.map((r) => ({ ...r, by: reviewerOf(r.source, BOTS) })), errors };
@@ -359,7 +365,9 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         // a decision taken while this ran made it stale: keep it out of the caches
         if ((generation.get(slug) || 0) !== gen) return data;
         const at = Date.now();
+        const before = snapshot(slug, only);
         cache.set(k, { at, data });
+        if (before && JSON.stringify([before.rows, before.errors]) !== JSON.stringify([data.rows, data.errors])) listeners.forEach((l) => l(slug));
         fs.mkdirSync(path.dirname(snapFile(slug, only)), { recursive: true });
         fs.writeFileSync(snapFile(slug, only), JSON.stringify({ at: new Date(at).toISOString(), data }));
         return data;
@@ -370,7 +378,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
   }
   async function rowsOf(slug: string, only: RowKey | null, fresh: boolean) {
     const hit = cache.get(`${slug}|${only}`);
-    if (!fresh && hit && Date.now() - hit.at < 15000) return hit.data;
+    if (!fresh && hit && Date.now() - hit.at < BOARD_FRESH_MS) return hit.data;
     // an asked refresh must see a comment posted within the GitHub cache's lifetime, once per floor
     if (fresh && Date.now() - ghDroppedAt >= GITHUB_MIN_FRESH_MS) {
       ghDroppedAt = Date.now();
@@ -387,6 +395,13 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     } catch {
       return null;
     }
+  }
+  // topic `findings:<slug>`: { slug } each time a refresh lands a board that differs from the one served before
+  const listeners = new Set<(slug: string) => void>();
+  function watch(sink: Sink, slug: string) {
+    const l = (s: string) => s === slug && sink.send(JSON.stringify({ slug }));
+    listeners.add(l);
+    sink.onClose(() => listeners.delete(l));
   }
   const forget = (slug: string) => {
     generation.set(slug, (generation.get(slug) || 0) + 1);
@@ -550,13 +565,15 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
       const url = new URL(req.url || '/', 'http://x');
       const pr = url.searchParams.get('pr');
       const only = pr ? parseKey(pr) : null;
-      // stale=1: the saved board right away (`stale: true`), the refresh keeps running for the follow-up request to join
-      const snap = url.searchParams.get('stale') === '1' && snapshot(slug, only);
-      if (snap) {
-        refresh(slug, only).catch(() => {});
-        return send(res, 200, { ...snap, stale: true, left: LEFT });
-      }
       const fresh = url.searchParams.get('fresh') === '1';
+      // the saved board right away, `stale: true` while a refresh runs (always with stale=1), its topic telling when it lands different
+      const hit = cache.get(`${slug}|${only}`);
+      const old = !hit || Date.now() - hit.at >= BOARD_FRESH_MS || url.searchParams.get('stale') === '1';
+      const snap = !fresh && snapshot(slug, only);
+      if (snap) {
+        if (old) refresh(slug, only).catch(() => {});
+        return send(res, 200, { ...snap, ...(old ? { stale: true } : {}), left: LEFT });
+      }
       const board = fresh && jobs ? await jobs.wrap({ work: slug, pr: only, action: 'findings-collect', label: `Collect findings${only === null ? '' : ` ${keyLabel(only)}`}`, kind: 'sync' }, () => rowsOf(slug, only, true), (b) => `${b.rows.length} findings`) : await rowsOf(slug, only, fresh);
       return send(res, 200, { ...board, left: LEFT });
     } catch (e) {
@@ -572,5 +589,5 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return act(slug, { action, keys: [row.key], reason, pr: String(n) });
   }
 
-  return { handle, collect, act, actOnComment, acceptedComment, snapshot, importGithub };
+  return { handle, watch, collect, act, actOnComment, acceptedComment, snapshot, importGithub };
 }
