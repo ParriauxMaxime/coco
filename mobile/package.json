@@ -1,0 +1,20 @@
+{
+  "name": "coco-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "coco on an Android phone: a WebView on the coco server it was paired with over Tailscale, with a QR scanner to pair, the back button, the microphone and full screen",
+  "type": "module",
+  "scripts": {
+    "sync": "cap sync android",
+    "apk": "cap sync android && node scripts/apk.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/barcode-scanner": "3.1.3",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/preferences": "8.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- coco's page background (dp-bg in src/preview/preview.css), behind the system bars -->
+<resources>
+    <color name="coco_bg">#f7f7f8</color>
+</resources>

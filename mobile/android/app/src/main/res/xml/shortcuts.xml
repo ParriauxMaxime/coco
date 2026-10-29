@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- long-press the app icon: forget the coco server and its pairing, back to the setup page -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="forget"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/forget_short"
+        android:shortcutLongLabel="@string/forget_long">
+        <intent
+            android:action="com.parriauxmaxime.coco.FORGET"
+            android:targetPackage="com.parriauxmaxime.coco"
+            android:targetClass="com.parriauxmaxime.coco.MainActivity" />
+    </shortcut>
+</shortcuts>

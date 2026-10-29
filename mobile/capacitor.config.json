@@ -1,0 +1,8 @@
+{
+  "appId": "com.parriauxmaxime.coco",
+  "appName": "coco",
+  "webDir": "www",
+  "android": {
+    "appendUserAgent": "CocoAndroid"
+  }
+}

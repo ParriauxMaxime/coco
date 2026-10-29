@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>coco</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f7f7f8; --panel: #fff; --t1: #16171b; --t2: #5c6070; --line: #e3e4e8; --acc: #6d5dfc; --bad: #d4453b; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0e0e10; --panel: #141416; --t1: #e6e8ee; --t2: #9a9fb0; --line: #26272c; --bad: #ef6b61; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); color: var(--t1); font: 15px/1.5 system-ui, sans-serif; }
+      main { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 14px; }
+      h1 { margin: 0; font-size: 22px; }
+      p { margin: 0; color: var(--t2); }
+      button, input { font: inherit; border-radius: 10px; min-height: 46px; }
+      button { border: 0; background: var(--acc); color: #fff; font-weight: 600; }
+      button.ghost { background: transparent; color: var(--t1); border: 1px solid var(--line); }
+      input { width: 100%; padding: 0 12px; border: 1px solid var(--line); background: var(--panel); color: var(--t1); }
+      .row { display: flex; gap: 8px; }
+      .row input { flex: 1; }
+      .note { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+      .err { color: var(--bad); min-height: 1.5em; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>coco</h1>
+      <p id="lead">Scan the QR from coco Settings &gt; Devices on your Mac.</p>
+      <div id="known" class="note" hidden>
+        <p id="known-text"></p>
+        <div class="row" style="margin-top: 10px">
+          <button type="button" id="retry">Open coco</button>
+          <button type="button" id="forget" class="ghost">Forget</button>
+        </div>
+      </div>
+      <button type="button" id="scan">Scan QR code</button>
+      <p>Or paste the pairing link it shows:</p>
+      <form class="row" id="paste">
+        <input id="link" type="url" inputmode="url" autocomplete="off" placeholder="https://…/pair?code=…" aria-label="Pairing link" />
+        <button type="submit" style="padding: 0 16px">Pair</button>
+      </form>
+      <p class="err" id="err"></p>
+    </main>
+    <script>
+      // Capacitor injects its bridge here (the bundled page) but not into coco's own pages: plugins are called through it directly
+      const native = (plugin, method, options = {}) => window.Capacitor.nativePromise(plugin, method, options);
+      const $ = (id) => document.getElementById(id);
+      const query = new URLSearchParams(location.search);
+      let server = null;
+
+      // the link shown under the QR: https://<host>/pair?code=…; its origin becomes the server
+      function pair(text) {
+        let url;
+        try {
+          url = new URL(String(text).trim());
+        } catch {
+          return void ($('err').textContent = 'That is not a link.');
+        }
+        if (url.protocol !== 'https:' || url.pathname !== '/pair' || !url.searchParams.get('code')) return void ($('err').textContent = 'Not a coco pairing link: it looks like https://…/pair?code=…');
+        native('Preferences', 'set', { key: 'server', value: url.origin }).then(() => open(url.href));
+      }
+      // not location.assign: MainActivity loads it, so the device cookie (SameSite=Strict) goes along
+      const open = (url) => native('Coco', 'open', { url }).catch((e) => ($('err').textContent = e?.message || String(e)));
+
+      $('scan').onclick = () =>
+        native('CapacitorBarcodeScanner', 'scanBarcode', { hint: 0, scanInstructions: 'Scan the QR from coco Settings > Devices', scanButton: false, scanText: ' ', cameraDirection: 1, scanOrientation: 3 })
+          .then((r) => pair(r.ScanResult))
+          .catch((e) => ($('err').textContent = /cancel/i.test(e?.message || '') ? '' : `Scan failed: ${e?.message || e}`));
+      $('paste').onsubmit = (e) => {
+        e.preventDefault();
+        pair($('link').value);
+      };
+      $('retry').onclick = () => open(`${server}/`);
+      $('forget').onclick = () =>
+        Promise.all([native('Preferences', 'remove', { key: 'server' }), native('CapacitorCookies', 'clearAllCookies').catch(() => null)]).then(() => {
+          server = null;
+          $('known').hidden = true;
+        });
+
+      native('Preferences', 'get', { key: 'server' }).then(({ value }) => {
+        server = value || null;
+        if (!server) return;
+        const host = new URL(server).host;
+        $('known').hidden = false;
+        $('known-text').textContent = query.has('unpaired')
+          ? `${host} does not know this phone (yet, or any more). Scan a new code to pair it.`
+          : query.has('offline')
+            ? `${host} does not answer. Is the Mac awake and Tailscale on?`
+            : `Paired with ${host}.`;
+      });
+    </script>
+  </body>
+</html>
