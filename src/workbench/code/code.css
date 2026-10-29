@@ -151,6 +151,7 @@
 @media (max-width: 640px) {
   .rv-bar, .ct-bar { padding: 0 8px 0 16px; }
   .rv-acts .dp-btn { width: 40px; height: 36px; }
+  .rv-bar .rv-state { display: none; }
   .rv-acts .dp-btn.rv-asks { width: auto; padding: 0 8px; }
   .dp .rv-asks kbd { display: none; }
   /* long lines wrap under their text, past the line number and sign */
