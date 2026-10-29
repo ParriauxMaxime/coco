@@ -16,6 +16,8 @@ import PaseoStatus from './PaseoStatus.tsx';
 import WorkMenu from './WorkMenu.tsx';
 import { openLauncher } from './launcher.ts';
 import { desktop } from '../desktop.ts';
+import { api, errorMessage } from '../api.ts';
+import { toast } from '../components/Toast.tsx';
 import cocoMark from '../coco-mark.svg';
 import './preview.css';
 
@@ -144,17 +146,51 @@ function SbGroup({ id, label, icon, count, children }: { id: string; label: stri
   );
 }
 
+// "17068", "#17068" or a GitHub PR URL (whose owner/name picks the repo)
+export function parsePrQuery(q: string): { number: number; repo: string | null } | null {
+  const s = q.trim();
+  const url = /^(?:https?:\/\/)?github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/i.exec(s);
+  if (url) return { number: Number(url[2]), repo: url[1] };
+  const n = /^#?(\d{1,7})$/.exec(s);
+  return n && Number(n[1]) > 0 ? { number: Number(n[1]), repo: null } : null;
+}
+
+// the ⌘K entry for a typed PR: its title once peeked, the work holding it, else a solo work made on Enter; opens the row's Review tab
+function usePrCommand(q: string): Command | null {
+  const pr = parsePrQuery(q);
+  const key = pr ? `${pr.repo || ''}#${pr.number}` : '';
+  const [peek, setPeek] = useState<{ key: string; slug: string | null; title: string | null } | null>(null);
+  useEffect(() => {
+    if (!pr) return;
+    let live = true;
+    const t = setTimeout(() => api.peekPr(pr.number, pr.repo).then((r) => live && setPeek({ key, slug: r.slug, title: r.title }), () => live && setPeek({ key, slug: null, title: null })), 200);
+    return () => { live = false; clearTimeout(t); };
+  }, [key]);
+  if (!pr) return null;
+  const seen = peek?.key === key ? peek : null;
+  const open = async () => {
+    try {
+      const { slug } = await api.workFromPr(pr.number, pr.repo);
+      location.hash = `#/work/${slug}/review-${pr.number}`;
+    } catch (e) {
+      toast.error(`PR #${pr.number}: ${errorMessage(e)}`);
+    }
+  };
+  return { id: `review-pr-${key}`, label: `Review PR #${pr.number}${seen?.title ? ` — ${seen.title}` : ''}`, hint: seen?.slug ? `work ${seen.slug}` : seen ? 'new solo work' : 'PR', icon: 'file', run: () => void open() };
+}
+
 function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [hl, setHl] = useState(0);
-  const list = commands.filter((c) => `${c.label} ${c.hint || ''}`.toLowerCase().includes(q.toLowerCase())).slice(0, 40);
+  const prCommand = usePrCommand(q);
+  const list = [...(prCommand ? [prCommand] : []), ...commands.filter((c) => `${c.label} ${c.hint || ''}`.toLowerCase().includes(q.toLowerCase()))].slice(0, 40);
   const run = (c?: Command) => { if (!c) return; onClose(); c.run(); };
   return (
     <div className="dp-overlay dp-on" onClick={onClose}>
       <div className="dp-palette" onClick={(e) => e.stopPropagation()}>
         <div className="dp-pin">
           <Icon name="search" />
-          <input autoFocus value={q} placeholder="Jump to a page, work, PR, view or persona…" onChange={(e) => { setQ(e.target.value); setHl(0); }}
+          <input autoFocus value={q} placeholder="Jump to a page, work, view or persona, or type a PR number or URL to review…" onChange={(e) => { setQ(e.target.value); setHl(0); }}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setHl((h) => Math.min(h + 1, list.length - 1)); }
               if (e.key === 'ArrowUp') { e.preventDefault(); setHl((h) => Math.max(h - 1, 0)); }

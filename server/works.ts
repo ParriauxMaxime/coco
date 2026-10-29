@@ -552,6 +552,16 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       }
       return send(res, 200, list());
     }
+    if (a === 'from-pr' && (req.method === 'POST' || req.method === 'GET')) {
+      const post = req.method === 'POST';
+      const { pr, repo } = post ? JSON.parse((await readBody(req)) || '{}') : { pr: Number(query().get('pr')), repo: query().get('repo') };
+      if (!Number.isInteger(pr) || pr <= 0) return send(res, 400, { error: 'pr required: a PR number' });
+      try {
+        return send(res, 200, await fromPr(pr, typeof repo === 'string' ? repo : null, post));
+      } catch (e) {
+        return send(res, httpStatus(e), { error: errorMessage(e) });
+      }
+    }
     if (a === 'events' && req.method === 'GET') {
       const sink = sseSink(req, res);
       res.write(': open\n\n');
@@ -713,6 +723,25 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     return save(work);
   };
 
+  // the work holding a PR (a live one before an archived one), else a solo work made for it, titled after the PR; `github` picks the repo, the default one when absent or unknown
+  // create false: only says which work holds it (slug null when none) and the PR's title, for the ⌘K entry
+  async function fromPr(number: number, github?: string | null, create = true) {
+    const repo = config.repos.find((r) => github && r.github.toLowerCase() === github.toLowerCase()) || config.repos[0];
+    const target = repo?.github ?? GITHUB;
+    const holds = (w: Work) => githubOfWork(w) === target && (w.stack || []).some((s) => s.number === number);
+    const ws = list();
+    const held = ws.find((w) => !w.archived && holds(w)) || ws.find(holds);
+    if (held && create) return { slug: held.slug, created: false };
+    const info = await prInfo(number, false, target);
+    if (!create) return { slug: held?.slug ?? null, title: info.title ?? null, github: target };
+    if (!info.title) throw new HttpError(404, info.error || `no PR #${number} in ${target}`);
+    const slug = get(`pr-${number}`) ? `pr-${number}-${repo?.id || 'repo'}` : `pr-${number}`;
+    if (get(slug)) throw new HttpError(409, `work ${slug} exists without PR #${number}`);
+    const ts = new Date().toISOString();
+    save({ slug, title: info.title.slice(0, 100), ...(repo ? { repo: repo.id } : {}), tier: 'solo', stack: [{ number, personas: [] }], links: [], personas: [], notes: '', timeline: [{ ts, kind: 'created', text: `work created to review #${number}` }], createdAt: ts } as Work);
+    return { slug, created: true };
+  }
+
   const dropPr = (number: number) => prCache.drop(prKey(githubOf(number), number));
-  return { paseo, handle, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion };
+  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion };
 }

@@ -171,6 +171,9 @@ export const api = {
   works: () => get<Work[]>('/api/works'),
   work: (slug: string, fresh?: boolean) => get<WorkDetail>(`${works(slug)}${fresh ? '?fresh=1' : ''}`),
   createWork: (body: CreateWorkBody) => post<Work>('/api/works', body),
+  // the work holding a PR and its title (peek), or that work, made solo when none holds it (open)
+  peekPr: (pr: number, repo?: string | null) => get<{ slug: string | null; title: string | null; github: string }>(`/api/works/from-pr?${new URLSearchParams({ pr: String(pr), ...(repo ? { repo } : {}) })}`),
+  workFromPr: (pr: number, repo?: string | null) => fetch('/api/works/from-pr', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ pr, repo }) }).then(jsonOrError<{ slug: string; created: boolean }>),
   notionStatus: (slug: string) => get<NotionStatus>(`${works(slug)}/notion`),
   notionAction: (slug: string, body: Record<string, unknown>) => post<NotionResult>(`${works(slug)}/notion`, body),
   archiveWork: (slug: string, archived: boolean) => post<Work>(`${works(slug)}/archive`, { archived }),

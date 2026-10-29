@@ -56,3 +56,32 @@ test('the number to repo memo is forgotten when a work changes', async () => {
   work('cli', 'tool', []);
   assert.equal((await works.prInfo(101)).title, 'acme/app');
 });
+
+test('a PR typed in ⌘K opens the work holding it, else a solo work pr-<n> in the repo of its URL, titled after the PR', async () => {
+  const { works, work } = make();
+  work('cli', 'tool', [101]);
+  work('old', 'app', [101], true);
+  assert.deepEqual(await works.fromPr(101, 'Acme/Tool'), { slug: 'cli', created: false });
+  assert.deepEqual(await works.fromPr(101), { slug: 'old', created: false });
+  assert.deepEqual(await works.fromPr(303, 'acme/tool', false), { slug: null, title: 'acme/tool', github: 'acme/tool' });
+  assert.equal(works.get('pr-303'), null);
+  assert.deepEqual(await works.fromPr(303, 'acme/tool'), { slug: 'pr-303', created: true });
+  const made = works.get('pr-303');
+  assert.deepEqual([made?.title, made?.repo, made?.tier, made?.stack?.map((s) => s.number)], ['acme/tool', 'tool', 'solo', [303]]);
+  assert.deepEqual(await works.fromPr(303, 'acme/tool'), { slug: 'pr-303', created: false });
+  assert.deepEqual(await works.fromPr(303), { slug: 'pr-303-app', created: true });
+});
+
+test('POST /api/works/from-pr refuses a missing number and a PR GitHub does not know', async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-works-from-pr-'));
+  const run = async (): Promise<RunResult> => ({ ok: true, stdout: JSON.stringify({ data: { repository: { p9: null } } }), stderr: '' });
+  const works = createWorks({ DATA, PERSONAS: path.join(DATA, 'personas'), REPO: DATA, config: { ...DEFAULTS, repo: { ...DEFAULTS.repo, github: 'acme/app' }, repos: [{ ...DEFAULTS.repo, github: 'acme/app', id: 'app', name: 'app', settings: {} }] }, run });
+  const call = async (body: unknown) => {
+    let out: [number, unknown] = [0, null];
+    await works.handle({ method: 'POST', url: '/api/works/from-pr' } as never, {} as never, ['works', 'from-pr'], async () => JSON.stringify(body), ((_res: unknown, code: number, b: unknown) => void (out = [code, b])) as never);
+    return out;
+  };
+  assert.equal((await call({}))[0], 400);
+  assert.equal((await call({ pr: 9 }))[0], 404);
+  assert.equal(works.get('pr-9'), null);
+});
