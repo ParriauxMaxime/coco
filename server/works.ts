@@ -154,13 +154,22 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   const prCache = swrCache<GhPrNode>(60000, cacheFile(DATA, 'pr'), { minFreshMs: GITHUB_MIN_FRESH_MS });
   const freshAt = new Map<string, number>();
 
+  // parsed once per file version (mtime and size), handed out as copies since callers edit then save
+  const parsed = new Map<string, { at: number; size: number; work: Work }>();
+  const readWork = (f: string): Work | null => {
+    const st = fs.statSync(f, { throwIfNoEntry: false });
+    if (!st) return (parsed.delete(f), null);
+    let hit = parsed.get(f);
+    if (!hit || hit.at !== st.mtimeMs || hit.size !== st.size) parsed.set(f, (hit = { at: st.mtimeMs, size: st.size, work: JSON.parse(fs.readFileSync(f, 'utf8')) }));
+    return structuredClone(hit.work);
+  };
   const list = (): Work[] =>
     fs
       .readdirSync(ROOT)
       .filter((f) => f.endsWith('.json') && !f.endsWith('.state.json'))
-      .map((f): Work => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8')))
+      .flatMap((f) => readWork(path.join(ROOT, f)) ?? [])
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  const get = (slug: string): Work | null => (fs.existsSync(file(slug)) ? JSON.parse(fs.readFileSync(file(slug), 'utf8')) : null);
+  const get = (slug: string): Work | null => readWork(file(slug));
   // the GitHub repo of a PR number: that of the work whose stack holds it (a live work before an archived one), else the default repo; forgotten on every change
   let githubs: Map<number, string> | null = null;
   const githubOf = (number: number) => {
