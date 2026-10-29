@@ -77,8 +77,9 @@ import { createAgentChecks } from './agent-checks.ts';
 import { VITE_PORT, allowedHosts, guard, guarded, loopbackHosts } from './guard.ts';
 import { APK_PATH, PAIR_PATH, createDevices, pairOrigins } from './devices.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
+import { send, sendFile } from './http-send.ts';
 import { rowKey } from './stack.ts';
-import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
+import type { Req, Res, RowKey, RunResult, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import { backfillParents, nextSummary } from './lineage.ts';
 import { backfillLanded } from './landed.ts';
@@ -339,11 +340,6 @@ permissions.boot();
 briefWriter.boot();
 fs.mkdirSync(BRIEFS, { recursive: true });
 
-const send: Send = (res, code, body, type = 'application/json', cache = 'no-store') => {
-  const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': cache });
-  res.end(data);
-};
 const readBody = (req: Req) =>
   new Promise<string>((resolve) => {
     let raw = '';
@@ -766,12 +762,12 @@ function serveStatic(res: Res, url: URL) {
   const asset = file.startsWith(path.join(DIST, 'assets') + path.sep);
   if (fs.existsSync(file) && !fs.statSync(file).isDirectory() && file !== path.join(DIST, 'index.html'))
     // vite puts a content hash in every /assets/ name
-    return send(res, 200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream', asset ? 'public, max-age=31536000, immutable' : 'no-store');
+    return sendFile(res, file, MIME[path.extname(file)] || 'application/octet-stream', asset ? 'public, max-age=31536000, immutable' : 'no-cache');
   // a chunk of a build since replaced: a 404 the page reads as a chunk-load error and reloads on, not index.html as JavaScript
   if (asset) return send(res, 404, 'not found', 'text/plain');
   const page = self.index();
   if (!page) return send(res, 503, 'run `npm run build` first', 'text/plain');
-  send(res, 200, page.html, 'text/html', 'no-store');
+  send(res, 200, page.html, 'text/html', 'no-cache');
 }
 
 function serveApk(res: Res) {

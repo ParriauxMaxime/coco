@@ -267,7 +267,7 @@ export function createScreenshots({ chromePath, origin, hosts = [], idleMs = IDL
       const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
       const scheme = q.colorScheme;
       const shot = await capture({ url: String(q.url ?? ''), width: num(q.w ?? q.width) || undefined, height: num(q.h ?? q.height) || undefined, waitMs: num(q.waitMs), selector: str(q.selector), eval: str(q.eval), colorScheme: scheme === 'dark' || scheme === 'light' ? scheme : undefined });
-      if (q.json !== undefined && q.json !== false) return send(res, 200, { ...shot, png: shot.png.toString('base64') });
+      if (q.json !== undefined && q.json !== false) return send(res, 200, { ...shot, png: shot.png.toString('base64') }, 'application/json', 'no-store');
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store', 'X-Console-Errors': String(shot.errors.length) });
       return res.end(shot.png);
     } catch (e) {
