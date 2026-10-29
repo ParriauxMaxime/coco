@@ -228,6 +228,7 @@ export const api = {
   askSay: (id: string, body: { text: string; nonce: string; attachments?: string[] } & ModelChoice) => postJson(`/api/ask/${id}/messages`, body).then(jsonOrError<{ ok: boolean; status: string }>),
   closeAsk: (id: string) => postJson(`/api/ask/${id}/close`).then(jsonOrError<unknown>),
   workAgents: (slug: string) => get<WorkAgents>(`${works(slug)}/agents`),
+  workAgentsSummary: () => get<{ serverId: string | null; works: Record<string, WorkAgents> }>('/api/works/agents-summary'),
   archiveAgents: (slug: string, ids: string[]) => postJson(`${works(slug)}/agents/archive`, { ids }).then(jsonOrError<{ archived: string[]; failed: { id: string; error: string }[] }>),
   agentSay: (agentId: string, text: string, attachments: string[] = [], pick: ModelChoice = {}) => postJson(`/api/agent-chat/${encodeURIComponent(agentId)}/messages`, { text, ...(attachments.length ? { attachments } : {}), ...pick }).then(jsonOrError<{ ok: boolean }>),
   upload: (file: File, name = file.name) => fetch(`/api/uploads?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }).then(jsonOrError<UploadRef>),

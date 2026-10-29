@@ -1,5 +1,5 @@
 import React from 'react';
-import Shell from './Shell.tsx';
+import { ShellSlot } from './Shell.tsx';
 import type { Crumb } from './Shell.tsx';
 import { useOverview } from './overview.ts';
 import { Empty, Page } from './pages/Page.tsx';
@@ -68,5 +68,5 @@ export default function Pages({ route }: { route: string }) {
   const { ov } = useOverview();
   const parts = route.split('/').filter(Boolean);
   const { crumbs, node } = routed(parts, ov);
-  return <Shell ov={ov} root={parts[0] === 'repos' ? 'repos' : parts[0] || ''} crumbs={crumbs}>{node}</Shell>;
+  return <><ShellSlot root={parts[0] === 'repos' ? 'repos' : parts[0] || ''} crumbs={crumbs} />{node}</>;
 }

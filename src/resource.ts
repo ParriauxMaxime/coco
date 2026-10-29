@@ -97,10 +97,11 @@ if (typeof document !== 'undefined') document.addEventListener('visibilitychange
 export const Visible = createContext(true);
 export const useVisible = () => useContext(Visible);
 
-type Options = { poll?: number; topics?: string[] };
+// fresh: how old a read a mounting reader reuses instead of reading again
+type Options = { poll?: number; topics?: string[]; fresh?: number };
 
 // key null reads nothing; fetcher is how the key loads (the latest one given wins)
-export function useResource<T>(key: string | null, fetcher: () => Promise<T>, { poll = 0, topics = [] }: Options = {}) {
+export function useResource<T>(key: string | null, fetcher: () => Promise<T>, { poll = 0, topics = [], fresh = FRESH_MS }: Options = {}) {
   const shown = useVisible();
   const reader = useRef<Reader>({ shown, poll });
   const e = key ? entryOf(key, fetcher) : null;
@@ -112,7 +113,7 @@ export function useResource<T>(key: string | null, fetcher: () => Promise<T>, { 
     e.readers.add(r);
     follow(e, topics);
     retime(e);
-    if (r.shown && !e.flight && (e.stale || Date.now() - e.snap.at > FRESH_MS)) void load(e);
+    if (r.shown && !e.flight && (e.stale || Date.now() - e.snap.at > fresh)) void load(e);
     return () => {
       e.readers.delete(r);
       retime(e);
@@ -147,8 +148,6 @@ export const readCached = <T>(key: string, fetcher: () => Promise<T>) => {
   const e = entryOf(key, fetcher);
   return (e.snap.data !== undefined ? Promise.resolve(e.snap.data) : load(e)) as Promise<T>;
 };
-// an early value while the read goes on (a saved snapshot before the fresh one): the read in flight still lands
-export const show = (key: string, data: unknown) => { const e = entries.get(key); if (e) set(e, { data }); };
 export const peek =<T>(key: string) => entries.get(key)?.snap.data as T | undefined;
 // after a change: a new read, superseding one started before it
 export const reloadKey = <T>(key: string, fetcher: () => Promise<T>) => load(entryOf(key, fetcher), fetcher) as Promise<T>;

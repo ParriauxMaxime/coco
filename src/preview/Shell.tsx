@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
+import { create } from 'zustand';
 import WaitingList from './WaitingList.tsx';
+import { useOverview } from './overview.ts';
 import { setThemeMode, useTheme } from '../theme.ts';
 import { useConfig } from '../config.ts';
 import Icon from './Icon.tsx';
@@ -234,8 +236,25 @@ type ShellProps = {
   children: React.ReactNode;
 };
 
+// what the routed page puts in the shell around it: its crumbs, title bar buttons, sidebar views, status bar and commands
+export type ShellSlotProps = Omit<ShellProps, 'ov' | 'children'>;
+const useSlot = create<ShellSlotProps>(() => ({ root: '', crumbs: [] }));
+
+// a page's part of the shell, set before the browser paints; the next page replaces it whole
+export function ShellSlot(props: ShellSlotProps) {
+  useLayoutEffect(() => { useSlot.setState(props, true); });
+  return null;
+}
+
+// one shell for every route: going from a work to a page or another work keeps the sidebar, the status bar and their reads
+export default function Shell({ children }: { children: React.ReactNode }) {
+  const { ov } = useOverview();
+  const slot = useSlot();
+  return <ShellView ov={ov} {...slot}>{children}</ShellView>;
+}
+
 // title bar, activity bar, works sidebar and status bar around any page of the new workbench
-export default function Shell({ ov, root, crumbs, slug, attention, titleRight, views, repo, onRepo, sidebarExtra, status, statusRight, commands = [], onWaitingTab, children }: ShellProps) {
+function ShellView({ ov, root, crumbs, slug, attention, titleRight, views, repo, onRepo, sidebarExtra, status, statusRight, commands = [], onWaitingTab, children }: ShellProps) {
   const prefs = usePrefs();
   const theme = useTheme();
   const { open: controls, toggle: toggleControls } = useBetaPanel();

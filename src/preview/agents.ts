@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import { api } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
+import { useResource } from '../resource.ts';
 import { prKey, prTitle } from './data.ts';
 import type { WorkAgent, WorkAgentStatus, WorkAgents } from '../types.ts';
 import type { WorkPr } from '../workbench/types.ts';
@@ -16,14 +17,22 @@ const ORDER: AgentState[] = ['waiting', 'running', 'done', 'failed', 'archived']
 const useAgents = create<{ by: Record<string, WorkAgents> }>(() => ({ by: {} }));
 const put = (slug: string, next: WorkAgents) => useAgents.setState((s) => ({ by: { ...s.by, [slug]: next.error ? { agents: s.by[slug]?.agents || [], serverId: s.by[slug]?.serverId ?? null, error: next.error } : next } }));
 
-// the work's agents; live: pushed by the server on each change, else read once
+// the works whose list the server pushes: a summary read leaves them be
+const pushed = new Map<string, number>();
+const SUMMARY_FRESH_MS = 30000;
+const readSummary = () => api.workAgentsSummary().then((r) => {
+  for (const [slug, list] of Object.entries(r.works)) if (!pushed.get(slug)) put(slug, list);
+  return r;
+});
+
+// the work's agents; live: pushed by the server on each change, else from one read of every work's list (the sidebar's)
 export function useWorkAgents(slug: string, live: boolean): WorkAgents | undefined {
+  useResource(live ? null : '/api/works/agents-summary', readSummary, { fresh: SUMMARY_FRESH_MS });
   useEffect(() => {
-    if (!live) {
-      api.workAgents(slug).then((r) => put(slug, r), () => {});
-      return undefined;
-    }
-    return subscribe(topic('work-agents', slug), { message: (d: WorkAgents) => put(slug, d) });
+    if (!live) return undefined;
+    pushed.set(slug, (pushed.get(slug) || 0) + 1);
+    const off = subscribe(topic('work-agents', slug), { message: (d: WorkAgents) => put(slug, d) });
+    return () => { off(); pushed.set(slug, (pushed.get(slug) || 1) - 1); };
   }, [slug, live]);
   return useAgents((s) => s.by[slug]);
 }

@@ -135,6 +135,15 @@ test("a work's agents: its Ask conversations, the Paseo agents labelled with it 
   ]);
 });
 
+test("every work's agents in one answer, each list as its own read gives it", async () => {
+  const { agents, filters } = setup({ listed: [{ id: 'review', title: 'coco · Fix review #12', labels: { kind: 'review', work: 'csv', pr: '12' }, status: 'running' }] });
+  const all = await agents.summary(['csv', 'pdf']);
+  assert.equal(all.serverId, 'srv_1');
+  assert.deepEqual(Object.keys(all.works), ['csv', 'pdf']);
+  assert.deepEqual(all.works.csv, { agents: await agents.list('csv'), serverId: 'srv_1' });
+  assert.deepEqual(filters.slice(0, 2), [{ labels: { work: 'csv' }, includeArchived: true, includeBackground: true }, { labels: { work: 'pdf' }, includeArchived: true, includeBackground: true }]);
+});
+
 const call = async (handle: ReturnType<typeof createWorkAgents>['handle'], method: string, u: string, body?: unknown) => {
   const out: { status?: number; body?: Record<string, unknown> } = {};
   const req = new IncomingMessage(new Socket());

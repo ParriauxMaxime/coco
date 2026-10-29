@@ -593,6 +593,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'dev-servers') return devServers.handle(req, res, parts, readBody, send);
     if (root === 'paseo' && a) return paseoHealth.handle(req, res, parts, readBody, send);
     if (root === 'paseo') return send(res, 200, await works.paseo());
+    if (root === 'works' && a === 'agents-summary' && !b) return send(res, 200, await workAgents.summary(works.list().filter((w) => !w.archived).map((w) => w.slug)));
     if (root === 'waiting' || (root === 'works' && b === 'waiting')) return waiting.handle(req, res, parts, readBody, send);
     if (root === 'ask') return ask.handle(req, res, parts, readBody, send);
     if (root === 'new-agent') return newAgent.handle(req, res, parts, readBody, send);

@@ -3,7 +3,7 @@ import Toasts from './components/Toast.tsx';
 import Dialogs from './components/Dialogs.tsx';
 import DesignPreview from './preview/DesignPreview.tsx';
 import Pages from './preview/Pages.tsx';
-import { PHONE } from './preview/Shell.tsx';
+import Shell, { PHONE } from './preview/Shell.tsx';
 
 const current = () => {
   // a phone opens on what waits on you
@@ -28,6 +28,11 @@ const useHash = () => {
 export default function App() {
   const route = useHash();
   const [root, a] = route.split('/').filter(Boolean);
-  if (root === 'work' && a !== 'new') return <><DesignPreview slug={a} /><Toasts /><Dialogs /></>;
-  return <><Pages route={route} /><Toasts /><Dialogs /></>;
+  return (
+    <>
+      <Shell>{root === 'work' && a !== 'new' ? <DesignPreview slug={a} /> : <Pages route={route} />}</Shell>
+      <Toasts />
+      <Dialogs />
+    </>
+  );
 }

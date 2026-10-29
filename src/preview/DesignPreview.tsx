@@ -16,7 +16,7 @@ import type { PrefKey } from './prefs.ts';
 import { isDone, prKey, prState, prTitle, usePreviewData } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { prLabel, useAgentList } from './agents.ts';
-import Shell, { useNarrow } from './Shell.tsx';
+import { ShellSlot, useNarrow } from './Shell.tsx';
 import { VIEWS, WorkViews } from './WorkSidebar.tsx';
 import { cachedOverview } from './overview.ts';
 import type { Command } from './Shell.tsx';
@@ -108,8 +108,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
 
   return (
     <PreviewContext.Provider value={{ d, selected, select: setSelected, openPr }}>
-      <Shell
-        ov={ov}
+      <ShellSlot
         root="work"
         slug={slug}
         crumbs={[...(repoName ? [{ label: repoName, href: repoId ? `#/repo/${repoId}` : undefined }] : []), { label: d.work.w.title }]}
@@ -151,10 +150,9 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         )}
         commands={commands}
         onWaitingTab={() => open('waiting')}
-      >
-        <div className="dp-wb"><WorkbenchView slug={slug} data={d.work} defs={previewTabDef} /></div>
-        {showInspector && <Inspector d={d} tabId={focusedTab} selected={selected} onClose={() => setInspector(false)} />}
-      </Shell>
+      />
+      <div className="dp-wb"><WorkbenchView slug={slug} data={d.work} defs={previewTabDef} /></div>
+      {showInspector && <Inspector d={d} tabId={focusedTab} selected={selected} onClose={() => setInspector(false)} />}
     </PreviewContext.Provider>
   );
 }
@@ -167,14 +165,14 @@ export default function DesignPreview({ slug }: { slug?: string }) {
       if (first) history.replaceState(null, '', `#/work/${first.slug}`), dispatchEvent(new HashChangeEvent('hashchange'));
     }, () => {});
   }, [slug]);
-  if (!slug) return <div className="dp"><div className="dp-empty">Loading your works…</div></div>;
+  if (!slug) return <><ShellSlot root="work" crumbs={[{ label: 'Works' }]} /><div className="dp-empty">Loading your works…</div></>;
   return <Loaded key={slug} slug={slug} />;
 }
 
 function Loaded({ slug }: { slug: string }) {
   const d = usePreviewData(slug);
   const { w } = d.work;
-  if (!w) return <div className="dp"><div className="dp-empty">{d.work.err || 'Loading the work…'}</div></div>;
+  if (!w) return <><ShellSlot root="work" slug={slug} crumbs={[{ label: d.overview?.works.find((x) => x.slug === slug)?.title || slug }]} /><div className="dp-empty">{d.work.err || 'Loading the work…'}</div></>;
   const work = { ...d.work, w };
   return (
     <WorkContext.Provider value={work}>

@@ -303,6 +303,13 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     };
   }
 
+  // every listed work's agents in one answer, as GET /api/works/<slug>/agents gives each: the sidebar's one read for all of them
+  async function summary(slugs: string[]) {
+    const serverId = await serverOf();
+    const entries = await Promise.all(slugs.map(async (slug) => [slug, await list(slug).then((agents) => ({ agents, serverId }), (e) => ({ agents: [], serverId, error: errorMessage(e) }))] as const));
+    return { serverId, works: Object.fromEntries(entries) };
+  }
+
   // an archived agent back as it was, as the Paseo app's Unarchive does it
   async function unarchive(agentId: string) {
     const c = await client();
@@ -353,5 +360,5 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  return { list, handle, watchList, watchChat, say, placeOf, info, forget };
+  return { list, summary, handle, watchList, watchChat, say, placeOf, info, forget };
 }
