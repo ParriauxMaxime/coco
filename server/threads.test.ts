@@ -952,4 +952,12 @@ test('Approve picks the commit in a throwaway worktree and moves the PR branch, 
   assert.match(read(A).messages.at(-1)!.text, /Retry once you rebased it, Ask the agent to rebase, or Dismiss it/);
   await threads.decideSuggestion(SLUG, A, m3.id, 'rebase');
   await until(() => daemon.calls.sent.length === 5, 'asked again by the owner');
+
+  reply(read(A).waiting!.replyPath, 'Rebased.');
+  daemon.finish(daemon.calls.created[0].id);
+  await until(() => !read(A).waiting, 'turn end');
+  git.pick = true;
+  const m4 = await suggest(6);
+  await threads.decideSuggestion(SLUG, A, m4.id, 'approve');
+  assert.deepEqual([state(m3.id), state(m4.id)], ['superseded', 'applied'], 'the remade commit leaves no stale conflict');
 });

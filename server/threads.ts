@@ -1223,6 +1223,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     s.state = 'applied';
     delete s.error;
     delete thread.sentBack;
+    // an older commit for this comment still open (a conflict the agent remade) has nothing left to apply
+    for (const m of thread.messages) if (m.suggestion !== s && m.suggestion?.kind === 'commit' && isOpenSuggestion(m.suggestion)) m.suggestion.state = 'superseded';
     if ('already' in out) {
       await comments.update(slug, ref.n, ref.id, { status: 'fixed', resolution: { commit: out.already, note: 'already on the PR branch' } });
       thread.messages.push(message('system', `${pr.head} already has commit ${s.commit.slice(0, 7)}'s change: marked applied.`));
