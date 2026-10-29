@@ -164,6 +164,8 @@ const reviewImport = createReviewImport({ REPO, config, works, comments, code, r
 const threads = createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, agents: paseoAgents, placement, uploads, cardsOf: (slug, key) => cards.ofThread(slug, key), chatted: (slug, key) => cards.chattedInThread(slug, key), worktrees: agentWorktrees, models, jobs, repoOf });
 const findings = createFindings({ DATA, REPO, config, works, comments, code, reviewPlan, reviewAgent, threads, jobs, repoOf });
 threads.setFindingActor(findings.actOnComment, findings.acceptedComment);
+// each read of a work pulls the new inline GitHub review comments of its PRs onto the Findings board
+works.hooks.onRead = (w) => findings.importGithub(w.slug);
 const media = createMedia({ DATA, works });
 const betaFlags = createFeatureFlags({ REPO, config });
 const briefs = createBriefs({ DATA, REPO, config, works, comments, reviewAgent, rules, betaFlags, repoOf });

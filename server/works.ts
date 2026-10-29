@@ -134,7 +134,7 @@ interface NotionBody {
 }
 
 export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = defaultRun }: { DATA: string; PERSONAS: string; REPO: string; config: Config; agents?: NotionAgents; jobs?: Pick<Jobs, 'start' | 'link' | 'wrap'>; run?: typeof defaultRun }) {
-  const hooks: { onRekeyed?: (slug: string, from: RowKey, to: RowKey) => void; onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onClosed?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; lessons?: (work: Work) => { repo: string; count: number } } = {};
+  const hooks: { onRekeyed?: (slug: string, from: RowKey, to: RowKey) => void; onArchived?: (number: number) => unknown; onAutoArchived?: (work: Work) => unknown; onClosed?: (work: Work) => unknown; onRetitled?: (work: Work) => unknown; placeWork?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; forgetWork?: (work: Work) => Promise<string[]>; drift?: (slug: string) => Promise<unknown>; onRead?: (work: Work) => unknown; lessons?: (work: Work) => { repo: string; count: number } } = {};
   const GITHUB = config.repo.github;
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (github: string, args: string[]) => (github ? run('gh', args) : Promise.resolve(noRepo));
@@ -531,6 +531,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     if (!stored) return null;
     const work = stored.archived ? stored : await linkLanded(await linkOpened(stored, fresh), fresh);
     const prs = await stackInfo(work, fresh);
+    if (!work.archived) Promise.resolve(hooks.onRead?.(work)).catch(() => {});
     const events = recordChanges(slug, prs);
     const artifacts = listArtifacts(slug);
     if (!work.archived && work.autoArchive !== false && isDone(prs)) setArchived(slug, true, 'auto');

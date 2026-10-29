@@ -7,7 +7,7 @@ import { currentKey, fileKey, parseKey, rowKey } from './stack.ts';
 import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.ts';
 import { HttpError, errorMessage, isSeverity } from './core-types.ts';
 import type { RepoIdentity, RepoOf } from './config.ts';
-import type { Comment, CommentFile, CommentStatus, ExecResult, ReadBody, Req, Res, RowKey, Send, Severity, Works } from './core-types.ts';
+import type { Comment, CommentFile, CommentStatus, ExecResult, GithubOrigin, ReadBody, Req, Res, RowKey, Send, Severity, Works } from './core-types.ts';
 
 const CTX = 3;
 const SEARCH_WINDOW = 30;
@@ -22,7 +22,8 @@ type Hunk = { oldStart: number; oldCount: number; newStart: number; newCount: nu
 type Anchored = { path: string; startLine: number; endLine: number; newLines: string[] };
 type Input = Record<string, unknown>;
 const isStatus = (x: unknown): x is CommentStatus => typeof x === 'string' && STATUSES.includes(x);
-const isConfidence = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 100;
+const isGithub = (x: unknown): x is GithubOrigin => typeof x === 'object' && x !== null && Number.isInteger((x as GithubOrigin).id) && typeof (x as GithubOrigin).login === 'string' && typeof (x as GithubOrigin).url === 'string';
+const isConfidence =(x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x <= 100;
 
 const git = (cwd: string, args: string[]) =>
   new Promise<ExecResult>((resolve) => {
@@ -249,6 +250,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
       ...(isConfidence(input.confidence) ? { confidence: input.confidence } : {}),
       // the one-line claim a findings reporter (coco-findings skill) gives; the board falls back to the body's first line
       ...(typeof input.title === 'string' && input.title.trim() ? { title: input.title.trim().slice(0, MAX_TITLE) } : {}),
+      ...(isGithub(input.github) ? { github: { id: input.github.id, login: input.github.login, url: input.github.url } } : {}),
       ...rich,
     };
     return mutate(slug, n, (data) => {

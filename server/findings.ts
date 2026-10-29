@@ -13,6 +13,7 @@ import type { RepoIdentity, RepoOf } from './config.ts';
 import type { AgentComment, Exec, PaseoAgentRow, ReadBody, Req, Res, Resolution, RowKey, Send, Work } from './core-types.ts';
 
 const GH_TTL_MS = 120000;
+const IMPORT_EVERY_MS = 60000;
 const MAX_CLAIM = 200;
 
 type Row = {
@@ -48,7 +49,7 @@ type BotGroups = Record<string, string>;
 type WatchPoint = { path: string; startLine: number; endLine: number; body: string; severity?: string; confidence?: number | null };
 type Board = { rows: (Row & { by: { group: string; name: string } })[]; errors: string[]; at?: string; stale?: boolean };
 type StackRowInfo = { key: RowKey; number: number | null; branch: string | null; headSha: string | null; files: Set<string>; error?: string };
-type InlineComment = { user: string; body: string; path: string; line: number | null; original_line: number | null; created_at: string; html_url: string };
+type InlineComment = { id: number; user: string; body: string; path: string; line: number | null; original_line: number | null; start_line: number | null; original_start_line: number | null; side: string | null; commit_id: string; original_commit_id: string; created_at: string; html_url: string };
 type Review = { user: string; body: string; state: string; submitted_at: string; html_url: string };
 type IssueComment = { user: string; body: string; created_at: string; html_url: string };
 type Check = { name: string; bucket: string; link: string };
@@ -64,7 +65,7 @@ type FindingsOptions = {
     add(slug: string, n: RowKey, input: Record<string, unknown>): Promise<{ id: string }>;
     update(slug: string, n: RowKey, id: string, patch: Record<string, unknown>): Promise<unknown>;
   };
-  code: { ensureRefs(n: RowKey): Promise<{ headSha: string }>; prFilesFromGit(n: RowKey, refs: { headSha: string }): Promise<{ filename: string }[]> };
+  code: { ensureRefs(n: RowKey): Promise<{ headSha: string; mergeBase?: string }>; prFilesFromGit(n: RowKey, refs: { headSha: string }): Promise<{ filename: string }[]> };
   reviewPlan: {
     planState(slug: string, n: RowKey): { plan?: { watchPoints?: WatchPoint[]; createdAt: string | null; headSha: string } | null; watch?: Record<number, string | null | undefined> | null };
     watch(slug: string, n: RowKey, change: { index: number; state: string | null; note?: string }): unknown;
@@ -162,7 +163,7 @@ export const githubSourceOf = (login: string, botGroups: BotGroups = {}) => {
 };
 
 // status of each raw row from the comment it became, coco's watch state, then the ledger; a comment with a row of its own is not listed twice
-export function settle(raw: Row[], { comments = [], ledger = {}, watch = {}, me = 'me' }: { comments?: AgentComment[]; ledger?: Ledger; watch?: Record<number, string | null | undefined>; me?: string }): Row[] {
+export function settle(raw: Row[], { comments = [], ledger = {}, watch = {}, me = 'me', botGroups = {} }: { comments?: AgentComment[]; ledger?: Ledger; watch?: Record<number, string | null | undefined>; me?: string; botGroups?: BotGroups }): Row[] {
   const byId = new Map(comments.map((c) => [c.id, c]));
   const byClaim = new Map(comments.map((c) => [`${c.path}|${normClaim(c.title || claimOf(c.body))}`, c]));
   const used = new Set<string>();
@@ -174,7 +175,7 @@ export function settle(raw: Row[], { comments = [], ledger = {}, watch = {}, me 
     const status = c ? c.status : entry?.status || (watchState === 'dismissed' ? 'dismissed' : 'new');
     return { ...r, ...(c ? { ...richOf(c), claim: c.title || r.claim, severity: c.severity || r.severity, confidence: c.confidence ?? r.confidence } : {}), commentId: c?.id || null, status, accepted: entry?.status === 'accepted' || r.source === 'local', resolution: c?.resolution || null, dismissed: status === 'dismissed' ? { at: entry?.at || null, reason: entry?.reason || '' } : null };
   });
-  const own = comments.filter((c) => !used.has(c.id)).map((c) => commentRow(c, null, me)).map((r) => ({ ...r, accepted: r.accepted || ledger[r.key]?.status === 'accepted' }));
+  const own = comments.filter((c) => !used.has(c.id)).map((c) => commentRow(c, null, me, botGroups)).map((r) => ({ ...r, accepted: r.accepted || ledger[r.key]?.status === 'accepted' }));
   const seen = new Set();
   return [...rows, ...own].filter((r) => !seen.has(r.key) && seen.add(r.key));
 }
@@ -182,11 +183,11 @@ export function settle(raw: Row[], { comments = [], ledger = {}, watch = {}, me 
 // a structured finding's parts (coco-findings skill); the board renders them in place of the markdown body
 const richOf = (c: AgentComment) => ({ summary: c.summary || null, category: c.category || null, recommendation: c.recommendation || null, blocks: c.blocks || null, sources: c.sources || null });
 
-const commentRow = (c: AgentComment, n: RowKey | null, me: string): Row => {
-  // author `as-<login>`: a persona posted through the coco-findings skill
-  const source = !c.author || c.author === me ? 'local' : c.author.startsWith('as-') ? `review-as:${c.author.slice(3)}` : `local:${c.author}`;
+const commentRow = (c: AgentComment, n: RowKey | null, me: string, botGroups: BotGroups = {}): Row => {
+  // author `as-<login>`: a persona posted through the coco-findings skill; an imported GitHub comment keeps its reviewer's group
+  const source = c.github ? githubSourceOf(c.github.login, botGroups) : !c.author || c.author === me ? 'local' : c.author.startsWith('as-') ? `review-as:${c.author.slice(3)}` : `local:${c.author}`;
   const claim = c.title || claimOf(c.body);
-  return { key: findingKey(source, c.path, claim), n, source, severity: c.severity || severityOf(c.body), confidence: c.confidence ?? confidenceOf(c.body), path: c.path, line: c.startLine, endLine: c.endLine, claim, body: c.body, url: null, ts: c.createdAt, status: c.status, accepted: source === 'local', ...richOf(c), commentId: c.id, resolution: c.resolution || null, dismissed: null };
+  return { key: findingKey(source, c.path, claim), n, source, severity: c.severity || severityOf(c.body), confidence: c.confidence ?? confidenceOf(c.body), path: c.path, line: c.startLine, endLine: c.endLine, claim, body: c.body, url: c.github?.url || null, ts: c.createdAt, status: c.status, accepted: source === 'local', ...richOf(c), commentId: c.id, resolution: c.resolution || null, dismissed: null };
 };
 
 // a persona review page names its personas in the title ("# Review as Alice Doe (`alice`)"); anything else is a local review
@@ -229,12 +230,26 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
       }),
     ) as Promise<T>;
 
+  const ghApi = <T>(GH: string, p: string, jq: string) => gh<T[]>(['api', '--paginate', `repos/${GH}/${p}?per_page=100`, '--jq', jq]);
+  // the first comment of each inline thread; replies are the thread's, not new findings
+  const inlineComments = (GH: string, n: number) => ghApi<InlineComment>(GH, `pulls/${n}/comments`, '.[] | select(.in_reply_to_id == null) | {id, user: .user.login, body, path, line, original_line, start_line, original_start_line, side, commit_id, original_commit_id, created_at, html_url}');
+
+  // GitHub comment id → the stored comment it became (null: settled on the board before it was imported); a comment never lands twice
+  const importedFile = (slug: string) => path.join(DATA, 'works', slug, 'github-comments.json');
+  const readImported = (slug: string): Record<string, string | null> => {
+    try {
+      return JSON.parse(fs.readFileSync(importedFile(slug), 'utf8'));
+    } catch {
+      return {};
+    }
+  };
+
   // GitHub reviewers (inline comments and review bodies), bot groups and other bots, failed CI checks; the PR author's own remarks are not findings
-  async function githubRows(GH: string, n: number, headSha: string | null): Promise<Row[]> {
-    const api = <T>(p: string, jq: string) => gh<T[]>(['api', '--paginate', `repos/${GH}/${p}?per_page=100`, '--jq', jq]);
-    const [author, inline, reviews, issue, checks] = await Promise.all([
+  async function githubRows(GH: string, n: number, headSha: string | null, imported: Record<string, string | null> = {}): Promise<Row[]> {
+    const api = <T>(p: string, jq: string) => ghApi<T>(GH, p, jq);
+    const [author, all, reviews, issue, checks] = await Promise.all([
       gh<string | null>(['api', `repos/${GH}/pulls/${n}`, '--jq', '.user.login'], false).catch(() => null),
-      api<InlineComment>(`pulls/${n}/comments`, '.[] | select(.in_reply_to_id == null) | {user: .user.login, body, path, line, original_line, created_at, html_url}'),
+      inlineComments(GH, n),
       api<Review>(`pulls/${n}/reviews`, '.[] | select(.body != "") | {user: .user.login, body, state, submitted_at, html_url}'),
       botSubs.length ? api<IssueComment>(`issues/${n}/comments`, `.[] | select(.user.login | test("${botSubs.join('|')}"; "i")) | {user: .user.login, body, created_at, html_url}`) : [],
       gh<Check[] | null>(['pr', 'checks', String(n), '--repo', GH, '--json', 'name,bucket,link'], false),
@@ -245,6 +260,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
       return { key: findingKey(source, p, claim), n, source, severity: severity || severityOf(body), confidence: confidenceOf(body), path: p, line, endLine: line, claim, body, url, ts };
     };
     const human = (x: { user: string }) => x.user !== author;
+    const inline = all.filter((x) => !imported[String(x.id)]);
     return [
       ...inline.filter(human).map((x) => row(sourceOf(x.user), { path: x.path, line: x.line || x.original_line, body: x.body, ts: x.created_at, url: x.html_url })),
       ...reviews.filter(human).map((x) => row(sourceOf(x.user), { body: x.body, ts: x.submitted_at, url: x.html_url, severity: x.state === 'CHANGES_REQUESTED' ? 'major' : null })),
@@ -311,6 +327,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     }
     raw.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
     const ledger = readLedger(slug);
+    const imported = readImported(slug);
     const out: Row[] = [];
     for (const r of rows.filter((x) => only === null || x.key === only)) {
       const { plan, watch } = reviewPlan.planState(slug, r.key);
@@ -318,12 +335,12 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         const claim = claimOf(w.body);
         return { key: findingKey('coco', w.path, claim), n: r.key, source: 'coco', severity: w.severity || severityOf(w.body), confidence: w.confidence, path: w.path, line: w.startLine, endLine: w.endLine, claim, body: w.body, url: null, ts: plan?.createdAt, watchIndex: index, sha: plan?.headSha };
       });
-      const gh = r.number ? await githubRows(repoOf(work).github, r.number, r.headSha) : [];
+      const gh = r.number ? await githubRows(repoOf(work).github, r.number, r.headSha, imported) : [];
       const mine = raw.filter((x) => x.n === r.key);
       const stored = comments.list(slug, r.key).comments || [];
-      out.push(...settle([...mine, ...coco, ...gh], { comments: stored, ledger, watch: watch || {}, me: ME }).map((x) => ({ ...x, n: x.n ?? r.key })));
+      out.push(...settle([...mine, ...coco, ...gh], { comments: stored, ledger, watch: watch || {}, me: ME, botGroups: BOTS }).map((x) => ({ ...x, n: x.n ?? r.key })));
     }
-    if (only === null) out.push(...settle(raw.filter((x) => x.n === null), { ledger, me: ME }));
+    if (only === null) out.push(...settle(raw.filter((x) => x.n === null), { ledger, me: ME, botGroups: BOTS }));
     return { rows: out.map((r) => ({ ...r, by: reviewerOf(r.source, BOTS) })), errors };
   }
 
@@ -378,6 +395,65 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
       inflight.delete(k);
     }
   };
+
+  // each new inline GitHub comment of a stack PR becomes a finding authored by its reviewer (human or bot), except the owner's own; at most once a minute per work
+  const importedAt = new Map<string, number>();
+  const importing = new Map<string, Promise<number>>();
+  function importGithub(slug: string): Promise<number> {
+    const running = importing.get(slug);
+    if (running) return running;
+    if (Date.now() - (importedAt.get(slug) || 0) < IMPORT_EVERY_MS) return Promise.resolve(0);
+    importedAt.set(slug, Date.now());
+    const p = importNew(slug).finally(() => importing.delete(slug));
+    importing.set(slug, p);
+    return p;
+  }
+  async function importNew(slug: string) {
+    const work = works.get(slug);
+    if (!work || work.archived) return 0;
+    const GH = repoOf(work).github;
+    const user = await gh<{ login?: string } | null>(['api', 'user', '--jq', '{login}'], false).catch(() => null);
+    const owners = new Set([ME, user?.login].filter(Boolean));
+    const ledger = readLedger(slug);
+    const seen = readImported(slug);
+    let added = 0;
+    for (const s of work.stack || []) {
+      if (!s.number) continue;
+      const fresh = (await inlineComments(GH, s.number).catch(() => [])).filter((x) => !owners.has(x.user) && !Object.hasOwn(seen, String(x.id)));
+      for (const x of fresh) {
+        // a comment the owner already accepted or dismissed on the board keeps that row
+        if (ledger[findingKey(githubSourceOf(x.user, BOTS), x.path, claimOf(x.body))]) seen[x.id] = null;
+        else {
+          const id = await importOne(slug, s.number, x).catch(() => null);
+          if (!id) continue;
+          seen[x.id] = id;
+          added += 1;
+        }
+        fs.mkdirSync(path.dirname(importedFile(slug)), { recursive: true });
+        fs.writeFileSync(importedFile(slug), JSON.stringify(seen, null, 1));
+      }
+    }
+    if (added) forget(slug);
+    return added;
+  }
+  async function importOne(slug: string, n: number, x: InlineComment) {
+    const line = x.line ?? x.original_line;
+    if (!x.path || !line) return null;
+    const startLine = Math.min(line, (x.line ? x.start_line : x.original_start_line) ?? line);
+    const firstLine = String(x.body).split('\n').map((l) => clean(l.replace(/<[^>]+>/g, ''))).find(Boolean) || claimOf(x.body) || x.path;
+    const title = firstLine.length > 100 ? `${firstLine.slice(0, 99)}…` : firstLine;
+    const confidence = confidenceOf(x.body);
+    const input = { path: x.path, startLine, endLine: line, body: String(x.body).slice(0, 5000), author: x.user.replace(/\[bot\]$/, '').replace(/[^\w.-]/g, '').slice(0, 40) || 'reviewer', title, severity: severityOf(x.body) || 'minor', ...(confidence === null ? {} : { confidence }), sources: [{ label: `${x.user} on GitHub`, url: x.html_url }], github: { id: x.id, login: x.user, url: x.html_url } };
+    const refs = await code.ensureRefs(n).catch(() => null);
+    // a left-side comment reads the base; a right-side one its own commit, else the head when that commit is gone
+    const shas = x.side === 'LEFT' ? [refs?.mergeBase] : [x.line ? x.commit_id : x.original_commit_id, refs?.headSha];
+    const side = x.side === 'LEFT' ? 'base' : 'head';
+    for (const sha of shas.filter(Boolean)) {
+      const c = await comments.add(slug, n, { ...input, side, sha }).catch(() => null);
+      if (c) return c.id;
+    }
+    return null;
+  }
 
   // accept: the finding becomes an open local comment at the head (coco's keeps severity and confidence); a finding without a file is only marked accepted
   async function accept(slug: string, row: Row) {
@@ -489,5 +565,5 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     return act(slug, { action, keys: [row.key], reason, pr: String(n) });
   }
 
-  return { handle, collect, act, actOnComment, acceptedComment, snapshot };
+  return { handle, collect, act, actOnComment, acceptedComment, snapshot, importGithub };
 }

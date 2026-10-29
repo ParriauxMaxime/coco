@@ -214,7 +214,10 @@ export type Comment = {
   // an unanchored finding (flag_coco_issue): no path, sha or lines; from is the agent that raised it
   kind?: 'issue';
   from?: { agent: string | null; work: string | null; pr: string | null };
+  // imported from a GitHub inline review comment
+  github?: GithubOrigin;
 };
+export type GithubOrigin = { id: number; login: string; url: string };
 export type CommentFile = { number: RowKey; headSha: string | null; mergeBase: string | null; comments: Comment[] };
 export type CommentUpdate = { status?: CommentStatus; runId?: string | number | null; resolution?: Resolution | null };
 
@@ -236,6 +239,7 @@ export type AgentComment = {
   recommendation?: string | null;
   blocks?: Block[] | null;
   sources?: Source[];
+  github?: GithubOrigin;
 };
 
 export type Refs = { number: RowKey; branch?: string; headSha: string; baseSha: string; mergeBase: string };
