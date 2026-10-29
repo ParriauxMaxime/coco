@@ -21,7 +21,7 @@
     "build": "vite build",
     "serve": "node server/index.ts",
     "start": "vite build && node server/index.ts",
-    "test": "node --test server/*.test.ts",
+    "test": "node --test server/*.test.ts \"src/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json"
   },
   "dependencies": {

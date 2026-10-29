@@ -18,6 +18,7 @@ import type { PreviewData } from './data.ts';
 import { prLabel, useAgentList } from './agents.ts';
 import { ShellSlot, useNarrow } from './Shell.tsx';
 import { VIEWS, WorkViews } from './WorkSidebar.tsx';
+import type { ViewsLevel } from './WorkSidebar.tsx';
 import { cachedOverview } from './overview.ts';
 import type { Command } from './Shell.tsx';
 import type { WorkSummary } from '../types.ts';
@@ -101,8 +102,8 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   });
 
   const prFindings = (key: string) => (d.findings?.rows || []).filter((f) => f.status === 'open' && String(f.n) === key).length;
-  const views = (w: WorkSummary) => w.slug !== slug ? <WorkViews w={w} /> : (
-    <WorkViews w={w} open={open} isOpen={(id) => groups.some((g) => g.tabs.includes(id))} count={(id) => tabCount[id]} prs={d.prs} findings={prFindings} focused={focusedTab} />
+  const views = (w: WorkSummary, level?: ViewsLevel) => w.slug !== slug ? <WorkViews w={w} level={level} /> : (
+    <WorkViews w={w} level={level} open={open} isOpen={(id) => groups.some((g) => g.tabs.includes(id))} count={(id) => tabCount[id]} prs={d.prs} findings={prFindings} focused={focusedTab} />
   );
   const openPrs = d.prs.filter((p) => p.number && !['merged', 'closed'].includes(prState(p)));
 

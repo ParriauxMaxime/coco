@@ -8,7 +8,12 @@ import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import BetaPanel from './BetaPanel.tsx';
 import { useWaiting } from './waiting.ts';
-import { WorkViews } from './WorkSidebar.tsx';
+import { WorkViews, useFocusedPr } from './WorkSidebar.tsx';
+import type { ViewsLevel } from './WorkSidebar.tsx';
+import NavLevels, { NavHead, NavRow } from './nav/NavLevels.tsx';
+import type { Level } from './nav/NavLevels.tsx';
+import type { Nav } from './nav/use-nav.ts';
+import { prLabel } from './agents.ts';
 import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './prefs.ts';
 import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
@@ -134,6 +139,35 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
   );
 }
 
+// the works list as a beta navigation mode's first sidebar level: one row per work under its repo, opening a work routes to it
+function WorkLevel({ ov, slug, repo, child }: { ov: Overview | null; slug?: string; repo?: string; child: (key: string) => React.ReactNode }) {
+  const works = new Map((ov?.works || []).filter((w) => !w.archived).map((w) => [w.slug, w]));
+  const repos = (ov?.repos || []).filter((r) => !repo || r.id === repo);
+  return (
+    <div className="dp-nlist dp-sb-works">
+      {repos.map((r) => (
+        <React.Fragment key={r.id}>
+          {!repo && <NavHead><a className="dp-repo dp-grow" href={`#/repo/${r.id}`}><Icon name="git-branch" size={14} /><span>{r.name}</span><span className="dp-gh-name">{r.github.split('/')[0]}</span></a></NavHead>}
+          {nested(r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w))).map(({ w, depth }) => (
+            <React.Fragment key={w.slug}>
+              <NavRow
+                on={w.slug === slug}
+                onOpen={() => { location.hash = workHref(w.slug); }}
+                className={depth ? 'dp-nrow-sub' : ''}
+                icon={<span className={`dp-dot dp-lg ${workDot(w)}`} />}
+                title={w.title}
+                sub={<span className="dp-work-bar"><SegBar w={w} /><span className="dp-pc">{w.archived ? 'archived' : `${w.progress.merged + w.progress.landed}/${w.stack - w.progress.closed}`}</span></span>}
+                meta={<>{w.progress.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}<WorkMenu w={w} /></>}
+              />
+              {child(w.slug)}
+            </React.Fragment>
+          ))}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 function SbGroup({ id, label, icon, count, children }: { id: string; label: string; icon: IconName; count?: number; children: React.ReactNode }) {
   const { list: open, toggle } = usePersistedList('cc.dp.groups', (l) => l);
   const on = open.includes(id);
@@ -223,7 +257,7 @@ type ShellProps = {
   slug?: string;
   attention?: boolean;
   titleRight?: React.ReactNode;
-  views?: (w: WorkSummary) => React.ReactNode;
+  views?: (w: WorkSummary, level?: ViewsLevel) => React.ReactNode;
   // the repo rail's choice (shell C) and what its sidebar adds under the works
   repo?: string | null;
   onRepo?: (id: string) => void;
@@ -284,7 +318,21 @@ function ShellView({ ov, root, crumbs, slug, attention, titleRight, views, repo,
   const reviewers = (ov?.personas || []).filter((p) => p.kind !== 'writer');
   const writers = (ov?.personas || []).filter((p) => p.kind === 'writer');
   const firstName = (title: string) => title.replace(/ — .*$/, '');
-  const renderViews = views || ((w: WorkSummary) => <WorkViews w={w} />);
+  const renderViews = views || ((w: WorkSummary, level?: ViewsLevel) => <WorkViews w={w} level={level} />);
+  // a beta navigation mode's sidebar: works, the open work, the PR its focused tab is about; its levels are the routes it links to
+  const sbPr = useFocusedPr(slug);
+  const open = slug ? (ov?.works || []).find((w) => w.slug === slug) : undefined;
+  const sbNav: Nav = {
+    path: open ? [open.slug, ...(sbPr ? [sbPr] : [])] : [],
+    open: (depth, key) => { location.hash = depth === 0 ? workHref(key) : `${workHref(slug || '')}/pr-${key}`; },
+    up: (depth) => { location.hash = depth === 0 ? '#/works' : `${workHref(slug || '')}/plan`; },
+  };
+  const sbRepo = prefs.shell === 'C' ? repoId || undefined : undefined;
+  const sbLevels: Level[] = [
+    { key: 'works', label: 'Works', render: (child) => <WorkLevel ov={ov} slug={slug} repo={sbRepo} child={child} /> },
+    ...(open ? [{ key: open.slug, label: open.title, render: (child: (key: string) => React.ReactNode) => renderViews(open, { part: 'work', child }) }] : []),
+    ...(open && sbPr ? [{ key: sbPr, label: prLabel(sbPr), render: () => renderViews(open, { part: sbPr, child: () => null }) }] : []),
+  ];
 
   const go = (href: string) => () => { location.hash = href; };
   // the open work's repo lists its lessons first
@@ -361,7 +409,7 @@ function ShellView({ ov, root, crumbs, slug, attention, titleRight, views, repo,
             <div className="dp-sb-scroll">
               {(prefs.shell === 'B' || narrow) && nav.map((n) => navLink(n, true))}
               {(prefs.shell === 'B' || narrow) && <div className="dp-sb-group">Works</div>}
-              <WorkTree ov={ov} slug={slug} views={renderViews} repo={prefs.shell === 'C' ? repoId || undefined : undefined} />
+              <NavLevels classic={<WorkTree ov={ov} slug={slug} views={renderViews} repo={sbRepo} />} levels={sbLevels} nav={sbNav} className="dp-sb-levels" />
               <a className={`dp-sb-nav dp-sb-new${root === 'repos' ? ' dp-on' : ''}`} href="#/repos/new"><Icon name="plus" /><span>New repo</span></a>
               {sidebarExtra}
               {reviewers.length > 0 && (

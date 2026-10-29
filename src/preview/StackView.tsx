@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import DispatchMenu from '../components/DispatchMenu.tsx';
 import { isLive, useJobs } from '../jobs.ts';
 import type { WorkPr } from '../workbench/types.ts';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
-import { Avatar, diffText, num } from './parts.tsx';
+import { Avatar, diffText, num, stateLabel } from './parts.tsx';
+import { prLabel } from './PrChip.tsx';
+import { PrDetails } from './Inspector.tsx';
+import NavLevels, { NavHead, NavRow } from './nav/NavLevels.tsx';
+import type { Level } from './nav/NavLevels.tsx';
+import { useNav } from './nav/use-nav.ts';
 import { DevServerCell } from './widgets/DevServer.tsx';
 import { agentsOf, devOf, findingsOf, isDone, prKey, prState, prTitle, waitingOf } from './data.ts';
 import type { PreviewData } from './data.ts';
@@ -100,6 +105,7 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
   }, []);
   const narrow = narrowPref === 'drop' && width > 0 && width < NARROW_PX;
   const steps = useMilestones(d.slug);
+  const nav = useNav();
   const jobs = useJobs(d.slug);
   const working = new Set(jobs.filter(isLive).map((j) => j.pr));
 
@@ -150,7 +156,7 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
 
   const base = d.prs.find((p) => p.base)?.base;
   const title = d.work.w?.title;
-  return (
+  const classic = (
     <div className={`dp-stack dp-fcol${narrow ? ' dp-narrow' : ''}`} ref={root} tabIndex={0} onKeyDown={onKeyDown}>
       <div className="dp-vbar">
         <span className="dp-title dp-ell">{title || 'Stack'}</span>
@@ -185,4 +191,43 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
       {items.length === 0 && <div className="dp-sdiv">{d.work.w ? 'Nothing here' : 'Loading…'}</div>}
     </div>
   );
+
+  // a beta navigation mode: one summary row per PR, the PR's details one level down
+  const shown = d.prs.map((pr, index) => ({ pr, index })).filter(({ pr }) => matches(filter, prState(pr)));
+  const opened = d.prs.find((p) => prKey(p) === nav.path[0]);
+  const list = (child: (key: string) => React.ReactNode) => (
+    <div className="dp-stack-nav">
+      <div className="dp-filters dp-nfilters">
+        {FILTERS.map((f) => <button key={f.id} type="button" className={filter === f.id ? 'dp-on' : ''} onClick={() => setFilter(f.id)}>{f.label} <span>{f.id === 'all' ? d.prs.length : f.id === 'open' ? open : f.id === 'merged' ? done : planned}</span></button>)}
+      </div>
+      {base && <NavHead>On {base} · stack order, base first</NavHead>}
+      {shown.map(({ pr, index }) => {
+        const key = prKey(pr);
+        const state = prState(pr);
+        const step = steps[key];
+        const findings = findingsOf(d, pr).length;
+        const waiting = waitingOf(d, pr).length;
+        return (
+          <React.Fragment key={`${key}-${index}`}>
+            <NavRow
+              on={key === nav.path[0]}
+              onOpen={() => nav.open(0, key, true)}
+              className={`dp-st-${state}`}
+              icon={<span className={`dp-dot${state === 'planned' ? ' dp-hollow' : ''}`} />}
+              title={prTitle(pr)}
+              sub={[`${index + 1}`, prLabel(pr), stateLabel(pr), diffText(pr)].filter(Boolean).join(' · ')}
+              meta={<>{working.has(key) && <span className="dp-ag-dot dp-ag-running dp-thr-spin" title="A job runs on this PR" />}{step && <span className={`dp-ms-chip dp-ms-${step}`}>{step}</span>}{findings > 0 && <span title="Open findings"><Icon name="flag" size={12} />{findings}</span>}{waiting > 0 && <span className="dp-count dp-acc" title={`${waiting} waiting on you`}>{waiting}</span>}<CiCell pr={pr} /></>}
+            />
+            {child(key)}
+          </React.Fragment>
+        );
+      })}
+      {shown.length === 0 && <div className="dp-sdiv">{d.work.w ? 'Nothing here' : 'Loading…'}</div>}
+    </div>
+  );
+  const levels: Level[] = [
+    { key: 'stack', label: title || 'Stack', render: list },
+    ...(opened ? [{ key: prKey(opened), label: `${prLabel(opened)} ${prTitle(opened)}`, render: () => <aside className="dp-inspector dp-as-tab dp-nav-pr"><PrDetails d={d} prKey={prKey(opened)} asTab /></aside> }] : []),
+  ];
+  return <NavLevels classic={classic} levels={levels} />;
 }

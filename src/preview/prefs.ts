@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
+import type { NavMode } from './nav/nav.ts';
 
 export type Shell = 'A' | 'B' | 'C';
-export type NavMode = 'classic' | 'drill' | 'expand' | 'columns';
 export type Prefs = {
   nav: NavMode;
   shell: Shell;

@@ -7,6 +7,7 @@ import { toast } from '../../components/Toast.tsx';
 import Icon from '../Icon.tsx';
 import { BetaChoices } from '../BetaPanel.tsx';
 import { NAV_MODES, usePrefs } from '../prefs.ts';
+import { hasLayout } from '../nav/NavLevels.tsx';
 import { ago } from '../format.ts';
 import { Empty, ErrorNote, Loading, Page, PageHead, Section } from './Page.tsx';
 import './settings.css';
@@ -138,9 +139,9 @@ function Beta() {
     <Section id="settings-beta" title="Beta" meta="kept in this browser · also under ⌘.">
       <div className="dp-beta-nav" role="radiogroup" aria-label="Navigation">
         {NAV_MODES.map((m) => (
-          <label key={m.value} className={`dp-beta-opt${nav === m.value ? ' dp-on' : ''}`}>
-            <input type="radio" name="nav" checked={nav === m.value} onChange={() => set('nav', m.value)} />
-            <span className="dp-beta-optb"><b>{m.label}{m.value === 'classic' ? <span className="dp-xs dp-t3"> · default</span> : null}</b><span className="dp-t3">{m.hint}</span></span>
+          <label key={m.value} className={`dp-beta-opt${nav === m.value ? ' dp-on' : ''}${hasLayout(m.value) ? '' : ' dp-dim'}`}>
+            <input type="radio" name="nav" checked={nav === m.value} disabled={!hasLayout(m.value)} onChange={() => set('nav', m.value)} />
+            <span className="dp-beta-optb"><b>{m.label}{m.value === 'classic' ? <span className="dp-xs dp-t3"> · default</span> : hasLayout(m.value) ? null : <span className="dp-xs dp-t3"> · not built yet</span>}</b><span className="dp-t3">{m.hint}</span></span>
           </label>
         ))}
       </div>
