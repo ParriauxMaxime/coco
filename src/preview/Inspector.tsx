@@ -179,7 +179,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
         )}
       </div>
       <div className="dp-ins-actions">
-        {state === 'planned' && <button type="button" className="dp-btn" disabled={landing} title="Shipped straight to the default branch with no PR: it lands at that branch's tip" onClick={() => land(false)}><Icon name="git-merge" size={14} />Mark landed</button>}
+        {state === 'planned' && d.work.w?.land === 'main' && <button type="button" className="dp-btn" disabled={landing} title="Shipped straight to the default branch with no PR: it lands at that branch's tip" onClick={() => land(false)}><Icon name="git-merge" size={14} />Mark landed</button>}
         <button type="button" className="dp-btn dp-split" onClick={() => setDispatching(!dispatching)}><Icon name="bot" size={14} />Agent<Icon name="chevron-down" size={12} /></button>
         {dispatching && (
           <div className="dp-pop dp-on">

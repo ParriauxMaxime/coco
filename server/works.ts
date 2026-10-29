@@ -15,6 +15,7 @@ import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.t
 import { validateNext } from './next.ts';
 import { spunOff } from './lineage.ts';
 import { GITHUB_MIN_FRESH_MS, batcher, cacheFile, swrCache } from './swr.ts';
+import { repoSetting } from './config.ts';
 import type { Config } from './config.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { SHA, commitOf, landedRow, landedTip, onBase } from './landed.ts';
@@ -142,7 +143,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   const githubOfWork = (w: Pick<Work, 'repo'> | null | undefined) => repoOfWork(w).github;
   const gitOf = (w: Pick<Work, 'repo'> | null | undefined) => {
     const repo = repoOfWork(w);
-    return { git: (args: string[]) => run('git', ['-C', repo.path || REPO, '--no-optional-locks', ...args]), base: repo.defaultBranch || 'main' };
+    return { git: (args: string[]) => run('git', ['-C', repo.path || REPO, '--no-optional-locks', ...args]), base: repo.defaultBranch || 'main', land: repoSetting(config, 'settings' in repo ? repo : null, 'land') };
   };
   const prKey = (github: string, number: number) => (github === GITHUB ? String(number) : `${github}#${number}`);
   const notion = createNotionSync({ DATA, REPO, config, jobs, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => { const w = get(s); return Promise.all((w?.stack || []).map((x) => rowInfo(w, x))); }, prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
@@ -290,7 +291,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   // a planned row whose branch sits on the default branch with commits of its own landed there with no PR; the row keeps it
   const landedCache = swrCache<Omit<Landed, 'by'> | null>(60000);
   async function linkLanded(work: Work, fresh = false) {
-    const { git, base } = gitOf(work);
+    const { git, base, land } = gitOf(work);
+    if (land !== 'main') return work;
     const planned = (work.stack || []).filter((s) => !s.number && s.landed === undefined && s.planned?.branch && s.planned.branch !== base);
     if (!planned.length) return work;
     const found = await Promise.all(planned.map((s) => landedCache(`${work.repo} ${s.planned?.branch}`, () => landedTip(git, s.planned?.branch as string, base), fresh).catch(() => null)));
@@ -318,7 +320,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       row.landed = null;
       work.timeline.unshift({ ts: new Date().toISOString(), kind: 'coco', text: `${label}: not landed after all (${by})` });
     } else {
-      const { git, base } = gitOf(work);
+      const { git, base, land } = gitOf(work);
+      if (land !== 'main') throw new HttpError(409, `this repo ships rows as PRs: set its settings.land to "main" to land rows on ${base}`);
       const commit = await commitOf(git, typeof sha === 'string' ? sha : `refs/heads/${base}`);
       if (!commit) throw new HttpError(400, `${sha || base} is not a commit of the work's repo`);
       if (!(await onBase(git, commit.sha, base))) throw new HttpError(409, `${commit.sha.slice(0, 7)} is not on ${base}: fast-forward ${base} first`);
@@ -534,7 +537,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     const current = (events.length || get(slug)?.archived !== work.archived ? get(slug) : work) ?? work;
     const parent = current.parent ? get(current.parent) : null;
     const lineage = { parentWork: parent ? { slug: parent.slug, title: parent.title, archived: Boolean(parent.archived) } : null, spunOff: spunOff(list(), slug), lessons: hooks.lessons?.(current) ?? null };
-    return { ...current, ...lineage, prs, artifacts, drift: (await hooks.drift?.(slug)) ?? null, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
+    return { ...current, ...lineage, prs, artifacts, land: gitOf(current).land, drift: (await hooks.drift?.(slug)) ?? null, notionStatus: notion.status({ ...current, artifacts }, prs), fetchedAt: new Date().toISOString() };
   }
 
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {

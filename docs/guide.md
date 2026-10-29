@@ -1295,8 +1295,9 @@ Pull based, no webhooks:
   conversations and cards. Agent labels and open tabs still naming
   `b:<branch>` resolve to the number. A `propose_stack_edit` that gives a
   planned row its PR moves the same way.
-- Landed rows: a planned row shipped straight to the default branch, with no
-  PR, reads **landed** (merged colors) everywhere a row's state shows, and
+- Landed rows, in a repo whose `land` setting is `"main"` (the cocopilot
+  repo; others ship rows as PRs): a planned row shipped straight to the
+  default branch, with no PR, reads **landed** (merged colors) everywhere a row's state shows, and
   gets no PR nudges. Its agent says so with the MCP `mark_row_landed` right
   after it fast-forwards the branch, you with **Mark landed** in the PR
   details (at the default branch's tip), and each work read sees it on its

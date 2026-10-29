@@ -259,7 +259,7 @@ export type Work = {
 };
 export type SpunOffWork = { slug: string; title: string; archived: boolean; next: string | null; nextAt: string | null; createdAt: string | null };
 export type WorkLineage = { parentWork?: { slug: string; title: string; archived: boolean } | null; spunOff?: SpunOffWork[]; lessons?: { repo: string; count: number } | null };
-export type WorkDetail = Work & WorkLineage & { prs: PrInfo[]; artifacts: Artifact[]; notionStatus: NotionStatus; fetchedAt: string };
+export type WorkDetail = Work & WorkLineage & { prs: PrInfo[]; artifacts: Artifact[]; notionStatus: NotionStatus; fetchedAt: string; land?: 'pr' | 'main' };
 export type WorkPlan = Work & { prs: PlanPr[] };
 export type NotionStatus = { running?: boolean; [key: string]: unknown };
 export type NotionResult = { error?: string; [key: string]: unknown };

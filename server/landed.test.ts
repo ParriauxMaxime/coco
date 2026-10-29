@@ -77,14 +77,20 @@ test('the owner marks a planned row landed at main and undoes it for good; a wor
   const { repo, tip } = fixture(t);
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-landed-data-'));
   t.after(() => fs.rmSync(DATA, { recursive: true, force: true }));
-  const config = { ...DEFAULTS, repo: { ...DEFAULTS.repo, github: '', path: repo, defaultBranch: 'main' }, repos: [{ ...DEFAULTS.repo, id: 'app', name: 'app', github: '', path: repo, defaultBranch: 'main', settings: {} }] };
+  const app = { ...DEFAULTS.repo, github: '', path: repo, defaultBranch: 'main' };
+  const config = { ...DEFAULTS, repo: app, repos: [{ ...app, id: 'app', name: 'app', settings: { land: 'main' as const } }, { ...app, id: 'pr', name: 'pr', settings: {} }] };
   const works = createWorks({ DATA, PERSONAS: path.join(DATA, 'personas'), REPO: repo, config });
   works.save({ slug: 'w', title: 'W', repo: 'app', stack: [row(1, 'main', 'Hotfix'), row(2, 'feat/shipped'), row(3, 'feat/open'), { number: 7, planned: { order: 4 } }], timeline: [] } as unknown as Work);
-  const call = async (method: string, sub: string[], body?: unknown) => {
+  works.save({ slug: 'p', title: 'P', repo: 'pr', stack: [row(1, 'main', 'Hotfix'), row(2, 'feat/shipped')], timeline: [] } as unknown as Work);
+  const call = async (method: string, sub: string[], body?: unknown, slug = 'w') => {
     let out: { code: number; body: Record<string, unknown> } = { code: 0, body: {} };
-    await works.handle({ method, url: `/api/works/w/${sub.join('/')}` } as never, {} as never, ['works', 'w', ...sub], async () => JSON.stringify(body ?? {}), ((_res: unknown, code: number, b: Record<string, unknown>) => void (out = { code, body: b })) as never);
+    await works.handle({ method, url: `/api/works/${slug}/${sub.join('/')}` } as never, {} as never, ['works', slug, ...sub], async () => JSON.stringify(body ?? {}), ((_res: unknown, code: number, b: Record<string, unknown>) => void (out = { code, body: b })) as never);
     return out;
   };
+
+  const pr = await call('GET', [], undefined, 'p');
+  assert.deepEqual([pr.body.land, (pr.body.prs as PrInfo[]).map((p) => p.state)], ['pr', ['PLANNED', 'PLANNED']], 'a repo shipping rows as PRs never sees them land');
+  assert.equal((await call('POST', ['landed'], { row: 1, by: 'owner' }, 'p')).code, 409);
 
   const marked = await call('POST', ['landed'], { row: 1, by: 'owner' });
   assert.equal(marked.code, 200);

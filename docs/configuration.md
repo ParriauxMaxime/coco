@@ -83,6 +83,7 @@ The server port and bind address are command-line arguments, not config:
 | `importRoots` | `["/tmp", "/private/tmp", "~/.paseo/worktrees"]` | Folders files may be imported from as work artifacts. Add your repo or another scratch folder if agents write kit files there. |
 | `agentWorktree` | `null` | How coco readies the worktree of a code-writing agent and checks its commits; per repo too (`repos[].settings`). See [Agent worktrees](#agent-worktrees). |
 | `preflight` | `null` | Checks shown on a kit-video dispatch and injected in its brief; per repo too. See [Preflight](#preflight). |
+| `land` | `"pr"` | How a planned row ships; per repo too. `"pr"`: a row is a PR, done when GitHub merges it. `"main"`: a row may also land straight on the local default branch with no PR, marked by its agent (`mark_row_landed`), by you (**Mark landed**) or seen in git, and its work auto-archives once every row landed or merged. The cocopilot repo coco adds on its own uses `"main"`. |
 | `rituals` | `[]` | Buttons on the Rituals page, each starting a Paseo agent in your repo. Item: `{ "kind", "label", "prompt", "hint"?, "fields"? }`. `prompt` may hold `{login}`, `{pr}`, `{paths}`, `{text}` placeholders, which become form fields unless `fields` lists them. |
 
 ### Checklist and kit
