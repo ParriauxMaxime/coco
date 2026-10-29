@@ -468,7 +468,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
       ))}
       {thread.ready && (
         <div className="dp-thr-sys dp-thr-ready">
-          commit <code>{thread.ready.commit.slice(0, 7)}</code> ready{thread.ready.approve ? <>: <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => document.getElementById(`thr-${thread.ready?.approve}`)?.scrollIntoView({ block: 'center' })}>Approve</button></> : ', no Approve offered yet'} · {thread.ready.subject}{thread.ready.stat && <span className="dp-thr-stat"> · {thread.ready.stat}</span>}
+          commit <code>{thread.ready.commit.slice(0, 7)}</code> ready{thread.ready.approve ? <>: <button type="button" className="dp-btn dp-sm dp-ghost" onClick={() => { const el = document.getElementById(`thr-${thread.ready?.approve}`); if (el) pinInView(el, true); }}>Approve</button></> : ', no Approve offered yet'} · {thread.ready.subject}{thread.ready.stat && <span className="dp-thr-stat"> · {thread.ready.stat}</span>}
           <VerifyButton run={verifyRun} busy={busy} pending={pending === 'verify'} onClick={() => verify(thread.ready!.commit)} />
           {verifyRun && !thread.ready.approve && <VerifyChips run={verifyRun} />}
         </div>
