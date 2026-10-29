@@ -41,7 +41,7 @@ function WorkCard({ w }: { w: RepoWork }) {
   return (
     <a className="dp-card dp-repop-work" href={workHref(w.slug)}>
       <span className="dp-card-t"><span className={`dp-dot dp-lg ${workDot(w)}`} /><span className="dp-ell dp-grow">{w.title}</span>{p.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}</span>
-      <span className="dp-repop-bar"><SegBar w={w} thin={false} /><span className="dp-repop-pc">{p.merged}/{w.stack - p.closed}</span></span>
+      <span className="dp-repop-bar"><SegBar w={w} thin={false} /><span className="dp-repop-pc">{p.merged + p.landed}/{w.stack - p.closed}</span></span>
       <span className={`dp-repop-next${w.next ? '' : ' dp-repop-none'}`}>{w.next || 'No what’s next yet'}</span>
       <span className="dp-card-s">
         {p.attention && <span className="dp-chip dp-bad">changes requested or CI failing</span>}

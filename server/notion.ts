@@ -73,15 +73,16 @@ export const pageIdFromUrl = (url: string | null | undefined): string | null => 
   return m ? m[1].toLowerCase() : null;
 };
 
-const stateOf = (pr: PrInfo) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : 'in review');
+const stateOf = (pr: PrInfo) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.landed ? 'landed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes requested' : 'in review');
 
 export function renderWorkMarkdown(work: Work, prs: PrInfo[]): string {
   const merged = prs.filter((p) => p.state === 'MERGED').length;
+  const landed = prs.filter((p) => p.landed).length;
   const rows = prs.map((pr, i) => {
     const row: StackRow = work.stack[i] || {};
     const planned = row.planned;
     const title = row.notionPage ? `<mention-page url="${row.notionPage.url}">${row.notionPage.title}</mention-page>` : pr.title || planned?.title || `PR ${i + 1}`;
-    const ref = pr.number ? `[#${pr.number}](${pr.url})` : `planned · \`${planned?.branch || ''}\``;
+    const ref = pr.number ? `[#${pr.number}](${pr.url})` : pr.landed ? `landed · \`${pr.landed.sha.slice(0, 7)}\`` : `planned · \`${planned?.branch || ''}\``;
     const scope = (row.scope || planned?.scope || '—').replace(/\|/g, '\\|');
     const reviewers = (row.personas || []).join(', ') || '—';
     return `| ${ref} | ${title} | ${scope} | ${stateOf(pr)} | ${reviewers} |`;
@@ -96,7 +97,7 @@ export function renderWorkMarkdown(work: Work, prs: PrInfo[]): string {
     '',
     '## Progress',
     '',
-    `${merged}/${prs.length} merged · ${work.tier ? `${work.tier} tier · ` : ''}Paseo ${work.projectName || '—'}`,
+    `${merged}/${prs.length} merged${landed ? ` · ${landed} landed` : ''} · ${work.tier ? `${work.tier} tier · ` : ''}Paseo ${work.projectName || '—'}`,
     '',
     '| PR | Page | Scope | State | Reviewers |',
     '| --- | --- | --- | --- | --- |',

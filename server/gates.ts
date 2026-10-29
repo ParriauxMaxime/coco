@@ -227,7 +227,7 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
     const rows = await Promise.all((work.stack || []).map(async (s): Promise<RowMilestone | null> => {
       const key = rowKey(s);
       if (key === null) return null;
-      if (!s.number) return { key, current: null, done: 0 };
+      if (!s.number) return { key, current: null, done: s.landed ? GATES.length : 0 };
       const pr = await works.prInfo(s.number);
       if (pr.state === 'MERGED') return { key, current: null, done: GATES.length };
       if (pr.state === 'CLOSED') return { key, current: null, done: 0 };

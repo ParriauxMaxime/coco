@@ -80,6 +80,7 @@ import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Send, Work } from './core-types.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import { backfillParents, nextSummary } from './lineage.ts';
+import { backfillLanded } from './landed.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -262,6 +263,8 @@ const reopened = cards.reopenArchived();
 if (reopened.length) console.log(`cards: ${reopened.length} closed with their archived agent reopened (${reopened.join(', ')})`);
 // works an agent created before lineage was kept: the work that agent's cards were posted in becomes their parent
 for (const l of backfillParents(works, cards.workOfAgent)) console.log(`work ${l.slug} spun off ${l.parent}`);
+// rows an agent titled "✓ " by hand before rows could land
+void backfillLanded(works, works.gitOf).then((done) => done.forEach((l) => console.log(`work ${l.slug}: ${l.rows} shipped rows landed`)), (e) => console.error(`landed backfill: ${errorMessage(e)}`));
 // an agent archived outside coco closes its plain open questions; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
 const archivedAgent = (agentId: string) => paseoAgents.attach(agentId).then((a) => a === null);
 const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} of archived agents closed`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));
@@ -481,10 +484,10 @@ const fillRitual = (template: string | undefined, body: Record<string, unknown>)
 function workProgress(w: Work) {
   const snapFile = path.join(DATA, 'works', '.snapshots', `${w.slug}.json`);
   const snap: Record<string, { state?: string; isDraft?: boolean; reviewDecision?: string | null; ci?: string }> = fs.existsSync(snapFile) ? JSON.parse(fs.readFileSync(snapFile, 'utf8')) : {};
-  const out = { merged: 0, ready: 0, draft: 0, planned: 0, closed: 0, attention: false, restack: needsKeeping(w, snap) };
+  const out = { merged: 0, landed: 0, ready: 0, draft: 0, planned: 0, closed: 0, attention: false, restack: needsKeeping(w, snap) };
   for (const s of w.stack || []) {
     const st = s.number ? snap[s.number] : null;
-    if (!s.number) out.planned += 1;
+    if (!s.number) out[s.landed ? 'landed' : 'planned'] += 1;
     else if (st?.state === 'MERGED') out.merged += 1;
     else if (st?.state === 'CLOSED') out.closed += 1;
     else if (st?.isDraft) out.draft += 1;

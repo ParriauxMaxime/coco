@@ -6,14 +6,14 @@ import type { WorkPr } from '../workbench/types.ts';
 
 const ciClass = (ci?: string) => (ci === 'failure' ? ' dp-ci-bad' : ci === 'pending' ? ' dp-ci-run' : '');
 
-export const prLabel = (pr: WorkPr) => (pr.number ? `#${pr.number}` : 'planned');
+export const prLabel = (pr: WorkPr) => (pr.number ? `#${pr.number}` : pr.landed ? pr.landed.sha.slice(0, 7) : 'planned');
 
 export default function PrChip({ pr, onOpen }: { pr: WorkPr; onOpen?: (key: string) => void }) {
   const { bind, peek } = usePrPeek(pr);
   const state = prState(pr);
   const body = (
     <>
-      <Icon name={state === 'merged' ? 'git-merge' : 'git-pull-request'} size={12} />
+      <Icon name={state === 'merged' || state === 'landed' ? 'git-merge' : 'git-pull-request'} size={12} />
       {prLabel(pr)}
     </>
   );

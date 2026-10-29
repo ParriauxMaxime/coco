@@ -63,7 +63,7 @@ export function slimWork(w: Work, sections: string[] = [], facts: Record<string,
   const notes = w.notes || '';
   const stack = (w.stack || []).map((s) => {
     const f = facts[String(s.number)] || {};
-    return { number: s.number ?? null, branch: f.branch ?? s.planned?.branch ?? null, title: f.title ?? s.planned?.title ?? null, state: f.state ?? null, notionPage: s.notionPage ?? null, ...(has('full') ? { row: s } : {}) };
+    return { number: s.number ?? null, ...(s.planned?.order != null ? { order: s.planned.order } : {}), branch: f.branch ?? s.planned?.branch ?? null, title: f.title ?? s.planned?.title ?? null, state: f.state ?? (s.landed ? 'LANDED' : null), ...(s.landed ? { landed: s.landed } : {}), notionPage: s.notionPage ?? null, ...(has('full') ? { row: s } : {}) };
   });
   const decisions = (w.decisions || []).map((d) => ({ id: d.id, title: d.title, status: d.status ?? 'open', ...(d.status === 'taken' ? { summary: decisionSummary(d) } : {}), ...(d.archivedAt ? { archived: true } : {}), ...(has('decisions') ? { decision: d } : {}) }));
   const { stack: _s, notes: _n, timeline = [], decisions: _d, ...head } = w;

@@ -7,7 +7,7 @@ import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { Avatar, diffText, num } from './parts.tsx';
 import { DevServerCell } from './widgets/DevServer.tsx';
-import { agentsOf, devOf, findingsOf, prKey, prState, prTitle, waitingOf } from './data.ts';
+import { agentsOf, devOf, findingsOf, isDone, prKey, prState, prTitle, waitingOf } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { usePrefs } from './prefs.ts';
 import { reloadOverview } from './overview.ts';
@@ -21,7 +21,6 @@ type Item = { kind: 'pr'; pr: WorkPr; index: number } | { kind: 'more'; hidden: 
 const NARROW_PX = 520;
 const PLANNED_SHOWN = 2;
 const FILTERS: { id: Filter; label: string }[] = [{ id: 'all', label: 'All' }, { id: 'open', label: 'Open' }, { id: 'merged', label: 'Merged' }, { id: 'planned', label: 'Planned' }];
-const isDone = (s: string) => s === 'merged' || s === 'closed';
 const matches = (f: Filter, s: string) => f === 'all' || (f === 'open' ? !isDone(s) && s !== 'planned' : f === 'merged' ? isDone(s) : s === 'planned');
 
 function CiCell({ pr }: { pr: WorkPr }) {
@@ -109,7 +108,8 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
     d.prs.forEach((pr) => { const s = prState(pr); c[s] = (c[s] || 0) + 1; });
     return c;
   }, [d.prs]);
-  const done = (counts.merged || 0) + (counts.closed || 0);
+  const landed = counts.landed || 0;
+  const done = (counts.merged || 0) + (counts.closed || 0) + landed;
   const planned = counts.planned || 0;
   const open = d.prs.length - done - planned;
   const foldable = plannedPref === 'fold' && filter !== 'planned' && planned > PLANNED_SHOWN;
@@ -158,7 +158,7 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
           {FILTERS.map((f) => <button key={f.id} type="button" className={filter === f.id ? 'dp-on' : ''} onClick={() => setFilter(f.id)}>{f.label} <span>{f.id === 'all' ? d.prs.length : f.id === 'open' ? open : f.id === 'merged' ? done : planned}</span></button>)}
         </div>
         <span className="dp-sp" />
-        {!narrow && <span className="dp-xs dp-t3 dp-num dp-counts">{[done && `${done} merged`, open && `${open} open`, planned && `${planned} planned`].filter(Boolean).join(' · ')}</span>}
+        {!narrow && <span className="dp-xs dp-t3 dp-num dp-counts">{[done - landed && `${done - landed} merged`, landed && `${landed} landed`, open && `${open} open`, planned && `${planned} planned`].filter(Boolean).join(' · ')}</span>}
         {restack && <button type="button" className="dp-btn dp-sm dp-restack" title="A parent PR merged: its children still sit on the old base" onClick={() => setKeeping(true)}><Icon name="git-branch" size={12} />Restack…</button>}
       </div>
       {keeping && <StackKeeper slug={d.slug} onClose={() => setKeeping(false)} onChange={() => { d.work.load(); void reloadOverview(); }} />}

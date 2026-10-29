@@ -22,7 +22,7 @@ function ArchivedRow({ w, busy, onUnarchive }: { w: WorkSummary; busy: boolean; 
         <span className="dp-ell dp-arch-t">{w.title}</span>
         <span className="dp-arch-sub">{w.projectName && w.projectName !== w.title && <span className="dp-ell">{w.projectName}</span>}<span className="dp-t4 dp-mono">{w.slug}</span></span>
       </a>
-      {w.stack > 0 && <span className="dp-arch-bar"><SegBar w={w} /><span className="dp-arch-pc">{p.merged}/{w.stack - p.closed}</span></span>}
+      {w.stack > 0 && <span className="dp-arch-bar"><SegBar w={w} /><span className="dp-arch-pc">{p.merged + p.landed}/{w.stack - p.closed}</span></span>}
       <span className="dp-arch-prs">{w.stack} PR{w.stack === 1 ? '' : 's'}</span>
       <span className={`dp-chip${auto ? ' dp-ok' : ''}`} title={auto ? 'Every PR merged or closed' : 'Archived by hand'}>{auto ? 'auto' : 'by hand'}</span>
       <span className="dp-rowi-m dp-arch-at">{day(w.archived?.at)}</span>

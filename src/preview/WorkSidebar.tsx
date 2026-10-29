@@ -5,7 +5,7 @@ import type { IconName } from './Icon.tsx';
 import { AgentList, JobRow, agentCounts, useArchive } from './AgentsSection.tsx';
 import { agentOf, groupAgents, prLabel, useWorkAgents } from './agents.ts';
 import type { AgentGroup } from './agents.ts';
-import { prKey, prState, prTitle } from './data.ts';
+import { isDone, prKey, prState, prTitle } from './data.ts';
 import { useMilestones } from './milestones.ts';
 import { usePersistedList, workHref } from './prefs.ts';
 import { findingsKeyOfTab, prOfTab } from '../workbench/code/ids.ts';
@@ -29,7 +29,6 @@ const MERGED = ':merged';
 const PLANNED = ':planned';
 
 type Row = { key: string; pr: WorkPr | null; state: string; label: string; title: string };
-const isDone = (s: string) => s === 'merged' || s === 'closed';
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // the PR a tab is about: its page, review, findings, code, new agent or brief tab, or the PR of the agent it shows
@@ -147,6 +146,7 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
 
   const ovOn = !list.includes(OVERVIEW);
   const closed = merged.filter((r) => r.state === 'closed').length;
+  const landed = merged.filter((r) => r.state === 'landed').length;
   return (
     <div className="dp-views">
       <div className={`dp-view dp-ov-head${isOpen('plan') ? ' dp-open' : ''}`} onClick={() => go('plan')}>
@@ -176,7 +176,7 @@ export function WorkViews({ w, open, isOpen = () => false, count, prs = [], find
         </div>
       </div>
       {opened.map(prRow)}
-      {fold(MERGED, closed ? `${merged.length - closed} merged · ${closed} closed` : `${merged.length} merged`, merged)}
+      {fold(MERGED, [[merged.length - closed - landed, 'merged'], [landed, 'landed'], [closed, 'closed']].filter(([n]) => n).map(([n, word]) => `${n} ${word}`).join(' · '), merged)}
       {fold(PLANNED, `${planned.length} planned`, planned)}
     </div>
   );

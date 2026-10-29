@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api } from '../api.ts';
+import { api, errorMessage } from '../api.ts';
+import { toast } from '../components/Toast.tsx';
 import DispatchMenu from '../components/DispatchMenu.tsx';
 import Markdown from '../components/Markdown.tsx';
 import { CodeRefRoot } from '../components/CodeRefs.tsx';
@@ -18,7 +19,7 @@ import { useComments } from '../workbench/code/use-comments.ts';
 import { changesTabId, findingsKeyOfTab, isLocalKey, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
 import { GitSummary, useRowWorkspace } from './GitPanel.tsx';
 import type { PrKey, WorkPr } from '../workbench/types.ts';
-import type { Gate } from '../types.ts';
+import type { Gate, Landed } from '../types.ts';
 import Icon from './Icon.tsx';
 import PrChip from './PrChip.tsx';
 import { AgentDot } from './AgentsSection.tsx';
@@ -42,6 +43,7 @@ const openTab = (id: string) => useWorkbench.getState().open(id);
 const MAX_FINDINGS = 6;
 const CI_CHIP: Record<string, { tone: string; label: string }> = { success: { tone: 'dp-ok', label: 'CI passing' }, failure: { tone: 'dp-bad', label: 'CI failing' }, pending: { tone: 'dp-warn', label: 'CI running' } };
 const REVIEW_TONE: Record<string, string> = { APPROVED: 'dp-ok', CHANGES_REQUESTED: 'dp-bad' };
+const LANDED_BY: Record<Landed['by'], string> = { agent: 'its agent', owner: 'you', detected: 'git: the branch tip is on the default branch' };
 
 function userFacing(body = '') {
   const m = body.match(/## What changes for users\s*\n([\s\S]*?)(?=\n## |$)/i);
@@ -61,6 +63,7 @@ function Sec({ title, aside, wide, children }: { title?: string; aside?: ReactNo
 
 export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: string | null; asTab?: boolean }) {
   const [dispatching, setDispatching] = useState(false);
+  const [landing, setLanding] = useState(false);
   const pr = key === null ? undefined : d.prs.find((p) => prKey(p) === key);
   const gates = useGates(d.slug, pr?.number ? key : null);
   const wsId = useRowWorkspace(d.slug, pr ? key : null);
@@ -78,6 +81,10 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
   const reviewers = pr.reviewers || [];
   const owners = pr.personas || [];
   const agentStatus = (id: string) => d.overview?.agents.find((a) => a.id === id)?.status;
+  const land = (clear: boolean) => {
+    setLanding(true);
+    api.landed(d.slug, pr.planned?.order ?? key, clear).then(() => d.work.load(), (e) => toast.error(errorMessage(e))).finally(() => setLanding(false));
+  };
   return (
     <>
       <div className="dp-ins-head">
@@ -102,6 +109,14 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
       </div>
       <div className="dp-ins-scroll">
         {summary && <Sec title="Summary" wide><div className="dp-md"><Markdown text={summary} /></div></Sec>}
+        {pr.landed && (
+          <Sec title="Landed" aside={<button type="button" className="dp-linkbtn" disabled={landing} title="It did not land: back to planned, and git is not asked again" onClick={() => land(true)}>Undo</button>}>
+            <dl className="dp-kv" style={{ margin: 0 }}>
+              <dt>Commit</dt><dd><span className="dp-mono">{pr.landed.sha.slice(0, 7)}</span><span className="dp-t3"> · {ago(pr.landed.at)}</span></dd>
+              <dt>By</dt><dd>{LANDED_BY[pr.landed.by]}</dd>
+            </dl>
+          </Sec>
+        )}
         {numbered && (
           <Sec>
             <dl className="dp-kv" style={{ margin: 0 }}>
@@ -164,6 +179,7 @@ export function PrDetails({ d, prKey: key, asTab }: { d: PreviewData; prKey: str
         )}
       </div>
       <div className="dp-ins-actions">
+        {state === 'planned' && <button type="button" className="dp-btn" disabled={landing} title="Shipped straight to the default branch with no PR: it lands at that branch's tip" onClick={() => land(false)}><Icon name="git-merge" size={14} />Mark landed</button>}
         <button type="button" className="dp-btn dp-split" onClick={() => setDispatching(!dispatching)}><Icon name="bot" size={14} />Agent<Icon name="chevron-down" size={12} /></button>
         {dispatching && (
           <div className="dp-pop dp-on">

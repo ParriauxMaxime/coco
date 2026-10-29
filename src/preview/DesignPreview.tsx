@@ -13,7 +13,7 @@ import LayoutMenu, { useWorkLayouts } from './LayoutMenu.tsx';
 import { applyLayout } from './layouts.ts';
 import { usePrefs } from './prefs.ts';
 import type { PrefKey } from './prefs.ts';
-import { prKey, prState, prTitle, usePreviewData } from './data.ts';
+import { isDone, prKey, prState, prTitle, usePreviewData } from './data.ts';
 import type { PreviewData } from './data.ts';
 import { prLabel, useAgentList } from './agents.ts';
 import Shell, { useNarrow } from './Shell.tsx';
@@ -28,7 +28,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
   const groups = useWorkbench((s) => (s.slug === slug ? s.groups : []));
   const focusedTab = useWorkbench((s) => (s.slug === slug ? s.groups.find((g) => g.id === s.focused)?.active : null)) || '';
   const [selected, setSelected] = useState<string | null>(() => {
-    const first = d.prs.find((p) => !['merged', 'closed'].includes(prState(p))) || d.prs[0];
+    const first = d.prs.find((p) => !isDone(prState(p))) || d.prs[0];
     return first ? prKey(first) : null;
   });
   const [inspector, setInspector] = useState(true);
@@ -83,7 +83,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
     ...agents.map((a) => ({ id: `agent-${a.id}`, label: `Agent: ${a.title}`, hint: a.status, icon: 'bot' as const, run: () => open(a.id) })),
     ...layouts.list.map((l, i) => ({ id: `l-${l.id}`, label: `Layout: ${l.name}`, hint: i < 9 ? `⌥${i + 1}` : 'layout', icon: 'columns' as const, run: () => applyLayout(l) })),
     { id: 'split', label: 'Move the tab to the other pane', hint: '⌘\\', icon: 'columns', run: split },
-    ...d.prs.map((p) => ({ id: `pr-${prKey(p)}`, label: `${p.number ? `#${p.number}` : 'planned'} ${prTitle(p)}`, hint: prState(p), icon: 'git-pull-request' as const, run: () => openPr(prKey(p)) })),
+    ...d.prs.map((p) => ({ id: `pr-${prKey(p)}`, label: `${p.number ? `#${p.number}` : prState(p)} ${prTitle(p)}`, hint: prState(p), icon: 'git-pull-request' as const, run: () => openPr(prKey(p)) })),
     ...d.prs.map((p) => ({ id: `review-${prKey(p)}`, label: `Review ${p.number ? `#${p.number}` : prLabel(prKey(p))} ${prTitle(p)}`, hint: 'code', icon: 'file' as const, run: () => open(`review-${prKey(p)}`) })),
   ];
 
@@ -137,7 +137,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
         status={(
           <>
             <span className="dp-sbi"><span className="dp-dot dp-live" />GitHub synced {new Date(d.work.w.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            <span className="dp-sbi" onClick={() => open('stack')}><Icon name="git-pull-request" />{d.prs.length - (counts.merged || 0) - (counts.closed || 0) - (counts.planned || 0)} open · {counts.merged || 0} merged · {counts.planned || 0} planned</span>
+            <span className="dp-sbi" onClick={() => open('stack')}><Icon name="git-pull-request" />{d.prs.length - (counts.merged || 0) - (counts.closed || 0) - (counts.landed || 0) - (counts.planned || 0)} open · {counts.merged || 0} merged{counts.landed ? ` · ${counts.landed} landed` : ''} · {counts.planned || 0} planned</span>
             {summary?.progress.restack && <span className="dp-sbi" style={{ color: 'var(--dp-warn)' }}><Icon name="git-branch" />Restack needed</span>}
             {(ciRun > 0 || ciBad > 0) && <span className="dp-sbi"><Icon name="circle-dot" />CI{ciRun > 0 && ` ${ciRun} running`}{ciRun > 0 && ciBad > 0 && <span className="dp-t4">·</span>}{ciBad > 0 && <span className="dp-ci-bad">{ciBad} failing</span>}</span>}
           </>

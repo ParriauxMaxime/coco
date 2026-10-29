@@ -49,7 +49,7 @@ export const useNarrow = () => {
   return narrow;
 };
 
-const SEGMENTS: [keyof WorkSummary['progress'], string][] = [['merged', 'merged'], ['ready', 'review'], ['draft', 'draft'], ['planned', 'planned'], ['closed', 'closed']];
+const SEGMENTS: [keyof WorkSummary['progress'], string][] = [['merged', 'merged'], ['landed', 'landed'], ['ready', 'review'], ['draft', 'draft'], ['planned', 'planned'], ['closed', 'closed']];
 
 // open PRs by current milestone, furthest first
 export const MILESTONE_ORDER = ['approved', 'ready', 'pushed', 'kit', 'self-review'];
@@ -62,6 +62,7 @@ export function SegBar({ w, thin = true }: { w: WorkSummary; thin?: boolean }) {
   const segs = steps.length
     ? [
         ...Array.from({ length: p.merged }, seg('dp-st-merged', 'merged')),
+        ...Array.from({ length: p.landed }, seg('dp-st-landed', 'landed')),
         ...steps.map((id, i) => seg(`dp-ms-${id}`, `next: ${id}`)(null, i)),
         ...Array.from({ length: open - steps.length }, seg('dp-st-draft', 'open')),
         ...Array.from({ length: p.planned }, seg('dp-st-planned', 'planned')),
@@ -86,7 +87,7 @@ function WorkRow({ w, on, expanded, onToggle, views, depth = 0 }: { w: WorkSumma
         </span>
         <span className="dp-work-bar">
           <SegBar w={w} />
-          <span className="dp-pc">{w.archived ? 'archived' : `${p.merged}/${w.stack - p.closed}`}</span>
+          <span className="dp-pc">{w.archived ? 'archived' : `${p.merged + p.landed}/${w.stack - p.closed}`}</span>
         </span>
       </a>
       <div className={`dp-collapse${expanded ? ' dp-open' : ''}`}><div>{views}</div></div>

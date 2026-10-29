@@ -16,10 +16,11 @@ import { validateNext } from './next.ts';
 import { spunOff } from './lineage.ts';
 import { GITHUB_MIN_FRESH_MS, batcher, cacheFile, swrCache } from './swr.ts';
 import type { Config } from './config.ts';
-import { errorMessage } from './core-types.ts';
+import { HttpError, errorMessage, httpStatus } from './core-types.ts';
+import { SHA, commitOf, landedRow, landedTip, onBase } from './landed.ts';
 import { sseSink } from './events.ts';
 import type { Sink } from './events.ts';
-import type { Artifact, ArtifactMeta, PrInfo, ReadBody, Req, Res, RowKey, RunResult, Send, StackRow, Work } from './core-types.ts';
+import type { Artifact, ArtifactMeta, Landed, PrInfo, ReadBody, Req, Res, RowKey, RunResult, Send, StackRow, Work } from './core-types.ts';
 
 // what a work change touched: the work itself, its stack, review plan, drift or artifacts
 export type Change = 'work' | 'stack' | 'plan' | 'drift' | 'artifacts';
@@ -137,9 +138,14 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   const noRepo: RunResult = { ok: false, stdout: '', stderr: 'no GitHub repo configured (repo.github)' };
   const gh = (github: string, args: string[]) => (github ? run('gh', args) : Promise.resolve(noRepo));
   // the repo a work lives in (as repos.repoFor); the default repo keeps its bare number as cache key, so cache files written before stay valid
-  const githubOfWork = (w: Pick<Work, 'repo'> | null | undefined) => (config.repos.find((r) => r.id === w?.repo) || config.repos[0] || config.repo).github;
+  const repoOfWork = (w: Pick<Work, 'repo'> | null | undefined) => config.repos.find((r) => r.id === w?.repo) || config.repos[0] || config.repo;
+  const githubOfWork = (w: Pick<Work, 'repo'> | null | undefined) => repoOfWork(w).github;
+  const gitOf = (w: Pick<Work, 'repo'> | null | undefined) => {
+    const repo = repoOfWork(w);
+    return { git: (args: string[]) => run('git', ['-C', repo.path || REPO, '--no-optional-locks', ...args]), base: repo.defaultBranch || 'main' };
+  };
   const prKey = (github: string, number: number) => (github === GITHUB ? String(number) : `${github}#${number}`);
-  const notion = createNotionSync({ DATA, REPO, config, jobs, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => { const w = get(s); return Promise.all((w?.stack || []).map((x) => prInfo(x.number, false, githubOfWork(w)))); }, prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
+  const notion = createNotionSync({ DATA, REPO, config, jobs, ...(agents ? { agents } : {}), works: { get: (s) => get(s), save: (x) => save(x), listArtifacts: (s) => listArtifacts(s), detailPrs: (s) => { const w = get(s); return Promise.all((w?.stack || []).map((x) => rowInfo(w, x))); }, prInfo: (n) => prInfo(n), place: (s) => hooks.placeWork?.(s) || null } });
   const ROOT = path.join(DATA, 'works');
   fs.mkdirSync(ROOT, { recursive: true });
   const file = (slug: string) => path.join(ROOT, `${slug}.json`);
@@ -264,7 +270,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   // a planned row whose branch got a PR (its agent opened it) takes that PR's number; save moves what was kept under the branch key
   async function linkOpened(work: Work, fresh = false) {
     const github = githubOfWork(work);
-    const planned = (work.stack || []).filter((s) => !s.number && s.planned?.branch);
+    const planned = (work.stack || []).filter((s) => !s.number && !s.landed && s.planned?.branch);
     if (!github || !planned.length) return work;
     const found = await Promise.all(planned.map((s) => prOfBranch(github, s.planned?.branch as string, fresh).catch(() => null)));
     const held = new Set(list().filter((w) => githubOfWork(w) === github).flatMap((w) => (w.stack || []).map((s) => s.number)));
@@ -281,12 +287,57 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     return save(work);
   }
 
+  // a planned row whose branch sits on the default branch with commits of its own landed there with no PR; the row keeps it
+  const landedCache = swrCache<Omit<Landed, 'by'> | null>(60000);
+  async function linkLanded(work: Work, fresh = false) {
+    const { git, base } = gitOf(work);
+    const planned = (work.stack || []).filter((s) => !s.number && s.landed === undefined && s.planned?.branch && s.planned.branch !== base);
+    if (!planned.length) return work;
+    const found = await Promise.all(planned.map((s) => landedCache(`${work.repo} ${s.planned?.branch}`, () => landedTip(git, s.planned?.branch as string, base), fresh).catch(() => null)));
+    const landed = planned.flatMap((s, i) => (found[i] ? [{ s, tip: found[i] }] : []));
+    if (!landed.length) return work;
+    work.timeline = work.timeline || [];
+    for (const { s, tip } of landed) {
+      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'coco', text: `${s.planned?.branch} is on ${base} at ${tip.sha.slice(0, 7)} with no PR: its planned row landed` });
+      s.landed = { ...tip, by: 'detected' };
+    }
+    return save(work);
+  }
+
+  // an agent that fast-forwarded the default branch, or the owner, says a planned row landed there (default: at its tip); clear undoes it and git is not asked again
+  async function land(slug: string, { row: ref, sha, by, clear }: { row?: unknown; sha?: unknown; by?: unknown; clear?: unknown }) {
+    const work = get(slug);
+    if (!work) throw new HttpError(404, 'no such work');
+    if (by !== 'agent' && by !== 'owner') throw new HttpError(400, 'by must be agent or owner');
+    if (sha !== undefined && sha !== null && (typeof sha !== 'string' || !SHA.test(sha))) throw new HttpError(400, 'sha must be a commit sha');
+    const row = landedRow(work.stack || [], ref);
+    if (row.number) throw new HttpError(409, `#${row.number} has a PR: it lands when GitHub merges it`);
+    const label = row.planned?.title || keyLabel(rowKey(row));
+    work.timeline = work.timeline || [];
+    if (clear) {
+      row.landed = null;
+      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'coco', text: `${label}: not landed after all (${by})` });
+    } else {
+      const { git, base } = gitOf(work);
+      const commit = await commitOf(git, typeof sha === 'string' ? sha : `refs/heads/${base}`);
+      if (!commit) throw new HttpError(400, `${sha || base} is not a commit of the work's repo`);
+      if (!(await onBase(git, commit.sha, base))) throw new HttpError(409, `${commit.sha.slice(0, 7)} is not on ${base}: fast-forward ${base} first`);
+      row.landed = { ...commit, by };
+      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'coco', text: `${label} landed on ${base} at ${commit.sha.slice(0, 7)} (${by})` });
+    }
+    save(work);
+    return { key: rowKey(row), landed: row.landed };
+  }
+
   // `github`: the work's repo when the caller has the work, else the repo of the work holding that number
   async function prInfo(number: number | null | undefined, fresh = false, github?: string): Promise<PrInfo> {
     // no PR: no diff numbers, rather than a "0 files" that reads as an empty branch
     if (!number) return { number: null, state: 'PLANNED', isDraft: false, ci: 'none', checks: [], reviewers: [] };
     return prNode(number, fresh, github ?? githubOf(number)).then((n) => n.info, (e: Error) => ({ number, error: e.message }));
   }
+  // a row's PR; a row with none reads landed once it did, else planned
+  const rowInfo = (work: Work | null, s: StackRow, fresh = false): Promise<PrInfo> =>
+    !s.number && s.landed ? Promise.resolve({ number: null, state: 'LANDED', isDraft: false, ci: 'none', checks: [], reviewers: [], landed: s.landed }) : prInfo(s.number, fresh, githubOfWork(work));
   function toPrInfo(d: GhPr): PrInfo {
     const contexts = d.commits?.nodes[0]?.commit.statusCheckRollup?.contexts.nodes || [];
     // a status context has a state only: SUCCESS / FAILURE / ERROR are final, PENDING / EXPECTED run
@@ -394,7 +445,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       return r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
     });
   const prBody = (number: number, github?: string): Promise<string> => prNode(number, false, github ?? githubOf(number)).then((n) => n.body, () => '');
-  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await prInfo(s.number, fresh, githubOfWork(work))), key: rowKey(s), personas: s.personas || [] })));
+  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await rowInfo(work, s, fresh)), key: rowKey(s), personas: s.personas || [] })));
 
   async function plan(work: Work) {
     const prs = await stackInfo(work);
@@ -443,7 +494,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     return events;
   }
 
-  const isDone = (work: Work, prs: PrInfo[]) => !(work.stack || []).some((s) => !s.number) && prs.length > 0 && prs.every((p) => p.state === 'MERGED' || p.state === 'CLOSED') && prs.some((p) => p.state === 'MERGED');
+  const isDone = (prs: PrInfo[]) => prs.length > 0 && prs.every((p) => p.state === 'MERGED' || p.state === 'CLOSED' || p.state === 'LANDED') && prs.some((p) => p.state !== 'CLOSED');
 
   function setArchived(slug: string, archived: boolean, reason: string) {
     const work = get(slug);
@@ -467,19 +518,19 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   async function sweepArchive() {
     for (const work of list()) {
       if (work.archived || work.autoArchive === false || !(work.stack || []).length) continue;
-      const prs = await Promise.all(work.stack.map((s) => prInfo(s.number, false, githubOfWork(work))));
-      if (isDone(work, prs)) setArchived(work.slug, true, 'auto');
+      const prs = await Promise.all(work.stack.map((s) => rowInfo(work, s)));
+      if (isDone(prs)) setArchived(work.slug, true, 'auto');
     }
   }
 
   async function detail(slug: string, fresh = false) {
     const stored = get(slug);
     if (!stored) return null;
-    const work = stored.archived ? stored : await linkOpened(stored, fresh);
+    const work = stored.archived ? stored : await linkLanded(await linkOpened(stored, fresh), fresh);
     const prs = await stackInfo(work, fresh);
     const events = recordChanges(slug, prs);
     const artifacts = listArtifacts(slug);
-    if (!work.archived && work.autoArchive !== false && isDone(work, prs)) setArchived(slug, true, 'auto');
+    if (!work.archived && work.autoArchive !== false && isDone(prs)) setArchived(slug, true, 'auto');
     const current = (events.length || get(slug)?.archived !== work.archived ? get(slug) : work) ?? work;
     const parent = current.parent ? get(current.parent) : null;
     const lineage = { parentWork: parent ? { slug: parent.slug, title: parent.title, archived: Boolean(parent.archived) } : null, spunOff: spunOff(list(), slug), lessons: hooks.lessons?.(current) ?? null };
@@ -549,7 +600,14 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       if (body.action === 'discard-preview') return send(res, 200, notion.discardPreview(a));
       return send(res, 200, await notion.sync(a, { force: Boolean(body.force), parentPageId: body.parentPageId || null, mode: body.mode || 'apply' }));
     }
-    if (b === 'notion' && req.method === 'GET') return send(res, 200, notion.status({ ...work, artifacts: listArtifacts(a) }, await Promise.all((work.stack || []).map((s) => prInfo(s.number, false, githubOfWork(work))))));
+    if (b === 'notion' && req.method === 'GET') return send(res, 200, notion.status({ ...work, artifacts: listArtifacts(a) }, await Promise.all((work.stack || []).map((s) => rowInfo(work, s)))));
+    if (b === 'landed' && req.method === 'POST') {
+      try {
+        return send(res, 200, await land(a, JSON.parse((await readBody(req)) || '{}')));
+      } catch (e) {
+        return send(res, httpStatus(e), { error: errorMessage(e) });
+      }
+    }
     if (req.method === 'PUT') {
       const body: Partial<Work> = JSON.parse(await readBody(req));
       try {
@@ -653,5 +711,5 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   };
 
   const dropPr = (number: number) => prCache.drop(prKey(githubOf(number), number));
-  return { paseo, handle, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, hooks, notion };
+  return { paseo, handle, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion };
 }

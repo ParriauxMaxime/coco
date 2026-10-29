@@ -1295,6 +1295,15 @@ Pull based, no webhooks:
   conversations and cards. Agent labels and open tabs still naming
   `b:<branch>` resolve to the number. A `propose_stack_edit` that gives a
   planned row its PR moves the same way.
+- Landed rows: a planned row shipped straight to the default branch, with no
+  PR, reads **landed** (merged colors) everywhere a row's state shows, and
+  gets no PR nudges. Its agent says so with the MCP `mark_row_landed` right
+  after it fast-forwards the branch, you with **Mark landed** in the PR
+  details (at the default branch's tip), and each work read sees it on its
+  own (cached 60 s): a planned branch, other than the default one, that moved
+  since it was created and whose tip sits on the default branch. **Undo**
+  keeps it planned for good (`stack[i].landed: null`). `POST
+  /api/works/<slug>/landed { row: <order|branch>, sha?, by, clear? }`.
 - Review runs are ingested on each `GET /api/works/<slug>/prs/<n>/review-runs`
   (the same 30 s poll): result file, `Cc-Comment:` trailers, agent state and
   the push guard are read then, nothing runs in the background.
@@ -1483,8 +1492,8 @@ Conversations saved before cards keep their proposals in the transcript as
 the tool call, read-only.
 
 The same MCP carries the agents' writes to the work, in place of curl:
-`upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact` and
-`set_next`, each defaulting to the agent's work and row; the HTTP routes stay
+`upsert_finding`, `upsert_decision`, `attach_media`, `import_artifact`,
+`mark_row_landed` and `set_next`, each defaulting to the agent's work and row; the HTTP routes stay
 for you, scripts and sessions without the MCP.
 
 When you ask any coco agent for a change to coco itself ("read local head, not

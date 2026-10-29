@@ -6,8 +6,8 @@ import './parts.css';
 
 type PrState = Pick<PrInfo, 'number' | 'state' | 'isDraft' | 'reviewDecision'>;
 
-const STATE_LABELS: Record<string, string> = { merged: 'merged', closed: 'closed', draft: 'draft', approved: 'approved', changes: 'changes requested', ready: 'in review', planned: 'planned' };
-export const stateKey = (pr: PrState) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
+const STATE_LABELS: Record<string, string> = { merged: 'merged', closed: 'closed', landed: 'landed', draft: 'draft', approved: 'approved', changes: 'changes requested', ready: 'in review', planned: 'planned' };
+export const stateKey = (pr: PrState) => (pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : pr.state === 'LANDED' ? 'landed' : !pr.number ? 'planned' : pr.isDraft ? 'draft' : pr.reviewDecision === 'APPROVED' ? 'approved' : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : 'ready');
 const TONE: Record<string, string> = { ready: 'review', closed: 'planned' };
 export const stateLabel = (pr: PrState) => STATE_LABELS[stateKey(pr)];
 

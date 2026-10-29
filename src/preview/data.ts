@@ -28,6 +28,7 @@ export const prState = (pr: WorkPr) => {
   const s = stateKey(pr);
   return s === 'ready' ? 'review' : s;
 };
+export const isDone = (s: string) => s === 'merged' || s === 'closed' || s === 'landed';
 export const prTitle = (pr: WorkPr) => pr.title || pr.planned?.title || pr.head || 'Untitled';
 export const agentsOf = (d: PreviewData, pr: WorkPr) => d.agents.filter((a) => String(a.key) === prKey(pr));
 export const findingsOf = (d: PreviewData, pr: WorkPr) => (d.findings?.rows || []).filter((f) => String(f.n) === prKey(pr) && f.status === 'open');

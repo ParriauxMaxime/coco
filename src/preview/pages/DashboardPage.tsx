@@ -22,7 +22,7 @@ function WorkCard({ w, repo }: { w: WorkSummary; repo?: string }) {
   return (
     <a className="dp-card dp-dash-work" href={workHref(w.slug)}>
       <span className="dp-card-t"><span className={`dp-dot dp-lg ${workDot(w)}`} /><span className="dp-ell dp-grow">{w.title}</span>{p.restack && <span className="dp-chip dp-warn">restack</span>}</span>
-      <span className="dp-work-bar"><SegBar w={w} thin={false} /><span className="dp-pc">{p.merged}/{w.stack - p.closed}</span></span>
+      <span className="dp-work-bar"><SegBar w={w} thin={false} /><span className="dp-pc">{p.merged + p.landed}/{w.stack - p.closed}</span></span>
       <span className="dp-card-s">
         {repo && <><Icon name="git-branch" size={12} />{repo}<span className="dp-t4">·</span></>}
         {open > 0 ? `${open} open` : w.stack ? `${p.planned} planned` : 'no PR yet'}

@@ -465,6 +465,19 @@ server.tool('set_kit_scope', `Say which kit pieces a PR needs (${config.kitKinds
   return r.ok ? text({ scope: r.data.scope }) : refused(`kit scope refused: ${r.error}`);
 });
 
+server.tool('mark_row_landed', `Say a planned row shipped straight to the default branch with no PR: call it right after you fast-forward the default branch onto the row's commits. The row then reads landed at that commit (stack, Overview, Notion) and gets no PR nudges. clear: true undoes it. A refusal names the bad field.`, {
+  work: workArg,
+  row: z.union([z.number(), z.string()]).optional().describe("the row's planned order (get_work), or its branch; default this agent's row"),
+  sha: z.string().optional().describe('the landed commit, on the default branch; default its tip'),
+  clear: z.boolean().optional(),
+}, async ({ work: slugIn, row, sha, clear }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  if (row == null && !t.pr) return refused('no row: pass row (its planned order or branch); this agent carries no PR label');
+  const r = await coco('POST', `/api/works/${t.slug}/landed`, { row: row ?? t.pr, sha, clear, by: 'agent' });
+  return r.ok ? text(r.data) : refused(`landed refused: ${r.error}`);
+});
+
 server.tool('set_next', `Write the work's "What's next": ${OWNER}'s to-do as of now (review, merge, answer, push), shown first on the Plan tab. Not what agents are doing. clear: true removes it.`, {
   work: workArg,
   summary: z.string().max(400).optional().describe('one plain sentence'),

@@ -35,6 +35,13 @@ export interface Planned {
   order?: number;
 }
 
+// a planned row shipped straight to the default branch with no PR: said by its agent or the owner, or seen in git
+export interface Landed {
+  sha: string;
+  at: string;
+  by: 'agent' | 'owner' | 'detected';
+}
+
 export interface Rule {
   id: string;
   text: string;
@@ -56,6 +63,8 @@ export interface GateRecord {
 export interface StackRow {
   number?: number | null;
   planned?: Planned;
+  // null: the owner undid it, git is not asked again
+  landed?: Landed | null;
   personas?: string[];
   keeper?: { parent?: number | null; at?: string };
   rules?: Rule[];
@@ -149,6 +158,7 @@ export interface PrInfo {
   unresolvedThreads?: number;
   reviewers?: { login: string; state: string }[];
   error?: string;
+  landed?: Landed;
   [key: string]: unknown;
 }
 

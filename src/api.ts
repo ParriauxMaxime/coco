@@ -1,7 +1,7 @@
 import type {
   AddRepoResult, AgentLog, AgentsResponse, AskRun, AskStartBody, BriefActionResult, BriefResponse, Config, CreateWorkBody, DevServerLogs,
   DevServersResponse, DispatchBody, DispatchEntry, PreflightResult, FeedbackItem, FindingActionBody, FindingsResponse, GateActionBody, GatesResponse, ImportArtifactBody, ImportedArtifact, KeepApplied, KeepPlan,
-  KitResponse, KitScope, LinkedAgent, RowMilestone, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoHealth, PaseoResponse, PermissionResponse, PersonaDetail,
+  KitResponse, KitScope, Landed, LinkedAgent, RowMilestone, LoginResult, NotionResult, NotionStatus, Overview, OverviewRituals, PackApplied, PackContents, PackExportBody, PackPreview, PaseoHealth, PaseoResponse, PermissionResponse, PersonaDetail,
   PersonaSuggestion, Persona, PinResult, RepoPage, RitualLaunchBody, RitualLaunchResult, Rule, RuleScope, RulesResponse, SetupStatus, Skill, SkillDetail,
   StartResult, StartedAgent, StopResult, SuggestionAction, Thread, ThreadGroup, ThreadPostBody, ThreadSummary, TimelineEntry, VerifyRun, Work, WorkDetail, WorkInput, WorkPlan,
   WorkAgents, WorktreeNotice, WorktreesRemoved, WorkWorktree,
@@ -204,6 +204,7 @@ export const api = {
   driftRun: (slug: string, id: string, command: string) => postJson(`${works(slug)}/drift/run`, { id, command }).then((r) => jsonOrError<{ job: Job }>(r)),
   kit: (slug: string, n: string | number) => get<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`),
   kitScope: (slug: string, n: string | number, pieces: Record<string, boolean>) => post<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`, { pieces, by: 'owner' } satisfies { pieces: Record<string, boolean>; by: KitScope['by'] }),
+  landed: (slug: string, row: string | number, clear = false) => postJson(`${works(slug)}/landed`, { row, by: 'owner', clear }).then((r) => jsonOrError<{ key: string | number | null; landed: Landed | null }>(r)),
   decide: (slug: string, body: Record<string, unknown>) => post<Work['decisions']>(`${works(slug)}/decisions`, body),
   importArtifact: (slug: string, body: ImportArtifactBody) => post<ImportedArtifact>(`${works(slug)}/artifacts`, body),
   suggestPersonas: (slug: string, pr: string | number | null) => get<PersonaSuggestion>(`${works(slug)}/personas-suggest${pr ? `?pr=${pr}` : ''}`),

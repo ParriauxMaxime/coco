@@ -6,7 +6,7 @@ import Icon from './Icon.tsx';
 import NewAgentMenu from './NewAgentMenu.tsx';
 import PrChip, { prLabel } from './PrChip.tsx';
 import { SEVERITIES, ago, sevClass, sevTone, stamp } from './format.ts';
-import { prKey, prState, prTitle } from './data.ts';
+import { isDone, prKey, prState, prTitle } from './data.ts';
 import DriftPanel from '../workbench/tabs/DriftPanel.tsx';
 import { DevServersLine, DevServersList } from './widgets/DevServer.tsx';
 import { openDecision } from './DecisionsView.tsx';
@@ -16,8 +16,8 @@ import type { WhatsNextData, WorkPr } from '../workbench/types.ts';
 import type { SpunOffWork, WorkSummary } from '../types.ts';
 import './overview.css';
 
-const STATES = ['merged', 'approved', 'changes', 'review', 'draft', 'planned', 'closed'];
-const STATE_WORD: Record<string, string> = { merged: 'merged', approved: 'approved', changes: 'changes requested', review: 'in review', draft: 'draft', planned: 'planned', closed: 'closed' };
+const STATES = ['merged', 'landed', 'approved', 'changes', 'review', 'draft', 'planned', 'closed'];
+const STATE_WORD: Record<string, string> = { merged: 'merged', landed: 'landed', approved: 'approved', changes: 'changes requested', review: 'in review', draft: 'draft', planned: 'planned', closed: 'closed' };
 const OPEN_STATES = ['draft', 'review', 'approved', 'changes'];
 const CI_TONE: Record<string, string> = { success: 'dp-ok', failure: 'dp-bad', pending: 'dp-warn' };
 const CI_WORD: Record<string, string> = { success: 'green', failure: 'failing', pending: 'running' };
@@ -35,7 +35,7 @@ const actionFor = (pr: WorkPr) => {
 };
 
 function Next({ prs, onOpenPr }: { prs: WorkPr[]; onOpenPr: (key: string) => void }) {
-  const first = prs.find((p) => !['merged', 'closed'].includes(prState(p)));
+  const first = prs.find((p) => !isDone(prState(p)));
   if (!first) return <div className="dp-next"><span className="dp-nl">NEXT</span><div className="dp-grow">Stack complete.</div></div>;
   const planned = prState(first) === 'planned';
   return (
@@ -52,7 +52,7 @@ function Next({ prs, onOpenPr }: { prs: WorkPr[]; onOpenPr: (key: string) => voi
 const stackWord = (s?: WorkSummary) => {
   if (!s?.stack) return 'no PR yet';
   const p = s.progress;
-  return p.merged ? `${p.merged}/${s.stack - p.closed} merged` : p.ready + p.draft ? `${p.ready + p.draft} open` : `${p.planned} planned`;
+  return p.merged + p.landed ? `${p.merged + p.landed}/${s.stack - p.closed} ${p.merged ? 'merged' : 'landed'}` : p.ready + p.draft ? `${p.ready + p.draft} open` : `${p.planned} planned`;
 };
 
 // works an agent of this one created: their state and What's next, read live from each

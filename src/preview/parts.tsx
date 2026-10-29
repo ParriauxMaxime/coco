@@ -40,7 +40,7 @@ export function Avatar({ login, size }: { login: string; size?: 'sm' | 'lg' }) {
   );
 }
 
-const STATE_LABELS: Record<ReturnType<typeof prState>, string> = { planned: 'Planned', draft: 'Draft', review: 'In review', approved: 'Approved', changes: 'Changes requested', merged: 'Merged', closed: 'Closed' };
+const STATE_LABELS: Record<ReturnType<typeof prState>, string> = { planned: 'Planned', draft: 'Draft', review: 'In review', approved: 'Approved', changes: 'Changes requested', merged: 'Merged', landed: 'Landed', closed: 'Closed' };
 export const stateLabel = (pr: WorkPr) => STATE_LABELS[prState(pr)];
 
 export const diffText = (pr: WorkPr) => (pr.additions === undefined || !pr.number ? '' : `${pr.changedFiles ?? '?'} files`);

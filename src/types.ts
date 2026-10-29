@@ -83,7 +83,7 @@ export type PaseoHealth = { state: 'connected' | 'reconnecting' | 'down'; reason
 export type PaseoResponse = { projects: PaseoProject[]; orphanAgents: (PaseoAgent & { cwdAbs: string })[]; error: string | null };
 
 // milestones: open PRs by current milestone, missing until the stack view computed them once
-export type WorkProgress = { merged: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean; milestones?: Record<string, number> };
+export type WorkProgress = { merged: number; landed: number; ready: number; draft: number; planned: number; closed: number; attention: boolean; restack: boolean; milestones?: Record<string, number> };
 export type WorkSummary = { slug: string; title: string; repo?: string; projectName?: string; stack: number; progress: WorkProgress; updatedAt?: string; archived: WorkArchived | null; parent?: string | null };
 export type LoosePr = { number: number; title: string; url: string; state: string; isDraft: boolean; reviewDecision: string | null; headRefName: string; updatedAt: string };
 // a repo's page: its live works in sidebar order with their what's-next line, the owner's open PRs no work holds, its brief lessons and rule files
@@ -182,7 +182,8 @@ export type Decision = {
 export type StackRow = {
   number?: number | string | null;
   branch?: string;
-  planned?: { title?: string; scope?: string; branch?: string } | null;
+  planned?: { title?: string; scope?: string; branch?: string; order?: number } | null;
+  landed?: Landed | null;
   personas?: string[];
   rules?: Rule[];
   gates?: Record<string, { state: string; at: string; skill?: string; agentId?: string; reason?: string }>;
@@ -203,6 +204,8 @@ export type Artifact = {
   meta?: { pr: string | null; kind: string | null; headSha: string | null; at: string };
 };
 
+// a planned row shipped straight to the default branch with no PR
+export type Landed = { sha: string; at: string; by: 'agent' | 'owner' | 'detected' };
 export type PrCheck = { name: string; status: string; conclusion: string; url?: string };
 export type PrInfo = {
   number: number | null;
@@ -227,6 +230,7 @@ export type PrInfo = {
   error?: string;
   key?: string | number;
   personas?: string[];
+  landed?: Landed;
 };
 export type PrFile = { filename: string; additions: number; deletions: number; status: string };
 export type PlanPr = PrInfo & { body: string; files: PrFile[]; personas: string[]; planned: StackRow['planned'] };
