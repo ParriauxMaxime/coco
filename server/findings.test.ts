@@ -119,13 +119,14 @@ test("new inline GitHub comments become findings by their reviewer, once, never 
     { id: 102, user: 'alice', body: 'my own note', path: 'a.ts', line: 1, html_url: 'u' },
     { id: 103, user: 'sentry[bot]', body: '[![issue](https://img.shields.io/badge/issue-EF4444)](https://sentry.io)\n\nBug: the [default](https://x.io) is wrong. Severity: high', path: 'b.ts', line: null, original_line: 9, side: 'RIGHT', commit_id: 'new', original_commit_id: 'old', created_at: '2026-10-29', html_url: 'https://github.com/acme/widgets/pull/7#discussion_r103' },
     { id: 104, user: 'alice-gh', body: 'gh user note', path: 'a.ts', line: 1, html_url: 'u' },
+    { id: 105, user: 'review-bot', body: 'Posted from a finding', path: 'a.ts', line: 12, side: 'RIGHT', commit_id: 'c0ffee', html_url: 'u' },
   ];
   const exec = async (_cmd: string, args: string[]) => {
     const p = args.find((a) => a.startsWith('repos/')) || args[1];
     const stdout = p === 'user' ? '{"login":"alice-gh"}' : p?.startsWith('repos/acme/widgets/pulls/7/comments') ? inline.map((x) => JSON.stringify(x)).join('\n') : p === 'repos/acme/widgets/pulls/7' ? '"carol"' : args[0] === 'pr' ? '[]' : '';
     return { ok: true, stdout, stderr: '' };
   };
-  const stored: AgentComment[] = [];
+  const stored = [{ id: 'f1', author: 'review-bot', path: 'a.ts', startLine: 10, endLine: 11, status: 'fixed' }] as unknown as AgentComment[];
   const added: Record<string, unknown>[] = [];
   const make = () =>
     createFindings({
@@ -160,10 +161,10 @@ test("new inline GitHub comments become findings by their reviewer, once, never 
   );
   assert.deepEqual(added[0].sources, [{ label: 'bob on GitHub', url: inline[0].html_url }]);
   // a dismissed or fixed finding is not imported again, nor after a restart
-  stored[0].status = 'declined';
+  stored.find((c) => c.author === 'bob')!.status = 'declined';
   assert.equal(await make().importGithub('w'), 0);
   assert.equal(added.length, 2);
-  const rows = (await findings.collect('w')).rows.filter((r) => r.path && r.url !== 'u');
+  const rows = (await findings.collect('w')).rows.filter((r) => r.path && r.url && r.url !== 'u');
   assert.deepEqual(rows.map((r) => [r.source, r.status, r.url]).sort(), [
     ['bot:sentry', 'open', inline[2].html_url],
     ['github:bob', 'declined', inline[0].html_url],

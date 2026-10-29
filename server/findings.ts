@@ -397,6 +397,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
   };
 
   // each new inline GitHub comment of a stack PR becomes a finding authored by its reviewer (human or bot), except the owner's own; at most once a minute per work
+  const authorOf = (login: string) => login.replace(/\[bot\]$/, '').replace(/[^\w.-]/g, '').slice(0, 40) || 'reviewer';
   const importedAt = new Map<string, number>();
   const importing = new Map<string, Promise<number>>();
   function importGithub(slug: string): Promise<number> {
@@ -420,9 +421,13 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     for (const s of work.stack || []) {
       if (!s.number) continue;
       const fresh = (await inlineComments(GH, s.number).catch(() => [])).filter((x) => !owners.has(x.user) && !Object.hasOwn(seen, String(x.id)));
+      const stored = comments.list(slug, s.number).comments || [];
       for (const x of fresh) {
-        // a comment the owner already accepted or dismissed on the board keeps that row
-        if (ledger[findingKey(githubSourceOf(x.user, BOTS), x.path, claimOf(x.body))]) seen[x.id] = null;
+        // a comment the owner already accepted or dismissed on the board keeps that row, and a reviewer's
+        // comment that a finding of theirs already holds (one review posted both) stays that finding
+        const line = x.line ?? x.original_line ?? 0;
+        const held = stored.some((c) => c.author === authorOf(x.user) && c.path === x.path && c.startLine - 2 <= line && line <= c.endLine + 2);
+        if (held || ledger[findingKey(githubSourceOf(x.user, BOTS), x.path, claimOf(x.body))]) seen[x.id] = null;
         else {
           const id = await importOne(slug, s.number, x).catch(() => null);
           if (!id) continue;
@@ -445,7 +450,7 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
     const firstLine = String(x.body).split('\n').map(words).find(Boolean) || claimOf(x.body) || x.path;
     const title = firstLine.length > 100 ? `${firstLine.slice(0, 99)}…` : firstLine;
     const confidence = confidenceOf(x.body);
-    const input = { path: x.path, startLine, endLine: line, body: String(x.body).slice(0, 5000), author: x.user.replace(/\[bot\]$/, '').replace(/[^\w.-]/g, '').slice(0, 40) || 'reviewer', title, severity: severityOf(x.body) || 'minor', ...(confidence === null ? {} : { confidence }), sources: [{ label: `${x.user} on GitHub`, url: x.html_url }], github: { id: x.id, login: x.user, url: x.html_url } };
+    const input = { path: x.path, startLine, endLine: line, body: String(x.body).slice(0, 5000), author: authorOf(x.user), title, severity: severityOf(x.body) || 'minor', ...(confidence === null ? {} : { confidence }), sources: [{ label: `${x.user} on GitHub`, url: x.html_url }], github: { id: x.id, login: x.user, url: x.html_url } };
     const refs = await code.ensureRefs(n).catch(() => null);
     // a left-side comment reads the base; a right-side one its own commit, else the head when that commit is gone
     const shas = x.side === 'LEFT' ? [refs?.mergeBase] : [x.line ? x.commit_id : x.original_commit_id, refs?.headSha];
