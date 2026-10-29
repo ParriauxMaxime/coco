@@ -8,15 +8,63 @@ import { useAgentInput } from './agent-input.tsx';
 import { useDictation } from './dictation.ts';
 import type { UploadRef } from '../../types.ts';
 
-// follows the bottom while new steps arrive, unless the owner scrolled up to read
+// a composer that sends tells the log beside it, which goes back to the bottom to show the message
+const SENT = 'coco:sent';
+const NEAR_BOTTOM = 80;
+// a click on a fold or a diagram grows the log under the pointer: that growth is the owner's, never followed
+const CLICK_MS = 700;
+
+// Follows the bottom while new blocks arrive or stream in, unless the owner scrolled up to read: then new blocks are counted on a
+// "N new" pill that jumps back down. Sending a message always goes back down; opening a fold never pulls the view.
 export function Log({ size, className = '', children }: { size: number; className?: string; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
-  useLayoutEffect(() => {
+  const clicked = useRef(0);
+  const last = useRef(size);
+  const [unseen, setUnseen] = useState(0);
+  const toEnd = () => {
     const el = ref.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  const follow = () => {
+    pinned.current = true;
+    setUnseen(0);
+    toEnd();
+  };
+  useLayoutEffect(() => {
+    const grew = size - last.current;
+    last.current = size;
+    if (pinned.current) toEnd();
+    else if (grew > 0) setUnseen((n) => n + grew);
   }, [size]);
-  return <div ref={ref} className={`dp-agent-log${className ? ` ${className}` : ''}`} onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>{children}</div>;
+  useEffect(() => {
+    const body = inner.current;
+    if (!body) return undefined;
+    // streamed text, a card or an image that loads grow the log without a new block
+    const watch = new ResizeObserver(() => pinned.current && Date.now() - clicked.current > CLICK_MS && toEnd());
+    watch.observe(body);
+    const sent = (e: Event) => ref.current?.parentElement?.contains(e.target as Node) && follow();
+    addEventListener(SENT, sent);
+    return () => {
+      watch.disconnect();
+      removeEventListener(SENT, sent);
+    };
+  }, []);
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM;
+    if (pinned.current) setUnseen(0);
+  };
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!(e.target as HTMLElement).closest('textarea, input, .dp-composer')) clicked.current = Date.now();
+  };
+  return (
+    <div ref={ref} className={`dp-agent-log${className ? ` ${className}` : ''}`} onScroll={onScroll} onPointerDown={onPointerDown}>
+      <div ref={inner} className="dp-agent-log-in">{children}</div>
+      {unseen > 0 && <button type="button" className="dp-log-new" onClick={follow}><Icon name="chevron-down" size={12} />{unseen} new</button>}
+    </div>
+  );
 }
 
 // a file waiting to leave with the next message: uploaded as soon as it is added, ref once stored
@@ -163,6 +211,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
         ? 'Stop dictation (click, Esc or ⌥Space): the text stays for review'
         : `Dictate at the cursor (⌥Space, hold to talk)${dictation.avail.engine === 'browser' ? ` · ${dictation.avail.reason}` : ''}`;
   const picker = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const live = useRef(files);
   live.current = files;
   useEffect(() => () => live.current.forEach((f) => f.preview && URL.revokeObjectURL(f.preview)), []);
@@ -219,6 +268,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
     if (empty || disabled || busy || sending || uploading || dictating) return;
     // the key can change while it sends (a new conversation gets its id) and the box unmount: the sent text leaves its own key
     const from = draft;
+    root.current?.dispatchEvent(new CustomEvent(SENT, { bubbles: true }));
     if (await onSend(text.trim() || (files.length ? FILES_ONLY : ''), files.flatMap((f) => (f.ref ? [f.ref] : [])))) {
       if (from) keepDraft(from, '');
       agentInput.sent();
@@ -230,7 +280,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   };
   const dragging = (e: React.DragEvent) => !disabled && attach && e.dataTransfer.types.includes('Files');
   return (
-    <div className={`dp-composer${className ? ` ${className}` : ''}`}>
+    <div ref={root} className={`dp-composer${className ? ` ${className}` : ''}`}>
       <div
         className={`dp-composer-in${drag ? ' dp-upl-drag' : ''}`}
         onDragOver={(e) => { if (dragging(e)) { e.preventDefault(); setDrag(true); } }}

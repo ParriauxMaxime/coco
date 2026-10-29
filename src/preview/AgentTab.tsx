@@ -288,12 +288,12 @@ function GroupThreads({ slug, keys, summaries }: { slug: string; keys: string[];
   });
   if (keys.length === 1) {
     return (
-      <div className="dp-ag-threads">
+      <Log size={summaries[keys[0]].count} className="dp-ag-threads">
         <div className="dp-ag-thread dp-ag-one">
           <div className="dp-ag-thread-h dp-open"><span className="dp-ell">{summaries[keys[0]].label || keys[0]}</span></div>
           <Thread slug={slug} threadKey={keys[0]} bare />
         </div>
-      </div>
+      </Log>
     );
   }
   return (
