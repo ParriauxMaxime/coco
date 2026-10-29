@@ -4,13 +4,14 @@ import { chunkGone, reloadWhenSafe } from './updates.ts';
 
 export const reportError = (kind: string, error: unknown, extra: Record<string, unknown> = {}) => {
   const e = error instanceof Error ? error : new Error(String(error));
-  const body = JSON.stringify({ kind, message: e.message, stack: e.stack, url: location.href, ...extra });
+  const body = JSON.stringify({ kind, message: e.message, stack: e.stack, url: location.href, ua: navigator.userAgent, ...extra });
   void fetch('/api/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
 };
 
-// Monaco's diff worker answers a diff editor already disposed (a card shut or a tab switched mid-compute)
-const MONACO_NOISE = /no diff result available/;
-const noise = (e: Event, error: unknown) => MONACO_NOISE.test(error instanceof Error ? error.message : String(error)) && (e.preventDefault(), true);
+// Monaco's diff worker answers a diff editor already disposed (a card shut or a tab switched mid-compute);
+// a bare "Script error." is a cross-origin script the browser hides everything of
+const NOISE = /no diff result available|^Script error\.?$/;
+const noise = (e: Event, error: unknown) => NOISE.test(error instanceof Error ? error.message : String(error)) && (e.preventDefault(), true);
 
 export function watchErrors() {
   addEventListener('error', (e) => noise(e, e.error ?? e.message) || reportError('window', e.error ?? e.message));
