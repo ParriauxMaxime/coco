@@ -174,8 +174,8 @@ file and key names your app really uses. The key's value is never read or shown,
 
 ```json
 "preflight": {
-  "mcp": [{ "name": "lemlist-dev MCP", "url": "http://localhost:8000/mcp", "fix": "start the local app" }],
-  "settingsFile": "lemapp/settings-local.json",
+  "mcp": [{ "name": "app-dev MCP", "url": "http://localhost:8000/mcp", "fix": "start the local app" }],
+  "settingsFile": "app/settings-local.json",
   "llmKey": { "env": ["ANTHROPIC_API_KEY"], "paths": ["anthropic.apiKey"], "fix": "set the key on the local server" },
   "probes": [{ "name": "Campaign has leads", "command": ["mongosh", "--quiet", "--eval", "if (!db.leads.countDocuments()) quit(1)"], "timeoutSeconds": 10, "fix": "seed leads in SETUP" }]
 }

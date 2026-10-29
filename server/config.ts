@@ -80,7 +80,7 @@ export interface Config {
   featureFlags: { provider?: string } | null;
   // how coco readies the worktree of an agent that writes code, and the checks it runs on its commits (docs/guide.md, "Agent worktrees")
   agentWorktree: AgentWorktreeConfig | null;
-  // checks shown on a kit-video dispatch and injected in its brief as known blockers; null: the built-in ones (lemlist repos get lemlist defaults)
+  // checks shown on a kit-video dispatch and injected in its brief as known blockers; null: the built-in ones
   preflight: PreflightConfig | null;
   // how a planned row ships: "pr", as a PR GitHub merges; "main", also straight onto the local default branch with no PR (landed.ts)
   land: 'pr' | 'main';

@@ -72,15 +72,15 @@ test('dev server: a crashed one and one running mid node_modules swap are red; n
 });
 
 test('MCP endpoints: http and tcp are probed, a refusal is red with the configured fix', async () => {
-  const cfg: PreflightConfig = { mcp: [{ name: 'lemlist-dev MCP', url: 'http://localhost:8000/mcp', fix: 'start the app' }, { name: 'db', url: 'tcp://127.0.0.1:27017' }, { name: 'broken', url: 'nope' }] };
+  const cfg: PreflightConfig = { mcp: [{ name: 'app-dev MCP', url: 'http://localhost:8000/mcp', fix: 'start the app' }, { name: 'db', url: 'tcp://127.0.0.1:27017' }, { name: 'broken', url: 'nope' }] };
   const up = rig({ cfg });
   const r = await up.preflight.run('csv', 101);
   assert.deepEqual(up.calls.http, ['http://localhost:8000/mcp']);
   assert.deepEqual(up.calls.tcp, ['127.0.0.1:27017']);
-  assert.deepEqual(r.checks.filter((c) => ['lemlist-dev MCP', 'db'].includes(c.name)).map((c) => c.ok), [true, true]);
+  assert.deepEqual(r.checks.filter((c) => ['app-dev MCP', 'db'].includes(c.name)).map((c) => c.ok), [true, true]);
   assert.equal(by(r, 'broken').ok, false);
   const down = await rig({ cfg, http: async () => 'ECONNREFUSED', tcp: async () => 'ECONNREFUSED' }).preflight.run('csv', 101);
-  assert.deepEqual([by(down, 'lemlist-dev MCP').ok, by(down, 'lemlist-dev MCP').detail, by(down, 'lemlist-dev MCP').fix], [false, 'http://localhost:8000/mcp: ECONNREFUSED', 'start the app']);
+  assert.deepEqual([by(down, 'app-dev MCP').ok, by(down, 'app-dev MCP').detail, by(down, 'app-dev MCP').fix], [false, 'http://localhost:8000/mcp: ECONNREFUSED', 'start the app']);
   assert.match(by(down, 'db').fix, /tcp:\/\/127\.0\.0\.1:27017/);
 });
 
@@ -139,12 +139,12 @@ test('the result is cached for 60 s per PR; fresh re-runs it', async () => {
 });
 
 test('the brief lines list only red checks, point at the skill playbook and leak no key', async () => {
-  const cfg: PreflightConfig = { mcp: [{ name: 'lemlist-dev MCP', url: 'http://localhost:8000/mcp', fix: 'start the app' }], llmKey: { env: ['ANTHROPIC_API_KEY'] } };
+  const cfg: PreflightConfig = { mcp: [{ name: 'app-dev MCP', url: 'http://localhost:8000/mcp', fix: 'start the app' }], llmKey: { env: ['ANTHROPIC_API_KEY'] } };
   const { preflight } = rig({ cfg, http: async () => 'ECONNREFUSED', env: { OTHER: SECRET } });
   const lines = preflight.briefLines(await preflight.run('csv', 101), 'lem-demo-video').join('\n');
   assert.match(lines, /^## Known blockers/);
   assert.match(lines, /`lem-demo-video` skill's "When a beat is blocked"/);
-  assert.match(lines, /- lemlist-dev MCP: http:\/\/localhost:8000\/mcp: ECONNREFUSED \(to unblock, the owner: start the app\)/);
+  assert.match(lines, /- app-dev MCP: http:\/\/localhost:8000\/mcp: ECONNREFUSED \(to unblock, the owner: start the app\)/);
   assert.match(lines, /- LLM key: not set/);
   assert.doesNotMatch(lines, /Worktree deps/);
   assert.ok(!lines.includes(SECRET));
@@ -170,11 +170,11 @@ function dispatchRig(pre?: ReturnType<typeof rig>['preflight']) {
 }
 
 test('a kit-video dispatch gets the red checks as Known blockers in its first message; other entries and green runs do not', async () => {
-  const cfg: PreflightConfig = { mcp: [{ name: 'lemlist-dev MCP', url: 'http://localhost:8000/mcp' }] };
+  const cfg: PreflightConfig = { mcp: [{ name: 'app-dev MCP', url: 'http://localhost:8000/mcp' }] };
   const red = dispatchRig(rig({ cfg, http: async () => 'ECONNREFUSED' }).preflight);
   await red.dispatch.start('csv', { entry: 'gate:kit-video:lem-demo-video', key: 101 });
   const prompt = String(red.started[0].prompt);
-  assert.match(prompt, /\n## Known blockers\n[\s\S]*`lem-demo-video` skill's "When a beat is blocked"[\s\S]*- lemlist-dev MCP: http:\/\/localhost:8000\/mcp: ECONNREFUSED/);
+  assert.match(prompt, /\n## Known blockers\n[\s\S]*`lem-demo-video` skill's "When a beat is blocked"[\s\S]*- app-dev MCP: http:\/\/localhost:8000\/mcp: ECONNREFUSED/);
   assert.ok(prompt.indexOf('Written brief') < prompt.indexOf('## Known blockers'));
   await red.dispatch.start('csv', { entry: 'gate:kit-body:lem-pr', key: 101 });
   assert.doesNotMatch(String(red.started[1].prompt), /Known blockers/);
