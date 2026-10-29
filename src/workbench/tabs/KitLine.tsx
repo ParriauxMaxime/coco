@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { api } from '../../api.ts';
-import { subscribe, topic } from '../../live.ts';
+import { topic } from '../../live.ts';
+import { useResource } from '../../resource.ts';
 import type { KitPiece, KitResponse } from '../../types.ts';
 import type { PrKey } from '../types.ts';
 import { pendingClass, useAction } from '../../components/action.ts';
@@ -12,15 +13,9 @@ const tip = (p: KitPiece, head: KitResponse['head']) => [p.source && `from ${p.s
 
 // kit pieces of a PR against its head: stale once the head moved after they were made
 export default function KitLine({ slug, n }: { slug: string; n: PrKey }) {
-  const [data, setData] = useState<KitResponse | null>(null);
-  useEffect(() => {
-    const load = () => api.kit(slug, n).then(setData, () => {});
-    load();
-    const t = setInterval(load, POLL_MS);
-    let soon: ReturnType<typeof setTimeout>;
-    const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(load, 50); } });
-    return () => { clearInterval(t); clearTimeout(soon); off(); };
-  }, [slug, n]);
+  const kit = useResource<KitResponse>(`/api/works/${slug}/kit/${encodeURIComponent(n)}`, () => api.kit(slug, n), { poll: POLL_MS, topics: [topic('work', slug)] });
+  const data = kit.data ?? null;
+  const setData = kit.put;
   const { pending, busy, run } = useAction();
   const pieces = data?.pieces.filter((p) => p.id !== 'notion' || p.state !== 'off') || [];
   const betas = data?.betaFlags || [];

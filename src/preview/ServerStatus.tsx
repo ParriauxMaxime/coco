@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
+import { useResource } from '../resource.ts';
 import { toast } from '../components/Toast.tsx';
 import { reloadNow, reloadWhenSafe, sawBuild, useUpdates } from '../updates.ts';
 import Icon from './Icon.tsx';
@@ -12,18 +13,10 @@ const BACK_WITHIN_MS = 180000;
 // the coco commit this server runs; once main moved past it, a restart one click away. While the server is away: reconnecting;
 // once it serves a new build and a box holds unsent text: the reload, a click away (src/updates.ts)
 export default function ServerStatus() {
-  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const info = useResource<ServerInfo>('/api/server', api.server, { poll: POLL_MS }).data ?? null;
   const [restarting, setRestarting] = useState(false);
   const { offline, stale } = useUpdates();
-  useEffect(() => {
-    const load = () => api.server().then((s) => {
-      setInfo(s);
-      sawBuild(s.build);
-    }, () => {});
-    load();
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { if (info) sawBuild(info.build); }, [info]);
   if (offline) return <span className="dp-sbi dp-t3" title="coco's server does not answer (a restart or a rebuild): the page reconnects by itself"><Icon name="refresh" className="dp-spin" />Reconnecting…</span>;
   if (stale) return <span className="dp-sbi dp-wait" title="coco runs a new build: reload onto it (layout, tabs and unsent drafts are kept)" onClick={reloadNow}><Icon name="refresh" />coco updated · Reload</span>;
   if (!info?.running) return null;

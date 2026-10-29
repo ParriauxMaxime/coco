@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../../api.ts';
+import { peek, useResource, useShownInterval } from '../../resource.ts';
 import type { RowAction } from '../../api.ts';
 import type { DevServerRowData, DevServersResponse } from '../../types.ts';
 import { useAction } from '../../components/action.ts';
@@ -13,37 +14,23 @@ const LOG_POLL_MS = 3000;
 const LOG_LINES = 80;
 
 // the work's dev servers: { on, board, rows } from the plugin through coco, or { on: false, reason } when the plugin is not there
+// one read and one poll per work however many views show it
 export function useDevServers(slug: string) {
-  const [data, setData] = useState<DevServersResponse | null>(null);
-  const load = () =>
-    api.devServers(slug).then(
-      (d) => (setData(d), d),
-      (e): DevServersResponse => { const d: DevServersResponse = { on: false, reason: errorMessage(e) }; setData(d); return d; },
-    );
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let live = true;
-    let last: DevServersResponse | null = null;
-    const tick = async () => {
-      if (document.visibilityState === 'visible') last = await load();
-      if (live) timer = setTimeout(tick, POLL_MS[last?.on === false ? 'off' : 'on']);
-    };
-    tick();
-    return () => { live = false; clearTimeout(timer); };
-  }, [slug]);
+  const fetcher = () => api.devServers(slug).catch((e): DevServersResponse => ({ on: false, reason: errorMessage(e) }));
+  const key = `/api/dev-servers/works/${slug}`;
+  const res = useResource<DevServersResponse>(key, fetcher, { poll: POLL_MS[peek<DevServersResponse>(key)?.on === false ? 'off' : 'on'] });
+  const data = res.data ?? null;
   const rows: Record<string, DevServerRowData> = Object.fromEntries((data?.on ? data.rows : []).map((r) => [String(r.key), r]));
-  return { data, rows, reload: load };
+  return { data, rows, reload: () => res.reload() };
 }
 
 export function useDevLogs(id: string) {
   const [lines, setLines] = useState<string[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    const load = () => api.devServerLogs(id, LOG_LINES).then((r) => live && setLines(r.lines), (e) => live && setLines([`(no logs: ${errorMessage(e)})`]));
-    load();
-    const t = setInterval(load, LOG_POLL_MS);
-    return () => { live = false; clearInterval(t); };
-  }, [id]);
+  const live = useRef(id);
+  live.current = id;
+  const load = () => api.devServerLogs(id, LOG_LINES).then((r) => live.current === id && setLines(r.lines), (e) => live.current === id && setLines([`(no logs: ${errorMessage(e)})`]));
+  useEffect(() => { void load(); }, [id]);
+  useShownInterval(load, LOG_POLL_MS);
   return lines ? lines.join('\n') || '(empty)' : '…';
 }
 

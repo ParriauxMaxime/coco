@@ -147,8 +147,11 @@ export const readCached = <T>(key: string, fetcher: () => Promise<T>) => {
   const e = entryOf(key, fetcher);
   return (e.snap.data !== undefined ? Promise.resolve(e.snap.data) : load(e)) as Promise<T>;
 };
-export const peek = <T>(key: string) => entries.get(key)?.snap.data as T | undefined;
-export const reloadKey =(key: string) => { const e = entries.get(key); return e ? load(e) : Promise.resolve(undefined); };
+// an early value while the read goes on (a saved snapshot before the fresh one): the read in flight still lands
+export const show = (key: string, data: unknown) => { const e = entries.get(key); if (e) set(e, { data }); };
+export const peek =<T>(key: string) => entries.get(key)?.snap.data as T | undefined;
+// after a change: a new read, superseding one started before it
+export const reloadKey = <T>(key: string, fetcher: () => Promise<T>) => load(entryOf(key, fetcher), fetcher) as Promise<T>;
 
 // an interval that runs only while its tab and the window show, and once on showing again when a tick was missed
 export function useShownInterval(fn: () => unknown, ms: number, on = true) {

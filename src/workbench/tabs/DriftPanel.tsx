@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { api, errorMessage } from '../../api.ts';
-import { subscribe, topic } from '../../live.ts';
+import { topic } from '../../live.ts';
+import { useResource } from '../../resource.ts';
 import { isLive, jobOf, useJobs } from '../../jobs.ts';
-import type { DriftAction, DriftHead, DriftItem, DriftResponse } from '../../types.ts';
+import type { DriftAction, DriftHead, DriftItem, DriftResponse, Job } from '../../types.ts';
 import Icon from '../../preview/Icon.tsx';
 import type { IconName } from '../../preview/Icon.tsx';
 import { JobButton } from '../../components/JobButton.tsx';
@@ -16,20 +17,25 @@ const label = (key: DriftItem['key']) => (key == null ? '' : /^b:/.test(String(k
 // the job an item's action starts, as the server keys it
 const actionOf = (it: DriftItem, a: DriftAction) => (a.type === 'run' ? `drift:${it.id}` : a.type === 'dispatch' ? (a.persona ? `${a.entry}:${a.persona}` : a.entry) : null);
 
+// the jobs of each work seen live, and those seen ending: one fresh read per job that ends while a view of the work is open
+const seenJobs = new Map<string, { live: Set<string>; ended: Set<string> }>();
+const endedNow = (slug: string, jobs: Job[]) => {
+  const seen = seenJobs.get(slug) ?? { live: new Set<string>(), ended: new Set<string>() };
+  seenJobs.set(slug, seen);
+  let ended = false;
+  for (const j of jobs) {
+    if (isLive(j)) seen.live.add(j.id);
+    else if (seen.live.has(j.id) && !seen.ended.has(j.id)) { seen.ended.add(j.id); ended = true; }
+  }
+  return ended;
+};
+
 function useDrift(slug: string) {
-  const [data, setData] = useState<DriftResponse | null>(null);
+  const drift = useResource<DriftResponse>(`/api/works/${slug}/drift`, () => api.drift(slug), { poll: POLL_MS, topics: [topic('work', slug)] });
+  const data = drift.data ?? null;
   const jobs = useJobs(slug);
-  const ended = jobs.filter((j) => !isLive(j)).length;
-  useEffect(() => {
-    const load = () => api.drift(slug).then(setData, () => {});
-    load();
-    const t = setInterval(load, POLL_MS);
-    let soon: ReturnType<typeof setTimeout>;
-    const off = subscribe(topic('work', slug), { message: () => { clearTimeout(soon); soon = setTimeout(load, 50); } });
-    return () => { clearInterval(t); clearTimeout(soon); off(); };
-  }, [slug]);
-  // a job that ended may have fixed an item
-  useEffect(() => { if (ended) api.drift(slug, true).then(setData, () => {}); }, [slug, ended]);
+  // a job of this work that ended may have fixed an item
+  useEffect(() => { if (endedNow(slug, jobs)) void drift.reload(() => api.drift(slug, true)).catch(() => {}); }, [slug, jobs]);
 
   const go = (it: DriftItem, a: DriftAction) => {
     if (a.type === 'copy') return void navigator.clipboard?.writeText(a.command).then(() => toast.success(`Copied: ${a.command}`));

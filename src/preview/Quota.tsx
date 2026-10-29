@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { api } from '../api.ts';
+import { useResource } from '../resource.ts';
 import { Ring, fillTone } from './Ring.tsx';
 import type { ProviderUsage, UsageWindow } from '../types.ts';
 
@@ -20,13 +21,8 @@ function Window({ w }: { w: UsageWindow }) {
 
 // the main provider's account quota, its summary windows (session, week) as rings
 export default function Quota() {
-  const [usage, setUsage] = useState<ProviderUsage | null>(null);
-  useEffect(() => {
-    const load = () => api.usage().then(setUsage, () => setUsage(null));
-    load();
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
-  }, []);
+  const res = useResource<ProviderUsage | null>('/api/usage', api.usage, { poll: POLL_MS });
+  const usage = res.err ? null : res.data ?? null;
   const windows = usage?.status === 'available' ? usage.windows.filter((w) => w.summary && w.usedPct != null) : [];
   if (!usage || !windows.length) return null;
   return (

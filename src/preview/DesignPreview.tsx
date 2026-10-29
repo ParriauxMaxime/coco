@@ -18,6 +18,7 @@ import type { PreviewData } from './data.ts';
 import { prLabel, useAgentList } from './agents.ts';
 import Shell, { useNarrow } from './Shell.tsx';
 import { VIEWS, WorkViews } from './WorkSidebar.tsx';
+import { cachedOverview } from './overview.ts';
 import type { Command } from './Shell.tsx';
 import type { WorkSummary } from '../types.ts';
 
@@ -161,7 +162,7 @@ function Bench({ d, slug }: { d: PreviewData & { work: { w: NonNullable<PreviewD
 export default function DesignPreview({ slug }: { slug?: string }) {
   useEffect(() => {
     if (slug) return;
-    api.overview().then((ov) => {
+    cachedOverview().then((ov) => {
       const first = ov.repos.flatMap((r) => r.works).map((s) => ov.works.find((w) => w.slug === s)).find((w) => w && !w.archived && w.stack > 0);
       if (first) history.replaceState(null, '', `#/work/${first.slug}`), dispatchEvent(new HashChangeEvent('hashchange'));
     }, () => {});

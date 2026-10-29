@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { api } from '../api.ts';
-import { subscribe, topic } from '../live.ts';
+import { topic } from '../live.ts';
+import { useResource } from '../resource.ts';
 import { usePendingPermissions } from './chat/Permission.tsx';
 import { itemsOf, useWaiting } from './waiting.ts';
 import { stateKey } from '../components/PrBadge.tsx';
@@ -46,19 +47,13 @@ export function usePreviewData(slug: string): PreviewData {
   const queue = useWaiting();
   const waiting = useMemo(() => itemsOf(queue, slug), [queue, slug]);
   const { ov: overview } = useOverview();
-  const [findings, setFindings] = useState<FindingsResponse | null>(null);
-  const [agents, setAgents] = useState<LinkedAgent[]>([]);
+  const findings = useFindings(slug).data ?? null;
+  const agents = useResource<LinkedAgent[]>(`/api/paseo-link/agents?work=${encodeURIComponent(slug)}`, () => api.linkedAgents(slug), { poll: POLL_MS }).data ?? NONE;
   const dev = useDevServers(slug);
-  useEffect(() => {
-    const load = () => {
-      api.findings(slug, null).then(setFindings, () => {});
-      api.linkedAgents(slug).then(setAgents, () => {});
-    };
-    load();
-    const t = setInterval(load, 30000);
-    // the board is served from the last one: the server says when its refresh landed a different one
-    const off = subscribe(topic('findings', slug), { message: () => void api.findings(slug, null).then(setFindings, () => {}) });
-    return () => { clearInterval(t); off(); };
-  }, [slug]);
   return { slug, work, prs: work.prs, overview, findings, agents, pending, waiting, dev };
 }
+
+const POLL_MS = 30000;
+const NONE: LinkedAgent[] = [];
+// the board is served from the last one at once: the server says on its topic when its refresh landed a different one
+export const useFindings = (slug: string) => useResource<FindingsResponse>(`/api/works/${slug}/findings`, () => api.findings(slug, null), { poll: POLL_MS, topics: [topic('findings', slug)] });

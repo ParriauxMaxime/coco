@@ -1,5 +1,6 @@
-import React, { Fragment, useEffect, useState } from 'react';
-import { api, errorMessage } from '../../api.ts';
+import React, { Fragment, useState } from 'react';
+import { api } from '../../api.ts';
+import { peek, useResource } from '../../resource.ts';
 import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import Checks from '../../components/Checks.tsx';
@@ -21,19 +22,13 @@ export const skillSpec = (s: Gate['skills'][number]) => (typeof s === 'string' ?
 
 // null: no PR to read milestones of
 export function useGates(slug: string, n: PrKey | null) {
-  const [data, setData] = useState<GatesResponse | null>(null);
-  const [error, setError] = useState('');
+  const key = n === null ? null : `/api/works/${slug}/gates/${encodeURIComponent(n)}`;
+  const running = Boolean(key && peek<GatesResponse>(key)?.gates.some((g) => g.state === 'running'));
+  const res = useResource<GatesResponse>(key, () => api.gates(slug, n ?? ''), { poll: running ? POLL_MS / 6 : POLL_MS });
+  const data = res.data ?? null;
+  const error = res.err;
   const { pending, busy, run: go } = useAction();
-  const running = data?.gates.some((g) => g.state === 'running');
-  useEffect(() => setData(null), [slug, n]);
-  useEffect(() => {
-    if (n === null) return undefined;
-    const load = () => api.gates(slug, n).then((d) => { setData(d); setError(''); }, (e) => setError(errorMessage(e)));
-    load();
-    const t = setInterval(load, running ? POLL_MS / 6 : POLL_MS);
-    return () => clearInterval(t);
-  }, [slug, n, running]);
-  const act = (id: string, body: GateActionBody) => n !== null && go(`${id}:${body.action}`, async () => { setData(await api.gateAction(slug, n, id, body)); setError(''); });
+  const act = (id: string, body: GateActionBody) => n !== null && go(`${id}:${body.action}`, async () => res.put(await api.gateAction(slug, n, id, body)));
   const run = async (id: string, s: Gate['skills'][number]) => {
     const { name, ask: question } = skillSpec(s);
     const answer = question ? (await ask({ title: `/${name}`, fields: [question], ok: 'Run' }))?.[0] : '';

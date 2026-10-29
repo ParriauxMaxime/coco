@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { peek, useResource } from '../resource.ts';
 import { reviewApi } from '../workbench/code/use-comments.ts';
 import { keyLabel } from '../workbench/code/ids.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
@@ -13,21 +14,14 @@ import { ago, stamp } from './format.ts';
 import './findings.css';
 
 const POLL_MS = 5000;
+const NO_RUNS: StackFixState = { runs: [], open: [] };
 const RUN_TONE: Record<string, string> = { running: 'dp-warn', done: 'dp-ok', failed: 'dp-bad' };
 
 export function useStackFix(slug: string, live: boolean) {
-  const [state, setState] = useState<StackFixState>({ runs: [], open: [] });
-  const [nonce, setNonce] = useState(0);
-  const running = state.runs.some((r) => r.status === 'running');
-  useEffect(() => {
-    if (!live) return undefined;
-    let on = true;
-    const load = () => reviewApi.stackFix(slug).then((s: StackFixState) => on && setState(s)).catch(() => {});
-    load();
-    const t = setInterval(load, running ? POLL_MS : 30000);
-    return () => { on = false; clearInterval(t); };
-  }, [slug, live, running, nonce]);
-  return { ...state, reload: () => setNonce((n) => n + 1) };
+  const key = `/api/works/${slug}/stack-fix`;
+  const running = Boolean(peek<StackFixState>(key)?.runs.some((r) => r.status === 'running'));
+  const res = useResource<StackFixState>(live ? key : null, () => reviewApi.stackFix(slug), { poll: running ? POLL_MS : 30000 });
+  return { ...(res.data ?? NO_RUNS), reload: () => void res.reload().catch(() => {}) };
 }
 
 export const openStackRun = (id: string) => {
