@@ -127,6 +127,7 @@ card when a row is picked; the outcome becomes `result` (a throw is
 | `stack_edit` (`propose_stack_edit`) | confirm "Edit stack: <work> (N changes)"; why; the stack after the ops (row, title, reviewers, Notion page, added/updated/moved/kept), removed rows as a callout; a `syncNotion` toggle when the work has a linked page; no ops + `syncNotion` is a "Sync Notion: <work>" card | applies `ops` (`add` after a row or `start`, `update` fields or move, `remove`) to the current stack, untouched fields kept; then the work's Notion sync when ticked (one work page, never a page per row); link to the work |
 | `split` (`propose_split`) | confirm "Split #N into K: <work>"; why; table of the K rows in order (PR or planned branch, title, GitHub base, files, Notion page), a note for the row after the split, callouts for an original no part reuses and for planned rows; toggles `notionRows` (linked work only) and `bodies`, both default on | one step each, reported in the result: `stack` (the original row replaced in place by the parts, every other row and field kept, the first part takes the original's Notion page, all inherit its reviewers; skipped as "already split" on a retry), `base #N` per part PR (`gh pr edit N --repo <github> --base <prev part branch>`, the first on the row below or the default branch, the row after the split on the last part; skipped when already right), `notion` (the work's sync also creates child pages for the new rows and links them), `body #N` (a `dispatch` card of the kit-body gate per part PR, none started). `ok: false` if any step failed; approve a new `propose_split` with the same parts to redo what failed; link to the work |
 | `pr_reply` (`propose_pr_reply`) | confirm "Reply to <author> on #<pr>" (or "Comment on #<pr>" without `replyTo`); why; the comment answered as a callout; the draft in an editable `body` textarea; a `resolve` toggle for a review thread; **Post reply** / **Drop**; refused when `replyTo` is not a comment of that PR | posts the edited text with gh as a reply in the thread (else a PR conversation comment), then resolves the thread when ticked; link to the posted comment |
+| `pr_body` (`propose_pr_body`) | confirm "New body for #<pr>"; why; the PR title, then the diff of the live body against the proposed one as `diff` code blocks (two lines of context, the rest folded, cut past 14 blocks); **Replace body** / **Drop**; refused when the PR is not found or the body is the live one | reads the live body again: changed since the card (another agent, a hand edit) writes nothing and fails; else `gh pr edit --body-file`; link to the PR |
 | `paseo_agent` (`propose_paseo_agent`) | confirm "Start agent: …"; why; model, thinking, workspace and work line; the brief as code (cut at 4000, the agent gets all of it) | starts the agent, logs it on the work's timeline; link to its `ag-` tab |
 | `dispatch` (`dispatch`) | confirm "Dispatch <entry> on <PR>"; refused without a work (the conversation's, `workSlug`, or the agent's label) | the catalog dispatch; link to the started agent |
 | `repo` (`propose_repo`) | confirm "Add repo <source>"; what adding does | adds the repo (clone, config, Paseo project, setup run); link to its page |
@@ -261,6 +262,10 @@ A picked option whose effect did the work is not delivered.
   `{ id, status: 'open', note }`, the note saying the answer arrives as a new
   user message and the agent should not wait or poll. `thread` and option
   `effect` for thread agents. Option and card `diagram` on choice cards.
+  A text past its limit (title 120, question 500, an option's label 120,
+  details 500, consequence 200, a field label 120, button labels 40) is cut
+  with an ellipsis instead of refusing the call, and the result's `cut` lists
+  it; `flag_coco_issue` does the same for title 100, summary 400, quote 600.
 - `post_blocks({ title, blocks, thread? })`: a `post` card.
 - `post_reply({ blocks, thread?, finding? })`: a thread agent's reply for its
   waiting thread (`POST /api/agent-chat/<agentId>/reply`). `blocks` go through
@@ -283,6 +288,9 @@ A picked option whose effect did the work is not delivered.
   `server-restart.log` when the install or build failed. Every MCP call to
   coco waits up to 20 s while coco refuses connections, so a call made during
   a restart lands once it is back.
+- `archive_me()`: `POST /api/agent-chat/<agentId>/archive-when-done`; coco
+  archives the agent once its turn ends idle (`archiveWhenDone`, as for a
+  one-off run), and refuses with 409 while one of its cards is open.
 - `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
   `propose_rules`: same names and inputs as before, now posting a proposal
   card (`action`) and returning `{ id, status: 'open', note }`.
@@ -296,6 +304,9 @@ A picked option whose effect did the work is not delivered.
 - `propose_pr_reply({ pr?, replyTo?, body, resolve?, github?, why? })`: same
   return; every agent drafts a PR comment reply through it (Ask prompt, cards
   line, fix and review briefs) instead of refusing or handing back a command.
+- `propose_pr_body({ pr?, body, github?, why })`: same return; the whole new
+  body of a PR, for an agent whose task does not call for editing it (a
+  thread agent fixing a stale count a finding points at).
 - `get_work({ slug, sections? })`: a slim view by default (summary, stack rows
   with `number`, `branch`, `title`, `state`, `notionPage`, decisions in one
   line, clipped notes, the last note entries). `sections` (`notes`, `timeline`,

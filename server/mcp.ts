@@ -185,6 +185,16 @@ server.tool('propose_pr_reply', `Draft a reply to a PR comment (a reviewer's, a 
   return propose('pr_reply', { ...p, ...(pr != null ? { pr } : here.pr ? { pr: here.pr } : {}) });
 });
 
+server.tool('propose_pr_body', `Propose a new body for a PR (a stale count or table, a section a reviewer asked for, a message to pass on), shown to ${OWNER} as a card with its diff against the live body. Nothing is written until ${OWNER} presses Replace body; coco then writes it with gh, only if the live body did not change since. Send the whole body, not a part. ${ON_CARD}`, {
+  pr: z.union([z.number(), z.string()]).optional().describe("PR number; omit to use this agent's PR"),
+  body: z.string().max(60000).describe('the whole new body, GitHub markdown'),
+  github: z.string().optional().describe("owner/name; omit for the work's repo"),
+  why: z.string().max(500).describe('one sentence: what changes and why'),
+}, async ({ pr, ...p }) => {
+  const here = await myPlace();
+  return propose('pr_body', { ...p, ...(pr != null ? { pr } : here.pr ? { pr: here.pr } : {}) });
+});
+
 server.tool('propose_paseo_agent',`Propose starting a Paseo agent (local, in an existing workspace or cwd), shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Start agent on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief. ${ON_CARD}`, {
   title: z.string().max(60).describe('agent title shown in Paseo, e.g. "PR 1: export endpoint skeleton"'),
   prompt: z.string().describe('the full task for the agent'),
@@ -236,14 +246,20 @@ async function postCard(card: Record<string, unknown>) {
   return r.ok ? { id: String(r.data.id) } : { error: r.error };
 }
 const typedBlocks = z.array(z.looseObject({ type: z.string() })).describe('typed blocks, 16 at most: text {text}, callout {tone: risk|warn|ok|note, title?, text}, steps {title?, items[], outcome?}, diagram {mermaid, caption?}, code {path?, line?, lang?, code, caption?}, table {columns[], rows: cell[][], caption?}, media {kind: image|video, src: /api/works/<slug>/media/<file>, caption?}. Inline text takes **bold**, *italic*, `code`, path/file.ts:12 refs and <risk|warn|ok|note>…</…> marks');
-const cardOption = z.object({ key: z.string().describe('short id returned in the answer'), label: z.string().max(120), details: z.string().max(500).optional(), consequence: z.string().max(200).optional().describe('one line: what happens if picked, and the risk'), recommended: z.boolean().optional(), confidence: z.number().min(0).max(100).optional() });
+// an over-long text is cut to its limit instead of refusing the call, and the result names what was cut
+const fit = (cuts: string[]) => <T extends string | undefined>(v: T, max: number, at: string): T => {
+  if (v == null || v.trim().length <= max) return v;
+  cuts.push(at);
+  return `${v.trim().slice(0, max - 1).trimEnd()}…` as T;
+};
+const cardOption = z.object({ key: z.string().describe('short id returned in the answer'), label: z.string().describe('120 characters, longer is cut'), details: z.string().optional().describe('500 characters, longer is cut'), consequence: z.string().optional().describe('one line: what happens if picked, and the risk; 200 characters, longer is cut'), recommended: z.boolean().optional(), confidence: z.number().min(0).max(100).optional() });
 const choiceOption = cardOption.extend({ diagram: z.string().max(4000).optional().describe('Mermaid source (no fence) of what this option builds, shown on its card and side by side with the other options'), effect: z.union([z.object({ type: z.literal('take_decision'), option: z.string().describe('the decision card option key') }), z.object({ type: z.literal('dismiss_finding') })]).optional().describe('thread cards only, single choice: what picking it does in coco instead of a new turn: take_decision on a decision thread, dismiss_finding (leave the code as is) on a finding thread') });
 const tableCell = z.union([z.string(), z.object({ text: z.string(), tone: z.enum(['risk', 'warn', 'ok', 'note', 'mute']).optional() })]);
 
 server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to ask the user anything. Kinds: choice (2-8 options, multi for several picks), rows (a table of 1-40 rows to tick, select one or many; or rowOptions, one pick per row), form (1-8 fields), confirm (approve or reject). Every kind but form has a free-text "Other" box unless other is false. Returns at once with the card id: do not wait or poll, end your turn or keep working; the answer arrives later as a new user message starting "[coco card <id> answered]". A refused card names the bad field: fix it and call again. On a choice card give exactly one recommendation (\`recommended\`, the option key) and, when the options differ in risk or effect, a one-line \`consequence\` on each option: ${OWNER} should not have to type a question into "Other" to learn what each pick does. For an architecture or flow choice, give each option a \`diagram\` (12 nodes at most, the same layout across options so they compare).`, {
   kind: z.enum(['choice', 'rows', 'form', 'confirm']),
-  title: z.string().max(120).describe('short plain text: what is decided'),
-  question: z.string().max(500).optional().describe('the question, inline markup'),
+  title: z.string().describe('short plain text: what is decided; 120 characters, longer is cut'),
+  question: z.string().optional().describe('the question, inline markup; 500 characters, longer is cut (put the context in blocks)'),
   blocks: typedBlocks.optional().describe('context shown above the question, same typed blocks as post_blocks'),
   options: z.array(choiceOption).optional().describe('choice: 2-8 options'),
   multi: z.boolean().optional().describe('choice: several picks allowed'),
@@ -253,14 +269,27 @@ server.tool('ask', `Ask ${OWNER} something on a card in coco, the only way to as
   rows: z.array(z.object({ key: z.string(), cells: z.array(tableCell).describe('one cell per column'), recommended: z.union([z.string(), z.boolean()]).optional().describe('true to pre-tick; with rowOptions, the recommended option key') })).optional().describe('rows: 1-40 rows'),
   select: z.enum(['many', 'one']).optional().describe('rows: tick many rows (default) or exactly one'),
   rowOptions: z.array(cardOption).optional().describe('rows: 2-4 options picked per row instead of ticks'),
-  fields: z.array(z.object({ key: z.string(), label: z.string().max(120), type: z.enum(['text', 'textarea', 'number', 'select', 'toggle']), options: z.array(z.string()).optional().describe('select: the choices'), default: z.union([z.string(), z.number(), z.boolean()]).optional(), required: z.boolean().optional(), placeholder: z.string().optional() })).optional().describe('form: 1-8 fields'),
-  confirmLabel: z.string().max(40).optional().describe('confirm: default "Approve"'),
-  rejectLabel: z.string().max(40).optional().describe('confirm: default "Reject"'),
+  fields: z.array(z.object({ key: z.string(), label: z.string().describe('120 characters, longer is cut'), type: z.enum(['text', 'textarea', 'number', 'select', 'toggle']), options: z.array(z.string()).optional().describe('select: the choices'), default: z.union([z.string(), z.number(), z.boolean()]).optional(), required: z.boolean().optional(), placeholder: z.string().optional() })).optional().describe('form: 1-8 fields'),
+  confirmLabel: z.string().optional().describe('confirm: default "Approve"; 40 characters, longer is cut'),
+  rejectLabel: z.string().optional().describe('confirm: default "Reject"; 40 characters, longer is cut'),
   other: z.boolean().optional().describe('free-text "Other" box; default true except on forms'),
   thread: z.string().optional().describe('a coco thread agent: the thread key your prompt names; the card shows in that thread and its answer comes through it'),
-}, async (card) => {
+}, async (input) => {
+  const cuts: string[] = [];
+  const cut = fit(cuts);
+  const option = <T extends { label: string; details?: string; consequence?: string }>(o: T, at: string): T => ({ ...o, label: cut(o.label, 120, `${at}.label`), details: cut(o.details, 500, `${at}.details`), consequence: cut(o.consequence, 200, `${at}.consequence`) });
+  const card = {
+    ...input,
+    title: cut(input.title, 120, 'title'),
+    question: cut(input.question, 500, 'question'),
+    options: input.options?.map((o, i) => option(o, `options[${i}]`)),
+    rowOptions: input.rowOptions?.map((o, i) => option(o, `rowOptions[${i}]`)),
+    fields: input.fields?.map((f, i) => ({ ...f, label: cut(f.label, 120, `fields[${i}].label`) })),
+    confirmLabel: cut(input.confirmLabel, 40, 'confirmLabel'),
+    rejectLabel: cut(input.rejectLabel, 40, 'rejectLabel'),
+  };
   const r = await postCard(card);
-  return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, status: 'open', note: 'The answer arrives as a new user message starting "[coco card <id> answered]". Do not wait or poll: end your turn or keep working.' });
+  return 'error' in r ? refused(`card refused: ${r.error}`) : text({ id: r.id, status: 'open', note: 'The answer arrives as a new user message starting "[coco card <id> answered]". Do not wait or poll: end your turn or keep working.', ...(cuts.length ? { cut: cuts } : {}) });
 });
 
 server.tool('post_blocks', `Show ${OWNER} a rich result in coco (tables, diagrams, code, callouts) as a card in your chat. Nothing is asked: use ask for that.`, {
@@ -366,11 +395,15 @@ server.tool('upsert_finding', `Post one code-review finding to ${OWNER}'s Findin
 });
 
 server.tool('flag_coco_issue', `Flag a change ${OWNER} asks of cocopilot itself ("coco should read local head, not origin") as a finding on the cocopilot work, then answer with the returned url. Use it instead of saying another session owns it; change no coco code from another work. The same title updates the existing finding. A refused finding names the bad field.`, {
-  title: z.string().max(100).describe('row label, ~70 chars: what coco should do differently'),
+  title: z.string().describe('row label, ~70 chars: what coco should do differently; 100 characters, longer is cut'),
   severity: z.enum(['blocking', 'major', 'minor', 'nit']).describe('blocking: coco unusable · major: wrong behaviour hit often · minor: friction · nit: polish'),
-  summary: z.string().max(400).describe('the change asked, one or two sentences: current behaviour, wanted behaviour'),
-  quote: z.string().max(600).describe(`${OWNER}'s own words, verbatim`),
-}, async ({ quote, ...fields }) => {
+  summary: z.string().describe('the change asked, one or two sentences: current behaviour, wanted behaviour; 400 characters, longer is cut'),
+  quote: z.string().describe(`${OWNER}'s own words, verbatim; 600 characters, longer is cut`),
+}, async (input) => {
+  const cuts: string[] = [];
+  const cut = fit(cuts);
+  const { quote, ...fields } = { ...input, title: cut(input.title, 100, 'title'), summary: cut(input.summary, 400, 'summary'), quote: cut(input.quote, 600, 'quote') };
+  const told = cuts.length ? { cut: cuts } : {};
   const w = listWorks().find((x) => (config.cocoWork ? x.slug === config.cocoWork : x.repo === 'cocopilot'));
   const row = rowKey(w?.stack?.[0]);
   if (!w || !row) return refused(`no cocopilot work with a first row: ${config.cocoWork ? `cocoWork "${config.cocoWork}" not found` : 'set cocoWork in coco.config.json'}`);
@@ -388,10 +421,10 @@ server.tool('flag_coco_issue', `Flag a change ${OWNER} asks of cocopilot itself 
   const existing = stored.find((c) => c.kind === 'issue' && c.title?.trim() === fields.title.trim())?.id;
   if (existing) {
     const r = await coco('PUT', `${base}/${encodeURIComponent(existing)}`, rich);
-    return r.ok ? text({ id: existing, updated: true, url: link(existing) }) : refused(`issue refused: ${r.error}`);
+    return r.ok ? text({ id: existing, updated: true, url: link(existing), ...told }) : refused(`issue refused: ${r.error}`);
   }
   const r = await coco('POST', base, { kind: 'issue', author: 'coco-issue', from: { agent: AGENT_ID, work: here.work, pr: here.pr }, ...rich });
-  return r.ok ? text({ id: r.data.id, created: true, url: link(String(r.data.id)) }) : refused(`issue refused: ${r.error}`);
+  return r.ok ? text({ id: r.data.id, created: true, url: link(String(r.data.id)), ...told }) : refused(`issue refused: ${r.error}`);
 });
 
 server.tool('upsert_decision', `Write a decision card on a work: an open product or tech choice with options that ${OWNER} takes on the Decisions tab, instead of asking in chat. Merged into the card with that id, or added as a new pending card; a choice ${OWNER} already took stays. Evidence goes in summary, blocks and sources like a finding. A refused card names the bad field.`, {
@@ -592,7 +625,7 @@ server.tool('get_artifacts', `The work's artifacts other agents imported (PR bod
   }));
 });
 
-server.tool('list_work_agents', `Who works on a work now: each agent coco started or linked on it (title, kind such as a kit piece, review or fix, PR, status running, idle or archived, last update; you: true is you) and its latest jobs (dispatches, kit runs, syncs: state and error), newest first. Check it before making a piece another agent may already be making.`, {
+server.tool('list_work_agents', `Who works on a work now: each agent coco started or linked on it (title, kind such as a kit piece, review or fix, PR, status running, done, failed or archived, last update; you: true is you) and its latest jobs (dispatches, kit runs, syncs: state and error), newest first. Check it before making a piece another agent may already be making.`, {
   work: workArg,
   pr: rowArg.optional().describe('only this PR'),
 }, async ({ work: slugIn, pr: prIn }) => {
@@ -607,6 +640,12 @@ server.tool('list_work_agents', `Who works on a work now: each agent coco starte
   const agents = ((a.data.agents ?? []) as Listed[]).filter((x) => mine(x.pr)).map((x) => ({ agentId: x.agentId, kind: x.kind, title: x.title, pr: x.pr, status: x.status, updatedAt: x.updatedAt, ...(x.subagents?.running ? { subagents: x.subagents.running } : {}), ...(x.agentId && x.agentId === AGENT_ID ? { you: true } : {}) }));
   const jobs = j.ok ? ((j.data.jobs ?? []) as Job[]).filter((x) => mine(x.pr)).slice(-15).reverse().map(({ label, action, state, pr, agentId, startedAt, endedAt, error }) => ({ label, action, state, pr, agentId, startedAt, endedAt, ...(error ? { error } : {}) })) : { error: j.error };
   return text({ agents, jobs });
+});
+
+server.tool('archive_me', `When nothing is left for you to do (no card open, nothing ${OWNER} still has to answer), coco archives you once this turn ends, as ${OWNER}'s Archive button does: end that turn on a one-line summary, not a next-steps card. Refused while one of your cards is open.`, {}, async () => {
+  if (!AGENT_ID) return refused('no PASEO_AGENT_ID in this MCP server environment: only a Paseo agent started by coco archives itself');
+  const r = await coco('POST', `/api/agent-chat/${encodeURIComponent(AGENT_ID)}/archive-when-done`);
+  return r.ok ? text(r.data) : refused(`archive refused: ${r.error}`);
 });
 
 const RESTART_MS = 180000;

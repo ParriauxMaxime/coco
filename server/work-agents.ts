@@ -53,6 +53,8 @@ type Options = {
   closeAsk?: (id: string) => Promise<unknown>;
   // archives one agent through coco, which keeps its cards as when coco archives it itself; false once it is archived already
   archiveAgent?: (agentId: string) => Promise<boolean>;
+  // archive_me: the agent goes once its turn ends well
+  archiveWhenDone?: (agentId: string) => Promise<boolean>;
   // agents a hand-off started: they never archive themselves
   handedOff?: () => string[];
   // a follow-up's model or thinking pick, applied to the agent before the message
@@ -70,7 +72,7 @@ const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
 
 
-export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, handedOff = () => [], models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
+export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, archiveWhenDone, handedOff = () => [], models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
   const selfArchiving = (a: Parameters<typeof autoArchivable>[0] | null | undefined) => {
     if (!a) return false;
     const handed = new Set(handedOff());
@@ -328,6 +330,14 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       if (root === 'agent-chat' && a && b === 'archive' && req.method === 'POST') {
         if (!archiveAgent) throw new HttpError(501, 'archiving is not wired');
         return send(res, 200, { ok: true, archived: await archiveAgent(a) });
+      }
+      // archive_me: an agent with a card still open stays for the answer
+      if (root === 'agent-chat' && a && b === 'archive-when-done' && req.method === 'POST') {
+        if (!archiveWhenDone) throw new HttpError(501, 'archiving is not wired');
+        const open = cards?.openCount(a) ?? 0;
+        if (open) throw new HttpError(409, `${open} card${open > 1 ? 's' : ''} of this agent still wait${open > 1 ? '' : 's'} on an answer: archive once answered`);
+        void archiveWhenDone(a).catch(() => false);
+        return send(res, 202, { ok: true, archived: 'once this turn ends' });
       }
       if (root === 'agent-chat' && a && b === 'unarchive' && req.method === 'POST') return send(res, 200, await unarchive(a));
       if (root === 'works' && b === 'agents' && c === 'events') return watchList(sseSink(req, res), a);

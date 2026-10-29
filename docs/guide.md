@@ -1514,6 +1514,9 @@ The same MCP carries the agents' writes to the work, in place of curl:
 for you, scripts and sessions without the MCP. It reads for them too: `get_thread` shows a thread agent
 its own thread as you see it (the Approve queue, checks, open cards), `get_artifacts` the pieces other
 agents imported, `list_work_agents` who runs on the work, and `restart_coco` restarts coco and waits for it.
+An agent whose task does not call for editing the PR body proposes a new one with `propose_pr_body`: a
+card with the diff, **Replace body** writes it unless the live body changed since. An agent done with
+its task calls `archive_me` and is archived once its turn ends, unless one of its cards is still open.
 
 When you ask any coco agent for a change to coco itself ("read local head, not
 origin"), it calls `flag_coco_issue` instead of saying another session owns it:

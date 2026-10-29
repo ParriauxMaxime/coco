@@ -17,7 +17,7 @@ export const commentIdOf = (v: unknown, field: string) => {
   return Number(m[1]);
 };
 
-const prOf = (v: unknown, fallback: string | null) => {
+export const prOf = (v: unknown, fallback: string | null) => {
   const n = Number(String(v ?? fallback ?? '').replace(/^#/, ''));
   if (!Number.isInteger(n) || n <= 0) throw new Error('pr required: the PR number');
   return n;

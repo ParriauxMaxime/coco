@@ -36,6 +36,10 @@ const routes: Partial<Record<string, (body: unknown) => unknown>> = {
     return { restarting: true };
   },
   'GET /api/works/widgets/drift': () => ({ drift: [], next: [] }),
+  'POST /api/cards': () => ({ id: 'card1' }),
+  [`POST /api/agent-chat/${AGENT}/archive-when-done`]: () => ({ ok: true, archived: 'once this turn ends' }),
+  'GET /api/works/coco/prs/3/comments': () => ({ comments: [] }),
+  'POST /api/works/coco/prs/3/comments': () => ({ id: 'f1' }),
 };
 const coco = http.createServer((req, res) => {
   let raw = '';
@@ -108,6 +112,28 @@ test('list_work_agents shows the agents and latest jobs of a PR, newest first, t
 test('get_thread reads the named thread, or says the agent holds none', async () => {
   assert.deepEqual((await call('get_thread', { thread: ' c.7.aa11 ' })).json(), [{ key: 'c.7.aa11', suggestions: [{ commit: 'abc', state: 'queued' }] }]);
   assert.deepEqual((await call('get_thread')).json(), { threads: [], note: 'this agent holds no thread' });
+});
+
+test('ask and flag_coco_issue cut an over-long text to its limit instead of refusing, and say what they cut', async () => {
+  const long = 'x'.repeat(130);
+  const r = (await call('ask', { kind: 'choice', title: 'Pick', question: 'q'.repeat(600), options: [{ key: 'a', label: long, consequence: 'c'.repeat(250) }, { key: 'b', label: 'B' }] })).json();
+  assert.deepEqual(r.cut, ['question', 'options[0].label', 'options[0].consequence']);
+  const sent = calls.at(-1)?.body as { question: string; options: { label: string; consequence?: string }[]; agentId: string };
+  assert.deepEqual([sent.question.length, sent.options[0].label.length, sent.options[0].consequence?.length, sent.options[1].label, sent.agentId], [500, 120, 200, 'B', AGENT]);
+  assert.ok(sent.options[0].label.endsWith('…'));
+
+  fs.writeFileSync(path.join(DATA, 'works', 'coco.json'), JSON.stringify({ slug: 'coco', repo: 'cocopilot', stack: [{ number: 3 }] }));
+  const f = (await call('flag_coco_issue', { title: 'Resolve a finding when its commit lands by hand', severity: 'major', summary: 's'.repeat(450), quote: 'fix it' })).json();
+  assert.deepEqual([f.created, f.cut], [true, ['summary']]);
+  assert.equal((calls.at(-1)?.body as { summary: string }).summary.length, 400);
+});
+
+test('propose_pr_body posts a pr_body card for the agent PR; archive_me asks coco to archive it after the turn', async () => {
+  const r = (await call('propose_pr_body', { body: '## Summary\nNew', why: 'The count moved.' })).json();
+  assert.equal(r.id, 'card1');
+  assert.deepEqual(calls.at(-1)?.body, { action: { type: 'pr_body', input: { body: '## Summary\nNew', why: 'The count moved.', pr: '7' } }, agentId: AGENT });
+  assert.deepEqual((await call('archive_me')).json(), { ok: true, archived: 'once this turn ends' });
+  assert.equal(`${calls.at(-1)?.method} ${calls.at(-1)?.url}`, `POST /api/agent-chat/${AGENT}/archive-when-done`);
 });
 
 test('restart_coco restarts coco and waits for the new server', async () => {

@@ -169,3 +169,14 @@ test('any agent, in a work or not: its info for its own page, and a message to i
   assert.equal((await call(agents.handle, 'POST', '/api/agent-chat/gone/messages', { text: 'hi' })).status, 404);
   assert.equal(chatted.length, 1);
 });
+
+test('archive_me archives the agent once its turn ends, not while one of its cards waits on an answer', async () => {
+  const later: string[] = [];
+  const open: Record<string, number> = { asking: 1 };
+  const agents = createWorkAgents({ client: async () => ({}) as DaemonClient, asks: () => [], linked: () => [], onAgent: () => () => {}, serverId: async () => 'srv_1', archiveWhenDone: async (id) => (later.push(id), true), cards: { ofAgent: () => [], openCount: (id) => open[id] ?? 0, onChange: () => () => {}, chatted: () => {} } });
+  const refused = await call(agents.handle, 'POST', '/api/agent-chat/asking/archive-when-done');
+  assert.deepEqual([refused.status, refused.body?.error], [409, '1 card of this agent still waits on an answer: archive once answered']);
+  const done = await call(agents.handle, 'POST', '/api/agent-chat/done/archive-when-done');
+  assert.deepEqual([done.status, done.body], [202, { ok: true, archived: 'once this turn ends' }]);
+  assert.deepEqual(later, ['done']);
+});
