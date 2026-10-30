@@ -165,29 +165,26 @@ export default function Activity({ events, active = false, issues: offer = false
   const did = callsLabel(countCalls(calls));
   const step = lastWork >= 0 ? stepOf(shown[lastWork]) : '';
   const label = active ? [`Working${took && ` ${took}`}`, step].filter(Boolean).join(' · ') : [took && `Worked ${took}`, did].filter(Boolean).join(' · ') || 'Worked';
-  // per tool: one row per tool it used, then its thinking as one row, its narration as one, and the words it ends on
+  // a turn is one summary row — its work opens on the rows per tool it used, or on its calls in order, and its thinking; then its narration, then the
+  // words it ends on
   const thinks = shown.flatMap((it) => (it.kind === 'think' ? [it.text] : []));
   return (
     <div className="dp-cv-acts">
-      {perTool ? (
-        <>
-          {groupCallsByTool(calls).map((g, gi) => (
+      <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
+        <div className="dp-cv-acts">
+          {perTool && groupCallsByTool(calls).map((g, gi) => (
             <Row key={`t${gi}`} icon="wrench" label={`${g.name} · ${g.mcp || g.name === 'browser' ? `${g.calls.length} call${g.calls.length > 1 ? 's' : ''}` : tallyLabel(g.counts)}`} running={active && g.calls.some((c) => c.status === 'running')} open={open[`t${gi}`]} onToggle={() => toggle(`t${gi}`)}>
               {g.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}
             </Row>
           ))}
-          {thinks.length > 0 && (
+          {perTool && thinks.length > 0 && (
             <Row icon="brain" label="Thinking" running={active && shown.some((it) => it.kind === 'think' && it.running)} open={open.thinking} onToggle={() => toggle('thinking')}>
               <div className="dp-cv-think">{thinks.join('\n\n')}</div>
             </Row>
           )}
-          {shown.map((it, i) => (inSight.has(it) || notes.has(it) || it.kind === 'tools' || it.kind === 'think' ? null : item(it, i)))}
-        </>
-      ) : (
-        <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
-          <div className="dp-cv-acts">{shown.map((it, i) => (inSight.has(it) || notes.has(it) ? null : item(it, i)))}</div>
-        </Row>
-      )}
+          {shown.map((it, i) => (inSight.has(it) || notes.has(it) || (perTool && (it.kind === 'tools' || it.kind === 'think')) ? null : item(it, i)))}
+        </div>
+      </Row>
       {notes.size > 0 && (
         <Row icon="message-square" label={`${notes.size} note${notes.size > 1 ? 's' : ''}`} running={false} open={open.notes} onToggle={() => toggle('notes')}>
           {shown.map((it, i) => (notes.has(it) ? item(it, i) : null))}
