@@ -25,7 +25,8 @@ const RECONNECT_MAX_MS = 10000;
 const FIRST_CONNECT_MS = 20000;
 const HOME = os.homedir();
 // the one cocopilot tool whose input is the run's result; the other proposals are cards
-const COCO_TOOL = /^mcp__cocopilot__(propose_review_plan)$/;
+// Paseo names an MCP tool mcp__cocopilot__<tool> for Claude, and "<server> / <tool>" once it bridges one to omp or opencode
+const COCO_TOOL = /^(?:mcp_+cocopilot_+|cocopilot \/ )(propose_review_plan)(?:_[0-9a-f]{8,})?$/;
 // the server.tool names of server/mcp.ts, preapproved like any plugin preapproves its own tools
 export const COCO_MCP_TOOLS = ['list_works', 'get_work', 'get_review_context', 'get_pr_findings', 'get_drift', 'list_personas', 'read_persona', 'suggest_personas', 'consult_persona', 'read_skill', 'list_paseo', 'github_pr', 'github_search', 'propose_work_scaffold', 'propose_stack_edit', 'propose_split', 'propose_pr_reply', 'propose_pr_body', 'propose_slack_message', 'propose_paseo_agent', 'propose_rules', 'propose_review_plan', 'propose_repo', 'dispatch', 'ask', 'post_blocks', 'upsert_finding', 'flag_coco_issue', 'upsert_decision', 'attach_media', 'import_artifact', 'set_kit_scope', 'mark_row_landed', 'set_next', 'own_deps', 'post_reply', 'get_thread', 'set_finding_status', 'get_artifacts', 'list_work_agents', 'spawn_agent', 'wait_agent', 'message_agent', 'stop_agent', 'archive_me', 'restart_coco', 'screenshot', 'pair_link'];
 // every coco agent's one line on cards (docs/agent-io.md); Claude agents also lose AskUserQuestion

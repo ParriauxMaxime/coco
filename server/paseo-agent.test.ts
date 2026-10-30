@@ -149,6 +149,22 @@ test('run starts the agent in the workspace already open on its directory, waits
   assert.deepEqual(daemon.calls.opened, []);
 });
 
+test('a plan call Paseo bridged to omp ("cocopilot / propose_review_plan", or its hashed raw name) reaches submitted like the Claude name', async () => {
+  const plan = { steps: [{ title: 'Read the router', why: 'the entry point', files: [{ path: 'src/r.ts', focus: 'routes' }] }], skim: [], watchPoints: [] };
+  const daemon = fakeDaemon({
+    workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }],
+    events: [say('Planned.'), tool('c1', 'cocopilot / propose_review_plan', { type: 'unknown', input: plan, output: { recorded: true } }), { type: 'turn_completed', provider: 'omp' }],
+  });
+  const bridged = await createPaseoAgents({ APP, connect: daemon.connect }).run({ title: 'Plan review #1', prompt: 'plan', provider: 'omp/openrouter-deepseek/@preset/dev', cwd: '/acme/widgets' });
+  assert.deepEqual(bridged.submitted, { propose_review_plan: plan });
+  const raw = fakeDaemon({
+    workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }],
+    events: [say('Planned.'), tool('c1', 'mcp_cocopilot__propose_review_plan_799253524566', { type: 'unknown', input: plan, output: { recorded: true } }), { type: 'turn_completed', provider: 'omp' }],
+  });
+  const hashed = await createPaseoAgents({ APP, connect: raw.connect }).run({ title: 'Plan review #1', prompt: 'plan', provider: 'omp/openrouter-deepseek/@preset/dev', cwd: '/acme/widgets' });
+  assert.deepEqual(hashed.submitted, { propose_review_plan: plan });
+});
+
 test('an agent on another provider than Claude starts in its own default mode, without the coco tools when asked', async () => {
   const daemon = fakeDaemon({ workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }], events: [say('[]'), { type: 'turn_completed', provider: 'opencode' }], results: [{ status: 'idle', lastMessage: '[]' }] });
   await createPaseoAgents({ APP: '/app', connect: daemon.connect }).run({ title: 'Brief lessons', prompt: 'judge', provider: 'opencode/ollama/qwen3:14b', cwd: '/acme/widgets', mcp: false });
