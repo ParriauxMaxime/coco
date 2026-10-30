@@ -9,20 +9,26 @@ import type { Raw } from './blocks.ts';
 const MAX_TEXT = 4000;
 const MAX_CHANNEL = 120;
 type SlackInput = { channel: string; text: string; why?: string };
-export type SlackPost = (token: string, channel: string, text: string) => Promise<{ channel: string; ts: string }>;
+export type SlackPost = (auth: SlackAuth, channel: string, text: string) => Promise<{ channel: string; ts: string }>;
 
-// the token the Slack MCP server runs on (config.mcpServers.slack.env), which coco reuses to post
-export function slackToken(config: Pick<Config, 'mcpServers'>): string | null {
+// the credentials the Slack MCP server runs on (config.mcpServers.slack.env), which coco reuses to post:
+// an OAuth token, or the browser session pair (xoxc + the d cookie) where no app can be installed in the workspace
+export type SlackAuth = { token: string; cookie?: string };
+export function slackAuth(config: Pick<Config, 'mcpServers'>): SlackAuth | null {
   const server = config.mcpServers?.slack;
   if (!server || server.type !== 'stdio') return null;
   const env = (expandServer(server) as Extract<typeof server, { type: 'stdio' }>).env ?? {};
-  return env.SLACK_MCP_XOXP_TOKEN?.trim() || env.SLACK_MCP_XOXB_TOKEN?.trim() || null;
+  const token = env.SLACK_MCP_XOXP_TOKEN?.trim() || env.SLACK_MCP_XOXB_TOKEN?.trim() || env.SLACK_MCP_XOXC_TOKEN?.trim();
+  if (!token) return null;
+  const cookie = env.SLACK_MCP_XOXD_TOKEN?.trim();
+  if (token.startsWith('xoxc-') && !cookie) return null;
+  return { token, ...(token.startsWith('xoxc-') && cookie ? { cookie } : {}) };
 }
 
-export const slackPost: SlackPost = async (token, channel, text) => {
+export const slackPost: SlackPost = async (auth, channel, text) => {
   const r = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json; charset=utf-8' },
+    headers: { authorization: `Bearer ${auth.token}`, 'content-type': 'application/json; charset=utf-8', ...(auth.cookie ? { cookie: `d=${auth.cookie}` } : {}) },
     body: JSON.stringify({ channel, text }),
   });
   const body = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; channel?: string; ts?: string };
@@ -36,7 +42,7 @@ export function createSlackSend({ config, post = slackPost }: { config: Pick<Con
   const cardAction: ActionDef = {
     card: (raw) => {
       const input = inputOf(raw);
-      if (!slackToken(config)) throw new Error('no Slack token: set mcpServers.slack.env.SLACK_MCP_XOXP_TOKEN (docs/configuration.md, "Connectors on any provider")');
+      if (!slackAuth(config)) throw new Error('no Slack credentials: set mcpServers.slack.env.SLACK_MCP_XOXP_TOKEN, or SLACK_MCP_XOXC_TOKEN + SLACK_MCP_XOXD_TOKEN where no app can be installed (docs/configuration.md, "Connectors on any provider")');
       return {
         input,
         card: {
@@ -51,11 +57,11 @@ export function createSlackSend({ config, post = slackPost }: { config: Pick<Con
       };
     },
     run: async (card) => {
-      const token = slackToken(config);
-      if (!token) throw new Error('no Slack token');
+      const auth = slackAuth(config);
+      if (!auth) throw new Error('no Slack credentials');
       const input = inputOf(card.action?.input ?? {});
       const text = str(card.answer?.values?.text ?? input.text, MAX_TEXT, 'text');
-      const sent = await post(token, input.channel, text);
+      const sent = await post(auth, input.channel, text);
       return { ok: true, detail: `posted${text !== input.text ? ' (edited)' : ''} to ${sent.channel}`, link: `https://slack.com/app_redirect?channel=${encodeURIComponent(sent.channel)}` };
     },
   };
