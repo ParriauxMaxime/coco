@@ -11,6 +11,7 @@ import DriftPanel from '../workbench/tabs/DriftPanel.tsx';
 import { DevServersLine, DevServersList } from './widgets/DevServer.tsx';
 import { openDecision } from './DecisionsView.tsx';
 import { workHref } from './prefs.ts';
+import OverviewFold from './OverviewFold.tsx';
 import type { PreviewData } from './data.ts';
 import type { WhatsNextData, WorkPr } from '../workbench/types.ts';
 import type { SpunOffWork, WorkSummary } from '../types.ts';
@@ -21,7 +22,6 @@ const STATE_WORD: Record<string, string> = { merged: 'merged', landed: 'landed',
 const OPEN_STATES = ['draft', 'review', 'approved', 'changes'];
 const CI_TONE: Record<string, string> = { success: 'dp-ok', failure: 'dp-bad', pending: 'dp-warn' };
 const CI_WORD: Record<string, string> = { success: 'green', failure: 'failing', pending: 'running' };
-const KIND_TONE: Record<string, string> = { github: 'dp-info', coco: 'dp-acc', review: 'dp-acc', decision: 'dp-ok' };
 
 const isWhatsNext = (x: unknown): x is WhatsNextData => typeof x === 'object' && x !== null;
 
@@ -58,8 +58,7 @@ const stackWord = (s?: WorkSummary) => {
 // works an agent of this one created: their state and What's next, read live from each
 function SpunOff({ list, summaries }: { list: SpunOffWork[]; summaries: WorkSummary[] }) {
   return (
-    <div className="dp-block">
-      <div className="dp-h2">Spun-off works<span className="dp-count">{list.length}</span></div>
+    <OverviewFold id="spun" title="Spun-off works" line={`${list.length} · ${list.map((c) => c.title).join(' · ')}`}>
       <ul className="dp-ov-spun">
         {list.map((c) => (
           <li key={c.slug}>
@@ -72,7 +71,7 @@ function SpunOff({ list, summaries }: { list: SpunOffWork[]; summaries: WorkSumm
           </li>
         ))}
       </ul>
-    </div>
+    </OverviewFold>
   );
 }
 
@@ -96,7 +95,6 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
   const unrated = openFindings.filter((r) => !SEVERITIES.includes(r.severity || '')).length;
 
   const openPrs = prs.filter((p) => OPEN_STATES.includes(prState(p)));
-  const timeline = [...(w.timeline || [])].sort((a, b) => (a.ts < b.ts ? 1 : -1)).slice(0, 6);
   const decisions = (w.decisions || []).filter((x) => !x.decidedAt && !x.choice && !x.archivedAt);
   const links = w.links || [];
   const personas = w.personas || [];
@@ -160,8 +158,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             )}
 
             {openPrs.length > 0 && (
-              <div className="dp-block">
-                <div className="dp-h2">Open PRs<span className="dp-meta">{openPrs.length} waiting for your call</span></div>
+              <OverviewFold id="prs" title="Open PRs" line={`${openPrs.length} waiting for your call · ${openPrs.map((p) => `${prLabel(p)} ${actionFor(p).toLowerCase()}`).join(' · ')}`}>
                 <div className="dp-box">
                   <table className="dp-tbl">
                     <thead><tr><th>PR</th><th>What it does</th><th>CI</th><th>Your action</th></tr></thead>
@@ -177,22 +174,20 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </OverviewFold>
             )}
 
-            <div className="dp-block">
-              <div className="dp-h2">Open findings<span className="dp-meta"><button type="button" className="dp-linkbtn" onClick={() => onOpenTab('findings')}>Open the board</button></span></div>
-              {openFindings.length === 0 ? <div className="dp-t3 dp-sm">Nothing open.</div> : (
-                <div className="dp-row dp-g4" style={{ flexWrap: 'wrap' }}>
-                  {bySeverity.map(([s, n]) => <span key={s} className={`dp-chip ${sevTone(s)}`}><span className={`dp-sev ${sevClass(s)} dp-ov-sev`}><i /></span>{n} {s}</span>)}
-                  {unrated > 0 && <span className="dp-chip">{unrated} unrated</span>}
-                </div>
-              )}
-            </div>
+            <OverviewFold id="findings" title="Open findings" line={openFindings.length ? [...bySeverity.map(([s, n]) => `${n} ${s}`), ...(unrated ? [`${unrated} unrated`] : [])].join(' · ') : 'Nothing open'}>
+              <div className="dp-row dp-g4" style={{ flexWrap: 'wrap' }}>
+                {openFindings.length === 0 && <span className="dp-t3 dp-sm">Nothing open.</span>}
+                {bySeverity.map(([s, n]) => <span key={s} className={`dp-chip ${sevTone(s)}`}><span className={`dp-sev ${sevClass(s)} dp-ov-sev`}><i /></span>{n} {s}</span>)}
+                {unrated > 0 && <span className="dp-chip">{unrated} unrated</span>}
+                <span className="dp-sp" /><button type="button" className="dp-linkbtn dp-sm" onClick={() => onOpenTab('findings')}>Open the board</button>
+              </div>
+            </OverviewFold>
 
             {decisions.length > 0 && (
-              <div className="dp-block">
-                <div className="dp-h2">Open decisions<span className="dp-meta dp-num">{decisions.length} · <button type="button" className="dp-linkbtn" onClick={() => onOpenTab('decisions')}>Open the board</button></span></div>
+              <OverviewFold id="decisions" title="Open decisions" line={`${decisions.length} · ${decisions.map((x) => x.title).join(' · ')}`}>
                 <ul className="dp-ov-list">
                   {decisions.map((x) => (
                     <li key={x.id}>
@@ -202,22 +197,8 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-
-            {timeline.length > 0 && (
-              <div className="dp-block">
-                <div className="dp-h2">Recent activity</div>
-                <ul className="dp-ov-list">
-                  {timeline.map((t, i) => (
-                    <li key={i}>
-                      <span className={`dp-chip ${KIND_TONE[t.kind] || ''}`}>{t.kind}</span>
-                      {t.link ? <a className="dp-grow dp-ell" href={t.link} title={t.text}>{t.text}</a> : <span className="dp-grow dp-ell" title={t.text}>{t.text}</span>}
-                      <span className="dp-xs dp-t3 dp-num">{ago(t.ts)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                <button type="button" className="dp-linkbtn dp-sm" onClick={() => onOpenTab('decisions')}>Open the board</button>
+              </OverviewFold>
             )}
           </div>
 
@@ -250,10 +231,9 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
               </dl>
             </div>
             {d.dev.data?.on && (
-              <div className="dp-side-sec">
-                <div className="dp-sec-t" title="What an agent of this work gets when it needs a dev server: a running one it reuses, a warm build, or a cold start">Dev servers for agents</div>
+              <OverviewFold id="dev" className="dp-side-sec" title="Dev servers for agents" line={<DevServersLine data={d.dev.data} />}>
                 <DevServersList data={d.dev.data} slug={d.slug} onChange={d.dev.reload} />
-              </div>
+              </OverviewFold>
             )}
           </aside>
         </div>

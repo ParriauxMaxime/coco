@@ -5,6 +5,7 @@ import { useResource } from '../../resource.ts';
 import { isLive, jobOf, useJobs } from '../../jobs.ts';
 import type { DriftAction, DriftHead, DriftItem, DriftResponse, Job } from '../../types.ts';
 import Icon from '../../preview/Icon.tsx';
+import OverviewFold from '../../preview/OverviewFold.tsx';
 import type { IconName } from '../../preview/Icon.tsx';
 import { JobButton } from '../../components/JobButton.tsx';
 import { toast } from '../../components/Toast.tsx';
@@ -117,12 +118,14 @@ export default function DriftPanel({ slug }: { slug: string }) {
       {button(it, it.action, it.action?.type === 'run')}
     </div>
   );
+  const fix = data?.drift.length ?? 0;
+  const next = data?.next.length ?? 0;
+  const summary = [fix && `${fix} to fix`, next && `${next} suggested next step${next === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
   return (
-    <div className="dp-block">
-      <div className="dp-h2">Drift<span className="dp-meta">{data?.drift.length ? `${data.drift.length} to fix` : 'next steps'}</span></div>
+    <OverviewFold id="drift" title="Drift" line={`${summary} — ${rows[0].text}`}>
       {data?.drift.map(line)}
       {data && data.next.length > 0 && <div className="dp-xs dp-t3" style={{ margin: '6px 0 2px' }}>Suggested next steps</div>}
       {data?.next.map(line)}
-    </div>
+    </OverviewFold>
   );
 }

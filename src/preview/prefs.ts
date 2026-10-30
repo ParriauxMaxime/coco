@@ -47,6 +47,17 @@ export const usePersistedList = (key: string, initial: (saved: string[]) => stri
   return { list, toggle, set: setList };
 };
 
+// the Overview parts unfolded by hand: the same on every work, kept per device
+const OV_OPEN = 'cc.ov.open';
+export const useOverviewFolds = create<{ open: string[]; toggle: (id: string) => void }>()((set, get) => ({
+  open: readList(OV_OPEN),
+  toggle: (id) => {
+    const open = get().open.includes(id) ? get().open.filter((x) => x !== id) : [...get().open, id];
+    set({ open });
+    try { localStorage.setItem(OV_OPEN, JSON.stringify(open)); } catch {}
+  },
+}));
+
 // the last model and thinking picked in a composer, per kind of agent it starts (ask, thread, dispatch-<kind>)
 export type ModelPickPref = { provider: string; thinking: string | null };
 const PICKS = 'cc.model-picks';

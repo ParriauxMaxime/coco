@@ -28,3 +28,16 @@ button.dp-prb { cursor: pointer; }
 .dp-ov-spun a:hover { color: var(--dp-accent); }
 .dp-ov-spun-next { margin: 4px 0 0 20px; font-size: 12.5px; line-height: 19px; }
 .dp-ov-spun-next p { display: inline; margin: 0; }
+
+/* a folded part: one line saying what is in it */
+.dp-block.dp-ovf:not(.dp-open) { padding: 10px 0; }
+.dp-ovf-h { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; cursor: pointer; border-radius: var(--dp-r2); }
+.dp-ovf-h:focus-visible { outline: 2px solid var(--dp-focus); outline-offset: 2px; }
+.dp-ovf-c { flex: none; color: var(--dp-t3); transition: transform .15s ease; }
+.dp-ovf.dp-open .dp-ovf-c { transform: rotate(90deg); }
+.dp-ovf-t { flex: none; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--dp-t1); }
+.dp-side-sec .dp-ovf-t { font-size: 11.5px; color: var(--dp-t3); }
+.dp-side-sec .dp-ovf-line { font-size: 11.5px; }
+.dp-ovf-line { min-width: 0; flex: 1; font-size: 12.5px; color: var(--dp-t3); }
+.dp-ovf-h:hover .dp-ovf-line { color: var(--dp-t2); }
+.dp-ovf-b { margin-top: 10px; }
