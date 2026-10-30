@@ -31,7 +31,7 @@ export function latestModels<T extends Named>(models: T[], keep: string[] = []):
 
 const MARKS: [RegExp, IconName][] = [
   [/deepseek/i, 'whale'],
-  [/claude|opus|sonnet|haiku|fable|anthropic/i, 'anthropic'],
+  [/claude|opus|sonnet|haiku|fable|anthropic/i, 'claude'],
   [/gpt|codex|openai|(^|\W)o\d/i, 'openai'],
   [/gemini|gemma|google/i, 'gemini'],
   [/apple|afm/i, 'apple'],
