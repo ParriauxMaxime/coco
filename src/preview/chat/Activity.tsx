@@ -40,11 +40,19 @@ function IssueRow({ issue }: { issue: CocoIssue }) {
 }
 const Spin = () => <span className="dp-ag-dot dp-ag-running dp-cv-spin" aria-label="in progress" />;
 
+// what a row shows of a call: its summary cut short, a long path kept by its last two segments, a tool argument (JSON) left to the count
+const brief = (s?: string) => {
+  const t = (s ?? '').trim();
+  if (!t || t.startsWith('{')) return '';
+  if (t.length > 46 && t.includes('/')) return `…/${t.split('/').slice(-2).join('/')}`;
+  return t.length > 52 ? `${t.slice(0, 52)}…` : t;
+};
+
 type RowProps = { icon: IconName; label: string; running: boolean; open?: boolean; onToggle: () => void; children?: React.ReactNode };
 function Row({ icon, label, running, open = false, onToggle, children }: RowProps) {
   return (
     <div className={`dp-cv-act${running ? ' dp-run' : ''}${open ? ' dp-open' : ''}`}>
-      <button type="button" className="dp-cv-actrow" aria-expanded={open} onClick={onToggle}>
+      <button type="button" className="dp-cv-actrow" aria-expanded={open} title={label} onClick={onToggle}>
         <Icon name={icon} size={12} />
         <span className="dp-cv-actl">{label}</span>
         {running ? <Spin /> : <Icon name="chevron-right" size={12} className="dp-cv-caret" />}
@@ -172,11 +180,16 @@ export default function Activity({ events, active = false, issues: offer = false
     <div className="dp-cv-acts">
       <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
         <div className="dp-cv-acts">
-          {perTool && groupCallsByTool(calls).map((g, gi) => (
-            <Row key={`t${gi}`} icon="wrench" label={`${g.name} · ${g.mcp || g.name === 'browser' ? `${g.calls.length} call${g.calls.length > 1 ? 's' : ''}` : tallyLabel(g.counts)}`} running={active && g.calls.some((c) => c.status === 'running')} open={open[`t${gi}`]} onToggle={() => toggle(`t${gi}`)}>
-              {g.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}
-            </Row>
-          ))}
+          {perTool && groupCallsByTool(calls).map((g, gi) => {
+            const summaries = g.mcp ? [] : g.calls.map((c) => brief(c.summary)).filter(Boolean).slice(0, 3);
+            const more = g.calls.length - summaries.length;
+            const count = g.mcp || g.name === 'browser' ? `${g.calls.length} call${g.calls.length > 1 ? 's' : ''}` : tallyLabel(g.counts);
+            return (
+              <Row key={`t${gi}`} icon="wrench" label={summaries.length ? `${g.name} · ${summaries.join(', ')}${more > 0 ? ` and ${more} more` : ''}` : `${g.name} · ${count}`} running={active && g.calls.some((c) => c.status === 'running')} open={open[`t${gi}`]} onToggle={() => toggle(`t${gi}`)}>
+                {g.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}
+              </Row>
+            );
+          })}
           {perTool && thinks.length > 0 && (
             <Row icon="brain" label="Thinking" running={active && shown.some((it) => it.kind === 'think' && it.running)} open={open.thinking} onToggle={() => toggle('thinking')}>
               <div className="dp-cv-think">{thinks.join('\n\n')}</div>
