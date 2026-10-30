@@ -36,8 +36,7 @@ const MARKS: [RegExp, IconName][] = [
   [/gemini|gemma|google/i, 'gemini'],
   [/apple|afm/i, 'apple'],
 ];
-// the mark of the maker behind a model id or label, a plain chip when nothing says
-export const modelMark = (id: string, label = '') => {
-  const said = `${id} ${label}`;
-  return MARKS.find(([re]) => re.test(said))?.[1] ?? 'cpu';
-};
+// the mark of the maker a model id or provider label names, if it names one
+export const makerMark = (id: string, label: string | null = '') => MARKS.find(([re]) => re.test(`${id} ${label}`))?.[1] ?? null;
+// the mark a model row shows: the maker's, a plain chip when nothing says
+export const modelMark = (id: string, label: string | null = '') => makerMark(id, label) ?? 'cpu';

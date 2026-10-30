@@ -4,7 +4,7 @@ import { api, errorMessage } from '../../api.ts';
 import Icon from '../Icon.tsx';
 import { useModelList, useModelPicks } from '../prefs.ts';
 import type { ModelPickPref } from '../prefs.ts';
-import { latestModels, modelMark } from './model-view.ts';
+import { latestModels, makerMark, modelMark } from './model-view.ts';
 import { toast } from '../../components/Toast.tsx';
 import type { AgentMode, AgentModes, ModelCatalog, ModelChoice } from '../../types.ts';
 import './model.css';
@@ -173,9 +173,11 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode, lo
           <div className="dp-pop-h"><b>Model</b><span className="dp-xs dp-t3 dp-ell">{hint}</span></div>
           {failed && <div className="dp-mdl-err dp-xs"><Icon name="alert-triangle" size={12} />{failed}</div>}
           {!catalog && !error && <div className="dp-mdl-err dp-xs dp-t3">Loading Paseo's models…</div>}
-          {providers.map((p) => (
+          {providers.map((p) => {
+            const mark = makerMark(p.id, p.label);
+            return (
             <div key={p.id} className="dp-pop-s">
-              {providers.length > 1 && <div className="dp-pop-t" title={`Paseo provider ${p.id}`}>{p.label || p.id}</div>}
+              {providers.length > 1 && <div className="dp-pop-t" title={`Paseo provider ${p.id}`}>{mark && <Icon name={mark} size={12} />}{p.label || p.id}</div>}
               {p.models.map((m) => {
                 const id = `${p.id}/${m.id}`;
                 const on = model === m;
@@ -191,7 +193,7 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode, lo
                 );
               })}
             </div>
-          ))}
+          ); })}
           {(all || hidden > 0) && (
             <div className="dp-pop-s dp-mdl-all">
               <div role="menuitemcheckbox" aria-checked={all} className="dp-mi" title="Older releases and 1M-context variants" onClick={toggleAll}>
