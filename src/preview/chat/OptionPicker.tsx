@@ -56,14 +56,16 @@ export function Diagram({ src, className = '' }: { src: string; className?: stri
   return <div ref={box} className={`dp-cd-dg ${className}`}>{ready ? <Markdown text={`\`\`\`mermaid\n${src}\n\`\`\``} /> : <div className="dp-cd-dgw" />}</div>;
 }
 
-type OptionProps = { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void; open?: boolean; markdown?: boolean; n?: number; diagram?: boolean };
+export const LETTERS = 'ABCDEFGH';
+type OptionProps = { o: CardOption; on: boolean; multi?: boolean; name: string; ro: boolean; onPick: () => void; open?: boolean; markdown?: boolean; n?: number; letter?: string; diagram?: boolean };
 
-function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdown, n, diagram }: OptionProps) {
+function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdown, n, letter, diagram }: OptionProps) {
   const [open, setOpen] = useState(initial);
   return (
     <div className={`dp-cd-opt${on ? ' dp-on' : ''}`}>
       <label className={`dp-opt${on ? ' dp-on' : ''}${ro ? ' dp-cd-ro' : ''}`}>
         <input className="dp-vh" type={multi ? 'checkbox' : 'radio'} name={name} checked={on} disabled={ro} onChange={onPick} />
+        {letter && <span className="dp-cd-ltr" aria-hidden="true">{letter}</span>}
         <span className={multi ? 'dp-check' : 'dp-radio'} />
         <span className="dp-ol"><Inline text={o.label} /></span>
         {o.recommended && <Rec />}
@@ -106,7 +108,7 @@ export default function OptionPicker({ name, label, options, picked, multi, ro, 
   const grid = options.some((o) => o.diagram);
   return (
     <div className={`dp-cd-opts${grid ? ' dp-cd-opts-dg' : ''}${done ? ' dp-cd-done' : ''}`} role={multi ? 'group' : 'radiogroup'} aria-label={label}>
-      {options.map((o, i) => <Option key={o.key} o={o} on={picked.includes(o.key)} multi={multi} name={name} ro={ro} onPick={() => onPick(o.key)} open={openRecommended && o.recommended} markdown={markdown} n={numbered && i < 9 ? i + 1 : undefined} diagram={grid} />)}
+      {options.map((o, i) => <Option key={o.key} o={o} on={picked.includes(o.key)} multi={multi} name={name} ro={ro} onPick={() => onPick(o.key)} open={openRecommended && o.recommended} markdown={markdown} n={numbered && i < 9 ? i + 1 : undefined} letter={i < 8 ? LETTERS[i] : undefined} diagram={grid} />)}
       {children}
     </div>
   );

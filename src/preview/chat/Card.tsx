@@ -7,7 +7,7 @@ import ErrorBoundary from '../../ErrorBoundary.tsx';
 import { useUnsaved } from '../../updates.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
-import OptionPicker, { Diagram, Rec } from './OptionPicker.tsx';
+import OptionPicker, { Diagram, LETTERS, Rec } from './OptionPicker.tsx';
 import RowsPicker from './RowsPicker.tsx';
 import type { Card, CardAnswerBody, CardField, CardValue } from '../../types.ts';
 import './card.css';
@@ -150,9 +150,10 @@ function Diagrams({ c, d, set, ro, today }: Part & { today: boolean }) {
 
 function Choice({ c, d, set, ro }: Part) {
   return (
-    <OptionPicker name={`${c.id}-opt`} label={c.title} options={c.options ?? []} picked={d.picked} multi={c.multi} ro={ro} numbered={!ro} onPick={(k) => set(pickIn(c, d, k))}>
+    <>
+      <OptionPicker name={`${c.id}-opt`} label={c.title} options={c.options ?? []} picked={d.picked} multi={c.multi} ro={ro} numbered={!ro} onPick={(k) => set(pickIn(c, d, k))} />
       {hasOther(c) && <Other value={d.other} ro={ro} single={!c.multi} onChange={(v) => set(c.multi || !v ? { other: v } : { other: v, picked: [] })} />}
-    </OptionPicker>
+    </>
   );
 }
 
@@ -294,6 +295,11 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
   useUnsaved(open && JSON.stringify(d) !== JSON.stringify(draftOf(c)));
   const ok = isValid(c, d);
   const answer = (key: string, body: CardAnswerBody) => run(key, () => api.answerCard(c.id, body));
+  const send = (body: CardAnswerBody) => {
+    setTried(true);
+    if (c.orphaned) return void run('relaunch', () => api.relaunchCard(c.id, body));
+    void answer('answer', body);
+  };
   const submit = () => {
     setTried(true);
     if (busy) return;
@@ -348,6 +354,28 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
       </div>
       {open && !post && (
         <div className="dp-cq-f dp-cd-f">
+          {c.kind === 'choice' && (c.options?.length ?? 0) > 1 && !c.orphaned && (
+            <div className={`dp-cd-pills${c.multi || d.other.trim() ? '' : ' dp-cd-pills-one'}`} role="group" aria-label="Pick an option">
+              {(c.options ?? []).map((o, i) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  className={`dp-cd-pill${d.picked.includes(o.key) ? ' dp-on' : ''}`}
+                  disabled={ro}
+                  aria-label={o.label}
+                  title={c.multi || d.other.trim() ? o.label : `${o.label}: one tap picks and answers`}
+                  onClick={() => {
+                    set(pickIn(c, d, o.key));
+                    // a phone answers a single-choice card in one gesture, where typing 1 then a return is out of reach
+                    if (!c.multi && !d.other.trim()) send({ picked: [o.key] });
+                  }}
+                >
+                  {LETTERS[i] ?? String(i + 1)}
+                </button>
+              ))}
+              <button type="button" className="dp-cd-pill dp-cd-pill-skip" disabled={busy} title="Close this question without choosing; the agent is told to go on with its recommendation if it is safe, else to stop and say what is left" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Skip</button>
+            </div>
+          )}
           {c.orphaned ? (
             <>
               <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'relaunch')}`} disabled={busy} title="Its agent is gone: this starts a fresh agent on the same brief, with your answer if you gave one" onClick={submit}><Icon name="archive" size={12} />Relaunch on this brief</button>
@@ -372,7 +400,7 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
           )}
           {err && <span className="dp-cd-err" role="alert">{err}</span>}
           <span className="dp-sp" />
-          <button type="button" className={`dp-btn dp-ghost dp-sm${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question without choosing; the agent is told to go on with its recommendation if it is safe, else to stop and say what is left" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>
+          <button type="button" className={`dp-btn dp-ghost dp-sm dp-cd-dismiss${pendingClass(pending === 'cancel')}`} disabled={busy} title="Close this question without choosing; the agent is told to go on with its recommendation if it is safe, else to stop and say what is left" onClick={() => void run('cancel', () => api.cancelCard(c.id))}>Dismiss</button>
         </div>
       )}
       <Result c={c} />

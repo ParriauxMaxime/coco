@@ -128,4 +128,46 @@ button.dp-cd-cmph:disabled { cursor: default; }
 .dp-btn.dp-cd-waitb { max-width: min(720px, 100%); border-color: color-mix(in srgb, var(--dp-warn) 45%, var(--dp-line)); color: var(--dp-t1); }
 .dp-btn.dp-cd-waitb .dp-ag-dot { margin-right: 4px; }
 .dp-btn.dp-cd-waitb svg.dp-i { transform: rotate(180deg); color: var(--dp-t3); }
+
+/* phone: a choice card's options are swipeable panels, and one pill per option answers it from a bar pinned under them */
+.dp-cd-pills, .dp-cd-ltr { display: none; }
+@media (max-width: 640px) {
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opts,
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opts-dg {
+    display: flex; flex-direction: row; grid-template-columns: none; align-items: stretch;
+    gap: 8px; margin: 0 -12px; padding: 0 12px 4px;
+    overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+  }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opts::-webkit-scrollbar { display: none; }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opts > .dp-cd-opt {
+    flex: 0 0 84%; scroll-snap-align: center;
+    border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-subtle);
+  }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opts > .dp-cd-opt.dp-on { border-color: color-mix(in srgb, var(--dp-accent) 55%, var(--dp-line)); }
+  /* the numbering keys are a desktop shortcut; the letter badge carries the same role on a touch screen */
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-cd-key { display: none; }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-opt { margin: 0; padding: 10px 12px; align-items: flex-start; flex-wrap: wrap; row-gap: 4px; }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-opt > .dp-radio,
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-opt > .dp-check { display: none; }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-ol { flex: 1 1 auto; font-weight: 600; }
+  .dp-cd-ltr { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; border-radius: 7px; background: var(--dp-accent-t); color: var(--dp-accent); font-size: 11.5px; font-weight: 700; }
+  .dp-cd-opt.dp-on .dp-cd-ltr { background: var(--dp-accent); color: var(--dp-on-accent); }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-cd-cons { margin: 0; padding: 0 12px 8px; }
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-cd-det,
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-cd-rend,
+  .dp-card-q.dp-cd:not(.dp-cd-done) .dp-cd-opt .dp-cd-dgp { margin-left: 12px; margin-right: 12px; }
+  /* the bar rides the bottom of the screen while the card is read */
+  .dp-card-q.dp-cd > .dp-cd-f { position: sticky; bottom: 0; z-index: 2; background: var(--dp-panel); flex-wrap: wrap; }
+  .dp-cd-pills { display: flex; flex-wrap: wrap; flex: 1 0 100%; gap: 8px; }
+  .dp-cd-pill { flex: 1 1 0; min-width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--dp-accent) 45%, var(--dp-line)); border-radius: 22px; background: transparent; color: var(--dp-accent); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .dp-cd-pill.dp-on { background: var(--dp-accent); border-color: var(--dp-accent); color: var(--dp-on-accent); }
+  .dp-cd-pill.dp-cd-pill-skip { flex: 1 1 0; border-color: var(--dp-line); color: var(--dp-t2); font-weight: 600; }
+  .dp-cd-pill:disabled { opacity: .5; cursor: default; }
+  .dp-card-q.dp-cd > .dp-cd-f .dp-btn { min-height: 40px; }
+  /* one tap answers when the bar itself sends: no second Send button to reach for */
+  .dp-cd-f:has(.dp-cd-pills-one) .dp-btn.dp-primary,
+  .dp-cd-f:has(.dp-cd-pills) .dp-cd-dismiss { display: none; }
+  /* the clock crowds the title out of a phone's card header */
+  .dp-card-q.dp-cd > .dp-cq-h .dp-num { display: none; }
+}
 .dp-askpanel .dp-cd-wait { padding-top: 8px; }
