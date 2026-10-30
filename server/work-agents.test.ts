@@ -136,6 +136,31 @@ test("a work's agents: its Ask conversations, the Paseo agents labelled with it 
   ]);
 });
 
+test("a run: a worker's root is its chief's root, a parent outside the work is read from Paseo, one Paseo forgot ends the chain", async () => {
+  const P = 'paseo.parent-agent-id';
+  const { agents } = setup({
+    listed: [
+      { id: 'chief', title: 'coco · Chief', labels: { kind: 'agent', work: 'csv', [P]: 'boss' }, status: 'running' },
+      { id: 'worker', title: 'coco · Worker', labels: { kind: 'agent', work: 'csv', [P]: 'chief' }, status: 'running' },
+      { id: 'solo', title: 'coco · Solo', labels: { kind: 'agent', work: 'csv' }, status: 'idle' },
+      { id: 'orphan', title: 'coco · Orphan', labels: { kind: 'agent', work: 'csv', [P]: 'gone' }, status: 'idle' },
+      { id: 'loop', title: 'coco · Loop', labels: { kind: 'agent', work: 'csv', [P]: 'loop' }, status: 'idle' },
+    ],
+    refreshed: { boss: { id: 'boss', title: 'coco · Boss', labels: { kind: 'agent' }, status: 'idle' } },
+  });
+  const edges = Object.fromEntries((await agents.list('csv')).map((a) => [a.id, [a.parentAgentId, a.rootAgentId]]));
+  assert.deepEqual(edges, {
+    [`ask-${ASK}`]: [null, 'ask-agent'],
+    'ag-chief': ['boss', 'boss'],
+    'ag-worker': ['chief', 'boss'],
+    'ag-solo': [null, 'solo'],
+    'ag-orphan': ['gone', 'gone'],
+    'ag-loop': ['loop', 'loop'],
+    'ag-hand': [null, 'hand'],
+    'ag-review': [null, 'review'],
+  });
+});
+
 test("every work's agents in one answer, each list as its own read gives it", async () => {
   const { agents, filters } = setup({ listed: [{ id: 'review', title: 'coco · Fix review #12', labels: { kind: 'review', work: 'csv', pr: '12' }, status: 'running' }] });
   const all = await agents.summary(['csv', 'pdf']);

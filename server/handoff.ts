@@ -11,6 +11,9 @@ import type { Models } from './models.ts';
 import { startThinking } from './models.ts';
 import type { ModelsConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
+import { PARENT_AGENT_ID_LABEL, PARENT_SERVER_ID_LABEL } from '@getpaseo/protocol/agent-labels';
+
+const NOT_INHERITED = ['ask', PARENT_AGENT_ID_LABEL, PARENT_SERVER_ID_LABEL];
 
 export type HandoffStep = 'summary' | 'starting' | 'done' | 'failed';
 // source: who wrote the briefing, the old agent or coco from its transcript
@@ -26,7 +29,7 @@ type Deps = {
   modelsOf: (work: string | null) => ModelsConfig;
   client: () => Promise<Pick<DaemonClient, 'agents'>>;
   say: (agentId: string, text: string) => Promise<unknown>;
-  start: (opts: { title: string; prompt: string; labels: Record<string, string>; workspaceId: string | null; cwd: string | null; provider?: string; thinking?: string; mode?: string }) => Promise<{ agentId: string }>;
+  start: (opts: { title: string; prompt: string; labels: Record<string, string>; workspaceId: string | null; cwd: string | null; provider?: string; thinking?: string; mode?: string; parent?: string | null }) => Promise<{ agentId: string }>;
   archiveWhenDone: (agentId: string, opts?: { timeoutMs?: number }) => Promise<boolean>;
   archive: (agentId: string) => Promise<boolean>;
   // the old agent was archived once the new one started: its plain open questions close
@@ -198,14 +201,14 @@ export function createHandoff({ DATA, owner, modelsOf, client, say, start, archi
       fs.mkdirSync(DIR, { recursive: true });
       const file = path.join(DIR, `${h.from}.md`);
       fs.writeFileSync(file, `# Hand-off from ${h.fromTitle} (${h.from})\n\n${briefing}\n${h.note ? `\n## ${owner}'s note\n\n${h.note}\n` : ''}`);
-      // an Ask conversation's agent goes on as a plain agent of its work
-      const labels = Object.fromEntries(Object.entries(found.labels ?? {}).filter(([k]) => k !== 'ask'));
+      // an Ask conversation's agent goes on as a plain agent of its work; the old agent is the new one's parent
+      const labels = Object.fromEntries(Object.entries(found.labels ?? {}).filter(([k]) => !NOT_INHERITED.includes(k)));
       const cwd = found.cwd ?? agent.cwd ?? null;
       const workspaceId = found.workspaceId ?? agent.workspaceId ?? null;
       const prompt = firstMessage({ owner, fromTitle: h.fromTitle, from: h.from, source, briefing, note: h.note, file });
       // saved before the start, so a restart cut here finds the new agent by its title and labels
       update(h, { step: 'starting', source, file, labels });
-      const started = await start({ title: h.fromTitle, ...setup, prompt, labels, workspaceId, cwd });
+      const started = await start({ title: h.fromTitle, ...setup, prompt, labels, workspaceId, cwd, parent: h.from });
       await settle(h, started.agentId, workspaceId, cwd);
     } catch (e) {
       update(h, { step: 'failed', error: errorMessage(e) });

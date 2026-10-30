@@ -17,7 +17,7 @@ type Handler = Parameters<DaemonAgent['timeline']['subscribe']>[0];
 type TimelineItem = NonNullable<TimelineEvent['item']>;
 type NotionWork = NonNullable<ReturnType<Parameters<typeof createNotionSync>[0]['works']['get']>>;
 type AgentConfig = { toolPolicy?: { preapproved: { server: string; tool: string }[] }; systemPrompt?: string; provider?: string; mcpServers?: unknown; [key: string]: unknown };
-type Created = { workspaceId: string; title?: string; prompt?: string; labels?: Record<string, string>; config: AgentConfig };
+type Created = { workspaceId: string; title?: string; prompt?: string; labels?: Record<string, string>; parent?: string; config: AgentConfig };
 
 const tl = (item: TimelineItem): TimelineEvent => ({ type: 'timeline', provider: 'claude', item });
 const say = (text: string, messageId = 'm1') => tl({ type: 'assistant_message', text, messageId });
@@ -185,6 +185,18 @@ test('a directory with no workspace gets one opened and reported; a new worktree
   const b = await agents.start({ title: 'Fix review #7', prompt: 'go', provider: 'claude/opus', cwd: '/acme/widgets', worktree: { mode: 'checkout-pr', prNumber: 7 } });
   assert.equal(b.createdWorkspace, 'wks_worktree');
   assert.deepEqual(daemon.calls.created, [{ source: { kind: 'worktree', cwd: '/acme/widgets', action: 'checkout', checkoutSource: { kind: 'change_request', number: 7 } } }]);
+});
+
+test('an agent started for another carries the parent edge to Paseo; one started for nobody carries none', async () => {
+  const daemon = fakeDaemon();
+  const agents = createPaseoAgents({ APP, connect: daemon.connect });
+  await agents.start({ title: 'Worker', prompt: 'go', provider: 'omp/deepseek', cwd: '/acme/widgets', labels: { kind: 'agent' }, parent: 'chief' });
+  await agents.start({ title: 'Solo', prompt: 'go', provider: 'omp/deepseek', cwd: '/acme/widgets', labels: { kind: 'agent' } });
+  const [worker, solo] = daemon.calls.agents;
+  assert.equal(worker.parent, 'chief');
+  assert.deepEqual(worker.labels, { kind: 'agent', 'paseo.parent-agent-id': 'chief' });
+  assert.ok(!('parent' in solo));
+  assert.deepEqual(solo.labels, { kind: 'agent' });
 });
 
 test('a failed or timed-out run is still archived and says why', async () => {

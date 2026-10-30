@@ -1779,7 +1779,17 @@ Routes: `GET /api/agent-chat/<agent>/subagents` → `{ subagents }`;
 activity events then follows it (SSE). Page topics `subagents:<agent>` and
 `subagent:<agent>:<id>` carry the same, pushed by Paseo's
 `agent.provider_subagents.update` feed (polled every 5 s without it). Each
-work agent carries `subagents: { running, total }`.
+work agent carries `subagents: { running, total }`; each subagent its
+`provider` (Paseo reports no model for one).
+
+An agent coco starts on behalf of another (a `propose_paseo_agent` card, a
+hand-off, a review fix an agent asked for) is labelled with Paseo's parent
+edge, `paseo.parent-agent-id`. Every work agent and `GET /api/agent-chat/<agent>`
+carry `parentAgentId` and `rootAgentId`: the agent that started it and the
+top of that chain, itself when nothing started it (null for an Ask
+conversation with no agent yet). These are data only: Paseo subagents stay
+read-only, and dispatch, New agent, setup and rituals start agents with no
+parent.
 
 ## Attachments (images and files to an agent)
 

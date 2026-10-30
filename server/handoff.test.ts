@@ -31,7 +31,7 @@ function setup({ reply = null as string | null, archived = false, known = true, 
     send: async () => {},
     // silent: the turn never ends within the wait
     waitForFinish: (ms?: number) => (reply === null ? new Promise((r) => setTimeout(() => r({ status: 'timeout' }), (ms ?? 0) + 50)) : Promise.resolve({ status: 'idle' })),
-    refresh: async () => (known ? { agent: { title: 'coco · CSV streaming', status: archived ? 'closed' : 'idle', provider: 'claude', model: 'opus', thinkingOptionId: 'high', currentModeId: 'auto', cwd: '/wt/csv', workspaceId: 'wks_csv', labels: { source: 'cocopilot', kind: 'agent', work: 'csv', pr: '101', ask: 'q1' } } } : null),
+    refresh: async () => (known ? { agent: { title: 'coco · CSV streaming', status: archived ? 'closed' : 'idle', provider: 'claude', model: 'opus', thinkingOptionId: 'high', currentModeId: 'auto', cwd: '/wt/csv', workspaceId: 'wks_csv', labels: { source: 'cocopilot', kind: 'agent', work: 'csv', pr: '101', ask: 'q1', 'paseo.parent-agent-id': 'chief', 'paseo.parent-server-id': 'srv_1' } } } : null),
     archive: async () => {},
   };
   const client = async () => ({ agents: { ref: () => agent } }) as unknown as Pick<DaemonClient, 'agents'>;
@@ -68,6 +68,7 @@ test('the old agent is asked for a briefing; its <handoff> block starts the new 
   const s = started[0];
   assert.deepEqual({ title: s.title, provider: s.provider, thinking: s.thinking, mode: s.mode, workspaceId: s.workspaceId, cwd: s.cwd }, { title: 'CSV streaming', provider: 'claude/opus', thinking: 'high', mode: 'auto', workspaceId: 'wks_csv', cwd: '/wt/csv' });
   assert.deepEqual(s.labels, { source: 'cocopilot', kind: 'agent', work: 'csv', pr: '101' });
+  assert.equal(s.parent, OLD);
   assert.ok(String(s.prompt).includes(briefing) && String(s.prompt).includes("## Max's note") && String(s.prompt).includes('Run the full suite'));
   assert.deepEqual(archivedIds, [OLD]);
   assert.deepEqual(linkedTo, [{ agentId: NEW, workspaceId: 'wks_csv', cwd: '/wt/csv', title: 'CSV streaming' }, `briefed ${NEW}`]);

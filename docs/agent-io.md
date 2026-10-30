@@ -23,6 +23,12 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 6. **Subagents come from Paseo.** What an agent starts itself (Claude's
    `Agent`/`Task` tool) is shown from Paseo's provider subagents (list, status,
    timeline), read-only; coco keeps no record of its own (guide: Subagents).
+   Each carries the `provider` Paseo's descriptor names; Paseo gives no model.
+   An agent coco starts for another agent (a `propose_paseo_agent` card, a
+   hand-off, a review fix asked by an agent) carries Paseo's parent edge
+   (`paseo.parent-agent-id`), and every work agent reads back
+   `parentAgentId` and `rootAgentId` (the top of its chain, itself when
+   nothing started it). Both are data: no tool steers or stops a subagent.
 
 ## Slices
 

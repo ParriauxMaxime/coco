@@ -577,7 +577,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       const ms = modelsFor(config, repo);
       const provider = providerFor(p.provider, ms);
       const mcp = agentMcpFor(config, repo);
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider, thinking: p.thinking || startThinking(ms, provider), ...(mcp.length ? { mcp, servers: mcpServersFor(config, repo) } : {}), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider, thinking: p.thinking || startThinking(ms, provider), ...(mcp.length ? { mcp, servers: mcpServersFor(config, repo) } : {}), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row }, parent: agentId || null });
     } catch (e) {
       error = errorMessage(e);
     }

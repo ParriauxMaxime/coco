@@ -291,14 +291,14 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     }
     const worktrees: Record<string, Record<string, unknown>> = { 'branch-off': { mode: 'branch-off', newBranch: runner.newBranch, base: runner.base, slug: runner.slug }, 'checkout-branch': { mode: 'checkout-branch', branch }, 'checkout-pr': { mode: 'checkout-pr', prNumber: n } };
     const worktree = worktrees[runner.mode] || null;
-    if (AGENT_ID.test(String(requestedBy || ''))) all['paseo.parent-agent-id'] = requestedBy;
+    const parent = AGENT_ID.test(String(requestedBy || '')) ? String(requestedBy) : null;
     let started: Awaited<ReturnType<LaunchAgents['start']>>;
     let cwd: string | null | undefined = null;
     const onRow = placement && typeof workSlug === 'string' && workSlug && n != null && runner.mode !== 'branch-off';
     try {
       const where = onRow ? await placement.place({ kind: 'row', slug: workSlug, key: n, edits: true }) : runner.mode === 'workspace' ? { workspaceId: runner.workspaceId, cwd: runner.cwd } : { cwd: runner.mode === 'cwd' ? runner.cwd : runner.repo ?? REPO, worktree };
       cwd = worktree && !onRow ? null : where.cwd;
-      started = await agents.start({ title, provider, thinking, prompt: await withSetup(cwd), labels: all, ...where });
+      started = await agents.start({ title, provider, thinking, prompt: await withSetup(cwd), labels: all, parent, ...where });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errorMessage(e).slice(0, 300)}`);
     }

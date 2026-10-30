@@ -8,7 +8,8 @@ import type { ActivityEvent, TimelineEvent } from './paseo-agent.ts';
 import type { Req, Res, Send } from './core-types.ts';
 
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'canceled';
-export type Subagent = { id: string; parentAgentId: string; title: string | null; description: string | null; status: SubagentStatus; createdAt: string; updatedAt: string; toolCallId: string | null; subtitle: string | null };
+// provider: as Paseo's descriptor names it; Paseo reports no model for a subagent
+export type Subagent = { id: string; parentAgentId: string; provider: string | null; title: string | null; description: string | null; status: SubagentStatus; createdAt: string; updatedAt: string; toolCallId: string | null; subtitle: string | null };
 export type SubagentCount = { running: number; total: number };
 type Raw = Partial<Omit<Subagent, 'status'>> & { id: string; parentAgentId: string; status?: string; parentSubagentId?: string | null; cwd?: string | null };
 type Cursor = { epoch: string; seq: number };
@@ -39,6 +40,7 @@ const IDLE_MS = 30000;
 const normalize = (s: Raw): Subagent => ({
   id: s.id,
   parentAgentId: s.parentAgentId,
+  provider: s.provider ?? null,
   title: s.title ?? null,
   description: s.description ?? null,
   status: STATUSES.find((x) => x === s.status) ?? 'running',

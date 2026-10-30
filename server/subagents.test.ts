@@ -51,7 +51,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 test("an agent's subagents: listed oldest first from Paseo, counted per parent, only parents that have some keyed", async () => {
   const { client } = fakeClient({ subagents: [sub('b', 'completed', '2026-10-27T10:05:00Z'), sub('a', 'running', '2026-10-27T10:00:00Z')] });
   const subs = createSubagents({ client: async () => client });
-  assert.deepEqual((await subs.list(PARENT)).map((s) => [s.id, s.status, s.description, s.subtitle]), [['a', 'running', 'do a', 'fork · Opus'], ['b', 'completed', 'do b', 'fork · Opus']]);
+  assert.deepEqual((await subs.list(PARENT)).map((s) => [s.id, s.status, s.provider, s.description, s.subtitle]), [['a', 'running', 'claude', 'do a', 'fork · Opus'], ['b', 'completed', 'claude', 'do b', 'fork · Opus']]);
   assert.deepEqual(await subs.counts([PARENT, 'other']), { [PARENT]: { running: 1, total: 2 } });
   subs.close();
 });

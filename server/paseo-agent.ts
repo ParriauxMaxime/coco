@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createPaseoApi } from '@getpaseo/client';
+import { PARENT_AGENT_ID_LABEL } from '@getpaseo/protocol/agent-labels';
 import { DaemonClient as RawDaemon } from '@getpaseo/client/internal/daemon-client';
 import { rowKey } from './stack.ts';
 import { promptSize, systemSize } from './agent-usage.ts';
@@ -396,7 +397,8 @@ export const AGENT_MODE = 'auto';
 const PREAPPROVES = /^(claude[\w-]*|codex|opencode)(\/|$)/;
 // files sent with a message: images inline, other files by path (Paseo's uploaded_file attachment)
 export type AgentInput = { images?: { data: string; mimeType: string }[]; attachments?: { type: 'uploaded_file'; id: string; fileName: string; mimeType: string; size: number; path: string }[]; messageId?: string };
-type StartOptions = AgentConfig & { title: string; prompt?: string; input?: AgentInput; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
+// parent: the agent that asked for this one, the edge Paseo keeps to group a run
+type StartOptions = AgentConfig & { title: string; prompt?: string; input?: AgentInput; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null; parent?: string | null };
 export type SessionOptions = Omit<StartOptions, 'prompt' | 'title'> & { title?: string } & FollowerCallbacks & { agentId?: string | null; flush?: () => void };
 export type AgentSession = Started & {
   busy(): boolean;
@@ -470,11 +472,12 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
   const cleanLabels = (labels?: Record<string, unknown>) => Object.fromEntries(Object.entries(labels || {}).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, String(v)]));
 
   // places and creates the agent; with a prompt it starts right away, coco does not follow it
-  async function start({ title, prompt, input, labels, cwd = null, workspaceId = null, worktree = null, ...config }: StartOptions) {
+  async function start({ title, prompt, input, labels, cwd = null, workspaceId = null, worktree = null, parent = null, ...config }: StartOptions) {
     const { workspace, created } = workspaceId ? { workspace: (await client()).workspaces.ref(workspaceId), created: false } : worktree ? await worktreeWorkspace(cwd, worktree) : await workspaceFor(cwd ?? '');
     const { messageId, ...files } = input || {};
     const agentConfig = configFor(config);
-    const agent = await workspace.agents.create({ title: cocoTitle(title), config: agentConfig, labels: cleanLabels(labels), ...(prompt ? { prompt, ...files, ...(messageId ? { clientMessageId: messageId } : {}) } : {}) });
+    const edge = parent ? { parent, labels: cleanLabels({ ...labels, [PARENT_AGENT_ID_LABEL]: parent }) } : { labels: cleanLabels(labels) };
+    const agent = await workspace.agents.create({ title: cocoTitle(title), config: agentConfig, ...edge, ...(prompt ? { prompt, ...files, ...(messageId ? { clientMessageId: messageId } : {}) } : {}) });
     usage?.record(agent.id, { ...promptSize(prompt), ...systemSize(agentConfig.systemPrompt) });
     return { agent, agentId: agent.id, workspaceId: workspace.id, createdWorkspace: created ? workspace.id : null };
   }

@@ -10,7 +10,7 @@ import { DEFAULTS } from './config.ts';
 import { HttpError } from './core-types.ts';
 import type { Comment, ExecResult, StackRow, Work } from './core-types.ts';
 
-type StartCall = { title: string; cwd?: string; worktree: unknown; labels: Record<string, unknown> };
+type StartCall = { title: string; cwd?: string; worktree: unknown; labels: Record<string, unknown>; parent?: string | null };
 type ExecReply = { ok: boolean; stdout: string; stderr?: string };
 type TestAgent = { id: string; status: string; cwd: string };
 
@@ -205,7 +205,8 @@ test('start picks the runner by the plan rule and records the run', async () => 
   assert.equal(startB.cwd, wt);
   assert.equal(startB.worktree, null);
   assert.equal(startB.title, 'Fix review #102 (1)');
-  assert.deepEqual(startB.labels, { source: 'cocopilot', kind: 'review', run: runB.runId, work: SLUG, pr: String(N), comments: 1, 'paseo.parent-agent-id': requester });
+  assert.deepEqual(startB.labels, { source: 'cocopilot', kind: 'review', run: runB.runId, work: SLUG, pr: String(N), comments: 1 });
+  assert.equal(startB.parent, requester);
 
   const c = setup({ comments: open(), execImpl: startExec({ worktree: null }) });
   const runC = await c.agent.start(SLUG, N, { commentIds: ['c1'], commits: 'one' });
@@ -213,7 +214,7 @@ test('start picks the runner by the plan rule and records the run', async () => 
   const [startC] = c.started;
   assert.equal(startC.cwd, '/repo');
   assert.deepEqual(startC.worktree, { mode: 'checkout-pr', prNumber: N });
-  assert.ok(!('paseo.parent-agent-id' in startC.labels));
+  assert.equal(startC.parent, null);
   assert.ok(c.timeline().some((t) => t.text === 'new checkout-pr worktree: created workspace wks_new'));
 
   const d = setup({ comments: open(), execImpl: startExec({ worktree: null }) });

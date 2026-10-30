@@ -19,6 +19,7 @@ import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
 import type { Upload, UploadRef, Uploads, UserItem } from './uploads.ts';
 import type { Models } from './models.ts';
 import type { SubagentCount, Subagents } from './subagents.ts';
+import { getParentAgentIdFromLabels } from '@getpaseo/protocol/agent-labels';
 
 const PAGE = 200;
 const SETTLE_MS = 500;
@@ -26,11 +27,14 @@ const REFRESH_MS = 30000;
 const LIST_TTL_MS = 5000;
 const TITLE_MAX = 80;
 const TURN_END = ['turn_completed', 'turn_failed', 'turn_canceled'];
+const MAX_HOPS = 8;
 
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // id is the agent's tab: ask-<conversation> or ag-<Paseo agent>; autoArchive: its job is done and its chat archives it on a visible timer;
 // provider (``<provider>/<model>``) and thinking: what it runs on, null for an Ask conversation, whose composer owns the pick
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive: boolean; provider: string | null; thinking: string | null; subagents: SubagentCount } & Metrics;
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive: boolean; provider: string | null; thinking: string | null; subagents: SubagentCount } & Lineage & Metrics;
+// parentAgentId: the agent that started it; rootAgentId: the top of that chain, itself when nothing started it; both null without a Paseo agent
+export type Lineage = { parentAgentId: string | null; rootAgentId: string | null };
 // estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
 // contextTokens of contextMax: its context window at its last turn
 // openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
@@ -74,6 +78,21 @@ const titleOf = (title: string | null | undefined, id: string) => (title || '').
 // what a listed agent runs on: <provider>/<model> as its entry has them, its provider alone before it has a model
 const providerOf = (a: { provider?: string | null; model?: string | null } | null | undefined) => (a?.provider && a.model ? `${a.provider}/${a.model}` : a?.provider || null);
 
+// each agent's parent edge and the top of its chain: a parent outside `known` is read from Paseo once, one Paseo no longer knows ends the chain
+function lineage(c: Pick<DaemonClient, 'agents'>, known: { id: string; labels?: Record<string, string> | null }[]) {
+  const parents = new Map<string, Promise<string | null>>(known.map((a) => [a.id, Promise.resolve(getParentAgentIdFromLabels(a.labels))]));
+  const parentOf = (id: string) => {
+    if (!parents.has(id)) parents.set(id, c.agents.ref(id).refresh().then((r) => getParentAgentIdFromLabels(r?.agent?.labels), () => null));
+    return parents.get(id) as Promise<string | null>;
+  };
+  return async (id: string | null): Promise<Lineage> => {
+    if (!id) return { parentAgentId: null, rootAgentId: null };
+    const chain = [id];
+    for (let p; chain.length <= MAX_HOPS && (p = await parentOf(chain[chain.length - 1])) && !chain.includes(p); ) chain.push(p);
+    return { parentAgentId: await parentOf(id), rootAgentId: chain[chain.length - 1] };
+  };
+}
+
 
 export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, archiveWhenDone, handedOff = () => [], models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
   const selfArchiving = (a: Parameters<typeof autoArchivable>[0] | null | undefined) => {
@@ -108,11 +127,14 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     const labelled = page.entries.map((e) => e.agent).filter((a) => !a.labels?.ask);
     const seen = new Set(labelled.map((a) => a.id));
     const links = await Promise.all(linked(slug).filter((l) => !seen.has(l.agentId)).map(async (l) => ({ l, a: (await c.agents.ref(l.agentId).refresh().catch(() => null))?.agent ?? null })));
-    return [
-      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, autoArchive: false, provider: null, thinking: null, ...metrics(m.agentId) })),
+    const convs = asks(slug);
+    const edge = lineage(c, [...convs.flatMap((m) => (m.agentId ? [{ id: m.agentId }] : [])), ...labelled, ...links.map(({ l, a }) => ({ id: l.agentId, labels: a?.labels }))]);
+    const rows = [
+      ...convs.map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, autoArchive: false, provider: null, thinking: null, ...metrics(m.agentId) })),
       ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: labelKey(a.labels), status: statusOf(a), updatedAt: a.updatedAt || null, autoArchive: selfArchiving(a), provider: providerOf(a), thinking: a.thinkingOptionId ?? null, ...metrics(a.id, a.lastUsage) })),
       ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, autoArchive: selfArchiving(a && { ...a, id: l.agentId }), provider: providerOf(a), thinking: a?.thinkingOptionId ?? null, ...metrics(l.agentId, a?.lastUsage) })),
     ];
+    return Promise.all(rows.map(async (r) => ({ ...r, ...(await edge(r.agentId)) })));
   }
 
   // the list on connect, then again shortly after Paseo reports a change on one of them, and every REFRESH_MS
@@ -287,10 +309,12 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
 
   // any Paseo agent, in a work or not: what its own page shows above its chat
   async function info(agentId: string) {
-    const found = (await (await client()).agents.ref(agentId).refresh())?.agent;
+    const c = await client();
+    const found = (await c.agents.ref(agentId).refresh())?.agent;
     if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
     const l = found.labels;
     return {
+      ...(await lineage(c, [{ id: agentId, labels: l }])(agentId)),
       agentId,
       title: titleOf(found.title, agentId),
       kind: l?.kind || l?.ritual || 'agent',
