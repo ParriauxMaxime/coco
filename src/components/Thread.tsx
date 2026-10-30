@@ -34,7 +34,7 @@ const STATE_CHIP: Record<string, string> = { pending: 'dp-info', queued: 'dp-war
 const STATE_NOTE: Record<string, string> = { queued: 'approved while the PR worktree was busy: Approve again', conflict: 'does not apply on the PR branch', superseded: 'the agent rewrote this commit: approve the newer one' };
 
 type ThreadsOf = { summaries: Record<string, ThreadSummary>; groups: ThreadGroup[] };
-export type Verdict = { label: string; title?: string; on: (text: string) => void; allowEmpty?: boolean; className?: string; pending?: boolean };
+export type Verdict = { label: string; title?: string; on: (text: string, files?: UploadRef[]) => void; allowEmpty?: boolean; className?: string; pending?: boolean };
 type SendResult = boolean | undefined | void;
 
 // per work: thread summaries ({ count, waiting, lastTs, groupId, open }) and dispatch groups, for toggles, the activity feed and regrouping
@@ -635,11 +635,11 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start ag
       busy={busy}
       sending={busy && (pending ?? 'send') === 'send'}
       tools={withModel && <ModelControls choice={model.choice} onPick={model.pick} hint="for the agent group this starts" />}
-      actions={(text, clear, fill) => (
+      actions={(text, clear, fill, files) => (
         <>
           {persona && <button type="button" className="dp-btn dp-sm dp-ghost" title={`Prefill the box with a question for ${persona}: a quick consult, not a persona review`} onClick={() => fill(`What would ${persona} do here?`)}><Avatar login={persona} />Ask <PersonaName login={persona} /></button>}
           {verdicts.map((v) => (
-            <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text)} onClick={() => { v.on(text); clear(); }}>{v.label}</button>
+            <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text && !files.length)} onClick={() => { v.on(text, files); clear(); }}>{v.label}</button>
           ))}
         </>
       )}

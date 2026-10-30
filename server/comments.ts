@@ -8,6 +8,8 @@ import { blocksToMarkdown, readSuggestionBefore, validateRich } from './blocks.t
 import { HttpError, errorMessage, isSeverity } from './core-types.ts';
 import type { RepoIdentity, RepoOf } from './config.ts';
 import type { Comment, CommentFile, CommentStatus, ExecResult, GithubOrigin, ReadBody, Req, Res, RowKey, Send, Severity, Works } from './core-types.ts';
+import { uploadRef } from './uploads.ts';
+import type { Uploads } from './uploads.ts';
 
 const CTX = 3;
 const SEARCH_WINDOW = 30;
@@ -72,9 +74,14 @@ export function mapLine(line: number, hunks: Hunk[]) {
   return { line: line + delta, removed: false };
 }
 
-type Deps = { DATA: string; REPO: string; config: { owner: { login: string }; repo?: RepoIdentity }; works?: Pick<Works, 'get' | 'remark'>; repoOf?: RepoOf };
+type Deps = { DATA: string; REPO: string; config: { owner: { login: string }; repo?: RepoIdentity }; works?: Pick<Works, 'get' | 'remark'>; repoOf?: RepoOf; uploads?: Pick<Uploads, 'resolve'> };
 
-export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ...config.repo, path: REPO }) as RepoIdentity }: Deps) {
+export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ...config.repo, path: REPO }) as RepoIdentity, uploads }: Deps) {
+  // the files the owner attached, as the stored refs (the composer uploads them before the comment leaves)
+  const attached = (ids: unknown) => {
+    const files = uploads?.resolve(ids) ?? [];
+    return files.length ? { files: files.map(uploadRef) } : {};
+  };
   const ME = config.owner.login;
   // shas and paths resolve in the checkout of the work's repo
   const cwdOf = (slug: string) => repoOf(works?.get(slug)).path;
@@ -207,6 +214,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
       title: title.trim(),
       from: { agent: str(f.agent), work: str(f.work), pr: str(f.pr) },
       ...(isSeverity(input.severity) ? { severity: input.severity } : {}),
+      ...attached(input.files),
       ...rich,
     };
     return mutate(slug, n, (data) => (data.comments.push(comment), comment));
@@ -251,6 +259,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
       // the one-line claim a findings reporter (coco-findings skill) gives; the board falls back to the body's first line
       ...(typeof input.title === 'string' && input.title.trim() ? { title: input.title.trim().slice(0, MAX_TITLE) } : {}),
       ...(isGithub(input.github) ? { github: { id: input.github.id, login: input.github.login, url: input.github.url } } : {}),
+      ...attached(input.files),
       ...rich,
     };
     return mutate(slug, n, (data) => {
@@ -262,7 +271,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
   }
 
   async function update(slug: string, n: RowKey, id: string, patch: Input = {}) {
-    const fields: { body?: string; status?: CommentStatus; resolution?: Comment['resolution']; runId?: string | number | null; title?: string; severity?: Severity; confidence?: number } = {};
+    const fields: { body?: string; status?: CommentStatus; resolution?: Comment['resolution']; runId?: string | number | null; title?: string; severity?: Severity; confidence?: number; files?: Comment['files'] } = {};
     if ('body' in patch) {
       const { body } = patch;
       if (typeof body !== 'string' || !body.trim() || body.length > MAX_BODY) throw new HttpError(400, `body must be 1-${MAX_BODY} chars`);
@@ -296,6 +305,7 @@ export function createComments({ DATA, REPO, config, works, repoOf = () => ({ ..
       if (!isConfidence(patch.confidence)) throw new HttpError(400, 'confidence must be an integer 0-100');
       fields.confidence = patch.confidence;
     }
+    if ('files' in patch) fields.files = (uploads?.resolve(patch.files) ?? []).map(uploadRef);
     const current = (list(slug, n).comments || []).find((x) => x.id === id);
     const rich = current ? await richOf(patch, current.sha, cwdOf(slug)) : {};
     const c = await mutate(slug, n, (data) => {

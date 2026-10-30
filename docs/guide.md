@@ -313,7 +313,10 @@ younger than 10 s) and refetched when it moved.
 Comments are local, anchored to a line range of a side (`head` or `base`)
 with the range text and 3 lines of context each side. Create one by dragging
 in the line-number gutter, by selecting lines and pressing `c`, or with the
-"+" shown on hover. Statuses: `open`, `sent` (given to an agent), `fixed`,
+"+" shown on hover. Its box takes screenshots and files too (`files`: upload
+ids on `POST …/comments` and `PUT …/comments/<id>`; a files-only comment is
+fine, and an edit without `files` keeps the ones it has), shown under the
+body. Statuses: `open`, `sent` (given to an agent), `fixed`,
 `declined`, `outdated`. A comment card (sidebar and in-diff zone) carries
 ↗ jump, ✓ resolve / ✕ decline (↺ reopen once closed), 💬 remark, ✎ edit, 🗑
 delete; a remark is kept as the comment's `resolution.note` and sent, with
@@ -1842,20 +1845,25 @@ parent.
 
 ## Attachments (images and files to an agent)
 
-Every agent composer (agent tabs, Ask conversations, new-agent tabs, the
-repo and Inbox panels, agent threads) takes images and files: paste a screenshot, drop
+Every composer (agent tabs, Ask conversations, new-agent tabs, the
+repo and Inbox panels, agent threads, review comment boxes, a commit's
+comment box, Dispatch) takes images and files: paste a screenshot, drop
 files on the composer, or pick them with the paperclip. Each uploads at once
 (`POST /api/uploads?name=…`, raw body, `Content-Type` the file's) to
 `data/uploads/<id>/<name>` and shows as a removable chip; images png, jpeg,
 gif or webp up to 5 MB, other files up to 20 MB, 8 per message, refusals
 inline. The message carries the upload ids: images reach Paseo as `images`
 (base64), other files as `uploaded_file` attachments the agent reads by path,
-on a follow-up or the message that starts an agent. Paseo's timeline keeps
-only the text, so the transcript shows the files from coco's own record: an
-Ask conversation's log, or `data/uploads/sent/<agent>.jsonl` for any other
-agent, paired by message id or text. `GET /api/uploads/<id>` serves a file
-back. At boot and daily, uploads older than 24 h that neither record names
-(dropped from the composer, never sent) are deleted; sent ones stay.
+on a follow-up or the message that starts an agent (a Dispatch included).
+Paseo's timeline keeps only the text, so the transcript shows the files from
+coco's own record: an Ask conversation's log, or
+`data/uploads/sent/<agent>.jsonl` for any other agent, paired by message id
+or text. A review comment keeps its own files on the comment (`files` in its
+JSON, shown under its body): a files-only comment is allowed, and editing
+the text leaves them alone unless you add more. `GET /api/uploads/<id>`
+serves a file back. At boot and daily, uploads older than 24 h that no record
+names (dropped from the composer, never sent, held by no comment) are
+deleted; sent and attached ones stay.
 
 ## Dictation (voice into any composer)
 

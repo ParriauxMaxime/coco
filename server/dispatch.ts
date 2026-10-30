@@ -17,10 +17,12 @@ import type { Preflight } from './preflight.ts';
 import { conflictBody } from './jobs.ts';
 import type { Jobs } from './jobs.ts';
 import { randomUUID } from 'node:crypto';
+import { agentInput, uploadRef } from './uploads.ts';
+import type { Uploads } from './uploads.ts';
 
 export type DispatchKind = 'ask' | 'persona-review' | 'fix-findings' | 'sync-remote' | 'gate' | 'prompt';
 export type CatalogEntry = { id: string; kind: DispatchKind; label: string; edits: boolean; needsPr: boolean; needsPrompt?: boolean; needsPersona?: boolean; gate?: string; skill?: string; ask?: string };
-export type DispatchInput = { entry?: unknown; key?: unknown; prompt?: unknown; persona?: unknown; args?: unknown; edits?: unknown; commentIds?: unknown; provider?: unknown; thinking?: unknown };
+export type DispatchInput = { entry?: unknown; key?: unknown; prompt?: unknown; persona?: unknown; args?: unknown; edits?: unknown; commentIds?: unknown; attachments?: unknown; provider?: unknown; thinking?: unknown };
 export type Dispatched = { kind: DispatchKind; title: string; agentId: string | null; workspaceId?: string | null; edits: boolean; runId?: string; brief: 'written' | 'template' };
 
 type Placed = { workspaceId: string; cwd: string };
@@ -41,6 +43,8 @@ type Deps = {
   // a kit-video run's known blockers go in its first message (server/preflight.ts)
   preflight?: Pick<Preflight, 'run' | 'briefLines'>;
   jobs?: Pick<Jobs, 'start'>;
+  // images and files the owner attached to the prompt
+  uploads?: Pick<Uploads, 'resolve' | 'record'>;
 };
 
 const PROMPT_MAX = 8000;
@@ -96,7 +100,7 @@ export function firstMessage({ title, task, edits, brief, read }: { title: strin
   return [...(title ? [`# ${title}`, ''] : []), task.trim(), '', ...readOnly, ...(brief ? ['---', '', 'The brief below is context about the work and the PR; your task is the one above.', '', brief] : [])].join('\n').trimEnd();
 }
 
-export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models, preflight, jobs }: Deps) {
+export function createDispatch({ config, works, placement, agents, briefs, reviewAgent, comments, writer, repoOf, readier, models, preflight, jobs, uploads }: Deps) {
   const repoFor = (work: Work) => repoOf?.(work) || null;
   const repoIdOf = (work: Work) => repoFor(work)?.id || work.repo || null;
   const entriesFor = (work: Work) => catalog(config, repoFor(work));
@@ -170,6 +174,8 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
 
   async function start(slug: string, input: DispatchInput): Promise<Dispatched> {
     const { work, entry, key, prompt, persona, edits } = resolve(slug, input);
+    const files = uploads?.resolve(input.attachments) ?? [];
+    if (files.length && entry.kind === 'fix-findings') throw new HttpError(400, 'fix findings reads the findings, not files: say what to look at in the prompt');
     const args = typeof input.args === 'string' ? input.args.trim() : '';
     const title = titleOf(entry, key, edits, { prompt, persona });
     const repoId = repoIdOf(work);
@@ -199,7 +205,9 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const known = preflight && key !== null && isVideoEntry(entry.id) ? await preflight.run(slug, key).then((r) => preflight.briefLines(r, entry.skill || ''), () => []) : [];
     const message = [firstMessage({ title, task, edits, brief, read }), ...(known.length ? ['', ...known] : []), ...(setup.length ? ['', ...setup] : [])].join('\n').trimEnd();
     const labels: Record<string, unknown> = { source: 'cocopilot', kind: 'dispatch', dispatch: entry.id, work: slug, ...(key === null ? {} : { pr: fileKey(key) }) };
-    const started = await agents.start({ title, provider, thinking, prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    const messageId = files.length ? randomUUID() : null;
+    const started = await agents.start({ title, provider, thinking, prompt: message, labels, workspaceId: placed.workspaceId, cwd: placed.cwd, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}) });
+    if (messageId) uploads?.record(started.agentId, { messageId, text: message, at: new Date().toISOString(), attachments: files.map(uploadRef) });
     if (edits) readier?.started(started.agentId, placed.cwd, { slug, key });
     writer.track({ agentId: started.agentId, slug, repoId, title, message });
     if (entry.kind === 'gate' && entry.gate && key !== null) markGate(slug, key, entry.gate, { state: 'running', at: new Date().toISOString(), skill: entry.skill || entry.gate, agentId: started.agentId });

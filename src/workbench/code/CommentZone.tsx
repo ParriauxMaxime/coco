@@ -10,6 +10,7 @@ import { toast } from '../../components/Toast.tsx';
 import { confirmDialog } from '../../components/Dialogs.tsx';
 import { useAction, pendingClass } from '../../components/action.ts';
 import { Composer } from '../../preview/chat/Composer.tsx';
+import { SentFiles } from '../../preview/chat/Attachments.tsx';
 import Icon from '../../preview/Icon.tsx';
 import type { IconName } from '../../preview/Icon.tsx';
 import { sevTone } from '../../preview/format.ts';
@@ -27,17 +28,16 @@ export const SureChip = ({ value }: { value?: number }) => (value !== undefined 
 export const confirmDelete = () => confirmDialog({ title: 'Delete this comment?', ok: 'Delete', danger: true });
 export const lineSpan = (c: ReviewComment) => `L${c.startLine}${c.endLine !== c.startLine ? `–${c.endLine}` : ''}`;
 
-export function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string) => void; onCancel: () => void }) {
+export function CommentBox({ initial = '', submitLabel, onSubmit, onCancel }: { initial?: string; submitLabel: string; onSubmit: (body: string, files: UploadRef[]) => void; onCancel: () => void }) {
   return (
     <Composer
       autoFocus
-      attach={false}
       initial={initial}
-      placeholder="Leave a comment (↵, ⇧↵ new line, esc cancels)"
+      placeholder="Leave a comment, or paste or drop screenshots and files (↵, ⇧↵ new line, esc cancels)"
       sendLabel={submitLabel}
       actions={() => <button type="button" className="dp-btn dp-sm dp-ghost" onClick={onCancel}>Cancel</button>}
       onCancel={onCancel}
-      onSend={async (body) => { onSubmit(body); return true; }}
+      onSend={async (body, files) => { onSubmit(body, files); return true; }}
     />
   );
 }
@@ -210,14 +210,14 @@ function HeadLine({ title, body, folded, onClick }: { title?: string; body: stri
 }
 
 // a new comment most often goes straight to an agent: ↵ saves it and starts one, Add comment only saves it
-function DraftComposer({ onAdd, onStart, onCancel }: { onAdd: (body: string) => unknown; onStart: StartAgent; onCancel: () => void }) {
+function DraftComposer({ onAdd, onStart, onCancel }: { onAdd: (body: string, files: UploadRef[]) => unknown; onStart: StartAgent; onCancel: () => void }) {
   const [busy, setBusy] = useState(false);
   return (
     <ThreadComposer
       autoFocus
       busy={busy}
       withModel
-      verdicts={[{ label: 'Add comment', title: 'Save the comment without starting an agent', on: (body) => onAdd(body) }]}
+      verdicts={[{ label: 'Add comment', title: 'Save the comment without starting an agent', on: (body, files) => onAdd(body, files ?? []) }]}
       placeholder="Comment, then start an agent on it (↵), or only add it (⇧↵ new line, esc cancels)"
       onCancel={onCancel}
       onSend={async (...args) => {
@@ -230,7 +230,7 @@ function DraftComposer({ onAdd, onStart, onCancel }: { onAdd: (body: string) => 
 
 type CommentZoneProps = {
   comment: ReviewComment;
-  onSave?: (comment: ReviewComment, body: string) => unknown;
+  onSave?: (comment: ReviewComment, body: string, files: UploadRef[]) => unknown;
   onStart?: (comment: ReviewComment, ...args: Parameters<StartAgent>) => ReturnType<StartAgent>;
   onDelete?: (comment: ReviewComment) => unknown;
   onStatus?: StatusChange;
@@ -262,8 +262,8 @@ export default function CommentZone({ comment, onSave, onStart, onDelete, onStat
           <span className="cc-lines">{comment.side === 'base' ? 'base · ' : ''}{lineSpan(comment)}</span>
         </div>
         {onStart && thread?.slug
-          ? <DraftComposer onAdd={(body) => onSave?.(comment, body)} onStart={(...args) => onStart(comment, ...args)} onCancel={() => onDelete?.(comment)} />
-          : <CommentBox submitLabel="Add comment" onSubmit={(body) => onSave?.(comment, body)} onCancel={() => onDelete?.(comment)} />}
+          ? <DraftComposer onAdd={(body, files) => onSave?.(comment, body, files)} onStart={(...args) => onStart(comment, ...args)} onCancel={() => onDelete?.(comment)} />
+          : <CommentBox submitLabel="Add comment" onSubmit={(body, files) => onSave?.(comment, body, files)} onCancel={() => onDelete?.(comment)} />}
       </div>
     );
   }
@@ -285,13 +285,18 @@ export default function CommentZone({ comment, onSave, onStart, onDelete, onStat
             <CommentBox
               initial={comment.body}
               submitLabel="Save"
-              onSubmit={(body) => {
+              onSubmit={(body, files) => {
                 setEditing(false);
-                onSave?.(comment, body);
+                onSave?.(comment, body, files);
               }}
               onCancel={() => setEditing(false)}
             />
-          ) : comment.blocks ? <FindingBody r={comment} /> : <Markdown text={comment.body} />}
+          ) : (
+            <>
+              {comment.blocks ? <FindingBody r={comment} /> : <Markdown text={comment.body} />}
+              {comment.files?.length ? <SentFiles files={comment.files} /> : null}
+            </>
+          )}
           {(status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
           {status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
           {!editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
@@ -329,19 +334,19 @@ export function fileCommentProps(rv: ReviewHandle, path: string, file?: RefFile)
     rv.addDraft({ side, path: side === 'base' && prev ? prev : path, sha: side === 'head' ? refs.headSha : refs.mergeBase, startLine, endLine });
   };
   const fail = (e: unknown) => toast.error(errorMessage(e));
-  const addDraft = async (c: ReviewComment, body: string) => {
+  const addDraft = async (c: ReviewComment, body: string, files: UploadRef[] = []) => {
     if (!refs) throw new Error('the review is not loaded yet');
-    const added = await rv.add({ path: c.path, side: c.side, sha: c.side === 'head' ? refs.headSha : refs.mergeBase, startLine: c.startLine, endLine: c.endLine, body });
+    const added = await rv.add({ path: c.path, side: c.side, sha: c.side === 'head' ? refs.headSha : refs.mergeBase, startLine: c.startLine, endLine: c.endLine, body, ...(files.length ? { files: files.map((f) => f.id) } : {}) });
     rv.dropDraft(c.id);
     return added;
   };
-  const save = async (c: ReviewComment, body: string) => {
-    if (!c.draft) return rv.update(c.id, { body }).catch(fail);
-    try { await addDraft(c, body); } catch (e) { fail(e); }
+  const save = async (c: ReviewComment, body: string, files: UploadRef[]) => {
+    if (!c.draft) return rv.update(c.id, { body, ...(files.length ? { files: files.map((f) => f.id) } : {}) }).catch(fail);
+    try { await addDraft(c, body, files); } catch (e) { fail(e); }
   };
   const start: CommentZoneProps['onStart'] = async (c, body, model, files, thinking) => {
     try {
-      const added = await addDraft(c, body);
+      const added = await addDraft(c, body, files);
       startCommentThread(rv, added.id, body, model, files, thinking);
     } catch (e) {
       fail(e);

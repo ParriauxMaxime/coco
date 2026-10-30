@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import { createComments } from './comments.ts';
+import { createUploads } from './uploads.ts';
 import { HttpError } from './core-types.ts';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'comments-test-'));
@@ -201,4 +202,22 @@ test('handle routes and error codes', async () => {
   assert.deepEqual((await call('POST', [...p, 'reanchor'], { headSha: c2 })).payload, { updated: 1, outdated: 0, unchanged: 0 });
   assert.equal((await call('DELETE', [...p, id])).code, 200);
   assert.equal((await call('DELETE', [...p, id])).code, 404);
+});
+
+// a screenshot on a comment: kept with it, spared by the sweep while it holds it, refused when the upload is unknown
+test('a comment keeps its files and the sweep spares them', async () => {
+  const DATA = fs.mkdtempSync(path.join(tmp, 'data-files-'));
+  fs.mkdirSync(path.join(DATA, 'works'), { recursive: true });
+  fs.writeFileSync(path.join(DATA, 'works', 'w.json'), '{"slug":"w"}');
+  const uploads = createUploads({ DATA });
+  const comments = createComments({ DATA, REPO, config: { owner: { login: 'alice' } }, uploads });
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const up = uploads.store('shot.png', 'image/png', png);
+  const c = await comments.add('w', 1, { path: 'f.txt', side: 'head', sha: c1, startLine: 3, endLine: 3, body: 'look', files: [up.id] });
+  assert.deepEqual(c.files, [{ id: up.id, fileName: 'shot.png', mimeType: 'image/png', size: png.length }]);
+  assert.deepEqual(uploads.sweep(Date.now() + 48 * 3600_000), []);
+  assert.ok(uploads.get(up.id), 'a comment holds it: the sweep spares it');
+  assert.deepEqual((await comments.update('w', 1, c.id, { files: [] })).files, []);
+  assert.deepEqual(uploads.sweep(Date.now() + 48 * 3600_000), [up.id]);
+  await assert.rejects(comments.add('w', 1, { path: 'f.txt', side: 'head', sha: c1, startLine: 3, endLine: 3, body: 'x', files: ['ffffffffffffffff'] }), /no upload/);
 });

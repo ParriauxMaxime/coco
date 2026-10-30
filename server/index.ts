@@ -154,7 +154,7 @@ const inbox = createInbox({ config, ask });
 const repoOf = repos.repoFor;
 const code = createCode({ REPO, config, works, repoOf });
 works.hooks.onArchived = (n) => code.dropRefs(n).catch(() => {});
-const comments = createComments({ DATA, REPO, config, works, repoOf });
+const comments = createComments({ DATA, REPO, config, works, repoOf, uploads });
 // readiness news: a thread agent hears it within its turn, any other agent as a message
 const agentWorktrees = createAgentWorktrees({
   config,
@@ -195,7 +195,7 @@ works.hooks.lessons = (w) => {
   return { repo, count: briefWriter.lessons(repo).length };
 };
 const preflight = createPreflight({ config, repoOf: repos.repoFor, works, devServers: { workView: (w) => devServers.workView(w) }, worktrees: agentWorktrees });
-const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs });
+const dispatch = createDispatch({ config, works, placement, agents: paseoAgents, briefs, reviewAgent, comments, writer: briefWriter, repoOf: repos.repoFor, readier: agentChecks.readier, models, preflight, jobs, uploads });
 const stackKeeper = createStackKeeper({ REPO, config, works, reviewAgent, jobs, repoOf });
 // the directory of the workspace remembered for a row, which its agents run in
 const rowDir = async (slug: string, key: RowKey) => {

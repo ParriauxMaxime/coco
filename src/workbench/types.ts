@@ -1,5 +1,5 @@
 import type * as Monaco from 'monaco-editor/editor/editor.api';
-import type { Block, Decision, DecisionOption, ImportArtifactBody, ImportedArtifact, PrFile, PrInfo, StackRow, WorkDetail, WorkPlan } from '../types.ts';
+import type { Block, Decision, DecisionOption, ImportArtifactBody, ImportedArtifact, PrFile, PrInfo, StackRow, UploadRef, WorkDetail, WorkPlan } from '../types.ts';
 
 export type Group = { type: 'group'; id: number; tabs: string[]; active: string | null; preview: string | null };
 export type Split = { type: 'split'; dir: 'row' | 'col'; children: LayoutNode[]; sizes: number[] };
@@ -30,6 +30,7 @@ export type ReviewComment = LineRange & {
   confidence?: number;
   title?: string;
   blocks?: Block[];
+  files?: UploadRef[];
   resolution?: Resolution;
   snippet?: string;
   draft?: boolean;
@@ -40,8 +41,8 @@ export type ReviewComment = LineRange & {
   updatedAt?: string;
 };
 export type Proposal = ReviewComment & { index: number; proposal: true };
-export type CommentInput = LineRange & { path: string; side: Side; sha?: string; body?: string; severity?: string; confidence?: number };
-export type CommentPatch = { body?: string; status?: string; resolution?: Resolution; remark?: string };
+export type CommentInput = LineRange & { path: string; side: Side; sha?: string; body?: string; severity?: string; confidence?: number; files?: string[] };
+export type CommentPatch = { body?: string; status?: string; resolution?: Resolution; remark?: string; files?: string[] };
 
 export type RefFile = PrFile & { previous?: string };
 export type Refs = { headSha: string; mergeBase: string; files: RefFile[] };

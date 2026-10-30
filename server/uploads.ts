@@ -115,7 +115,7 @@ export function createUploads({ DATA }: { DATA: string }) {
   // a user message arriving live: the latest one sent with its id or text
   const latest = (agentId: string, item: UserItem) => sent(agentId).findLast((m) => (item.messageId && m.messageId === item.messageId) || m.text.trim() === String(item.text || '').trim())?.attachments;
 
-  // ids any sent message or Ask log carries
+  // ids any sent message, Ask log or review comment carries
   function sentIds() {
     const ids = new Set<string>();
     const scan = (dir: string, ext: RegExp) => {
@@ -124,6 +124,8 @@ export function createUploads({ DATA }: { DATA: string }) {
     };
     scan(SENT, /\.jsonl$/);
     scan(path.join(DATA, 'asks'), /\.jsonl?$/);
+    const works = path.join(DATA, 'works');
+    for (const slug of fs.existsSync(works) ? fs.readdirSync(works) : []) scan(path.join(works, slug, 'comments'), /\.json$/);
     return ids;
   }
 

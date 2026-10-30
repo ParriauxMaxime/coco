@@ -72,7 +72,7 @@ type Attached = { key: string; name: string; size: number; preview: string | nul
 let seq = 0;
 
 // images and files come by paste, drop or the paperclip; each uploads at once and leaves with the message as an attachment id
-// tools: controls after the paperclip · actions(text, clear): buttons before Send that use the text · busy: another action holds Send · sending: Send in flight
+// tools: controls after the paperclip · actions(text, clear, fill, files): buttons before Send that take the text and the files (clear empties both) · busy: another action holds Send · sending: Send in flight
 // onStop: the agent is mid-turn; a Stop button and Esc interrupt it · allowEmpty: Send works without text · attach: false hides the paperclip and refuses pasted files
 type ComposerProps = {
   placeholder: string;
@@ -84,7 +84,7 @@ type ComposerProps = {
   autoFocus?: boolean;
   className?: string;
   tools?: React.ReactNode;
-  actions?: (text: string, clear: () => void, fill: (text: string) => void) => React.ReactNode;
+  actions?: (text: string, clear: () => void, fill: (text: string) => void, files: UploadRef[]) => React.ReactNode;
   onSend: (text: string, files: UploadRef[]) => Promise<boolean>;
   onStop?: () => Promise<unknown>;
   allowEmpty?: boolean;
@@ -269,6 +269,11 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
 
   // a text held by the caller is the caller's to count
   useUnsaved((!controlled && text.trim() !== initial.trim()) || files.length > 0);
+  // an action hands the text and the files over: the box empties, the uploads stay (the action holds them now)
+  const release = () => {
+    setText('');
+    setFiles([]);
+  };
   const uploading = files.some((f) => !f.ref);
   const empty = withText && !allowEmpty && !text.trim() && !files.length;
   const send = async () => {
@@ -364,7 +369,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
           )}
           {tools}
           <span className="dp-xs dp-t3 dp-grow dp-ell">{note}</span>
-          {actions?.(text.trim(), () => setText(''), setText)}
+          {actions?.(text.trim(), release, setText, files.flatMap((f) => (f.ref ? [f.ref] : [])))}
           {onStop && <button type="button" className={`dp-btn dp-sm dp-comp-stop${pendingClass(stopping)}`} disabled={stopping} title="Interrupt the agent (Esc)" onClick={stop}><Icon name="square" size={12} />Stop<kbd>esc</kbd></button>}
           <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(sending)}`} disabled={disabled || busy || sending || empty || uploading || dictating} title={uploading ? 'Waiting for the files to upload' : dictating ? 'Stop dictation first' : 'Shift+Enter for a new line'} onClick={() => void send()}>{sendLabel}<kbd>↵</kbd></button>
         </div>

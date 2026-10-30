@@ -5,7 +5,7 @@ import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
 import PersonaPicker from './PersonaPicker.tsx';
-import type { DispatchEntry, PreflightResult } from '../types.ts';
+import type { DispatchEntry, PreflightResult, UploadRef } from '../types.ts';
 import './parts.css';
 
 type Key = string | number;
@@ -56,8 +56,8 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const writesBranch = entry.kind === 'prompt' ? onPr && edits : entry.edits;
   const noText = entry.kind === 'fix-findings' || entry.kind === 'persona-review';
   const missing = (entry.needsPr && !onPr) || (entry.needsPersona && !persona.trim()) || Boolean(entry.ask && !answer.trim());
-  const go = (prompt: string) => run('dispatch', async () => {
-    const r = await api.dispatch(slug, { entry: entry.id, key: onPr ? key : null, prompt: noText ? '' : prompt, persona, edits, ...(entry.ask ? { args: `${answer.trim()} ${key}` } : {}), ...(picked.length ? { commentIds: picked } : {}), ...model.body() });
+  const go = (prompt: string, files: UploadRef[]) => run('dispatch', async () => {
+    const r = await api.dispatch(slug, { entry: entry.id, key: onPr ? key : null, prompt: noText ? '' : prompt, persona, edits, ...(entry.ask ? { args: `${answer.trim()} ${key}` } : {}), ...(picked.length ? { commentIds: picked } : {}), ...(files.length ? { attachments: files.map((f) => f.id) } : {}), ...model.body() });
     toast.success(`Starting ${r.job.label}: it shows in the status bar until it is done`);
     onClose();
     return r;
@@ -95,7 +95,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
         key={entry.id}
         draft={`dispatch:${slug}:${key}:${entry.id}`}
         autoFocus
-        attach={false}
+        attach={entry.kind !== 'fix-findings'}
         allowEmpty={!entry.needsPrompt}
         withText={!noText}
         placeholder={entry.kind === 'ask' ? 'Your question about this PR (↵)' : entry.kind === 'prompt' ? 'The task (↵)' : 'Extra instructions, optional (↵)'}
@@ -105,7 +105,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
         sendLabel={busy ? 'Writing the brief…' : red ? 'Start anyway' : 'Start agent'}
         tools={<ModelControls choice={model.choice} onPick={model.pick} hint="for the agent this starts" />}
         actions={() => <button type="button" className="dp-btn dp-sm dp-ghost" onClick={onClose}>Cancel</button>}
-        onSend={async (text) => (await go(text)) !== undefined}
+        onSend={async (text, files) => (await go(text, files)) !== undefined}
       />
     </div>
   );

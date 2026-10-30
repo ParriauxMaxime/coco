@@ -5,6 +5,7 @@ import type { createWorks } from './works.ts';
 import type { createComments } from './comments.ts';
 import type { createCode } from './code.ts';
 import type { createReviewAgent } from './review-agent.ts';
+import type { UploadRef } from './uploads.ts';
 
 export type { Decision };
 
@@ -213,6 +214,8 @@ export type Comment = {
   recommendation?: string | null;
   blocks?: Block[] | null;
   sources?: Source[];
+  // images and files the owner attached to the comment: served back as /api/uploads/<id>
+  files?: UploadRef[];
   // an unanchored finding (flag_coco_issue): no path, sha or lines; from is the agent that raised it
   kind?: 'issue';
   from?: { agent: string | null; work: string | null; pr: string | null };

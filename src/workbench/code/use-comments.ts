@@ -140,7 +140,7 @@ const actions = (slug: string, n: PrKey) => ({
     await reviewApi.remove(slug, n, id);
     put(slug, n, (cur) => ({ comments: cur.comments.filter((x) => x.id !== id) }));
   },
-  addDraft: (draft: Omit<CommentInput, 'body'>) => {
+  addDraft: (draft: Omit<CommentInput, 'body' | 'files'>) => {
     const d: ReviewComment = { ...draft, id: `draft-${Date.now()}`, draft: true, status: 'draft', body: '' };
     put(slug, n, (cur) => ({ drafts: [...cur.drafts.filter((x) => x.path !== d.path), d] }));
     return d;

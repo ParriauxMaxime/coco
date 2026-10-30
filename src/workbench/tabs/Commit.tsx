@@ -16,10 +16,11 @@ import { SuggestionActions, SuggestionState, isOpenSuggestion, openCommitTab, po
 import { useAction } from '../../components/action.ts';
 import { toast } from '../../components/Toast.tsx';
 import { Composer } from '../../preview/chat/Composer.tsx';
+import { SentFiles } from '../../preview/chat/Attachments.tsx';
 import Icon from '../../preview/Icon.tsx';
 import { api, errorMessage } from '../../api.ts';
 import { subscribe, topic } from '../../live.ts';
-import type { Thread as ThreadData } from '../../types.ts';
+import type { Thread as ThreadData, UploadRef } from '../../types.ts';
 import type { LineRange, RefFile, Refs, ReviewComment, Side } from '../types.ts';
 import '../code/code.css';
 
@@ -65,7 +66,7 @@ function useTexts(textsOf: TextsOf, scope: string, file: RefFile, desktop: boole
   return texts;
 }
 
-type NoteProps = { note: ReviewComment; onSave: (body: string) => void; onDelete: () => void };
+type NoteProps = { note: ReviewComment; onSave: (body: string, files: UploadRef[]) => void; onDelete: () => void };
 function NoteZone({ note, onSave, onDelete }: NoteProps) {
   const [editing, setEditing] = useState(false);
   const lines = <span className="cc-lines">{note.side === 'base' ? 'base · ' : ''}{lineSpan(note)}</span>;
@@ -73,7 +74,7 @@ function NoteZone({ note, onSave, onDelete }: NoteProps) {
     return (
       <div className="cc-zone dp-card-q cc-draft">
         <div className="dp-cq-h cc-head"><span className="dp-chip dp-acc">{note.draft ? 'new comment' : 'edit'}</span>{lines}</div>
-        <CommentBox initial={note.body} submitLabel={note.draft ? 'Add comment' : 'Save'} onSubmit={(body) => { setEditing(false); onSave(body); }} onCancel={() => (note.draft ? onDelete() : setEditing(false))} />
+        <CommentBox initial={note.body} submitLabel={note.draft ? 'Add comment' : 'Save'} onSubmit={(body, files) => { setEditing(false); onSave(body, files); }} onCancel={() => (note.draft ? onDelete() : setEditing(false))} />
       </div>
     );
   }
@@ -87,6 +88,7 @@ function NoteZone({ note, onSave, onDelete }: NoteProps) {
       </div>
       <div className="cc-body">
         <Markdown text={note.body} />
+        {note.files?.length ? <SentFiles files={note.files} /> : null}
         {!sent && (
           <div className="cc-pa">
             <button type="button" className="dp-ibtn cc-ib" title="Edit the comment" onClick={() => setEditing(true)}><Icon name="pencil" size={14} /></button>
@@ -198,14 +200,15 @@ export default function CommitTab({ tabId }: { tabId: string }) {
   const zone = (c: ReviewComment) => (
     <NoteZone
       note={c}
-      onSave={(body) => editNotes(notesKey, (list) => list.map((x) => (x.id === c.id ? { ...x, body, draft: false } : x)))}
+      onSave={(body, files) => editNotes(notesKey, (list) => list.map((x) => (x.id === c.id ? { ...x, body, ...(files.length ? { files } : {}), draft: false } : x)))}
       onDelete={() => editNotes(notesKey, (list) => list.filter((x) => x.id !== c.id))}
     />
   );
-  const send = async (text: string) => {
+  const send = async (text: string, files: UploadRef[]) => {
     const sent = new Set(unsent.map((c) => c.id));
+    const attached = [...files, ...unsent.flatMap((c) => c.files ?? [])];
     try {
-      await postToThread(slug, key, { text: reviewMessage(sha, unsent, text) });
+      await postToThread(slug, key, { text: reviewMessage(sha, unsent, text), ...(attached.length ? { files: attached } : {}) });
     } catch (e) {
       toast.error(errorMessage(e));
       return false;
@@ -253,7 +256,6 @@ export default function CommitTab({ tabId }: { tabId: string }) {
         <div className="cm-send">
           <Composer
             draft={`commit:${slug}:${tabId}`}
-            attach={false}
             allowEmpty={unsent.length > 0}
             placeholder={unsent.length ? 'A note sent along with the line comments (optional, ↵ sends)' : 'Comment a line of the diff, or write to the agent about this commit (↵)'}
             sendLabel={unsent.length ? `Send ${unsent.length} comment${unsent.length > 1 ? 's' : ''} to the agent` : 'Send to the agent'}

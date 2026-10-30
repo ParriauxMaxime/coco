@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { catalog, createDispatch, firstMessage } from './dispatch.ts';
+import { createUploads } from './uploads.ts';
 import { DEFAULTS } from './config.ts';
 import type { BriefDispatch } from './brief-writer.ts';
 import type { Config } from './config.ts';
@@ -15,7 +19,7 @@ const config: Config = {
   rituals: [{ kind: 'review-as', label: 'Review as', prompt: '/review-as {login} {pr}' }],
 };
 
-function setup({ contextFails = false, writerFails = false, startFails = false, models = undefined as Parameters<typeof createDispatch>[0]['models'] } = {}) {
+function setup({ contextFails = false, writerFails = false, startFails = false, models = undefined as Parameters<typeof createDispatch>[0]['models'], uploads = undefined as Parameters<typeof createDispatch>[0]['uploads'] } = {}) {
   let work: Work = { slug: 'csv', title: 'CSV export', repo: 'widgets', timeline: [], stack: [{ number: 101, personas: ['bob'] }, { number: 102 }] };
   const works = { get: (s: string) => (s === 'csv' ? structuredClone(work) : null), save: (w: Work) => ((work = structuredClone(w)), w) };
   const placed: unknown[] = [];
@@ -51,6 +55,7 @@ function setup({ contextFails = false, writerFails = false, startFails = false, 
     },
     comments: { list: () => ({ comments: [{ id: 'c1', status: 'open', title: 'Unbounded export', path: 'a.ts', startLine: 4 }, { id: 'c2', status: 'fixed', title: 'Missing await', path: 'b.ts', startLine: 9 }, { id: 'c3', status: 'open', title: 'Rename helper', path: 'a.ts', startLine: 20 }] }) },
     models,
+    uploads,
   });
   return { dispatch, placed, started, fixes, timeline, writes, tracked, work: () => work };
 }
@@ -189,4 +194,20 @@ test('a dispatch whose agent never starts leaves its reason on the work timeline
   assert.equal(job, null);
   await assert.rejects(done, /cannot preapprove exact MCP tools/);
   assert.deepEqual(timeline, [`dispatch Ask · Why? failed: Provider 'omp' cannot preapprove exact MCP tools for unattended execution`]);
+});
+
+// the owner's image rides with the agent's first message, and its message id pairs it back on the timeline
+test('a dispatch carries the owner files into the agent first message', async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-files-'));
+  const uploads = createUploads({ DATA });
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const up = uploads.store('shot.png', 'image/png', png);
+  const { dispatch, started } = setup({ uploads });
+  await dispatch.start('csv', { entry: 'prompt', prompt: 'Look at this', attachments: [up.id] });
+  const input = started[0].input as { images?: { mimeType: string }[]; messageId?: string };
+  assert.deepEqual(input.images, [{ data: png.toString('base64'), mimeType: 'image/png' }]);
+  assert.ok(input.messageId);
+  assert.equal(uploads.pairer(AGENT)({ text: String(started[0].prompt) })?.[0].id, up.id);
+  await assert.rejects(dispatch.start('csv', { entry: 'prompt', prompt: 'x', attachments: ['ffffffffffffffff'] }), /no upload/);
+  await assert.rejects(dispatch.start('csv', { entry: 'fix-findings', key: 101, attachments: [up.id] }), /fix findings reads the findings/);
 });
