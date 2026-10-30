@@ -16,13 +16,13 @@ const FOLD = {};
 type Part = ActivityEvent[] | Card;
 type CardProps = { onCard?: (c: Card) => void; newest?: string };
 
-function AgentTurn({ parts, active, who, onCard, newest, compact }: { parts: Part[]; active: boolean; who: string; compact?: boolean } & CardProps) {
+function AgentTurn({ parts, active, who, onCard, newest }: { parts: Part[]; active: boolean; who: string } & CardProps) {
   return (
     <div className="dp-msg-a">
       {who === 'coco' ? <CocoAvatar /> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
       <div className="dp-cv-body">
         <div className="dp-who">{who}</div>
-        {parts.map((p, i) => (Array.isArray(p) ? <Activity key={i} events={p} active={active && i === parts.length - 1} issues={who === 'coco'} compact={compact} fold={FOLD} /> : <CardView key={p.id} card={p} onCard={onCard} focus={p.id === newest} />))}
+        {parts.map((p, i) => (Array.isArray(p) ? <Activity key={i} events={p} active={active && i === parts.length - 1} issues={who === 'coco'} fold={FOLD} /> : <CardView key={p.id} card={p} onCard={onCard} focus={p.id === newest} />))}
       </div>
     </div>
   );
@@ -123,7 +123,7 @@ export default function Conversation({ run, events, pending = [], working, who =
           const m = CARD_MSG.exec(t.user.text ?? '');
           return m ? <CardMessage key={t.key} verb={m[2]} title={titles.get(m[1])} /> : <UserMessage key={t.key} e={t.user} held={booting && t.user.queued} />;
         }
-        return <AgentTurn key={t.key} parts={t.parts ?? []} active={working && i === turns.length - 1} who={who} onCard={onCard} newest={newest} compact={i !== turns.length - 1} />;
+        return <AgentTurn key={t.key} parts={t.parts ?? []} active={working && i === turns.length - 1} who={who} onCard={onCard} newest={newest} />;
       })}
       {pending.map((p) => <UserMessage key={p.nonce} e={p} sending />)}
     </div>
