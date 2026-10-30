@@ -53,7 +53,7 @@ export default function JobsStatus({ onOpenAgent }: { onOpenAgent: (job: Job) =>
       </span>
       {open && (
         <div className="dp-pop dp-on dp-jobspop">
-          <div className="dp-pop-h"><b>Jobs</b><span className="dp-count">{live.length}</span><span className="dp-sp" /><button type="button" className="dp-ibtn" onClick={() => setOpen(false)}><Icon name="x" size={14} /></button></div>
+          <div className="dp-pop-h"><b>Jobs</b><span className="dp-count">{live.length}</span><span className="dp-sp" />{jobs.some((j) => !isLive(j)) && <button type="button" className="dp-btn dp-ghost dp-sm" onClick={() => api.clearJobs().catch((e) => toast.error(errorMessage(e)))}>Clear all</button>}<button type="button" className="dp-ibtn" onClick={() => setOpen(false)}><Icon name="x" size={14} /></button></div>
           <div className="dp-pop-s">
             {shown.map((j) => {
               const why = j.state === 'failed' || j.state === 'lost' ? j.error || j.output : '';

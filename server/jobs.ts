@@ -10,6 +10,8 @@ import type { Sink } from './events.ts';
 import type { AgentSnapshot } from './permissions.ts';
 
 const KEEP = 50;
+// a finished job leaves the menu by itself after this long
+const KEEP_MS = 8 * 60 * 60 * 1000;
 const SETTLE_MS = 15000;
 const TAIL = 4000;
 const GLOBAL = '_global';
@@ -46,6 +48,8 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     try {
       jobs = dir ? JSON.parse(fs.readFileSync(fileOf(work), 'utf8')) : [];
     } catch {}
+    // a finished run older than KEEP_MS leaves the list on its own; a live one never does
+    jobs = jobs.filter((j) => live(j) || Date.now() - Date.parse(j.endedAt || j.startedAt) < KEEP_MS);
     // a command cut by a restart cannot be followed again, nor an agent job cut before its agent started; a started agent keeps running and reports through its events;
     // a spare worktree or an agent worktree's install starts over on boot (spares.start, agentChecks.resume) under a new job, so its cut one leaves the list
     for (const j of jobs) {
@@ -159,6 +163,15 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     return job;
   }
 
+  // the menu's Clear all: every finished job goes, a live one stays
+  function clear(work?: string | null) {
+    const gone = (work ? load(work) : all()).filter((j) => !live(j) && !j.dismissed);
+    for (const j of gone) j.dismissed = true;
+    for (const w of new Set(gone.map((j) => j.work || GLOBAL))) save(w);
+    if (gone.length) listeners.forEach((l) => l(gone[0]));
+    return { cleared: gone.length };
+  }
+
   function watch(sink: Sink, work?: string) {
     const send = () => sink.send(JSON.stringify({ jobs: list(work || null) }));
     send();
@@ -171,6 +184,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     try {
       const [, id, verb] = parts;
       if (!id && req.method === 'GET') return send(res, 200, { jobs: list(new URL(req.url ?? '', 'http://x').searchParams.get('work')) });
+      if (id === 'clear' && req.method === 'POST') return send(res, 200, clear(new URL(req.url ?? '', 'http://x').searchParams.get('work')));
       if (id && verb === 'dismiss' && req.method === 'POST') return send(res, 200, dismiss(id));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
@@ -185,7 +199,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     if (moved.length) changed(moved[0]);
   }
 
-  return { start, wrap, link, onAgent, list, dismiss, watch, handle, rekey, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
+  return { start, wrap, link, onAgent, list, dismiss, clear, watch, handle, rekey, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
 }
 
 export type Jobs = ReturnType<typeof createJobs>;

@@ -212,6 +212,7 @@ export const api = {
   dispatch: (slug: string, body: DispatchBody) => postJson(`${works(slug)}/dispatch`, body).then(jsonOrError<{ job: Job }>),
   jobs: (work?: string) => get<{ jobs: Job[] }>(`/api/jobs${work ? `?work=${encodeURIComponent(work)}` : ''}`),
   dismissJob: (id: string) => post<Job>(`/api/jobs/${encodeURIComponent(id)}/dismiss`, {}),
+  clearJobs: () => postEmpty<{ cleared: number }>('/api/jobs/clear'),
   stackKeeper: (slug: string) => get<KeepPlan>(`${works(slug)}/stack-keeper`),
   stackKeeperAction: (slug: string, action: string) => postEmpty<KeepApplied & KeepPlan>(`${works(slug)}/stack-keeper/${action}`),
   inbox: (body: { url: string; note: string }) => post<{ id: string; kind: string }>('/api/inbox', body),

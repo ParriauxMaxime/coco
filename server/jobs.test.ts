@@ -86,9 +86,30 @@ test('a spare worktree cut by a restart leaves the list: the boot makes it again
 
 test('the global list keeps the newest jobs across works, not whichever work loaded last', () => {
   const DATA = tmp();
-  const job = (work: string, s: number) => ({ id: `${work}-${s}`, work, pr: null, action: 'github-refresh', label: 'GitHub refresh', kind: 'sync', state: 'done', agentId: null, startedAt: `2026-10-30T00:00:${String(s).padStart(2, '0')}Z`, endedAt: '2026-10-30T00:01:00Z', output: '', error: '' });
+  const at = (s: number) => new Date(Date.now() - 3600_000 + s * 1000).toISOString();
+  const job = (work: string, s: number) => ({ id: `${work}-${s}`, work, pr: null, action: 'github-refresh', label: 'GitHub refresh', kind: 'sync', state: 'done', agentId: null, startedAt: at(s), endedAt: at(s), output: '', error: '' });
   fs.mkdirSync(path.join(DATA, 'jobs'));
   fs.writeFileSync(path.join(DATA, 'jobs', 'busy.json'), JSON.stringify(Array.from({ length: 50 }, (_, s) => job('busy', s))));
   fs.writeFileSync(path.join(DATA, 'jobs', 'newer.json'), JSON.stringify([job('newer', 59)]));
   assert.deepEqual(createJobs({ DATA }).list().map((j) => j.id), [...Array.from({ length: 49 }, (_, s) => `busy-${s + 1}`), 'newer-59']);
+});
+
+test('a finished job leaves the list after 8 hours on its own', async () => {
+  const DATA = tmp();
+  const jobs = createJobs({ DATA });
+  const old = jobs.start(meta, async () => ({ output: 'x' }));
+  await old.done;
+  old.job.endedAt = new Date(Date.now() - 9 * 3600_000).toISOString();
+  jobs.start({ ...meta, action: 'later', kind: 'command' }, async () => ({ output: 'y' }));
+  const reopened = createJobs({ DATA });
+  assert.deepEqual(reopened.list('w').map((j) => j.action), ['later']);
+});
+
+test('Clear all dismisses every finished job and leaves a live one alone', async () => {
+  const jobs = createJobs({ DATA: tmp() });
+  const done = jobs.start(meta, async () => ({ output: 'done' }));
+  await done.done;
+  jobs.start({ ...meta, action: 'live', kind: 'command' }, () => new Promise<void>(() => {}));
+  assert.deepEqual(jobs.clear('w'), { cleared: 1 });
+  assert.deepEqual(jobs.list('w').map((j) => j.action), ['live']);
 });
