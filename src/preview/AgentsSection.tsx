@@ -113,8 +113,3 @@ export function AgentList({ g, label, onOpen, onNew, arc, starting = [] }: { g: 
     </div>
   );
 }
-
-export const agentCounts = (g: AgentGroup | undefined) => ({
-  running: g?.live.filter((a) => a.state === 'running').length || 0,
-  waiting: g?.live.filter((a) => a.state === 'waiting').length || 0,
-});

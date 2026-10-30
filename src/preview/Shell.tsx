@@ -8,6 +8,11 @@ import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
 import BetaPanel from './BetaPanel.tsx';
 import { useWaiting } from './waiting.ts';
+import { useJobs } from '../jobs.ts';
+import { useAllWorkAgents } from './agents.ts';
+import SignalBadges from './SignalBadges.tsx';
+import { NO_SIGNAL, addSignals, ownPart, workSignals, workTotal } from './signals.ts';
+import type { Signal } from './signals.ts';
 import { WorkViews } from './WorkSidebar.tsx';
 import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './prefs.ts';
 import type { Overview, WorkSummary } from '../types.ts';
@@ -94,7 +99,7 @@ function Badge({ slug, view, n, icon, what }: { slug: string; view: string; n?: 
   return <button type="button" className="dp-wbadge" title={`${n} open ${what}${n === 1 ? '' : 's'}: open the board`} onClick={go}><Icon name={icon} size={12} />{n}</button>;
 }
 
-function WorkRow({ w, on, expanded, onToggle, views, depth = 0 }: { w: WorkSummary; on: boolean; expanded: boolean; onToggle: () => void; views: React.ReactNode; depth?: number }) {
+function WorkRow({ w, on, expanded, onToggle, views, signal, depth = 0 }: { w: WorkSummary; on: boolean; expanded: boolean; onToggle: () => void; views: React.ReactNode; signal: Signal; depth?: number }) {
   const p = w.progress;
   return (
     <>
@@ -103,6 +108,8 @@ function WorkRow({ w, on, expanded, onToggle, views, depth = 0 }: { w: WorkSumma
           <button type="button" className={`dp-caret${expanded ? ' dp-open' : ''}`} aria-label={expanded ? 'Collapse' : 'Expand'} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}><Icon name="chevron-right" size={12} /></button>
           <span className={`dp-dot dp-lg ${workDot(w)}`} />
           <span className="dp-grow dp-ell">{w.title}</span>
+          {/* the dot already turns red for changes requested or CI red */}
+          <SignalBadges s={signal} attention={false} />
           {p.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}
           <WorkMenu w={w} />
         </span>
@@ -148,6 +155,12 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
     if (s === slug) setTouched({ ...mine, slug, work: true });
     setExpanded((l) => (open ? l.filter((x) => x !== s) : [...l.filter((x) => x !== s), s]));
   };
+  // every work's activity, for a folded work row and a folded repo row
+  const agentsBy = useAllWorkAgents();
+  const queue = useWaiting();
+  const jobs = useJobs();
+  const signals = new Map([...works.values()].map((w) => [w.slug, workSignals(w, agentsBy[w.slug]?.agents || [], queue?.items || [], jobs)]));
+  const titleOf = (s: string) => works.get(s)?.title ?? s;
   return (
     <>
       {repos.map((r) => {
@@ -158,6 +171,7 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
               <div role="button" tabIndex={0} aria-expanded={open} className={`dp-repo dp-repo-fold${open ? '' : ' dp-folded'}`} title={open ? `Fold ${r.name}` : `Unfold ${r.name}`} onClick={() => flipRepo(r.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flipRepo(r.id); } }}>
                 <span className={`dp-caret${open ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span>
                 <Icon name="git-branch" size={14} /><span className="dp-ell">{r.name}</span>
+                {!open && <SignalBadges s={addSignals(r.works.map((s) => workTotal(signals.get(s) ?? new Map())))} titles={titleOf} />}
                 <span className="dp-gh-name">{r.github.split('/')[0]}</span>
                 <a className="dp-ibtn dp-repo-go" href={`#/repo/${r.id}`} title={`${r.name}: repo page`} aria-label={`${r.name} repo page`} onClick={(e) => e.stopPropagation()}><Icon name="external-link" size={12} /></a>
               </div>
@@ -165,7 +179,7 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
             <div className={`dp-collapse${open ? ' dp-open' : ''}`}>
               <div>
                 {nested(r.works.map((s) => works.get(s)).filter((w): w is WorkSummary => Boolean(w))).map(({ w, depth }) => (
-                  <WorkRow key={w.slug} w={w} depth={depth} on={w.slug === slug} expanded={workOpen(w.slug)} onToggle={() => flipWork(w.slug)} views={views(w)} />
+                  <WorkRow key={w.slug} w={w} depth={depth} on={w.slug === slug} expanded={workOpen(w.slug)} onToggle={() => flipWork(w.slug)} views={views(w)} signal={workOpen(w.slug) ? ownPart(signals.get(w.slug)?.get('') ?? NO_SIGNAL) : workTotal(signals.get(w.slug) ?? new Map())} />
                 ))}
               </div>
             </div>

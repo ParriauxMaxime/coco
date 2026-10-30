@@ -183,11 +183,29 @@ html[data-theme="dark"] .dp .dp-av { color: hsl(var(--dp-h) 60% 80%); background
 .dp-repo .dp-gh-name { font-size: 11px; color: var(--dp-t3); font-weight: 400; margin-left: auto; }
 .dp-repo-fold { cursor: pointer; user-select: none; padding-left: 2px; }
 .dp-repo-fold .dp-caret { flex: none; }
+.dp-repo-fold > .dp-ell { flex: none; max-width: 60%; }
+.dp-repo-fold .dp-gh-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .dp-repo-fold:focus-visible { outline: 2px solid var(--dp-focus); outline-offset: -2px; }
 .dp-repo-go { width: 20px; height: 20px; flex: none; opacity: 0; }
 .dp-repo-fold:hover .dp-repo-go, .dp-repo-go:focus-visible { opacity: 1; }
 .dp-wbadge { display: inline-flex; align-items: center; gap: 2px; flex: none; height: 18px; padding: 0 5px; border: 0; border-radius: 9px; background: var(--dp-subtle); color: var(--dp-t2); font: 500 10.5px/18px var(--dp-f); font-variant-numeric: tabular-nums; cursor: pointer; }
 .dp-wbadge:hover { background: var(--dp-accent-t2); color: var(--dp-accent); }
+
+/* a row's activity signals: running (with its popover), waiting on you, failed jobs, changes requested or CI red */
+.dp-sigspin { display: inline-flex; align-items: center; gap: 3px; flex: none; height: 18px; padding: 0 3px; border-radius: 9px; cursor: pointer; }
+.dp-sigspin:hover, .dp-sigspin:focus-visible { background: color-mix(in srgb, var(--dp-info) 14%, transparent); outline: none; }
+.dp-sigspin-n { font: 600 10.5px/1 var(--dp-f); color: var(--dp-info); font-variant-numeric: tabular-nums; }
+.dp-sigfail { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--dp-bad); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dp-bad) 22%, transparent); cursor: pointer; }
+.dp-sigatt { display: inline-flex; flex: none; color: var(--dp-bad); }
+.dp-sigpop { position: fixed; z-index: 70; width: 320px; max-height: 60vh; overflow: auto; padding: 4px; background: var(--dp-panel); border: 1px solid var(--dp-line); border-radius: var(--dp-r3); box-shadow: var(--dp-sh-3); }
+.dp-sigpop-h { padding: 6px 8px 4px; font-size: 11px; font-weight: 600; color: var(--dp-t3); }
+.dp-sigpop-w { padding: 6px 8px 2px; font-size: 11.5px; font-weight: 600; color: var(--dp-t2); border-top: 1px solid var(--dp-line); margin-top: 2px; }
+.dp-sigl { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--dp-r2); background: none; color: var(--dp-t1); text-align: left; font: inherit; cursor: pointer; }
+.dp-sigl:hover { background: var(--dp-hover); }
+.dp-sigl > svg { margin-top: 2px; flex: none; color: var(--dp-info); }
+.dp-sigl-b { display: flex; flex-direction: column; min-width: 0; }
+.dp-sigl-t { font-size: 12.5px; line-height: 17px; }
+.dp-sigl-s { font-size: 11px; line-height: 15px; color: var(--dp-t3); }
 .dp-work { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 26px; border-radius: var(--dp-r2); color: var(--dp-t2); cursor: pointer; position: relative; }
 .dp-work .dp-grip { left: 10px; }
 .dp-work:hover { background: var(--dp-hover); color: var(--dp-t1); }

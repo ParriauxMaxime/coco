@@ -37,7 +37,13 @@ export function useWorkAgents(slug: string, live: boolean): WorkAgents | undefin
   return useAgents((s) => s.by[slug]);
 }
 
-export const reloadWorkAgents = (slug: string) => api.workAgents(slug).then((r) => put(slug, r), () => {});
+// every work's agents, from the sidebar's one read of them all (a work whose list is pushed keeps that one)
+export function useAllWorkAgents() {
+  useResource('/api/works/agents-summary', readSummary, { fresh: SUMMARY_FRESH_MS });
+  return useAgents((s) => s.by);
+}
+
+export const reloadWorkAgents =(slug: string) => api.workAgents(slug).then((r) => put(slug, r), () => {});
 
 const find = (list: WorkAgent[] | undefined, id: string) => list?.find((a) => a.id === id || (a.agentId && id === `ag-${a.agentId}`));
 export const agentOf = (slug: string, id: string) => find(useAgents.getState().by[slug]?.agents, id);

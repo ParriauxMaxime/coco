@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { itemsOf, useWaiting } from './waiting.ts';
+import { useWaiting } from './waiting.ts';
+import SignalBadges from './SignalBadges.tsx';
+import { NO_SIGNAL, ownPart, rowsTotal, workSignals } from './signals.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
-import { AgentList, agentCounts, useArchive } from './AgentsSection.tsx';
+import { AgentList, useArchive } from './AgentsSection.tsx';
 import { agentOf, groupAgents, prLabel, useWorkAgents } from './agents.ts';
 import type { AgentGroup } from './agents.ts';
 import { isDone, prKey, prState, prTitle } from './data.ts';
@@ -27,8 +29,7 @@ export const VIEWS: { id: string; label: string; icon: IconName }[] = [
 const MERGED = ':merged';
 const PLANNED = ':planned';
 
-type Row = { key: string; pr: WorkPr | null; state: string; label: string; title: string };
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+type Row = { key: string; pr: WorkPr | null; state: string; ci: string | null; label: string; title: string };
 
 // the PR a tab is about: its page, review, findings, code, new agent or brief tab, or the PR of the agent it shows
 const prOfFocus = (slug: string, tab: string) => {
@@ -37,15 +38,6 @@ const prOfFocus = (slug: string, tab: string) => {
   const m = /^(?:pr|ask-new|brief)-(.+)$/.exec(tab);
   return m ? m[1] : (tab && agentOf(slug, tab)?.pr) || null;
 };
-
-function Counts({ running, waiting, job }: { running: number; waiting: number; job?: boolean }) {
-  return (
-    <>
-      {(job || running > 0) && <span className="dp-ag-dot dp-ag-running dp-thr-spin" title={[job && 'A job runs here', running > 0 && `${plural(running, 'agent')} working`].filter(Boolean).join(' · ')} />}
-      {waiting > 0 && <span className="dp-count dp-acc" title={`${waiting} waiting on you`}>{waiting}</span>}
-    </>
-  );
-}
 
 type Props = {
   w: WorkSummary;
@@ -56,7 +48,7 @@ type Props = {
 };
 
 // a stack row of a work not open, from the overview's summary
-const summaryRow = (r: SummaryRow): Row => ({ key: r.key, pr: null, state: r.state, label: r.number ? `#${r.number}` : prLabel(r.key), title: r.title });
+const summaryRow = (r: SummaryRow): Row => ({ key: r.key, pr: null, state: r.state, ci: r.ci, label: r.number ? `#${r.number}` : prLabel(r.key), title: r.title });
 
 // a work's tree: its agents, then its open PRs, merged and planned ones folded; the views, Timeline, Notes and Artifacts open from
 // the work's Overview, its tabs and ⌘K. Off its page each entry opens the work on that tab
@@ -68,17 +60,16 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
   const arc = useArchive(w.slug);
   const groups = groupAgents(data?.agents || [], queue?.byAgent ?? {}, prs);
   const byPr = new Map<string | null, AgentGroup>(groups.map((g) => [g.pr, g]));
-  // agents working from the agent list, what waits on you from the waiting queue, by PR (null: the work itself)
-  const countsAt = (key: string | null) => ({ running: agentCounts(byPr.get(key)).running, waiting: itemsOf(queue, w.slug, key).length });
   const jobs = useJobs(w.slug);
-  const working = new Set(jobs.filter(isLive).map((j) => j.pr));
   const listed = new Set((data?.agents || []).map((a) => a.agentId));
   const starting = (key: string | null) => jobs.filter((j) => j.kind === 'agent' && isLive(j) && j.pr === key && !(j.agentId && listed.has(j.agentId)));
   const steps = useMilestones(live ? w.slug : null);
   const { list, toggle, set } = usePersistedList(`cc.dp.tree.${w.slug}`, (l) => l);
 
-  const stack: Row[] = prs.length ? prs.map((pr) => ({ key: prKey(pr), pr, state: prState(pr), label: pr.number ? `#${pr.number}` : prLabel(prKey(pr)), title: prTitle(pr) })) : (w.rows || []).map(summaryRow);
-  const rows: Row[] = [...stack, ...groups.filter((g) => g.pr !== null && !stack.some((r) => r.key === g.pr)).map((g) => ({ key: g.pr || '', pr: null, state: '', label: g.label, title: g.title }))];
+  const stack: Row[] = prs.length ? prs.map((pr) => ({ key: prKey(pr), pr, state: prState(pr), ci: pr.ci ?? null, label: pr.number ? `#${pr.number}` : prLabel(prKey(pr)), title: prTitle(pr) })) : (w.rows || []).map(summaryRow);
+  const rows: Row[] = [...stack, ...groups.filter((g) => g.pr !== null && !stack.some((r) => r.key === g.pr)).map((g) => ({ key: g.pr || '', pr: null, state: '', ci: null, label: g.label, title: g.title }))];
+  const signals = workSignals({ slug: w.slug, rows }, data?.agents || [], queue?.items || [], jobs);
+  const at = (key: string) => signals.get(key) ?? NO_SIGNAL;
   const opened = rows.filter((r) => !isDone(r.state) && r.state !== 'planned');
   const merged = rows.filter((r) => isDone(r.state));
   const planned = rows.filter((r) => r.state === 'planned');
@@ -99,7 +90,6 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
   const caret = (id: string, on: boolean) => (
     <button type="button" className={`dp-caret${on ? ' dp-open' : ''}`} aria-label={on ? 'Collapse' : 'Expand'} onClick={(e) => { e.stopPropagation(); flip(id); }}><Icon name="chevron-right" size={12} /></button>
   );
-  const sum = (rs: Row[]) => rs.reduce((a, r) => { const c = countsAt(r.key); return { running: a.running + c.running, waiting: a.waiting + c.waiting, job: a.job || working.has(r.key) }; }, { running: 0, waiting: 0, job: false });
 
   const prRow = (r: Row) => {
     const on = list.includes(r.key);
@@ -114,7 +104,8 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
           <span className={`dp-pr-n${r.pr?.number ? '' : ' dp-ell'}`}>{r.label}</span>
           <span className="dp-ell dp-grow">{r.title}</span>
           {step && <span className={`dp-ms-chip dp-ms-${step}`} title={`Current milestone: ${step}`}>{step}</span>}
-          <Counts {...countsAt(r.key)} job={working.has(r.key)} />
+          {/* unfolded, its agents show on their rows; the dot already says changes requested, so CI red alone flags */}
+          <SignalBadges s={on ? ownPart(at(r.key)) : at(r.key)} attention={r.ci === 'failure'} />
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}>
           <div className="dp-pr-kids">
@@ -131,7 +122,7 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
       <>
         <div className="dp-view dp-pr-fold" onClick={() => flip(id)}>
           {caret(id, on)}<span className="dp-grow">{label}</span>
-          {!on && <Counts {...sum(rs)} />}
+          {!on && <SignalBadges s={rowsTotal(signals, rs.map((r) => r.key))} />}
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}><div>{rs.map(prRow)}</div></div>
       </>

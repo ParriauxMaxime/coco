@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { create } from 'zustand';
 import { api, errorMessage } from '../api.ts';
 import { isLive, useJobs } from '../jobs.ts';
 import { toast } from '../components/Toast.tsx';
@@ -29,9 +30,13 @@ function useEndToasts(jobs: Job[]) {
 }
 
 // "n jobs" in the status bar: every running action of every work, and the last ones that ended
+// the Jobs list's open state, so a job line elsewhere (the sidebar's activity popover) opens it
+export const useJobsPanel = create<{ open: boolean }>(() => ({ open: false }));
+const setOpen = (open: boolean) => useJobsPanel.setState({ open });
+
 export default function JobsStatus({ onOpenAgent }: { onOpenAgent: (job: Job) => void }) {
   const jobs = useJobs();
-  const [open, setOpen] = useState(false);
+  const open = useJobsPanel((s) => s.open);
   useEndToasts(jobs);
   const live = jobs.filter(isLive);
   const failed = jobs.filter((j) => j.state === 'failed' || j.state === 'lost');
