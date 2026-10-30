@@ -107,13 +107,20 @@ function stepOf(it: ActivityItem | undefined) {
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 // issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
 // fold: one turn of a thread, its work (calls, thinking, narration) under one row timed from..to, naming the step under way;
-// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) keeps every word the agent says
-type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode; fold?: { from?: string; to?: string } };
-export default function Activity({ events, active = false, issues: offer = false, renderEvent = defaultEvent, fold }: Props) {
+// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) keeps what the agent says: its closing words out,
+// the narration above them in a notes row that opens on a click, inline on the turn being read (compact false)
+type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; compact?: boolean; fold?: { from?: string; to?: string } };
+export default function Activity({ events, active = false, issues: offer = false, compact = false, fold }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const now = useNow(1000, active && Boolean(fold?.from));
   const items = groupActivity(events, { active });
   const toggle = (i: number | string) => setOpen((o) => ({ ...o, [i]: !o[i] }));
+  const last = items.at(-1);
+  const settled = !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined);
+  const lastWork = items.findLastIndex((it) => it.kind === 'tools' || it.kind === 'think');
+  // a turn's closing words always stay open: only the narration above them folds
+  const lastText = items.findLastIndex((it) => it.kind === 'live' || (it.kind === 'event' && it.event.type === 'text'));
+  const threadTurn = fold?.from !== undefined;
   const tools = (calls: ActivityEvent[], key: number | string, label: string, running: boolean) => {
     const issues = offer ? calls.flatMap((c) => cocoIssueOf(c) ?? []) : [];
     const row = <Row key={key} icon="wrench" label={label} running={running} open={open[key]} onToggle={() => toggle(key)}>{calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
@@ -125,11 +132,8 @@ export default function Activity({ events, active = false, issues: offer = false
     if (it.kind === 'think') return <Row key={i} icon="brain" label="Thinking" running={it.running} open={open[i]} onToggle={() => toggle(i)}><div className="dp-cv-think">{it.text}</div></Row>;
     if (it.kind === 'live') return <div key={i} className="dp-cv-text"><Markdown text={it.text} /></div>;
     if (it.kind === 'permission') return it.event.request ? <PermissionCard key={i} agentId={it.event.agentId} request={it.event.request} resolution={it.resolution} /> : null;
-    return <React.Fragment key={i}>{renderEvent(it.event)}</React.Fragment>;
+    return <React.Fragment key={i}>{defaultEvent(it.event)}</React.Fragment>;
   };
-  const last = items.at(-1);
-  const settled = !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined);
-  const lastWork = items.findLastIndex((it) => it.kind === 'tools' || it.kind === 'think');
   if (!fold || (lastWork < 0 && !active)) {
     return (
       <div className="dp-cv-acts">
@@ -138,15 +142,17 @@ export default function Activity({ events, active = false, issues: offer = false
       </div>
     );
   }
-  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and what the agent says — every word of a chat
-  // turn, streaming or settled, where a thread's turn keeps only the text it ends on; the calls, thinking and answered questions wait under the row
-  const threadTurn = fold.from !== undefined;
+  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and what the agent says; a thread's turn keeps only the
+  // text it ends on, a chat's turn keeps its closing words out and puts the narration above them in one notes row (on the turns you are not reading)
+  const notes = new Set<ActivityItem>();
+  if (!threadTurn && compact) for (const [i, it] of items.entries()) if (i < lastText && it.kind === 'event' && it.event.type === 'text') notes.add(it);
+  const group = notes.size > 1;
   const inSight = new Set(items.filter((it, i) =>
     (it.kind === 'live' && (!threadTurn || i > lastWork)) ||
     (it.kind === 'permission' && it.resolution === undefined) ||
     (it.kind === 'event' && (
       it.event.type === 'closed' || it.event.type === 'stderr' || Boolean(it.event.error) ||
-      (it.event.type === 'text' && (!threadTurn || i > lastWork))
+      (it.event.type === 'text' && (!group || !notes.has(it)) && (!threadTurn || i > lastWork))
     )),
   ));
   const took = fold.from && (active || fold.to) ? elapsed(fold.from, active ? now : Date.parse(fold.to ?? '')) : '';
@@ -156,8 +162,13 @@ export default function Activity({ events, active = false, issues: offer = false
   return (
     <div className="dp-cv-acts">
       <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
-        <div className="dp-cv-acts">{items.map((it, i) => (inSight.has(it) ? null : item(it, i)))}</div>
+        <div className="dp-cv-acts">{items.map((it, i) => (inSight.has(it) || (group && notes.has(it)) ? null : item(it, i)))}</div>
       </Row>
+      {group && (
+        <Row icon="message-square" label={`${notes.size} notes`} running={false} open={open.notes} onToggle={() => toggle('notes')}>
+          {items.map((it, i) => (notes.has(it) ? item(it, i) : null))}
+        </Row>
+      )}
       {items.map((it, i) => (inSight.has(it) ? item(it, i) : null))}
     </div>
   );
