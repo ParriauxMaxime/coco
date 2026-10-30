@@ -64,7 +64,13 @@ export type IconName =
   | 'calendar'
   | 'pause'
   | 'mic'
-  | 'smartphone';
+  | 'smartphone'
+  | 'whale'
+  | 'anthropic'
+  | 'openai'
+  | 'gemini'
+  | 'apple'
+  | 'cpu';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   archive: (
@@ -190,6 +196,29 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-left': <path d="m15 18-6-6 6-6" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   sparkles: <path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z" />,
+  // the marks of a model's maker, as a model row and the composer show them
+  whale: (
+    <>
+      <path d="M4 14c0-3 3-5.4 6.6-5.4S17.2 11 17.2 14s-3 5.2-6.6 5.2S4 17 4 14Z" fill="currentColor" stroke="none" />
+      <path d="M17 12.4 21 9v7l-4-2.6Z" fill="currentColor" stroke="none" />
+      <path d="M8.6 8.6c.1-1.4.9-2.4 2.2-2.9" />
+    </>
+  ),
+  anthropic: <path d="M12 3.5v17M4.5 7.7l15 8.6M19.5 7.7l-15 8.6" />,
+  openai: <path d="M12 3.8a8.2 8.2 0 1 1-5.8 14M12 20.2A8.2 8.2 0 1 1 17.8 6.2" />,
+  gemini: <path d="M12 3c.6 4.5 3.4 7.4 8 8-4.6.6-7.4 3.5-8 8-.6-4.5-3.4-7.4-8-8 4.6-.6 7.4-3.5 8-8Z" fill="currentColor" stroke="none" />,
+  apple: (
+    <>
+      <path d="M12 8.4c-2.3 0-3.7 1.5-3.7 3.7 0 3 2.1 6.9 3.7 6.9s3.7-3.9 3.7-6.9c0-2.2-1.4-3.7-3.7-3.7Z" fill="currentColor" stroke="none" />
+      <path d="M12 8.2c0-1.2.7-2.2 1.9-2.6" />
+    </>
+  ),
+  cpu: (
+    <>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <path d="M10 2v3M14 2v3M10 19v3M14 19v3M2 10h3M2 14h3M19 10h3M19 14h3" />
+    </>
+  ),
   file: (
     <>
       <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />

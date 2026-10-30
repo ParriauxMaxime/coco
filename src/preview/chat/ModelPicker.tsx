@@ -4,7 +4,7 @@ import { api, errorMessage } from '../../api.ts';
 import Icon from '../Icon.tsx';
 import { useModelList, useModelPicks } from '../prefs.ts';
 import type { ModelPickPref } from '../prefs.ts';
-import { latestModels } from './model-view.ts';
+import { latestModels, modelMark } from './model-view.ts';
 import { toast } from '../../components/Toast.tsx';
 import type { AgentMode, AgentModes, ModelCatalog, ModelChoice } from '../../types.ts';
 import './model.css';
@@ -141,7 +141,7 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode, lo
   return (
     <span className="dp-mdl" ref={box}>
       <button type="button" className={`dp-btn dp-ghost dp-sm dp-mdl-btn${open === 'model' ? ' dp-on' : ''}`} disabled={disabled || !choice} aria-haspopup="menu" aria-expanded={open === 'model'} title={`Model: ${choice?.provider ?? 'loading…'}`} onClick={() => toggle('model')}>
-        <Icon name="sparkles" size={12} /><span className="dp-ell">{model?.label ?? (choice ? idOf(choice.provider) || choice.provider : 'model')}</span><Icon name="chevron-down" size={12} />
+        <Icon name={modelMark(choice?.provider ?? '', model?.label)} size={12} /><span className="dp-ell">{model?.label ?? (choice ? idOf(choice.provider) || choice.provider : 'model')}</span><Icon name="chevron-down" size={12} />
       </button>
       <button type="button" className={`dp-btn dp-ghost dp-sm dp-mdl-btn dp-mdl-th${open === 'thinking' ? ' dp-on' : ''}`} disabled={disabled || !choice} aria-haspopup="menu" aria-expanded={open === 'thinking'} title={`Thinking: ${choice?.thinking ?? 'the model default'}`} onClick={() => toggle('thinking')}>
         <Icon name="brain" size={12} /><span className="dp-mdl-v">{thinkingLabel}</span><Icon name="chevron-down" size={12} />
@@ -183,6 +183,7 @@ export function ModelControls({ choice, onPick, hint, disabled = false, mode, lo
                 return (
                   <div key={id} role="menuitemradio" aria-checked={on} className={`dp-mi${on ? ' dp-hl' : ''}`} title={m.description || m.label} onClick={() => choose({ provider: id, thinking: keep ? choice?.thinking ?? null : null })}>
                     {on ? <Icon name="check" size={14} /> : <span className="dp-mdl-sp" />}
+                    <Icon name={modelMark(id, m.label)} size={12} />
                     <span className="dp-ell">{m.label}</span>
                     {tag(id) && <span className="dp-chip dp-mdl-tag">{tag(id)}</span>}
                     <span className="dp-r dp-ell">{(m.description || '').replace(`${m.label} · `, '')}</span>
