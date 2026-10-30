@@ -2040,10 +2040,10 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
   one row per tool it used — `bash · 98 commands`, `read · 76 files`, an MCP
   tool by name — each opening on its calls with their input and output;
   `Agent log calls` in the ⌘. panel puts them back in one row, in order; its
-  thinking is one row, its narration one `N notes` row, the one-line chatter
-  it emits between calls (under 80 characters) is dropped, and the words it
-  ends on stay out), permissions, open cards and composer (attachments, model
-  and thinking switch, Stop). Reached from
+  thinking is one row, and its narration follows in full, open — prose, lists
+  and images alike — with only the one-line chatter it emits between calls
+  (under 80 characters) dropped), permissions, open cards and composer
+  (attachments, model and thinking switch, Stop). Reached from
   Chat on the Agents page, the Dashboard's agent rows, a ritual's history
   row, a job of no work and the Waiting page link of a card whose agent has
   no work. `GET /api/agent-chat/<agentId>` gives its title, kind, work, PR,

@@ -115,9 +115,8 @@ function stepOf(it: ActivityItem | undefined) {
 // one agent's activity, Paseo style: a row per run of tool calls or thinking (expandable), its text rendered.
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 // issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
-// fold: one turn of a thread, its work (calls, thinking, narration) under one row timed from..to, naming the step under way;
-// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) splits its calls per tool, folds the narration in
-// one notes row and keeps its closing words out
+// fold: one turn of a thread, its work (calls, thinking, answered questions) under one row timed from..to, naming the step under way; what it
+// says, a permission nobody answered and an error stay out · a chat's turn (no from) splits its calls per tool and reads the narration inline
 type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; fold?: { from?: string; to?: string } };
 // a chat drops the one-line chatter an agent emits between its calls (Emit., (Done.), Producing.): what it says at length stays
 const CHATTER = 80;
@@ -155,16 +154,14 @@ export default function Activity({ events, active = false, issues: offer = false
       </div>
     );
   }
-  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and the words it ends on; the narration above
-  // them waits in a notes row, a thread's turn keeping only what it ends on
-  const notes = new Set<ActivityItem>();
-  if (!threadTurn) for (const it of shown) if (it !== closing && it.kind === 'event' && it.event.type === 'text') notes.add(it);
+  // what a folded turn keeps out of the fold: a question nobody answered yet, an error or a close, and what the agent says in the order it says it;
+  // a chat answers every line inline, a work's thread only the text its turn ends on
   const inSight = new Set(shown.filter((it, i) =>
     (it.kind === 'live' && (!threadTurn || i > lastWork)) ||
     (it.kind === 'permission' && it.resolution === undefined) ||
     (it.kind === 'event' && (
       it.event.type === 'closed' || it.event.type === 'end' || it.event.type === 'stderr' || Boolean(it.event.error) ||
-      (it.event.type === 'text' && !notes.has(it) && (!threadTurn || i > lastWork))
+      (it.event.type === 'text' && (!threadTurn || i > lastWork))
     )),
   ));
   const calls = shown.flatMap((it) => (it.kind === 'tools' ? it.calls : []));
@@ -195,14 +192,9 @@ export default function Activity({ events, active = false, issues: offer = false
               <div className="dp-cv-think">{thinks.join('\n\n')}</div>
             </Row>
           )}
-          {shown.map((it, i) => (inSight.has(it) || notes.has(it) || (perTool && (it.kind === 'tools' || it.kind === 'think')) ? null : item(it, i)))}
+          {shown.map((it, i) => (inSight.has(it) || (perTool && (it.kind === 'tools' || it.kind === 'think')) ? null : item(it, i)))}
         </div>
       </Row>
-      {notes.size > 0 && (
-        <Row icon="message-square" label={`${notes.size} note${notes.size > 1 ? 's' : ''}`} running={false} open={open.notes} onToggle={() => toggle('notes')}>
-          {shown.map((it, i) => (notes.has(it) ? item(it, i) : null))}
-        </Row>
-      )}
       {shown.map((it, i) => (inSight.has(it) ? item(it, i) : null))}
     </div>
   );
