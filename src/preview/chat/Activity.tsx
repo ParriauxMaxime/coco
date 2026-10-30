@@ -107,7 +107,7 @@ function stepOf(it: ActivityItem | undefined) {
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 // issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
 // fold: one turn of a thread, its work (calls, thinking, narration) under one row timed from..to, naming the step under way;
-// a permission, an error and the text the turn ends on stay out
+// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) keeps every word the agent says
 type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; renderEvent?: (e: ActivityEvent) => React.ReactNode; fold?: { from?: string; to?: string } };
 export default function Activity({ events, active = false, issues: offer = false, renderEvent = defaultEvent, fold }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -138,16 +138,27 @@ export default function Activity({ events, active = false, issues: offer = false
       </div>
     );
   }
-  const stays = (it: ActivityItem, i: number) => it.kind === 'permission' || (it.kind === 'event' && (it.event.type === 'closed' || it.event.type === 'stderr' || Boolean(it.event.error))) || (i > lastWork && (it.kind === 'live' || (it.kind === 'event' && it.event.type === 'text')));
+  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and what the agent says — every word of a chat
+  // turn, streaming or settled, where a thread's turn keeps only the text it ends on; the calls, thinking and answered questions wait under the row
+  const threadTurn = fold.from !== undefined;
+  const inSight = new Set(items.filter((it, i) =>
+    (it.kind === 'live' && (!threadTurn || i > lastWork)) ||
+    (it.kind === 'permission' && it.resolution === undefined) ||
+    (it.kind === 'event' && (
+      it.event.type === 'closed' || it.event.type === 'stderr' || Boolean(it.event.error) ||
+      (it.event.type === 'text' && (!threadTurn || i > lastWork))
+    )),
+  ));
   const took = fold.from && (active || fold.to) ? elapsed(fold.from, active ? now : Date.parse(fold.to ?? '')) : '';
   const did = callsLabel(countCalls(items.flatMap((it) => (it.kind === 'tools' ? it.calls : []))));
-  const label = active ? `Working${took && ` ${took}`} · ${stepOf(items[lastWork])}` : [took && `Worked ${took}`, did].filter(Boolean).join(' · ') || 'Worked';
+  const step = lastWork >= 0 ? stepOf(items[lastWork]) : '';
+  const label = active ? [`Working${took && ` ${took}`}`, step].filter(Boolean).join(' · ') : [took && `Worked ${took}`, did].filter(Boolean).join(' · ') || 'Worked';
   return (
     <div className="dp-cv-acts">
       <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
-        <div className="dp-cv-acts">{items.map((it, i) => (stays(it, i) ? null : item(it, i)))}</div>
+        <div className="dp-cv-acts">{items.map((it, i) => (inSight.has(it) ? null : item(it, i)))}</div>
       </Row>
-      {items.map((it, i) => (stays(it, i) ? item(it, i) : null))}
+      {items.map((it, i) => (inSight.has(it) ? item(it, i) : null))}
     </div>
   );
 }

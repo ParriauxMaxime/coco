@@ -1985,8 +1985,11 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
 - Agent (`#/agents/<agentId>`): any Paseo agent as a chat, one outside a
   work included (a ritual, a persona refresh, one started in Paseo): the
   agent tab's header (status, usage, context ring, Open in Paseo, **In its
-  work** when it has a work label) over its transcript, permissions, cards
-  and composer (attachments, model and thinking switch, Stop). Reached from
+  work** when it has a work label) over its transcript (what the agent says
+  stays in sight, streaming or settled; a turn folds its tool calls, its
+  thinking and the questions already answered under one row), permissions,
+  open cards and composer (attachments, model and thinking switch, Stop).
+  Reached from
   Chat on the Agents page, the Dashboard's agent rows, a ritual's history
   row, a job of no work and the Waiting page link of a card whose agent has
   no work. `GET /api/agent-chat/<agentId>` gives its title, kind, work, PR,
