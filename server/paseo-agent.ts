@@ -391,6 +391,7 @@ export type Started = { agentId: string; workspaceId: string | null | undefined;
 type AgentConfig = { provider?: string; thinking?: string; mode?: string; systemPrompt?: string; mcp?: boolean };
 // every coco agent works on its own; a brief saying not to touch code is what keeps one read-only
 export const AGENT_MODE = 'auto';
+const PREAPPROVES = /^(claude[\w-]*|codex|opencode)(\/|$)/;
 // files sent with a message: images inline, other files by path (Paseo's uploaded_file attachment)
 export type AgentInput = { images?: { data: string; mimeType: string }[]; attachments?: { type: 'uploaded_file'; id: string; fileName: string; mimeType: string; size: number; path: string }[]; messageId?: string };
 type StartOptions = AgentConfig & { title: string; prompt?: string; input?: AgentInput; labels?: Record<string, unknown>; cwd?: string | null; workspaceId?: string | null; worktree?: Worktree | null };
@@ -454,7 +455,8 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
       ...(mcp
         ? {
             mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true } },
-            toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) },
+            // Paseo refuses exact MCP preapproval for the others (omp runs its own approval modes)
+            ...(PREAPPROVES.test(String(provider || 'claude')) ? { toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) } } : {}),
             // a provider that extends Claude (claude-perso) takes Claude's options too
             ...(/^claude[\w-]*\//.test(String(provider)) ? { options: { disallowedTools: ['AskUserQuestion'] } } : {}),
           }
