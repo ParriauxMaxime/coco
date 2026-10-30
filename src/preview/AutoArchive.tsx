@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api.ts';
 import { toast } from '../components/Toast.tsx';
 import { pendingClass, useAction } from '../components/action.ts';
+import { useVisible } from '../resource.ts';
 import { useShown } from './waiting.ts';
+import { reloadWorkAgents } from './agents.ts';
 import Icon from './Icon.tsx';
+import type { WorkAgent } from '../types.ts';
 
 const ARCHIVE_S = 30;
 // finished turns the owner kept, so the card does not come back on a remount; a new finished turn offers it again
@@ -42,6 +45,30 @@ export function ArchiveCountdown({ agentId, turn, onArchived }: { agentId: strin
       {left > 0 && <button type="button" className="dp-btn dp-sm" onClick={() => { kept.add(key); setStopped(true); }}>Cancel</button>}
     </div>
   );
+}
+
+// an idle agent whose last turn you saw in its tab is archived when you leave that tab (another tab, or closing it), unless it
+// waits on you (a card, a permission) or holds a commit to approve; the toast undoes it. Leaving the browser window does not count
+export function useArchiveOnLeave(slug: string, agentId: string | null | undefined, a: WorkAgent | undefined, blocked: boolean) {
+  const shown = useVisible();
+  const seen = useRef<string | null>(null);
+  const idle = a?.status === 'done';
+  useEffect(() => { if (shown && idle && a) seen.current = a.updatedAt; }, [shown, idle, a?.updatedAt]);
+  const latest = useRef(() => {});
+  latest.current = () => {
+    if (!agentId || !a || a.status !== 'done' || blocked || a.openCards > 0 || !seen.current || seen.current !== a.updatedAt) return;
+    seen.current = null;
+    api.agentArchive(agentId).then(() => {
+      void reloadWorkAgents(slug);
+      toast.success(`Archived ${a.title}: you read its last reply`, { undo: () => api.agentUnarchive(agentId).then(() => reloadWorkAgents(slug)) });
+    }, () => {});
+  };
+  const was = useRef(shown);
+  useEffect(() => {
+    if (was.current && !shown) latest.current();
+    was.current = shown;
+  }, [shown]);
+  useEffect(() => () => latest.current(), []);
 }
 
 // an archived agent back as it was (Paseo's Unarchive)

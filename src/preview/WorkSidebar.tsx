@@ -96,20 +96,22 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
     const g = byPr.get(r.key);
     const step = steps[r.key];
     const tip = [r.label, r.title].filter(Boolean).join(' ');
+    const kids = Boolean(g || starting(r.key).length);
     return (
       <React.Fragment key={r.key}>
         <div className={`dp-view dp-pr${isOpen(`pr-${r.key}`) ? ' dp-open' : ''}`} title={tip} onClick={() => go(`pr-${r.key}`)}>
-          {caret(r.key, on)}
+          {kids ? caret(r.key, on) : <span className="dp-caret-sp" />}
           <span className={`dp-dot dp-st-${r.state || 'closed'}${r.state === 'planned' || !r.state ? ' dp-hollow' : ''}`} />
           <span className={`dp-pr-n${r.pr?.number ? '' : ' dp-ell'}`}>{r.label}</span>
           <span className="dp-ell dp-grow">{r.title}</span>
           {step && <span className={`dp-ms-chip dp-ms-${step}`} title={`Current milestone: ${step}`}>{step}</span>}
           {/* unfolded, its agents show on their rows; the dot already says changes requested, so CI red alone flags */}
-          <SignalBadges s={on ? ownPart(at(r.key)) : at(r.key)} attention={r.ci === 'failure'} />
+          <SignalBadges s={on && kids ? ownPart(at(r.key)) : at(r.key)} attention={r.ci === 'failure'} />
+          <button type="button" className="dp-ibtn dp-row-add" title={`New agent on ${r.label}`} aria-label={`New agent on ${r.label}`} onClick={(e) => { e.stopPropagation(); go(`ask-new-${r.key}`); }}><Icon name="plus" size={12} /></button>
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}>
           <div className="dp-pr-kids">
-            <AgentList g={g} label={r.label} onOpen={go} onNew={() => go(`ask-new-${r.key}`)} arc={arc} starting={starting(r.key)} />
+            <AgentList g={g} onOpen={go} arc={arc} starting={starting(r.key)} />
           </div>
         </div>
       </React.Fragment>
@@ -134,7 +136,7 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
   return (
     <div className="dp-views">
       {data?.error && !groups.length && <div className="dp-ag-note">{data.error}</div>}
-      <AgentList g={byPr.get(null)} label="the work" onOpen={go} onNew={() => go('ask')} arc={arc} starting={starting(null)} />
+      <AgentList g={byPr.get(null)} onOpen={go} arc={arc} starting={starting(null)} />
       {opened.map(prRow)}
       {fold(MERGED, [[merged.length - closed - landed, 'merged'], [landed, 'landed'], [closed, 'closed']].filter(([n]) => n).map(([n, word]) => `${n} ${word}`).join(' · '), merged)}
       {fold(PLANNED, `${planned.length} planned`, planned)}

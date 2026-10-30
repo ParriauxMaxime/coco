@@ -58,20 +58,32 @@ function ArchiveButton({ id, ids, title, armedTitle, arc }: { id: string; ids: s
   );
 }
 
+// a parent's subagents fold under it: unfolded while one runs, folded once all are done, unless folded or unfolded by hand since
+function useSubFold(running: number) {
+  const [hand, setHand] = useState<boolean | null>(null);
+  const busy = running > 0;
+  useEffect(() => setHand(null), [busy]);
+  return [hand ?? busy, () => setHand(!(hand ?? busy))] as const;
+}
+
 function AgentRow({ a, onOpen, arc }: { a: ListedAgent; onOpen: (id: string) => void; arc?: Archive }) {
   const busy = BUSY.includes(a.state);
-  const subs = a.agentId && a.state !== 'archived' ? a.subagents?.running ?? 0 : 0;
+  const live = Boolean(a.agentId) && a.state !== 'archived';
+  const subs = live ? a.subagents?.running ?? 0 : 0;
+  const total = live ? a.subagents?.total ?? 0 : 0;
+  const [open, flip] = useSubFold(subs);
   return (
     <>
-      <div className={`dp-view dp-ag${arc?.armed === a.id ? ' dp-ag-armed' : ''}`} title={`${a.title} · ${a.kind} · ${STATE_LABEL[a.state]}`} onClick={() => onOpen(a.id)}>
+      <div className={`dp-view dp-ag${arc?.armed === a.id ? ' dp-ag-armed' : ''}${total ? ' dp-ag-parent' : ''}`} title={`${a.title} · ${a.kind} · ${STATE_LABEL[a.state]}`} onClick={() => onOpen(a.id)}>
+        {total > 0 && <button type="button" className={`dp-caret${open ? ' dp-open' : ''}`} aria-label={open ? 'Fold its subagents' : 'Show its subagents'} onClick={(e) => { e.stopPropagation(); flip(); }}><Icon name="chevron-right" size={12} /></button>}
         <AgentDot state={a.state} />
         <span className="dp-ell dp-grow">{a.title}</span>
-        {subs > 0 && <SubagentCount n={subs} />}
+        {total > 0 && (open ? subs > 0 && <SubagentCount n={subs} /> : <span className="dp-sa-count" title={`${total} subagent${total === 1 ? '' : 's'}${subs ? `, ${subs} working` : ''}`}>⑂ {total}{subs > 0 && <span className="dp-ag-dot dp-ag-running dp-thr-spin" />}</span>)}
         {a.state !== 'archived' && <ContextRing used={a.contextTokens} max={a.contextMax} size={12} />}
         <span className="dp-ag-ago">{ago(a.updatedAt)}</span>
         {arc && <ArchiveButton id={a.id} ids={[a.id]} arc={arc} title="Archive this agent" armedTitle={busy ? `It is ${STATE_LABEL[a.state]}: click again to archive it anyway` : 'Click again to archive'} />}
       </div>
-      {subs > 0 && a.agentId && <SidebarSubagents agentId={a.agentId} />}
+      {total > 0 && a.agentId && <div className={`dp-collapse${open ? ' dp-open' : ''}`}><div className="dp-sa-kids">{open && <SidebarSubagents agentId={a.agentId} />}</div></div>}
     </>
   );
 }
@@ -86,28 +98,27 @@ export function JobRow({ j, tip }: { j: Job; tip?: string }) {
   );
 }
 
-// a group's agents, live first then its archived fold; + opens a new agent tab on its PR or the work, the archive button archives its idle agents;
-// starting: agent jobs whose agent is not listed yet (worktree, brief and deps come before it)
-export function AgentList({ g, label, onOpen, onNew, arc, starting = [] }: { g: AgentGroup | undefined; label: string; onOpen: (id: string) => void; onNew: () => void; arc: Archive; starting?: Job[] }) {
+const ARCHIVED_SHOWN = 10;
+const newest = (a: ListedAgent, b: ListedAgent) => (b.updatedAt || '').localeCompare(a.updatedAt || '');
+
+// a group's agents: working, waiting and idle ones, then the last 10 archived folded; a new agent starts from the + on the PR or
+// work row, the tab strip or ⌘K. starting: agent jobs whose agent is not listed yet (worktree, brief and deps come before it)
+export function AgentList({ g, onOpen, arc, starting = [] }: { g: AgentGroup | undefined; onOpen: (id: string) => void; arc: Archive; starting?: Job[] }) {
   const [folded, setFolded] = useState(true);
-  if (!starting.length && (!g || (!g.live.length && !g.archived.length))) return <div className="dp-view dp-ag-new" title={`New agent on ${label}`} onClick={onNew}><Icon name="plus" size={12} /><span>New agent</span></div>;
-  const done = settled(g?.live ?? []);
+  if (!starting.length && (!g || (!g.live.length && !g.archived.length))) return null;
+  const archived = [...(g?.archived ?? [])].sort(newest);
+  const shown = archived.slice(0, ARCHIVED_SHOWN);
   return (
     <div className="dp-ag-group">
-      <div className="dp-ag-gh">
-        <Icon name="bot" size={12} /><span className="dp-grow">Agents</span>
-        {done.length > 0 && <ArchiveButton id={`group:${g?.pr ?? ''}`} ids={done.map((a) => a.id)} arc={arc} title={`Archive the ${done.length} idle agent${done.length === 1 ? '' : 's'} here`} armedTitle={`Click again to archive ${done.length}; working ones stay`} />}
-        <button type="button" className="dp-ibtn dp-ag-add" title={`New agent on ${label}`} onClick={onNew}><Icon name="plus" size={12} /></button>
-      </div>
       {starting.map((j) => <JobRow key={j.id} j={j} tip="Starting: its chat opens once the agent runs" />)}
       {g?.live.map((a) => <AgentRow key={a.id} a={a} onOpen={onOpen} arc={arc} />)}
-      {g && g.archived.length > 0 && (
+      {shown.length > 0 && (
         <>
-          <div className="dp-view dp-ag-fold" onClick={() => setFolded((f) => !f)}>
+          <div className="dp-view dp-ag-fold" onClick={() => setFolded((f) => !f)} title={archived.length > shown.length ? `The ${shown.length} last archived; the Agents page lists all ${archived.length}` : undefined}>
             <span className={`dp-caret${folded ? '' : ' dp-open'}`}><Icon name="chevron-right" size={12} /></span>
-            <span>{g.archived.length} archived</span>
+            <span>{archived.length > shown.length ? `Last ${shown.length} of ${archived.length} archived` : `${archived.length} archived`}</span>
           </div>
-          <div className={`dp-collapse${folded ? '' : ' dp-open'}`}><div>{g.archived.map((a) => <AgentRow key={a.id} a={a} onOpen={onOpen} />)}</div></div>
+          <div className={`dp-collapse${folded ? '' : ' dp-open'}`}><div>{!folded && shown.map((a) => <AgentRow key={a.id} a={a} onOpen={onOpen} />)}</div></div>
         </>
       )}
     </div>

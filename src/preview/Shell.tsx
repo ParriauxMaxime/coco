@@ -111,6 +111,7 @@ function WorkRow({ w, on, expanded, onToggle, views, signal, depth = 0 }: { w: W
           {/* the dot already turns red for changes requested or CI red */}
           <SignalBadges s={signal} attention={false} />
           {p.restack && <span className="dp-chip dp-warn" title="A parent PR merged: its children still sit on the old base">restack</span>}
+          <button type="button" className="dp-ibtn dp-row-add" title="New agent on the work" aria-label="New agent on the work" onClick={(e) => { e.preventDefault(); e.stopPropagation(); location.hash = `${workHref(w.slug)}/ask`; }}><Icon name="plus" size={14} /></button>
           <WorkMenu w={w} />
         </span>
         <span className="dp-work-bar">
