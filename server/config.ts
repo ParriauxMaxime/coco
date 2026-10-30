@@ -69,7 +69,8 @@ export interface Config {
   personasDir: string;
   personaFiles: { ignore: string[]; companionSuffixes: string[] };
   kitBody: { maxChars: number; mustMatch: string };
-  models: { default: string; fast: string; judge?: string; judgeShadow?: string };
+  // connectors: the model whose agents hold the claude.ai connectors (Notion), when default and fast run elsewhere
+  models: { default: string; fast: string; judge?: string; judgeShadow?: string; connectors?: string };
   importRoots: string[];
   kitKinds: string[];
   gateSkills: Record<string, (string | { name: string; ask?: string })[]>;
