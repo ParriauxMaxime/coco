@@ -7,7 +7,7 @@ import type { IconName } from './Icon.tsx';
 import { AgentList, useArchive, useStopRun } from './AgentsSection.tsx';
 import { agentOf, groupAgents, prLabel, useWorkAgents } from './agents.ts';
 import type { AgentGroup } from './agents.ts';
-import { isDone, prKey, prState, prTitle } from './data.ts';
+import { isDone, prKey, prState, prTitle, rowIds } from './data.ts';
 import { useMilestones } from './milestones.ts';
 import { usePersistedList, workHref } from './prefs.ts';
 import { findingsKeyOfTab, prOfTab } from '../workbench/code/ids.ts';
@@ -29,7 +29,13 @@ export const VIEWS: { id: string; label: string; icon: IconName }[] = [
 const MERGED = ':merged';
 const PLANNED = ':planned';
 
-type Row = { key: string; pr: WorkPr | null; state: string; ci: string | null; label: string; title: string };
+// id: the row key unless a sibling row landed on the same branch (see rowIds), which React keys and the open state need apart
+type Row = { id: string; key: string; pr: WorkPr | null; state: string; ci: string | null; label: string; title: string };
+type RowSeed = Omit<Row, 'id'>;
+const withIds = (rows: RowSeed[]): Row[] => {
+  const ids = rowIds(rows.map((r) => r.key));
+  return rows.map((r, i) => ({ ...r, id: ids[i] }));
+};
 
 // the PR a tab is about: its page, review, findings, code, new agent or brief tab, or the PR of the agent it shows
 const prOfFocus = (slug: string, tab: string) => {
@@ -48,7 +54,7 @@ type Props = {
 };
 
 // a stack row of a work not open, from the overview's summary
-const summaryRow = (r: SummaryRow): Row => ({ key: r.key, pr: null, state: r.state, ci: r.ci, label: r.number ? `#${r.number}` : prLabel(r.key), title: r.title });
+const summaryRow = (r: SummaryRow): RowSeed => ({ key: r.key, pr: null, state: r.state, ci: r.ci, label: r.number ? `#${r.number}` : prLabel(r.key), title: r.title });
 
 // a work's tree: its agents, then its open PRs, merged and planned ones folded; the views, Timeline, Notes and Artifacts open from
 // the work's Overview, its tabs and ⌘K. Off its page each entry opens the work on that tab
@@ -67,8 +73,8 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
   const steps = useMilestones(live ? w.slug : null);
   const { list, toggle, set } = usePersistedList(`cc.dp.tree.${w.slug}`, (l) => l);
 
-  const stack: Row[] = prs.length ? prs.map((pr) => ({ key: prKey(pr), pr, state: prState(pr), ci: pr.ci ?? null, label: pr.number ? `#${pr.number}` : prLabel(prKey(pr)), title: prTitle(pr) })) : (w.rows || []).map(summaryRow);
-  const rows: Row[] = [...stack, ...groups.filter((g) => g.pr !== null && !stack.some((r) => r.key === g.pr)).map((g) => ({ key: g.pr || '', pr: null, state: '', ci: null, label: g.label, title: g.title }))];
+  const stack: RowSeed[] = prs.length ? prs.map((pr) => ({ key: prKey(pr), pr, state: prState(pr), ci: pr.ci ?? null, label: pr.number ? `#${pr.number}` : prLabel(prKey(pr)), title: prTitle(pr) })) : (w.rows || []).map(summaryRow);
+  const rows: Row[] = withIds([...stack, ...groups.filter((g) => g.pr !== null && !stack.some((r) => r.key === g.pr)).map((g) => ({ key: g.pr || '', pr: null, state: '', ci: null, label: g.label, title: g.title }))]);
   const signals = workSignals({ slug: w.slug, rows }, data?.agents || [], queue?.items || [], jobs);
   const at = (key: string) => signals.get(key) ?? NO_SIGNAL;
   const opened = rows.filter((r) => !isDone(r.state) && r.state !== 'planned');
@@ -99,7 +105,7 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
     const tip = [r.label, r.title].filter(Boolean).join(' ');
     const kids = Boolean(g || starting(r.key).length);
     return (
-      <React.Fragment key={r.key}>
+      <React.Fragment key={r.id}>
         <div className={`dp-view dp-pr${isOpen(`pr-${r.key}`) ? ' dp-open' : ''}`} title={tip} onClick={() => go(`pr-${r.key}`)}>
           {kids ? caret(r.key, on) : <span className="dp-caret-sp" />}
           <span className={`dp-dot dp-st-${r.state || 'closed'}${r.state === 'planned' || !r.state ? ' dp-hollow' : ''}`} />

@@ -129,7 +129,7 @@ export default function OverviewView({ d, onOpenPr, onOpenTab }: { d: PreviewDat
             <div className="dp-block">
               <div className="dp-h2">Progress{diff.files > 0 && <span className="dp-meta dp-num">+{diff.add.toLocaleString()} −{diff.del.toLocaleString()} · {diff.files.toLocaleString()} files</span>}</div>
               {prs.length > 0 ? (
-                <div className="dp-segs">{prs.map((p) => <i key={prKey(p)} className={`dp-st-${prState(p)}`} title={`${prLabel(p)} ${prTitle(p)}`} />)}</div>
+                <div className="dp-segs">{prs.map((p, i) => <i key={i} className={`dp-st-${prState(p)}`} title={`${prLabel(p)} ${prTitle(p)}`} />)}</div>
               ) : <div className="dp-t3 dp-sm">No PR in this stack yet.</div>}
               <div className="dp-legend" style={{ marginTop: 8 }}>
                 {STATES.filter((s) => counts[s]).map((s) => <span key={s}><i className={`dp-dot dp-st-${s}${s === 'planned' ? ' dp-hollow' : ''}`} />{counts[s]} {STATE_WORD[s]}</span>)}

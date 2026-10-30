@@ -41,6 +41,17 @@ export const pendingOf =(d: PreviewData, pr: WorkPr) => {
 };
 export const waitingOf = (d: PreviewData, pr: WorkPr) => d.waiting.filter((i) => i.pr === prKey(pr));
 
+// rows that landed straight on the default branch keep `b:<base>`, so two rows of a work can share a key: a list tells them apart by
+// occurrence, in stack order (the one place React keys and data-key reads are allowed to differ from the row key)
+export const rowIds = (keys: string[]): string[] => {
+  const seen = new Map<string, number>();
+  return keys.map((k) => {
+    const n = (seen.get(k) ?? 0) + 1;
+    seen.set(k, n);
+    return n === 1 ? k : `${k}~${n}`;
+  });
+};
+
 export function usePreviewData(slug: string): PreviewData {
   const work = useWorkData(slug);
   const { pending } = usePendingPermissions();
