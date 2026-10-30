@@ -21,7 +21,7 @@ type Created = { workspaceId: string; title?: string; prompt?: string; labels?: 
 
 const tl = (item: TimelineItem): TimelineEvent => ({ type: 'timeline', provider: 'claude', item });
 const say = (text: string, messageId = 'm1') => tl({ type: 'assistant_message', text, messageId });
-const tool = (callId: string, name: string, detail: ToolDetail, status = 'completed') => tl({ type: 'tool_call', callId, name, detail, status, error: null });
+const tool = (callId: string, name: string, detail: ToolDetail, status = 'completed', error: string | null = null) => tl({ type: 'tool_call', callId, name, detail, status, error });
 const mcp = (callId: string, name: string, input: unknown, output: unknown) => tool(callId, `mcp__cocopilot__${name}`, { type: 'unknown', input, output });
 
 // An in-memory daemon behind the SDK surface coco uses: workspaces list/ref/open/create, agents created in a workspace, a timeline replayed on run.
@@ -163,6 +163,15 @@ test('a plan call Paseo bridged to omp ("cocopilot / propose_review_plan", or it
   });
   const hashed = await createPaseoAgents({ APP, connect: raw.connect }).run({ title: 'Plan review #1', prompt: 'plan', provider: 'omp/openrouter-deepseek/@preset/dev', cwd: '/acme/widgets' });
   assert.deepEqual(hashed.submitted, { propose_review_plan: plan });
+});
+
+test('a refused plan call is kept as refused, with its own reason', async () => {
+  const refused = fakeDaemon({
+    workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }],
+    events: [say('Cannot plan.'), tool('c2', 'cocopilot / propose_review_plan', { type: 'unknown', input: {} }, 'error', 'a card is already open'), { type: 'turn_completed', provider: 'claude' }],
+  });
+  const r = await createPaseoAgents({ APP, connect: refused.connect }).run({ title: 'Plan review #7', prompt: 'p', provider: 'opencode/ollama/qwen3:14b', cwd: '/acme/widgets' });
+  assert.deepEqual([r.submitted, r.refused], [{}, { propose_review_plan: 'a card is already open' }]);
 });
 
 test('an agent on another provider than Claude starts in its own default mode, without the coco tools when asked', async () => {

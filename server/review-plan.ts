@@ -31,7 +31,7 @@ export type RawPlan = { summary?: unknown; steps?: RawStep[]; skim?: RawSkim[]; 
 type PlanRun = { status: string; startedAt: string; finishedAt: string | null; headSha: string; error: string; cost: number | null | undefined; progress: string[]; log: { kind: string; text: string }[]; proposal: RawPlan | null; agentId?: string };
 // dismissed outlives re-plans: the next plan reads it through get_pr_findings
 type PlanData = { run: Omit<PlanRun, 'proposal' | 'log'> & { log?: PlanRun['log'] } | null; plan: (ReturnType<typeof normalizePlan> & { headSha: string; mergeBase: string; createdAt: string | null }) | null; ticks: Record<string, string[]>; watch: Record<string, string | undefined>; dismissed?: DismissedWatch[] };
-type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; error?: string | null; status?: string };
+type AgentResult = { agentId: string; cost?: number | null; submitted?: Record<string, unknown>; refused?: Record<string, string>; error?: string | null; status?: string };
 type Agents = Pick<ReturnType<typeof createPaseoAgents>, 'run'>;
 type Deps = { DATA: string; REPO: string; APP?: string | null; config: Config; code: Pick<CodeApi, 'ensureRefs' | 'prFilesFromGit'>; works: Pick<Works, 'get' | 'prInfo' | 'personasForPaths' | 'remark' | 'changed'>; rules?: { keptFor(work: unknown, index: number): Rule[] } | null; agents?: Agents; place?: (slug: string) => Promise<{ workspaceId: string; cwd: string }>; jobs?: Pick<Jobs, 'start' | 'link'>; repoOf?: RepoOf };
 const MAX_STEPS = 8;
@@ -333,7 +333,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     };
     const onEntry = (e: Entry) => {
       if (e.type === 'tool') {
-        const step = e.kind === 'shell' ? e.text || e.name || '' : (e.name ?? '').replace('mcp__cocopilot__', '');
+        const step = e.kind === 'shell' ? e.text || e.name || '' : (e.name ?? '').replace(/^(?:mcp__cocopilot__|cocopilot \/ )/, '');
         note(step);
         log('tool', step);
       }
@@ -352,7 +352,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
         run.agentId = result.agentId;
         const proposed = result.submitted?.propose_review_plan;
         run.proposal = proposed && typeof proposed === 'object' ? proposed : null;
-        if (!run.proposal) throw new Error(result.error || `the agent ended (${result.status}) without a plan`);
+        if (!run.proposal) throw new Error(result.error || result.refused?.propose_review_plan || `the agent ended (${result.status}) without a plan`);
         const lineCounts: Record<string, number> = {};
         for (const w of run.proposal.watchPoints || []) {
           const wp = w?.path;

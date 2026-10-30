@@ -230,6 +230,7 @@ const toolOutput = (d?: ToolDetail | null): string => (!d ? '' : d.type === 'she
 export function createFollower({ onEntry, onDelta, onToolStart, onPermission, agentId = null }: FollowerCallbacks & { agentId?: string | null } = {}) {
   const entries: Entry[] = [];
   const submitted: Record<string, unknown> = {};
+  const refused: Record<string, string> = {};
   const done = new Set<string | undefined>();
   const shown = new Map<string | undefined, string>();
   const waiters = new Set<() => void>();
@@ -282,6 +283,7 @@ export function createFollower({ onEntry, onDelta, onToolStart, onPermission, ag
         const input = it.detail?.type === 'unknown' ? it.detail.input : it.detail;
         const m = (it.name ?? '').match(COCO_TOOL);
         if (m?.[1] && it.status === 'completed') submitted[m[1]] = input;
+        else if (m?.[1]) refused[m[1]] = it.error ? String(it.error) : `the ${m[1]} call ended ${it.status}`;
         emit({ type: 'tool', id: it.callId, name: it.name, kind: it.detail?.type || 'unknown', input, text: toolText(it.detail), output: toolOutput(it.detail), status: it.status, error: it.error ? String(it.error) : null });
       }
       if (it.type === 'error') emit({ type: 'error', text: it.message });
@@ -303,7 +305,7 @@ export function createFollower({ onEntry, onDelta, onToolStart, onPermission, ag
       const timer = setTimeout(resolve, Math.max(0, ms));
       waiters.add(() => (clearTimeout(timer), resolve()));
     });
-  return { push, end: close, nextSettle, entries, submitted, cost: () => cost, failure: () => failure };
+  return { push, end: close, nextSettle, entries, submitted, refused, cost: () => cost, failure: () => failure };
 }
 type Follower = ReturnType<typeof createFollower>;
 
@@ -389,7 +391,7 @@ export async function timelineAfter(agent: Pick<DaemonAgent, 'timeline'>, cursor
   return { entries, cursor: at };
 }
 export type AgentHistory = { status: string | null; archived: boolean; updatedAt: string | null; userMessages: { text: string; at: string | null }[] };
-export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
+export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; refused: Record<string, string>; text: string; finalText: string; cost: number | null };
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
 // mode: a Paseo mode of the provider the owner picked; without it a Claude agent runs in AGENT_MODE, another provider in its own default
 type AgentConfig = { provider?: string; thinking?: string; mode?: string; systemPrompt?: string; mcp?: boolean | string[]; servers?: Record<string, McpServer> };
@@ -534,6 +536,7 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
       error,
       entries: follow.entries,
       submitted: follow.submitted,
+      refused: follow.refused,
       text: texts.join('\n\n'),
       finalText: result.lastMessage || texts.at(-1) || '',
       cost: follow.cost() ?? result.final?.lastUsage?.totalCostUsd ?? null,

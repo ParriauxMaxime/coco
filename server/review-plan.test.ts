@@ -142,6 +142,38 @@ test('auto starts one plan per stack row head: never twice at once, never again 
   assert.equal(runs.length, 2);
 });
 
+test('the plan a run submitted is attached to that run, and a refused plan call says which call failed', async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-attach-'));
+  const work: Work = { slug: 'csv', title: 'CSV export', timeline: [], stack: [{ number: 7 }] };
+  const refs = { number: 7, headSha: 'a'.repeat(40), baseSha: 'c'.repeat(40), mergeBase: 'b'.repeat(40) };
+  const file = path.join(DATA, 'works', 'csv', 'reviews', 'pr-7-plan.json');
+  const make = ({ agentId, ...calls }: { agentId: string; submitted?: Record<string, unknown>; refused?: Record<string, string> }) =>
+    createReviewPlan({
+      DATA,
+      REPO: DATA,
+      config: DEFAULTS,
+      code: { ensureRefs: async () => refs, prFilesFromGit: async () => [] },
+      works: { get: () => work, prInfo: async () => assert.fail('placed, no PR lookup'), personasForPaths: () => [], remark: () => null },
+      agents: { run: async () => ({ agentId, workspaceId: null, createdWorkspace: null, status: 'done', error: null, entries: [], submitted: {}, refused: {}, text: '', finalText: '', cost: null, ...calls }) },
+      place: async () => ({ workspaceId: 'wks_1', cwd: DATA }),
+    });
+  // a run settles after start() returns: flush the promise chain it started
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const read = () => JSON.parse(fs.readFileSync(file, 'utf8'));
+
+  await make({ agentId: 'a1', submitted: { propose_review_plan: { summary: 'Exports invoices.', steps: [], skim: [], watchPoints: [] } } }).start('csv', 7, {});
+  await flush();
+  await flush();
+  const attached = read();
+  assert.deepEqual([attached.run.status, attached.run.error, attached.plan.headSha, attached.plan.summary], ['done', '', refs.headSha, 'Exports invoices.']);
+
+  await make({ agentId: 'a2', refused: { propose_review_plan: 'a card is already open' } }).start('csv', 7, {});
+  await flush();
+  await flush();
+  const failed = read().run;
+  assert.deepEqual([failed.agentId, failed.status, failed.error], ['a2', 'error', 'a card is already open']);
+});
+
 test('get_pr_findings lists settled findings with their thread end and dismissed watch points, which outlive a re-plan', () => {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-seen-'));
   const reviews = path.join(DATA, 'works', 'csv', 'reviews');
