@@ -292,7 +292,7 @@ export type Source = { label: string; url?: string; path?: string };
 export type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
 // what picking an option of a thread card does in coco instead of a new turn of the agent
 export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
-export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string };
+export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string; images?: string[] };
 export type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 export type CardRow = { key: string; cells: TableCell[]; recommended?: string | boolean };
 export type CardValue = string | number | boolean;

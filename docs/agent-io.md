@@ -65,7 +65,7 @@ the `cocopilot` MCP tools, drawn by one renderer in every agent view.
 
 ```ts
 type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
-type CardOption = { key: string; label: string; details?: string; consequence?: string /* ≤ 200, one line: what happens, the risk */; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string /* choice options only: Mermaid source, ≤ 4000 */ };
+type CardOption = { key: string; label: string; details?: string; consequence?: string /* ≤ 200, one line: what happens, the risk */; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string /* choice options only: Mermaid source, ≤ 4000 */; images?: string[] /* 1-2 renderings shown side by side under the option: an uploaded path or a URL coco serves */ };
 type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };  // thread cards, single choice only
 type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
 type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };

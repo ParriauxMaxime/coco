@@ -17,8 +17,8 @@ export type CardValue = string | number | boolean;
 export const EFFECT_TYPES = ['take_decision', 'dismiss_finding'] as const;
 // what picking a choice option asked in a thread does in coco instead of a new turn
 export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
-// diagram: Mermaid source, on the options of a choice card only
-export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string };
+// diagram: Mermaid source, on the options of a choice card only; images: up to two renderings shown under the option, choice or rows
+export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string; images?: string[] };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
 // recommended: with rowOptions, the option key to pre-pick; without them, true (Yes) or false (No) derives a Yes/No picker
 export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
@@ -125,11 +125,13 @@ const effectOf = (e: Raw, at: string): CardEffect | undefined => {
 };
 const diagramOf = (v: unknown, at: string) => (v == null || v === '' ? undefined : mermaid(v, at));
 // effects: a single choice card's options; diagrams: a choice card's
+// renderings: up to two images shown side by side under the option, an uploaded file or a URL coco serves
+const renderings = (v: unknown, at: string) => (v == null ? undefined : list(v, 1, 2, `${at}.images`).map((src, i) => str(src, 300, `${at}.images[${i}]`)));
 const option = (o: Raw, at: string, effects: boolean, diagrams: boolean): CardOption => {
   if (o?.confidence != null && (typeof o.confidence !== 'number' || o.confidence < 0 || o.confidence > 100)) throw new Error(`${at}.confidence must be 0-100`);
   if (o?.effect != null && !effects) throw new Error(`${at}.effect is only for the options of a single choice card`);
   if (o?.diagram != null && !diagrams) throw new Error(`${at}.diagram is only for the options of a choice card`);
-  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), consequence: opt(o.consequence, 200, `${at}.consequence`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`), diagram: diagramOf(o.diagram, `${at}.diagram`) });
+  return strip({ key: key(o?.key, `${at}.key`), label: str(o?.label, 120, `${at}.label`), details: opt(o.details, 500, `${at}.details`), consequence: opt(o.consequence, 200, `${at}.consequence`), recommended: bool(o.recommended, `${at}.recommended`), confidence: o.confidence, effect: effectOf(o.effect, `${at}.effect`), diagram: diagramOf(o.diagram, `${at}.diagram`), images: renderings(o.images, at) });
 };
 const options = (v: unknown, min: number, max: number, field: string, effects = false, diagrams = false) => {
   const out = list(v, min, max, field).map((o, i) => option(o, `${field}[${i}]`, effects, diagrams));

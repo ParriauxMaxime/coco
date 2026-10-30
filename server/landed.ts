@@ -150,7 +150,9 @@ export function createLanding({ DATA, APP, url, gitOf, stackOf, restart, running
     if (how && how !== 'main' && how !== 'auto') throw new HttpError(409, 'this repo ships rows as PRs: set its settings.land to "auto" to land rows in it');
     const row = landedRow(stackOf(slug), input.row);
     if (row.number) throw new HttpError(409, `#${row.number} has a PR: GitHub lands it, coco does not`);
-    const branch = row.planned?.branch && row.planned.branch !== base ? row.planned.branch : null;
+    // a row's branch is sometimes only a label (it shipped straight on the base): no local branch, nothing to fast-forward
+    const named = row.planned?.branch && row.planned.branch !== base ? row.planned.branch : null;
+    const branch = named && (await git(['rev-parse', '--verify', '--quiet', `refs/heads/${named}^{commit}`])).ok ? named : null;
     const label = row.planned?.title || keyLabel(rowKey(row));
     await landReady(git, { base, branch });
     const previous = await commitOf(git, 'HEAD');

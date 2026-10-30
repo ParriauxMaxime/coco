@@ -75,6 +75,11 @@ function Option({ o, on, multi, name, ro, onPick, open: initial = false, markdow
       {o.consequence && <Inline as="div" className="dp-cd-cons" text={o.consequence} />}
       {o.details && open && <Details text={o.details} markdown={markdown} />}
       {diagram && o.diagram && <Diagram src={o.diagram} className="dp-cd-dgp" />}
+      {o.images?.length ? (
+        <div className="dp-cd-rend" title="Renderings of this option">
+          {o.images.slice(0, 2).map((src) => <a key={src} href={src} target="_blank" rel="noreferrer"><img src={src} alt={o.label} loading="lazy" /></a>)}
+        </div>
+      ) : null}
     </div>
   );
 }

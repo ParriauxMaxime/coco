@@ -20,7 +20,9 @@ import { ShellSlot, useNarrow } from './Shell.tsx';
 import { VIEWS, WorkViews } from './WorkSidebar.tsx';
 import { cachedOverview } from './overview.ts';
 import type { Command } from './Shell.tsx';
-import type { WorkSummary } from '../types.ts';
+import type { Card, WorkSummary } from '../types.ts';
+import CardView from './chat/Card.tsx';
+import { Composer } from './chat/Composer.tsx';
 
 const open = (id: string) => useWorkbench.getState().open(id);
 
@@ -178,4 +180,80 @@ function Loaded({ slug }: { slug: string }) {
   );
 }
 
+
+// ---- fixtures: the looks, screenshot before they are coded ----
+// Fake data only, never a real agent: a card with two option renderings, a rows card with a derived Yes/No picker, and two composers,
+// each drawn twice — as it ships and dense — so a look is picked on a picture (`#/fixtures`).
+const shot = (label: string, tone: string) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="240" height="140"><rect width="240" height="140" fill="${tone}"/><text x="16" y="78" font-family="sans-serif" font-size="16" fill="#1b1b1b">${label}</text></svg>`)}`;
+const FIXTURE_CHOICE = {
+  id: 'fixture-choice',
+  agentId: 'fixture',
+  work: null,
+  pr: null,
+  kind: 'choice',
+  title: 'Which look ships?',
+  question: 'Two renderings each, side by side under the option.',
+  status: 'open',
+  createdAt: '2026-10-30T12:00:00.000Z',
+  other: true,
+  options: [
+    { key: 'a', label: 'Stacked copy', recommended: true, consequence: 'Reads top to bottom; 2 files.', images: [shot('stacked', '#dfe7ff'), shot('stacked, dark', '#c9d6ff')] },
+    { key: 'b', label: 'Split copy', consequence: 'Two columns; touches 3 files.', images: [shot('split', '#e7f7e3')] },
+  ],
+} as Card;
+const FIXTURE_ROWS = {
+  id: 'fixture-rows',
+  agentId: 'fixture',
+  work: null,
+  pr: null,
+  kind: 'rows',
+  title: 'Ship these findings?',
+  question: 'One pick per row, the recommended side pre-picked.',
+  status: 'open',
+  createdAt: '2026-10-30T12:00:00.000Z',
+  other: true,
+  columns: ['Finding', 'Severity'],
+  rows: [
+    { key: 'r1', cells: ['A quiet HSL split also drops.', { text: 'minor', tone: 'warn' }], recommended: 'yes' },
+    { key: 'r2', cells: ['Brace nesting leaks.', 'nit'], recommended: 'no' },
+  ],
+  rowOptions: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }],
+} as Card;
+
+function Variant({ title, dense, children }: { title: string; dense?: boolean; children: React.ReactNode }) {
+  return (
+    <div style={{ border: '1px solid rgba(0,0,0,.12)', borderRadius: 10, padding: 12, minWidth: 0, ...(dense ? { fontSize: 12.5, maxWidth: 520 } : {}) }}>
+      <div className="dp-xs dp-t3" style={{ marginBottom: 8 }}>{title}</div>
+      <div className={dense ? 'dp-dense' : undefined}>{children}</div>
+    </div>
+  );
+}
+
+// the looks, as fake data only, in both variants: screenshot, pick, then code it (`#/fixtures`)
+export function DesignFixtures() {
+  const looks = [
+    { label: 'Card face · choice, two renderings under an option', node: <CardView card={FIXTURE_CHOICE} /> },
+    { label: 'Card face · rows card, derived Yes/No picker', node: <CardView card={FIXTURE_ROWS} /> },
+    { label: 'Composer · the agent chat', node: <Composer placeholder="Message this agent (↵ sends, ⇧↵ new line)" initial="fixtures-empty" onSend={async () => true} /> },
+    { label: 'Composer · a note typed', node: <Composer placeholder="Message this agent" value="the second one, but with the row buttons above the note" onValue={() => {}} onSend={async () => true} /> },
+  ];
+  return (
+    <div style={{ padding: 24, display: 'grid', gap: 24, overflow: 'auto', height: '100%' }}>
+      <div>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Fixtures</h2>
+        <div className="dp-xs dp-t3">Fake data, never an agent. Each look twice: A as it ships, B dense. Screenshot, pick, then code it.</div>
+      </div>
+      {looks.map(({ label, node }) => (
+        <div key={label} style={{ display: 'grid', gap: 8 }}>
+          <b className="dp-xs">{label}</b>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Variant title="A · as shipped">{node}</Variant>
+            <Variant title="B · dense" dense>{node}</Variant>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 export type { PrefKey };

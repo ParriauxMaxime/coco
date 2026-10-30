@@ -1982,6 +1982,11 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
 ## Pages
 
 - Projects: Paseo projects → workspaces → agents, with the attached work.
+- **Fixtures** (`#/fixtures`, `DesignFixtures` in `src/preview/DesignPreview.tsx`):
+  the looks on fake data only — a choice card carrying two renderings under an
+  option, a rows card with its derived Yes/No picker, and two composers — each
+  drawn twice, A as it ships and B dense, so a look is agreed on a screenshot
+  before it is coded.
 - Work: the workbench is the only UI (`src/preview/`, on the tab engine of
   `src/workbench/`; `#/design-preview/<slug>` links redirect to
   `#/work/<slug>`). Every surface is a tab. Tab ids (also the hash):

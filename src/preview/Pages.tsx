@@ -18,6 +18,7 @@ import SkillPage from './pages/SkillPage.tsx';
 import RitualsPage from './pages/RitualsPage.tsx';
 import SchedulesPage from './pages/SchedulesPage.tsx';
 import RulesPage from './pages/RulesPage.tsx';
+import { DesignFixtures } from './DesignPreview.tsx';
 import AskPage from './pages/AskPage.tsx';
 import PurgePage from './pages/PurgePage.tsx';
 import SettingsPage from './pages/SettingsPage.tsx';
@@ -43,6 +44,8 @@ function routed(parts: string[], ov: Overview | null): { crumbs: Crumb[]; node: 
   }
   if (root === 'agents' && a) return { crumbs: [page('Agents', '#/agents'), page(ov?.agents.find((x) => x.id === id)?.name || id.slice(0, 8))], node: <AgentPage key={id} agentId={id} toWaiting={b === 'waiting'} /> };
   if (root === 'agents') return { crumbs: [page('Agents')], node: <AgentsPage /> };
+  // the looks, on fake data, in both variants: screenshot and pick one before it is coded
+  if (root === 'fixtures') return { crumbs: [page('Fixtures')], node: <DesignFixtures /> };
   if (root === 'projects') return { crumbs: [page('Projects')], node: <ProjectsPage /> };
   if (root === 'rules') return { crumbs: [page('Rules')], node: <RulesPage /> };
   if (root === 'schedules') {

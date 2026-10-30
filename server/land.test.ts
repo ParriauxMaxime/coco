@@ -50,6 +50,24 @@ test('a landing refuses a dirty checkout, naming the paths, and a branch that is
   await landReady(ok.git, { base: 'main', branch: null });
 });
 
+test('a row whose branch is only a label lands without a merge: its commits are already on the base', async () => {
+  const app = fakeGit({ ...clean, 'rev-parse --verify': { ok: false }, 'log -1 --format=%H %cI': { stdout: `${SHA2} 2026-10-30T10:00:00+00:00` } });
+  const landing = createLanding({
+    DATA: tmp(),
+    APP: '/nope',
+    url: 'http://127.0.0.1:9',
+    gitOf: () => ({ git: app.git, base: 'main', land: 'auto' }),
+    stackOf: () => [{ planned: { order: 6, title: 'Renderings', branch: 'retro/card-renderings' } }],
+    restart: async () => {},
+    running: async () => SHA2,
+    marked: async () => {},
+    waitMs: 1,
+  });
+  const rec = await landing.land('retro', { row: 6, by: 'agent' });
+  assert.deepEqual([rec.branch, rec.sha, rec.state], [null, SHA2, 'landing']);
+  assert.equal(app.calls.some((c) => c[0] === 'merge'), false);
+});
+
 test('the merge is --ff-only: a divergence is refused rather than merged behind a commit of its own', async () => {
   const ok = fakeGit(clean);
   await fastForward(ok.git, { base: 'main', branch: 'retro/x' });
