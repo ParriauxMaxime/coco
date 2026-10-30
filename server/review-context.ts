@@ -8,6 +8,9 @@ import type { Comment, Persona, RowKey, Work } from './core-types.ts';
 
 export type ReviewContext = { guidance: string; rules: string[]; personas: Persona[]; headSha?: string; at?: string };
 export type DismissedWatch = { plan: string | null; index: number; headSha: string; path: string; startLine: number; endLine: number; body: string; note?: string; at: string };
+export type PendingWatch = { path: string; lines: string; severity: string | null; confidence: number | null; headSha: string; body: string };
+type PlanWatch = { path: string; startLine: number; endLine: number; body: string; severity?: string | null; confidence?: number | null };
+type PlanFile = { plan?: { watchPoints?: PlanWatch[]; headSha?: string; createdAt?: string | null } | null; dismissed?: DismissedWatch[] };
 
 const SLUG = /^[\w.-]+$/;
 const THREAD_TAIL = 3;
@@ -78,15 +81,18 @@ export function slimWork(w: Work, sections: string[] = [], facts: Record<string,
   };
 }
 
-// every finding on a PR with how it was settled (status, resolution, the end of its thread), plus the watch points the owner dismissed
+// every finding on a PR with how it was settled (status, resolution, the end of its thread), plus the review plan's watch points: the ones still pending and the ones the owner dismissed
 export function readPrFindings(DATA: string, { pr, work }: { pr: unknown; work?: string | null }) {
   const n = parseKey(pr);
   if (n === null) return { error: 'pr must be a PR number or b:<branch>' };
   if (work && !SLUG.test(work)) return { error: 'no such work' };
   const slug = latestWork(DATA, work, (s) => commentsFile(DATA, s, n)) ?? latestWork(DATA, work, (s) => planFile(DATA, s, n));
-  if (!slug) return { work: work ?? null, pr: keyLabel(n), findings: [], dismissedWatchPoints: [] };
+  if (!slug) return { work: work ?? null, pr: keyLabel(n), findings: [], pendingWatchPoints: [], dismissedWatchPoints: [] };
   const { comments = [] } = readJson<{ comments?: Comment[] }>(commentsFile(DATA, slug, n), {});
-  const { dismissed = [] } = readJson<{ dismissed?: DismissedWatch[] }>(planFile(DATA, slug, n), {});
+  const { plan = null, dismissed = [] } = readJson<PlanFile>(planFile(DATA, slug, n), {});
+  // a plan's own dismissals are the ones recorded against its createdAt: a previous plan's do not settle its points
+  const settled = new Set(dismissed.filter((d) => (d.plan ?? null) === (plan?.createdAt ?? null)).map((d) => d.index));
+  const pendingWatchPoints = (plan?.watchPoints ?? []).flatMap((w, index): PendingWatch[] => (settled.has(index) ? [] : [{ path: w.path, lines: `${w.startLine}-${w.endLine}`, severity: w.severity ?? null, confidence: w.confidence ?? null, headSha: (plan?.headSha ?? '').slice(0, 12), body: w.body }]));
   const findings = comments.map((c) => {
     const { messages = [] } = readJson<{ messages?: { role: string; text?: string }[] }>(threadFile(DATA, slug, n, c.id), {});
     const thread = messages.filter((m) => m.text).slice(-THREAD_TAIL).map((m) => ({ role: m.role, text: String(m.text).slice(0, THREAD_TEXT) }));
@@ -105,5 +111,5 @@ export function readPrFindings(DATA: string, { pr, work }: { pr: unknown; work?:
     };
   });
   const dismissedWatchPoints = dismissed.map(({ path: p, startLine, endLine, body, note, headSha }) => ({ path: p, lines: `${startLine}-${endLine}`, headSha: headSha.slice(0, 12), body, ...(note ? { note } : {}) }));
-  return { work: slug, pr: keyLabel(n), findings, dismissedWatchPoints };
+  return { work: slug, pr: keyLabel(n), findings, pendingWatchPoints, dismissedWatchPoints };
 }

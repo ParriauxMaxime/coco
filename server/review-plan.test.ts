@@ -160,6 +160,23 @@ test('get_pr_findings lists settled findings with their thread end and dismissed
   assert.deepEqual(seen.dismissedWatchPoints.map((d) => [d.path, d.lines, d.note]), [['src/b.ts', '2-3', 'cheap enough']]);
 });
 
+test('get_pr_findings lists the review plan pending watch points at their head, and keeps the dismissed one apart', () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-pending-'));
+  const reviews = path.join(DATA, 'works', 'csv', 'reviews');
+  const write = (file: string, data: unknown) => (fs.mkdirSync(path.dirname(file), { recursive: true }), fs.writeFileSync(file, JSON.stringify(data)));
+  const watchPoints = [
+    { path: 'src/b.ts', startLine: 2, endLine: 3, body: 'Polled method now reads twice', severity: 'minor', confidence: 80 },
+    { path: 'src/c.ts', startLine: 10, endLine: 12, body: 'Retry no longer backs off', severity: 'major', confidence: 90 },
+  ];
+  write(path.join(reviews, 'pr-7-plan.json'), { run: null, ticks: {}, watch: {}, plan: { headSha: 'b'.repeat(40), createdAt: 'p1', watchPoints } });
+  const plan = createReviewPlan({ DATA, REPO: DATA, config: DEFAULTS, code: { ensureRefs: async () => assert.fail(), prFilesFromGit: async () => [] }, works: { get: () => null, prInfo: async () => assert.fail(), personasForPaths: () => [], remark: () => null } });
+  plan.watch('csv', 7, { index: 1, state: 'dismissed', note: 'cheap enough' });
+  const seen = readPrFindings(DATA, { pr: 7 });
+  assert.ok(!('error' in seen));
+  assert.deepEqual(seen.pendingWatchPoints.map((w) => [w.path, w.lines, w.severity, w.confidence, w.headSha]), [['src/b.ts', '2-3', 'minor', 80, 'b'.repeat(12)]]);
+  assert.deepEqual(seen.dismissedWatchPoints.map((d) => [d.path, d.lines, d.note]), [['src/c.ts', '10-12', 'cheap enough']]);
+});
+
 test('get_work is slim by default: summary, stack rows with branch and title, decisions in one line, clipped notes, the last note entries; sections add the rest', () => {
   const timeline = Array.from({ length: 40 }, (_, i) => ({ ts: `t${i}`, kind: i % 2 ? 'github' : 'note', text: `entry ${i}` }));
   const work = {
