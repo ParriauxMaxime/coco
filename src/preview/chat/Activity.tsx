@@ -107,10 +107,9 @@ function stepOf(it: ActivityItem | undefined) {
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 // issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
 // fold: one turn of a thread, its work (calls, thinking, narration) under one row timed from..to, naming the step under way;
-// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) keeps what the agent says: its closing words out,
-// the narration above them in a notes row that opens on a click, inline on the turn being read (compact false)
-type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; compact?: boolean; fold?: { from?: string; to?: string } };
-export default function Activity({ events, active = false, issues: offer = false, compact = false, fold }: Props) {
+// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) puts the narration above its closing words in a notes row
+type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; fold?: { from?: string; to?: string } };
+export default function Activity({ events, active = false, issues: offer = false, fold }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const now = useNow(1000, active && Boolean(fold?.from));
   const items = groupActivity(events, { active });
@@ -142,10 +141,10 @@ export default function Activity({ events, active = false, issues: offer = false
       </div>
     );
   }
-  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and what the agent says; a thread's turn keeps only the
-  // text it ends on, a chat's turn keeps its closing words out and puts the narration above them in one notes row (on the turns you are not reading)
+  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and the text it ends on; a chat's turn puts the
+  // narration above those closing words in one notes row that opens on a click, a thread's turn keeps only what it ends on
   const notes = new Set<ActivityItem>();
-  if (!threadTurn && compact) for (const [i, it] of items.entries()) if (i < lastText && it.kind === 'event' && it.event.type === 'text') notes.add(it);
+  if (!threadTurn) for (const [i, it] of items.entries()) if (i < lastText && it.kind === 'event' && it.event.type === 'text') notes.add(it);
   const group = notes.size > 1;
   const inSight = new Set(items.filter((it, i) =>
     (it.kind === 'live' && (!threadTurn || i > lastWork)) ||

@@ -1988,9 +1988,8 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
   work** when it has a work label) over its transcript (a turn folds its
   tool calls, its thinking and the questions already answered under one row,
   keeps its closing words out, and puts the narration above them in a
-  `N notes` row — open on the turn being read, one click on the older ones),
-  permissions, open cards and composer (attachments, model and thinking
-  switch, Stop). Reached from
+  `N notes` row that opens on a click), permissions, open cards and composer
+  (attachments, model and thinking switch, Stop). Reached from
   Chat on the Agents page, the Dashboard's agent rows, a ritual's history
   row, a job of no work and the Waiting page link of a card whose agent has
   no work. `GET /api/agent-chat/<agentId>` gives its title, kind, work, PR,
