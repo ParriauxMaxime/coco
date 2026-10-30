@@ -15,5 +15,7 @@
 .dp-nt-bar { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); }
 .dp-nt-bar .dp-seg { background: var(--dp-panel); }
 .dp-nt-ta { display: block; width: 100%; box-sizing: border-box; field-sizing: content; min-height: 180px; max-height: 70vh; padding: 12px 14px; border: 0; outline: none; resize: vertical; background: var(--dp-panel); color: var(--dp-t1); font: 13px/20px var(--dp-f); }
+/* the field draws the ring; the box must not add the global square one inside it */
+.dp-nt-ta:focus { box-shadow: none; }
 .dp-nt-ta::placeholder { color: var(--dp-t4); }
 .dp-nt-pv { padding: 12px 16px; min-height: 48px; }

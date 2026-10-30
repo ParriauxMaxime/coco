@@ -1801,12 +1801,12 @@ back. At boot and daily, uploads older than 24 h that neither record names
 ## Dictation (voice into any composer)
 
 Every composer with a text box (agent tabs and pages, Ask, threads, New
-agent) has a mic next to the paperclip. Click it, or press ⌥Space in the
-box, and speak: the transcript so far shows live at the cursor, between the
-text before and after it, the box read-only meanwhile. Click again, Esc or
-⌥Space stops; holding ⌥Space past half a second talks until you release it.
-The final text stays in the box for review: nothing is sent, and Send waits
-until dictation stops.
+agent) has a mic next to the paperclip. Click it, press ⌘D (Ctrl+D) or press
+⌥Space in the box, and speak: the transcript so far shows live at the
+cursor, between the text before and after it, the box read-only meanwhile.
+⌘D again, click, Esc or ⌥Space stops; holding ⌥Space past half a second
+talks until you release it. The final text stays in the box for review:
+nothing is sent, and Send waits until dictation stops.
 
 It is Paseo's own speech to text, the one its app's mic uses (Paseo
 settings, Dictation: `features.dictation` in `~/.paseo/config.json`, a local

@@ -188,6 +188,13 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
     }
     void dictation.toggle();
   };
+  // ⌘D (Ctrl+D) toggles dictation from anywhere in the composer, so the mic is one key away while typing
+  const dictateKey = (e: React.KeyboardEvent) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'd') return;
+    e.preventDefault();
+    if (e.repeat || disabled || !dictation.avail?.engine) return;
+    dictate();
+  };
   const { state: dictationState, stop: stopDictation } = dictation;
   useEffect(() => {
     if (dictationState !== 'live' || !stopWhenLive.current) return;
@@ -208,8 +215,8 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
     : !dictation.avail.engine
       ? dictation.avail.reason ?? 'Dictation unavailable'
       : dictating
-        ? 'Stop dictation (click, Esc or ⌥Space): the text stays for review'
-        : `Dictate at the cursor (⌥Space, hold to talk)${dictation.avail.engine === 'browser' ? ` · ${dictation.avail.reason}` : ''}`;
+        ? 'Stop dictation (click, ⌘D, Esc or ⌥Space): the text stays for review'
+        : `Dictate at the cursor (⌘D, or ⌥Space held)${dictation.avail.engine === 'browser' ? ` · ${dictation.avail.reason}` : ''}`;
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const live = useRef(files);
@@ -280,7 +287,7 @@ export function Composer({ placeholder, note, disabled = false, busy = false, se
   };
   const dragging = (e: React.DragEvent) => !disabled && attach && e.dataTransfer.types.includes('Files');
   return (
-    <div ref={root} className={`dp-composer${className ? ` ${className}` : ''}`}>
+    <div ref={root} className={`dp-composer${className ? ` ${className}` : ''}`} onKeyDown={dictateKey}>
       <div
         className={`dp-composer-in${drag ? ' dp-upl-drag' : ''}`}
         onDragOver={(e) => { if (dragging(e)) { e.preventDefault(); setDrag(true); } }}

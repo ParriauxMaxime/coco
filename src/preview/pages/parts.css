@@ -27,6 +27,8 @@
 .dp-editor-bar { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--dp-line); background: var(--dp-subtle); color: var(--dp-t2); }
 .dp-editor-bar .dp-mono { color: var(--dp-t1); }
 .dp-editor-ta { display: block; width: 100%; box-sizing: border-box; min-height: 560px; height: calc(100vh - 300px); padding: 12px 14px; border: 0; outline: none; resize: vertical; background: var(--dp-panel); color: var(--dp-t1); font: 12.5px/20px var(--dp-mono); tab-size: 2; }
+/* the box draws the ring (focus-within); the box inside must not add the global square one */
+.dp-editor-ta:focus { box-shadow: none; }
 .dp-editor:focus-within { border-color: var(--dp-accent); box-shadow: 0 0 0 3px var(--dp-focus); }
 
 @container (max-width: 760px) {

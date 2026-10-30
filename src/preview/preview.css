@@ -446,7 +446,8 @@ html[data-theme="dark"] .dp-cocoav { --dp-mark-card: #262a3a; --dp-mark-eye: #f3
 .dp-composer { flex: none; padding: 8px 16px 14px; }
 .dp-composer-in { max-width: 720px; margin: 0 auto; border: 1px solid var(--dp-line-2); border-radius: var(--dp-r3); background: var(--dp-panel); box-shadow: var(--dp-sh-1); }
 .dp-composer-in:focus-within { border-color: var(--dp-accent); box-shadow: 0 0 0 3px var(--dp-focus); }
-.dp-composer textarea { all: unset; display: block; width: 100%; box-sizing: border-box; padding: 10px 12px 4px; min-height: 44px; color: var(--dp-t1); font-size: 13px; line-height: 20px; }
+/* the box draws the ring (focus-within): the textarea must not add the global square one inside it, whatever the CSS order */
+.dp-composer textarea, .dp-composer textarea:focus { all: unset; display: block; width: 100%; box-sizing: border-box; padding: 10px 12px 4px; min-height: 44px; color: var(--dp-t1); font-size: 13px; line-height: 20px; }
 .dp-composer textarea::placeholder { color: var(--dp-t3); }
 .dp-comp-f { display: flex; align-items: center; gap: 6px; padding: 4px 6px 6px 8px; }
 .dp-comp-f { flex-wrap: nowrap; min-width: 0; }
