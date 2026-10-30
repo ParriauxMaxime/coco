@@ -184,6 +184,15 @@ function scaffoldCard(p: Scaffold, existing: AskWork | null | undefined): Raw {
   };
 }
 
+// the model a proposal, a composer or a new agent runs on: none is the config's default; a bare id is that default when it names the
+// default's provider family, and any other bare id names no model at all: refused here, not sent as id/id for Paseo to fall back on
+export function providerFor(model: string | null | undefined, ms: ModelsConfig): string {
+  if (!model) return ms.default;
+  if (model.includes('/')) return model;
+  if (model === ms.default.split('/')[0]) return ms.default;
+  throw new HttpError(400, `"${model}" is a provider, not a model: give ${model}/<model id> or ${ms.default}`);
+}
+
 function agentOf(p: Raw): AgentProposal {
   const cwd = opt(p.cwd, 500, 'cwd');
   if (cwd && !path.isAbsolute(cwd)) throw new Error('cwd must be an absolute path');
@@ -253,7 +262,6 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
 
   const convRepo = (conv: Conv) => (conv.scope.kind === 'repo' ? conv.scope.repoId : conv.scope.kind === 'work' ? works.get(conv.scope.slug)?.repo ?? null : null);
   const convModels = (conv: Conv) => modelsFor(config, convRepo(conv));
-  const providerFor = (model: string | null | undefined, ms: ModelsConfig) => (!model ? ms.default : model.includes('/') ? model : `${ms.default.split('/')[0]}/${model}`);
 
   const fileOf = (id: string, ext: string) => path.join(DIR, `${id}.${ext}`);
   const agentsOf = (c: { agentId: string | null; agentIds?: string[] | null }) => [...new Set([...(c.agentIds || []), ...(c.agentId ? [c.agentId] : [])])];

@@ -7,7 +7,7 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import { createPaseoAgents } from './paseo-agent.ts';
 import type { DaemonAgent, TimelineEvent, WaitResult, WorkspaceEntry } from './paseo-agent.ts';
-import { PR_REPLY_HINT, createAsk, namesPrComment } from './ask.ts';
+import { PR_REPLY_HINT, createAsk, namesPrComment, providerFor } from './ask.ts';
 import { createCards } from './cards.ts';
 import { DEFAULTS } from './config.ts';
 import { checkPick } from './models.ts';
@@ -390,6 +390,10 @@ test('a proposal card shows what the agent proposes, is refused when it cannot r
   assert.deepEqual([newAgent.labels?.kind, newAgent.labels?.work, newAgent.labels?.ask], ['agent', 'csv-export', undefined]);
   assert.equal(started.result?.link, `#/work/csv-export/ag-${newAgent.id}`);
   assert.match(work.timeline[0].text, /^started Paseo agent "PR 1: endpoint" \(\w{8}\) from ask \w{8}: "Plan the CSV export"$/);
+  // a bare provider of the default's own family is the default model; another family is refused on the card, not sent as id/id
+  const sameFamily = await propose('paseo_agent', { title: 'Same family', prompt: 'x', why: 'y', provider: 'claude' });
+  assert.match(String(sameFamily.blocks?.[0]?.text), /^\*\*claude\/claude-opus-5-5\*\*/);
+  await assert.rejects(propose('paseo_agent', { title: 'Other family', prompt: 'x', why: 'y', provider: 'omp' }), /"omp" is a provider, not a model: give omp\/<model id> or claude\/claude-opus-5-5/);
 
   const repo = await cards.answer((await propose('repo', { source: 'acme/gadgets', why: 'Its importer' })).id, { approved: true });
   assert.deepEqual([repo.result?.detail, repo.result?.link], ['gadgets cloned into /acme/gadgets · Paseo project gadgets', '#/repo/gadgets']);
@@ -441,6 +445,17 @@ test('the composer’s model and thinking start the agent, switch the live one o
   await ask.say(conv.id, 'Once more');
   await until(() => daemon.calls.created.length === 2, 'next agent');
   assert.deepEqual([daemon.calls.created[1].config.provider, daemon.calls.created[1].config.thinkingOptionId], ['claude/claude-opus-5-5', 'max']);
+});
+
+test('a model resolves to the config default, a full provider/model stands, and a bare id of another family is refused instead of id/id', () => {
+  const ms = { default: 'omp/openrouter-deepseek/@preset/dev-deepseek-v4-1-flash-1017' };
+  assert.equal(providerFor(undefined, ms), ms.default);
+  assert.equal(providerFor(null, ms), ms.default);
+  assert.equal(providerFor('omp', ms), ms.default);
+  assert.equal(providerFor('omp/some-model', ms), 'omp/some-model');
+  assert.equal(providerFor('claude', { default: 'claude/claude-opus-5-5' }), 'claude/claude-opus-5-5');
+  assert.throws(() => providerFor('claude', ms), /"claude" is a provider, not a model: give claude\/<model id> or omp\/openrouter-deepseek/);
+  assert.throws(() => providerFor('bogus', ms), /"bogus" is a provider, not a model/);
 });
 
 test('a message naming a PR comment carries the propose_pr_reply reminder on that turn only', async () => {
