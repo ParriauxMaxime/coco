@@ -71,6 +71,7 @@ html[data-theme="dark"] .dp {
 .dp pre code { background: none; color: inherit; border: 0; padding: 0; }
 svg.dp-i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 svg.dp-i.dp-s14 { width: 14px; height: 14px; } svg.dp-i.dp-s12 { width: 12px; height: 12px; stroke-width: 1.9; }
+svg.dp-i.dp-mk { stroke: none; fill: currentColor; }
 .dp-num { font-variant-numeric: tabular-nums; }
 .dp-t2 { color: var(--dp-t2); } .dp-t3 { color: var(--dp-t3); } .dp-t4 { color: var(--dp-t4); }
 .dp-sm { font-size: 12px; line-height: 16px; } .dp-xs { font-size: 11px; line-height: 16px; }
