@@ -17,7 +17,8 @@ export type PermissionRequest = { id: string; provider?: string; name: string; k
 export type PermissionResponse =
   | { behavior: 'allow'; selectedActionId?: string; updatedInput?: Record<string, unknown>; updatedPermissions?: Record<string, unknown>[] }
   | { behavior: 'deny'; selectedActionId?: string; message?: string; interrupt?: boolean };
-export type AgentSnapshot = { id: string; title?: string | null; labels?: Record<string, string>; archivedAt?: string | null; status?: string | null; updatedAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null; workspaceId?: string | null; cwd?: string | null; pendingPermissions?: PermissionRequest[]; lastUsage?: PaseoUsage | null };
+// provider and model: what it runs on, as its list entry carries them (``<provider>/<model>`` is built where they are shown)
+export type AgentSnapshot = { id: string; title?: string | null; labels?: Record<string, string>; archivedAt?: string | null; status?: string | null; updatedAt?: string | null; lastUserMessageAt?: string | null; createdAt?: string | null; workspaceId?: string | null; cwd?: string | null; pendingPermissions?: PermissionRequest[]; lastUsage?: PaseoUsage | null; provider?: string | null; model?: string | null; thinkingOptionId?: string | null };
 export type AgentUpdate = { kind: 'upsert'; agent: AgentSnapshot } | { kind: 'remove'; agentId: string };
 type AgentListener = (agent: AgentSnapshot | null, removed?: string) => void;
 type AgentPage = { entries: { agent: AgentSnapshot }[]; pageInfo?: { nextCursor?: string | null } };

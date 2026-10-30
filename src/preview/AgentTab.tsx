@@ -254,7 +254,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
         : view === 'files' && wsId ? <FilesPanel key={wsId} wsId={wsId} onOpenTab={openWorkspaceFile(wsId)} />
         : view === 'terminal' && wsId ? <TerminalPanel wsId={wsId} />
         : view === 'browser' ? <BrowserPanel tabs={browserTabs} />
-        : view === 'thread' ? <><GroupThreads slug={slug} keys={keys} summaries={summaries} />{commits}</> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} pinned={pinned} />}
+        : view === 'thread' ? <><GroupThreads slug={slug} keys={keys} summaries={summaries} />{commits}</> : <AgentTranscript agentId={agentId} state={state} who={listed?.kind || 'agent'} current={listed?.provider ? { provider: listed.provider, thinking: listed.thinking || null } : null} pinned={pinned} />}
     </div>
   );
 }

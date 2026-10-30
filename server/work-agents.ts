@@ -28,8 +28,9 @@ const TITLE_MAX = 80;
 const TURN_END = ['turn_completed', 'turn_failed', 'turn_canceled'];
 
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
-// id is the agent's tab: ask-<conversation> or ag-<Paseo agent>; autoArchive: its job is done and its chat archives it on a visible timer
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive: boolean; subagents: SubagentCount } & Metrics;
+// id is the agent's tab: ask-<conversation> or ag-<Paseo agent>; autoArchive: its job is done and its chat archives it on a visible timer;
+// provider (``<provider>/<model>``) and thinking: what it runs on, null for an Ask conversation, whose composer owns the pick
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive: boolean; provider: string | null; thinking: string | null; subagents: SubagentCount } & Metrics;
 // estimated tokens of the first prompt and the system prompt; inputTokens (cached reads included) and costUsd as Paseo reports them for the whole agent
 // contextTokens of contextMax: its context window at its last turn
 // openCards: asks it waits on the owner for, shown as waiting on you like a pending permission
@@ -70,6 +71,8 @@ const withFiles = (attachments?: UploadRef[]) => (attachments?.length ? { attach
 const statusOf = (a: { archivedAt?: unknown; status?: string | null }): WorkAgentStatus => (a.archivedAt || a.status === 'closed' ? 'archived' : a.status === 'error' ? 'failed' : a.status === 'idle' ? 'done' : 'running');
 const ASK_STATUS: Record<string, WorkAgentStatus> = { running: 'running', idle: 'done', error: 'failed' };
 const titleOf = (title: string | null | undefined, id: string) => (title || '').replace(TITLE_PREFIX, '').trim().slice(0, TITLE_MAX) || id.slice(0, 8);
+// what a listed agent runs on: <provider>/<model> as its entry has them, its provider alone before it has a model
+const providerOf = (a: { provider?: string | null; model?: string | null } | null | undefined) => (a?.provider && a.model ? `${a.provider}/${a.model}` : a?.provider || null);
 
 
 export function createWorkAgents({ client, asks, linked, onAgent, serverId, usage, cards, uploads, exec = defaultExec, beforeTurn, closeAsk, archiveAgent, archiveWhenDone, handedOff = () => [], models, subagents, snapshots, keyOf = (_slug, key) => key }: Options) {
@@ -106,9 +109,9 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     const seen = new Set(labelled.map((a) => a.id));
     const links = await Promise.all(linked(slug).filter((l) => !seen.has(l.agentId)).map(async (l) => ({ l, a: (await c.agents.ref(l.agentId).refresh().catch(() => null))?.agent ?? null })));
     return [
-      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, autoArchive: false, ...metrics(m.agentId) })),
-      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: labelKey(a.labels), status: statusOf(a), updatedAt: a.updatedAt || null, autoArchive: selfArchiving(a), ...metrics(a.id, a.lastUsage) })),
-      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, autoArchive: selfArchiving(a && { ...a, id: l.agentId }), ...metrics(l.agentId, a?.lastUsage) })),
+      ...asks(slug).map((m) => ({ id: `ask-${m.id}`, agentId: m.agentId, askId: m.id, kind: 'ask', title: (m.title || m.prompt.split('\n')[0]).slice(0, TITLE_MAX), pr: m.pr == null ? null : String(m.pr), status: ASK_STATUS[m.status] || 'archived', updatedAt: m.lastActivity || m.startedAt, autoArchive: false, provider: null, thinking: null, ...metrics(m.agentId) })),
+      ...labelled.map((a) => ({ id: `ag-${a.id}`, agentId: a.id, askId: null, kind: a.labels?.kind || 'agent', title: titleOf(a.title, a.id), pr: labelKey(a.labels), status: statusOf(a), updatedAt: a.updatedAt || null, autoArchive: selfArchiving(a), provider: providerOf(a), thinking: a.thinkingOptionId ?? null, ...metrics(a.id, a.lastUsage) })),
+      ...links.map(({ l, a }) => ({ id: `ag-${l.agentId}`, agentId: l.agentId, askId: null, kind: 'linked', title: titleOf(a?.title ?? l.title, l.agentId), pr: String(l.key), status: a ? statusOf(a) : 'archived', updatedAt: a?.updatedAt || null, autoArchive: selfArchiving(a && { ...a, id: l.agentId }), provider: providerOf(a), thinking: a?.thinkingOptionId ?? null, ...metrics(l.agentId, a?.lastUsage) })),
     ];
   }
 
@@ -296,7 +299,7 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
       status: statusOf(found),
       updatedAt: found.updatedAt || null,
       autoArchive: selfArchiving({ ...found, id: agentId }),
-      provider: found.provider && found.model ? `${found.provider}/${found.model}` : found.provider || null,
+      provider: providerOf(found),
       thinking: found.thinkingOptionId ?? null,
       mode: found.currentModeId ?? null,
       workspaceId: found.workspaceId ?? null,

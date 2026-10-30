@@ -625,8 +625,9 @@ export type NewAgentBody = { place: NewAgentPlace; prompt: string; attachments?:
 export type NewAgentStarted = { agentId: string; workspaceId: string; cwd: string; title: string };
 export type WorkAgentStatus = 'running' | 'done' | 'failed' | 'archived';
 // one agent of a work; id is its tab: ask-<conversation> or ag-<Paseo agent>
-// autoArchive: its job is done with nothing open on the owner, so its chat archives it on a visible 30 s timer
-export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
+// autoArchive: its job is done with nothing open on the owner, so its chat archives it on a visible 30 s timer;
+// provider (<provider>/<model>) and thinking: what it runs on, null for an Ask conversation, whose composer owns the pick
+export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; provider: string | null; thinking: string | null; openCards: number; subagents?: { running: number; total: number } } & AgentMetrics;
 // any Paseo agent, in a work or not (GET /api/agent-chat/<agentId>)
 export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; provider: string | null; thinking: string | null; mode?: string | null; workspaceId?: string | null; serverId: string | null; openCards: number } & AgentMetrics;
 // an agent handed to a fresh one (server/handoff.ts): step summary (the old one writes its briefing), starting, done or failed

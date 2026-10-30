@@ -117,21 +117,22 @@ test("an archived or deleted work's agents lose their snapshots, and so does an 
 test("a work's agents: its Ask conversations, the Paseo agents labelled with it and those linked to its rows, each once with its status and row", async () => {
   const { agents, filters } = setup({
     listed: [
-      { id: 'review', title: 'coco · Fix review #12 (3)', labels: { kind: 'review', work: 'csv', pr: '12' }, status: 'running' },
-      { id: 'brief', title: 'coco · Brief', labels: { kind: 'brief', work: 'csv', pr: 'b~feat~csv' }, status: 'idle' },
+      { id: 'review', title: 'coco · Fix review #12 (3)', labels: { kind: 'review', work: 'csv', pr: '12' }, status: 'running', provider: 'omp', model: 'openrouter-deepseek/@preset/dev-deepseek-v4-1-flash-1017', thinkingOptionId: 'high' },
+      { id: 'brief', title: 'coco · Brief', labels: { kind: 'brief', work: 'csv', pr: 'b~feat~csv' }, status: 'idle', provider: 'claude' },
       { id: 'gate', title: 'coco · Gate tests', labels: { kind: 'gate', work: 'csv' }, status: 'idle', archivedAt: '2026-10-26T10:00:00Z' },
       { id: 'ask-agent', title: 'coco · Ask: Who reviews #12?', labels: { kind: 'ask', ask: ASK.slice(0, 8), work: 'csv' }, status: 'error' },
     ],
-    refreshed: { hand: { id: 'hand', title: 'my session', status: 'error' } },
+    refreshed: { hand: { id: 'hand', title: 'my session', status: 'error', provider: 'claude', model: 'opus' } },
   });
   const list = await agents.list('csv');
   assert.deepEqual(filters, [{ labels: { work: 'csv' }, includeArchived: true, includeBackground: true }]);
-  assert.deepEqual(list.map((a) => [a.id, a.kind, a.status, a.pr, a.title]), [
-    [`ask-${ASK}`, 'ask', 'archived', '12', 'Who reviews #12?'],
-    ['ag-review', 'review', 'running', '12', 'Fix review #12 (3)'],
-    ['ag-brief', 'brief', 'done', 'b:feat:csv', 'Brief'],
-    ['ag-gate', 'gate', 'archived', null, 'Gate tests'],
-    ['ag-hand', 'linked', 'failed', 'b:feat:csv', 'my session'],
+  // provider/thinking ride along from the list entry, so a live agent's model shows without waiting on the overview poll
+  assert.deepEqual(list.map((a) => [a.id, a.kind, a.status, a.pr, a.title, a.provider, a.thinking]), [
+    [`ask-${ASK}`, 'ask', 'archived', '12', 'Who reviews #12?', null, null],
+    ['ag-review', 'review', 'running', '12', 'Fix review #12 (3)', 'omp/openrouter-deepseek/@preset/dev-deepseek-v4-1-flash-1017', 'high'],
+    ['ag-brief', 'brief', 'done', 'b:feat:csv', 'Brief', 'claude', null],
+    ['ag-gate', 'gate', 'archived', null, 'Gate tests', null, null],
+    ['ag-hand', 'linked', 'failed', 'b:feat:csv', 'my session', 'claude/opus', null],
   ]);
 });
 
