@@ -195,6 +195,12 @@ server.tool('propose_pr_body', `Propose a new body for a PR (a stale count or ta
   return propose('pr_body', { ...p, ...(pr != null ? { pr } : here.pr ? { pr: here.pr } : {}) });
 });
 
+server.tool('propose_slack_message', `Send a message in Slack through ${OWNER}'s approval: coco shows the exact channel and text on a card, and nothing is posted until ${OWNER} presses Post to Slack; the text can be edited there. Use this whenever ${OWNER} asks to send, post, announce or reply in Slack — the Slack tools are read-only, so never try to send yourself. ${ON_CARD}`, {
+  channel: z.string().max(120).describe('Slack channel id (C…), name (#general) or @user for a DM'),
+  text: z.string().max(4000).describe('the message, Slack mrkdwn'),
+  why: z.string().max(500).optional().describe('one sentence: why this message'),
+}, async (p) => propose('slack', p));
+
 server.tool('propose_paseo_agent',`Propose starting a Paseo agent (local, in an existing workspace or cwd), shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Start agent on the card. Call it once, at the end. Pick workspaceId from list_paseo (the PR workspace of a work) and keep the prompt complete: it is the agent's whole brief. ${ON_CARD}`, {
   title: z.string().max(60).describe('agent title shown in Paseo, e.g. "PR 1: export endpoint skeleton"'),
   prompt: z.string().describe('the full task for the agent'),

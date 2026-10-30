@@ -73,6 +73,7 @@ import { createStackEdit } from './stack-edit.ts';
 import { createStackSplit } from './stack-split.ts';
 import { createPrReply } from './pr-reply.ts';
 import { createPrBody } from './pr-body.ts';
+import { createSlackSend } from './slack-send.ts';
 import { createAgentWorktrees } from './agent-worktree.ts';
 import { createSpares } from './spares.ts';
 import { createScreenshots } from './screenshot.ts';
@@ -268,11 +269,26 @@ const bodyGate = () => {
   return skill ? `gate:kit-body:${skill}` : null;
 };
 // an Ask agent's answer goes through its conversation and a thread agent's through its thread, so the turn it opens is logged there; a one-shot run is not reopened for it
-const cards = createCards({ DATA, place: (agentId) => workAgents.placeOf(agentId), actions: { ...ask.actions, rules: rules.cardAction, stack_edit: createStackEdit({ works, notion: works.notion }).cardAction, split: createStackSplit({ works, exec: (cmd, args) => run(cmd, args), github: (slug) => repos.repoFor(works.get(slug)).github, defaultBranch: config.repo.defaultBranch, notion: works.notion, bodyEntry: bodyGate(), queue: (agentId, input) => cards.create({ agentId, action: { type: 'dispatch', input } }), jobs }).cardAction, pr_reply: createPrReply({ githubOf: (slug) => (slug ? repos.repoFor(works.get(slug)).github : config.repo.github), exec: (cmd, args) => run(cmd, args) }).cardAction, pr_body: createPrBody({ githubOf: (slug) => (slug ? repos.repoFor(works.get(slug)).github : config.repo.github), exec: (cmd, args) => run(cmd, args) }).cardAction }, threads: threads.cardHook, deliver: async (agentId, text) => {
-  const conv = ask.convOf(agentId);
-  if (conv?.once) return SKIPPED;
-  return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
-}, outlives: (agentId) => Boolean(ask.convOf(agentId)) });
+const cards = createCards({
+  DATA,
+  place: (agentId) => workAgents.placeOf(agentId),
+  actions: {
+    ...ask.actions,
+    rules: rules.cardAction,
+    stack_edit: createStackEdit({ works, notion: works.notion }).cardAction,
+    split: createStackSplit({ works, exec: (cmd, args) => run(cmd, args), github: (slug) => repos.repoFor(works.get(slug)).github, defaultBranch: config.repo.defaultBranch, notion: works.notion, bodyEntry: bodyGate(), queue: (agentId, input) => cards.create({ agentId, action: { type: 'dispatch', input } }), jobs }).cardAction,
+    pr_reply: createPrReply({ githubOf: (slug) => (slug ? repos.repoFor(works.get(slug)).github : config.repo.github), exec: (cmd, args) => run(cmd, args) }).cardAction,
+    pr_body: createPrBody({ githubOf: (slug) => (slug ? repos.repoFor(works.get(slug)).github : config.repo.github), exec: (cmd, args) => run(cmd, args) }).cardAction,
+    slack: createSlackSend({ config }).cardAction,
+  },
+  threads: threads.cardHook,
+  deliver: async (agentId, text) => {
+    const conv = ask.convOf(agentId);
+    if (conv?.once) return SKIPPED;
+    return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
+  },
+  outlives: (agentId) => Boolean(ask.convOf(agentId)),
+});
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
 // cards an earlier sweep closed with an agent coco archived itself (a proposal, a thread's, an Ask conversation's) wait again
 const reopened = cards.reopenArchived();
