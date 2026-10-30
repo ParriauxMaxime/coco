@@ -53,6 +53,31 @@ export function countCalls(calls: ActivityEvent[]): CallCounts {
   return { ...counts, editedFiles: edited.size, readFiles: read.size };
 }
 
+const GROUPS: Record<string, string> = { shell: 'bash', read: 'read', edit: 'edit', write: 'write', search: 'search', fetch: 'fetch' };
+// the tool a call belongs to, for the log's rows per tool: bash, read, edit, search, or an MCP tool by name (coco.ask)
+export const callGroupOf = (call: ActivityEvent) => {
+  const named = toolLabel(call.name);
+  if (named && named.includes('.')) return named;
+  return GROUPS[kindOf(call)] || named || kindOf(call);
+};
+// calls grouped by the tool they used, in the order their tools first appear
+export function groupCallsByTool(calls: ActivityEvent[]) {
+  const out: { name: string; calls: ActivityEvent[]; counts: CallCounts }[] = [];
+  for (const c of calls) {
+    const name = callGroupOf(c);
+    const hit = out.find((g) => g.name === name);
+    if (hit) hit.calls.push(c);
+    else out.push({ name, calls: [c], counts: countCalls([c]) });
+  }
+  for (const g of out) g.counts = countCalls(g.calls);
+  return out;
+}
+
+
+// "4 commands, 1 file" — the counts alone, for a row that already names the tool
+export function tallyLabel(counts: CallCounts) {
+  return PHRASES.map(([key, , one, many]) => (counts[key] ? `${counts[key]} ${counts[key] === 1 ? one : many}` : '')).filter(Boolean).join(', ');
+}
 // "Ran 1 command and used 1 other tool", "Edited 2 files, ran 1 command, and read 3 files"
 export function callsLabel(counts: CallCounts) {
   const parts = PHRASES.filter(([k]) => counts[k] > 0).map(([k, verb, one, many]) => `${verb} ${counts[k]} ${counts[k] === 1 ? one : many}`);

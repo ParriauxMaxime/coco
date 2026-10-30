@@ -9,6 +9,7 @@ export type Prefs = {
   questions: 'inline' | 'tab';
   narrow: 'drop' | 'keep';
   avatar: 'rounded' | 'circle';
+  calls: 'group' | 'chrono';
 };
 export type PrefKey = keyof Prefs;
 
@@ -19,10 +20,11 @@ export const CHOICES: { key: PrefKey; label: string; options: { value: string; l
   { key: 'questions', label: 'Agent questions', options: [{ value: 'inline', label: 'Inline + status bar', rec: true }, { value: 'tab', label: 'Own tab' }] },
   { key: 'narrow', label: 'Narrow stack', options: [{ value: 'drop', label: 'Drop columns', rec: true }, { value: 'keep', label: 'Keep all' }] },
   { key: 'avatar', label: 'coco avatar', options: [{ value: 'rounded', label: 'Rounded', rec: true }, { value: 'circle', label: 'Circle' }] },
+  { key: 'calls', label: 'Agent log calls', options: [{ value: 'group', label: 'By tool', rec: true }, { value: 'chrono', label: 'In order' }] },
 ];
 
 const KEY = 'cc.design-preview';
-const DEFAULTS: Prefs = { shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', narrow: 'drop', avatar: 'rounded' };
+const DEFAULTS: Prefs = { shell: 'A', details: 'inspector', planned: 'fold', questions: 'inline', narrow: 'drop', avatar: 'rounded', calls: 'group' };
 
 const read = (): Prefs => {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return DEFAULTS; }

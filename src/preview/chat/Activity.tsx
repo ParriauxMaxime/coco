@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Markdown from '../../components/Markdown.tsx';
-import { callsLabel, countCalls, groupActivity, toolLabel } from '../../components/activity.ts';
+import { callsLabel, countCalls, groupActivity, groupCallsByTool, tallyLabel, toolLabel } from '../../components/activity.ts';
 import type { ActivityItem } from '../../components/activity.ts';
 import Icon from '../Icon.tsx';
 import type { IconName } from '../Icon.tsx';
@@ -8,6 +8,7 @@ import PermissionCard from './Permission.tsx';
 import SubagentCallRow from './SubagentCall.tsx';
 import { elapsed, isSubagentCall, useNow } from '../subagents.ts';
 import { openLauncher } from '../launcher.ts';
+import { usePrefs } from '../prefs.ts';
 import type { ActivityEvent } from '../../types.ts';
 import './chat.css';
 
@@ -107,19 +108,24 @@ function stepOf(it: ActivityItem | undefined) {
 // active: the agent is working on it, so running rows spin and an empty or settled tail says it is working
 // issues: an Ask coco transcript, where a flagged coco issue offers to start an agent on it
 // fold: one turn of a thread, its work (calls, thinking, narration) under one row timed from..to, naming the step under way;
-// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) puts the narration above its closing words in a notes row
+// a permission, an error and the text the turn ends on stay out · a chat's turn (no from) splits its calls per tool, folds the narration in
+// one notes row and keeps its closing words out
 type Props = { events: ActivityEvent[]; active?: boolean; issues?: boolean; fold?: { from?: string; to?: string } };
+// a chat drops the one-line chatter an agent emits between its calls (Emit., (Done.), Producing.): what it says at length stays
+const CHATTER = 80;
 export default function Activity({ events, active = false, issues: offer = false, fold }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const byTool = usePrefs((s) => s.calls) !== 'chrono';
   const now = useNow(1000, active && Boolean(fold?.from));
   const items = groupActivity(events, { active });
   const toggle = (i: number | string) => setOpen((o) => ({ ...o, [i]: !o[i] }));
   const last = items.at(-1);
   const settled = !(last && 'running' in last && last.running) && last?.kind !== 'live' && !(last?.kind === 'permission' && last.resolution === undefined);
-  const lastWork = items.findLastIndex((it) => it.kind === 'tools' || it.kind === 'think');
-  // a turn's closing words always stay open: only the narration above them folds
-  const lastText = items.findLastIndex((it) => it.kind === 'live' || (it.kind === 'event' && it.event.type === 'text'));
   const threadTurn = fold?.from !== undefined;
+  // the words a turn ends on, which always stay open
+  const closing = items.findLast((it) => it.kind === 'live' || (it.kind === 'event' && it.event.type === 'text'));
+  const shown = threadTurn ? items : items.filter((it) => it === closing || !(it.kind === 'event' && it.event.type === 'text' && (it.event.text ?? '').trim().length < CHATTER));
+  const lastWork = shown.findLastIndex((it) => it.kind === 'tools' || it.kind === 'think');
   const tools = (calls: ActivityEvent[], key: number | string, label: string, running: boolean) => {
     const issues = offer ? calls.flatMap((c) => cocoIssueOf(c) ?? []) : [];
     const row = <Row key={key} icon="wrench" label={label} running={running} open={open[key]} onToggle={() => toggle(key)}>{calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}</Row>;
@@ -136,39 +142,58 @@ export default function Activity({ events, active = false, issues: offer = false
   if (!fold || (lastWork < 0 && !active)) {
     return (
       <div className="dp-cv-acts">
-        {items.map(item)}
+        {shown.map(item)}
         {active && settled && <div className="dp-cv-act dp-run"><span className="dp-cv-actrow"><Spin /><span className="dp-cv-actl">Working…</span></span></div>}
       </div>
     );
   }
-  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and the text it ends on; a chat's turn puts the
-  // narration above those closing words in one notes row that opens on a click, a thread's turn keeps only what it ends on
+  // what a folded turn keeps in sight: a question no one answered yet, an error or a close, and the words it ends on; the narration above
+  // them waits in a notes row, a thread's turn keeping only what it ends on
   const notes = new Set<ActivityItem>();
-  if (!threadTurn) for (const [i, it] of items.entries()) if (i < lastText && it.kind === 'event' && it.event.type === 'text') notes.add(it);
-  const group = notes.size > 1;
-  const inSight = new Set(items.filter((it, i) =>
+  if (!threadTurn) for (const it of shown) if (it !== closing && it.kind === 'event' && it.event.type === 'text') notes.add(it);
+  const inSight = new Set(shown.filter((it, i) =>
     (it.kind === 'live' && (!threadTurn || i > lastWork)) ||
     (it.kind === 'permission' && it.resolution === undefined) ||
     (it.kind === 'event' && (
-      it.event.type === 'closed' || it.event.type === 'stderr' || Boolean(it.event.error) ||
-      (it.event.type === 'text' && (!group || !notes.has(it)) && (!threadTurn || i > lastWork))
+      it.event.type === 'closed' || it.event.type === 'end' || it.event.type === 'stderr' || Boolean(it.event.error) ||
+      (it.event.type === 'text' && !notes.has(it) && (!threadTurn || i > lastWork))
     )),
   ));
+  const calls = shown.flatMap((it) => (it.kind === 'tools' ? it.calls : []));
+  const perTool = !threadTurn && byTool && calls.length > 1 && !shown.some((it) => it.kind === 'tools' && it.calls.some(isSubagentCall));
   const took = fold.from && (active || fold.to) ? elapsed(fold.from, active ? now : Date.parse(fold.to ?? '')) : '';
-  const did = callsLabel(countCalls(items.flatMap((it) => (it.kind === 'tools' ? it.calls : []))));
-  const step = lastWork >= 0 ? stepOf(items[lastWork]) : '';
+  const did = callsLabel(countCalls(calls));
+  const step = lastWork >= 0 ? stepOf(shown[lastWork]) : '';
   const label = active ? [`Working${took && ` ${took}`}`, step].filter(Boolean).join(' · ') : [took && `Worked ${took}`, did].filter(Boolean).join(' · ') || 'Worked';
+  // per tool: one row per tool it used, then its thinking as one row, its narration as one, and the words it ends on
+  const thinks = shown.flatMap((it) => (it.kind === 'think' ? [it.text] : []));
   return (
     <div className="dp-cv-acts">
-      <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
-        <div className="dp-cv-acts">{items.map((it, i) => (inSight.has(it) || (group && notes.has(it)) ? null : item(it, i)))}</div>
-      </Row>
-      {group && (
-        <Row icon="message-square" label={`${notes.size} notes`} running={false} open={open.notes} onToggle={() => toggle('notes')}>
-          {items.map((it, i) => (notes.has(it) ? item(it, i) : null))}
+      {perTool ? (
+        <>
+          {groupCallsByTool(calls).map((g, gi) => (
+            <Row key={`t${gi}`} icon="wrench" label={`${g.name} · ${g.name.includes('.') ? `${g.calls.length} call${g.calls.length > 1 ? 's' : ''}` : tallyLabel(g.counts)}`} running={active && g.calls.some((c) => c.status === 'running')} open={open[`t${gi}`]} onToggle={() => toggle(`t${gi}`)}>
+              {g.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}
+            </Row>
+          ))}
+          {thinks.length > 0 && (
+            <Row icon="brain" label="Thinking" running={active && shown.some((it) => it.kind === 'think' && it.running)} open={open.thinking} onToggle={() => toggle('thinking')}>
+              <div className="dp-cv-think">{thinks.join('\n\n')}</div>
+            </Row>
+          )}
+          {shown.map((it, i) => (inSight.has(it) || notes.has(it) || it.kind === 'tools' || it.kind === 'think' ? null : item(it, i)))}
+        </>
+      ) : (
+        <Row icon="activity" label={label} running={active} open={open.turn} onToggle={() => toggle('turn')}>
+          <div className="dp-cv-acts">{shown.map((it, i) => (inSight.has(it) || notes.has(it) ? null : item(it, i)))}</div>
         </Row>
       )}
-      {items.map((it, i) => (inSight.has(it) ? item(it, i) : null))}
+      {notes.size > 0 && (
+        <Row icon="message-square" label={`${notes.size} note${notes.size > 1 ? 's' : ''}`} running={false} open={open.notes} onToggle={() => toggle('notes')}>
+          {shown.map((it, i) => (notes.has(it) ? item(it, i) : null))}
+        </Row>
+      )}
+      {shown.map((it, i) => (inSight.has(it) ? item(it, i) : null))}
     </div>
   );
 }
