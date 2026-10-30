@@ -1734,7 +1734,9 @@ When an agent's context fills up, **Hand off** in its header (a work's `ag-`
 tab or `#/agents/<agentId>`) passes its task to a new agent without the Paseo
 app. The button is always there on a live agent, amber once its context ring
 is amber (70%), red from 90%. Its dialog takes an optional note for the new
-agent and the model, thinking and mode (the old agent's by default).
+agent and its two model picks: the work's default model (the pick it starts
+on) and **same as this one**, the old agent's own model with its thinking
+level; the mode is the old agent's by default.
 
 1. **Briefing**: coco sends the old agent a `[coco hand-off]` message asking
    for the paseo-handoff skill's briefing (Task, Context, Relevant files,
@@ -1749,20 +1751,24 @@ agent and the model, thinking and mode (the old agent's by default).
    of its work), linked to the same PR row when the old one was, with the
    briefing and your note as its first message.
 3. **Done**: the old agent is archived once idle (forced after a minute), and
-   the page moves to the new agent.
+   the page moves to the new agent. Archiving the old one never archives the
+   new one: one its archive took down is brought back (`rescued` on the record).
 
 The dialog shows these steps while they run; it can be closed, and the header
 then shows **Handing off…**. Afterwards the old agent's header links
 **Handed off to <title>** and the new one's **from <title>**. One hand-off per
 agent; a failed one (shown as **Hand-off failed**, its error on hover) can be
-tried again. A coco restart during the briefing fails the hand-off; one
-during the new agent's start looks that agent up in Paseo (its title and
-labels, created since): found, the hand-off is done; none, failed; Paseo
-unreachable, it stays starting and a retry is refused until Paseo answers,
-so no second agent starts. Routes: `POST /api/agent-chat/<agentId>/handoff` (`note`,
-`provider`, `thinking`, `mode`) starts it and answers at once;
-`GET /api/agent-chat/<agentId>/handoff` → `{ to, from }`, kept in
-`data/handoffs.json` (`server/handoff.ts`).
+tried again. Every attempt is a record from its first millisecond, failed
+included: its error, the old agent's model (`fromProvider`, `fromModel`) and
+the one the new agent starts on (`provider`, `thought`), so a failure that
+never reaches Paseo still shows on the panel. A coco restart
+during the briefing fails the hand-off; one during the new agent's start
+looks that agent up in Paseo (its title and labels, created since): done,
+or failed; none, it stays waiting for the next try. Routes:
+`POST /api/agent-chat/<agentId>/handoff { note, provider, thinking, mode }`
+starts it and answers at once (`provider` omitted = the work's default);
+`GET /api/agent-chat/<agentId>/handoff` returns `{ to, from, picks }`, the
+record kept in `handoffs.json` under `data/` (`server/handoff.ts`).
 
 ## Workers (an agent hires another)
 

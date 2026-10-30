@@ -10,7 +10,8 @@ import Icon from './Icon.tsx';
 import Modal from './Modal.tsx';
 import { fillTone } from './Ring.tsx';
 import { ModelControls, useModelChoice } from './chat/ModelPicker.tsx';
-import type { AgentHandoffs, AgentInfo, AgentMetrics, Handoff } from '../types.ts';
+import type { Choice } from './chat/ModelPicker.tsx';
+import type { AgentHandoffs, AgentInfo, AgentMetrics, Handoff, HandoffModel } from '../types.ts';
 import './handoff.css';
 
 const POLL_MS = 1500;
@@ -76,7 +77,7 @@ export function HandoffControls({ agentId, metrics, archived }: { agentId: strin
       )}
       {open && createPortal(
         <div className="dp dp-float">
-          <HandoffDialog agentId={agentId} handoff={busy || to?.step === 'failed' ? to : null} onClose={() => setOpen(false)} onStarted={(h) => { asked.current = true; setData((d) => ({ from: d?.from ?? null, to: h })); void load(); }} />
+          <HandoffDialog agentId={agentId} handoff={busy || to?.step === 'failed' ? to : null} picks={data?.picks ?? null} onClose={() => setOpen(false)} onStarted={(h) => { asked.current = true; setData((d) => ({ from: d?.from ?? null, to: h, picks: d?.picks })); void load(); }} />
         </div>,
         document.body,
       )}
@@ -84,8 +85,9 @@ export function HandoffControls({ agentId, metrics, archived }: { agentId: strin
   );
 }
 
-type DialogProps = { agentId: string; handoff: Handoff | null; onClose: () => void; onStarted: (h: Handoff) => void };
-function HandoffDialog({ agentId, handoff, onClose, onStarted }: DialogProps) {
+type DialogProps = { agentId: string; handoff: Handoff | null; picks: HandoffModel | null; onClose: () => void; onStarted: (h: Handoff) => void };
+// a hand-off's card: the briefing note, and its two model picks — the work's default, the old agent's own (its thinking following)
+function HandoffDialog({ agentId, handoff, picks, onClose, onStarted }: DialogProps) {
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [note, setNote] = useState('');
   useUnsaved(Boolean(note.trim()));
@@ -95,7 +97,10 @@ function HandoffDialog({ agentId, handoff, onClose, onStarted }: DialogProps) {
   useEffect(() => {
     api.agentInfo(agentId).then((i) => { setInfo(i); setMode(i.mode ?? null); }, (e) => setErr(errorMessage(e)));
   }, [agentId]);
-  const model = useModelChoice(null, { live: true, current: info?.provider ? { provider: info.provider, thinking: info.thinking } : null });
+  const model = useModelChoice(null, { live: true, current: picks?.work ? { provider: picks.work, thinking: null } : null });
+  // the old agent's own model, offered beside the work's default
+  const own: Choice | null = picks?.source ? { provider: picks.source, thinking: picks.thought ?? null } : null;
+  const onOwn = Boolean(own && model.choice?.provider === own.provider);
   const running = handoff && BUSY.includes(handoff.step) ? handoff : null;
   const go = async () => {
     setSending(true);
@@ -140,7 +145,12 @@ function HandoffDialog({ agentId, handoff, onClose, onStarted }: DialogProps) {
           <textarea className="dp-inp dp-cd-ta" rows={3} value={note} autoFocus placeholder="Note for the new agent (optional): what to do next, what to drop…" aria-label="Note for the new agent" onChange={(e) => setNote(e.target.value)} />
           <div className="dp-ho-model">
             <span className="dp-xs dp-t3">New agent</span>
-            <ModelControls choice={model.choice} onPick={(c) => { if (family(c.provider) !== family(model.choice?.provider ?? '')) setMode(null); model.pick(c); }} hint="for the new agent (same as this one by default)" mode={{ value: mode, onPick: setMode }} disabled={!info} />
+            <ModelControls choice={model.choice} onPick={(c) => { if (family(c.provider) !== family(model.choice?.provider ?? '')) setMode(null); model.pick(c); }} hint={`the work's default (${picks?.work ?? "coco's"}); this agent's own is one press away`} mode={{ value: mode, onPick: setMode }} disabled={!info} />
+            {own && (
+              <button type="button" className={`dp-btn dp-sm${onOwn ? ' dp-primary' : ''}`} title={`Start it on ${own.provider}${own.thinking ? ` with thinking ${own.thinking}` : ''}, as this agent runs, instead of the work's default`} onClick={() => { if (family(own.provider) !== family(model.choice?.provider ?? '')) setMode(null); model.pick(own); }}>
+                same as this one{own.thinking ? ` · ${own.thinking}` : ''}
+              </button>
+            )}
           </div>
         </>
       )}

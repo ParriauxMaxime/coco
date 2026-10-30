@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MARK, briefingOf, createHandoff, transcriptOf } from './handoff.ts';
+import type { ModelPick } from './models.ts';
 import type { DaemonClient } from './paseo-agent.ts';
 
 const OLD = 'old-agent-1';
@@ -11,7 +12,7 @@ const NEW = 'new-agent-2';
 type Item = { type: string; text?: string };
 
 // a Paseo agent mid-task: its timeline, what it was sent; reply is what it answers the hand-off request with (null: it stays silent)
-function setup({ reply = null as string | null, archived = false, known = true, linked = false } = {}) {
+function setup({ reply = null as string | null, archived = false, known = true, linked = false, rescue = false } = {}) {
   const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-handoff-'));
   const items: Item[] = [
     { type: 'user_message', text: 'Make the CSV export stream rows' },
@@ -23,6 +24,7 @@ function setup({ reply = null as string | null, archived = false, known = true, 
   const started: Record<string, unknown>[] = [];
   const archivedIds: string[] = [];
   const linkedTo: unknown[] = [];
+  const kept: string[] = [];
   const agent = {
     id: OLD,
     cwd: '/wt/csv',
@@ -49,11 +51,17 @@ function setup({ reply = null as string | null, archived = false, known = true, 
     start: async (opts) => (started.push(opts), { agentId: NEW }),
     archiveWhenDone: async (id) => (archivedIds.push(id), true),
     archive: async () => false,
+    keep: async (id) => (kept.push(id), rescue),
+    // the source's own pick passes through as asked; nothing picked stays nothing, so the work's default wins
+    models: {
+      check: async (pick: ModelPick) => ({ ...(typeof pick.provider === 'string' ? { provider: pick.provider } : {}), ...(typeof pick.thinking === 'string' ? { thinking: pick.thinking } : {}) }),
+      mode: async (_provider: string, mode: unknown) => (typeof mode === 'string' ? mode : undefined),
+    },
     link: { linked: () => (linked ? [{ agentId: OLD, key: 101 }] : []), linkAgent: async (a) => void linkedTo.push(a), briefed: (id) => linkedTo.push(`briefed ${id}`) },
     waitMs: 30,
     pollMs: 5,
   });
-  return { DATA, handoff, sent, started, archivedIds, linkedTo };
+  return { DATA, handoff, sent, started, archivedIds, linkedTo, kept };
 }
 
 test('the old agent is asked for a briefing; its <handoff> block starts the new agent in the same place, then the old one is archived', async () => {
@@ -66,7 +74,7 @@ test('the old agent is asked for a briefing; its <handoff> block starts the new 
   assert.ok(sent[0].startsWith(MARK) && sent[0].includes('Run the full suite'));
   assert.equal(started.length, 1);
   const s = started[0];
-  assert.deepEqual({ title: s.title, provider: s.provider, thinking: s.thinking, mode: s.mode, workspaceId: s.workspaceId, cwd: s.cwd }, { title: 'CSV streaming', provider: 'claude/opus', thinking: 'high', mode: 'auto', workspaceId: 'wks_csv', cwd: '/wt/csv' });
+  assert.deepEqual({ title: s.title, provider: s.provider, thinking: s.thinking, mode: s.mode, workspaceId: s.workspaceId, cwd: s.cwd }, { title: 'CSV streaming', provider: 'claude/sonnet', thinking: undefined, mode: 'auto', workspaceId: 'wks_csv', cwd: '/wt/csv' });
   assert.deepEqual(s.labels, { source: 'cocopilot', kind: 'agent', work: 'csv', pr: '101' });
   assert.equal(s.parent, OLD);
   assert.ok(String(s.prompt).includes(briefing) && String(s.prompt).includes("## Max's note") && String(s.prompt).includes('Run the full suite'));
@@ -172,6 +180,46 @@ test('a hand-off cut by a restart while starting its new agent finds that agent 
   down = false;
   await (await unreachable.handoff.begin(OLD, {})).done;
   assert.deepEqual(unreachable.started, [1]);
+});
+
+test("the new agent starts on the work's default model; the old one's own model is the other pick, its thinking following it", async () => {
+  const briefing = '<handoff>## Task\nStream the CSV export.\n## Next steps\nFix the empty-file test.</handoff>';
+  const byDefault = setup({ reply: briefing });
+  await (await byDefault.handoff.begin(OLD, {})).done;
+  const own = setup({ reply: briefing });
+  await (await own.handoff.begin(OLD, { provider: 'claude/opus', thinking: 'high' })).done;
+  assert.deepEqual(
+    [byDefault.started[0], own.started[0]].map((s) => [s.provider, s.thinking ?? null]),
+    [['claude/sonnet', null], ['claude/opus', 'high']],
+  );
+});
+
+test("a hand-off is on the record from its first millisecond: one that never starts keeps its error and both models", async () => {
+  const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'coco-handoff-'));
+  const where = (agent: Record<string, unknown>) => (async () => ({ agents: { ref: () => agent } })) as unknown as () => Promise<Pick<DaemonClient, 'agents'>>;
+  const up = { id: OLD, refresh: async () => ({ agent: { title: 'coco · CSV streaming', status: 'idle', provider: 'claude', model: 'opus', thinkingOptionId: 'high', labels: { work: 'csv' } } }), send: async () => {}, waitForFinish: async () => ({ status: 'idle' }), timeline: { refetch: async () => ({ entries: [], hasOlder: false }) } };
+  const handoff = (client: () => Promise<Pick<DaemonClient, 'agents'>>, start: () => Promise<{ agentId: string }>) => createHandoff({ DATA, owner: 'Max', modelsOf: () => ({ default: 'claude/sonnet' }), client, say: async () => {}, start, archiveWhenDone: async () => false, archive: async () => false, waitMs: 10, pollMs: 5 });
+  // Paseo cannot say who the agent is: the attempt is still a record, with its error
+  const unknown = handoff(where({ id: OLD, refresh: async () => null }), async () => ({ agentId: NEW }));
+  await assert.rejects(unknown.begin(OLD, {}), /Paseo no longer knows this agent/);
+  assert.deepEqual([unknown.of(OLD).to?.step, unknown.of(OLD).to?.error], ['failed', 'Paseo no longer knows this agent']);
+  // the new agent never starts: the record keeps the error, the source's model and the one it would have run on
+  const broken = handoff(where(up), async () => {
+    throw new Error('the Paseo daemon refused it');
+  });
+  const { handoff: listed, done } = await broken.begin(OLD, {});
+  assert.equal(listed.step, 'summary');
+  await done;
+  const to = broken.of(OLD).to;
+  assert.deepEqual([to?.step, to?.error, to?.fromProvider, to?.fromModel, to?.provider], ['failed', 'the Paseo daemon refused it', 'claude', 'claude/opus', 'claude/sonnet']);
+});
+
+test('archiving the old agent never archives the new one: the one an archive took down is brought back', async () => {
+  const { handoff, started, archivedIds, kept } = setup({ reply: '<handoff>## Task\nStream the CSV export, all of it, carefully.</handoff>', rescue: true });
+  await (await handoff.begin(OLD, {})).done;
+  assert.equal(started.length, 1);
+  const to = handoff.of(OLD).to;
+  assert.deepEqual([to?.step, to?.archived, to?.rescued, archivedIds, kept], ['done', true, true, [OLD], [NEW]]);
 });
 
 test('briefingOf reads only the reply after the hand-off request; transcriptOf keeps the last turns', () => {

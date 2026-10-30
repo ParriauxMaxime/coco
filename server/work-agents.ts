@@ -397,5 +397,5 @@ export function createWorkAgents({ client, asks, linked, onAgent, serverId, usag
     }
   }
 
-  return { list, summary, handle, watchList, watchChat, say, placeOf, info, forget };
+  return { list, summary, handle, watchList, watchChat, say, placeOf, info, forget, unarchive };
 }

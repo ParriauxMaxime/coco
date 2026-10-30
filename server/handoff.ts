@@ -18,7 +18,10 @@ const NOT_INHERITED = ['ask', PARENT_AGENT_ID_LABEL, PARENT_SERVER_ID_LABEL];
 export type HandoffStep = 'summary' | 'starting' | 'done' | 'failed';
 // source: who wrote the briefing, the old agent or coco from its transcript
 // labels: the new agent's, saved before it starts
-export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: HandoffStep; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null; labels?: Record<string, string> };
+export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: HandoffStep; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null; labels?: Record<string, string>; fromProvider?: string | null; fromModel?: string | null; provider?: string | null; thought?: string | null; rescued?: boolean };
+// fromModel: what the old agent ran on; provider/thought: what the new one starts on; rescued: its archive had taken the new agent with it and it was brought back
+export type HandoffModel = { work: string | null; source: string | null; thought: string | null };
+// the new agent runs the work's default model unless a provider and thinking name another (the old agent's own)
 export type HandoffInput = { note?: unknown; provider?: unknown; thinking?: unknown; mode?: unknown };
 
 type Snapshot = NonNullable<NonNullable<Awaited<ReturnType<DaemonAgent['refresh']>>>['agent']>;
@@ -34,6 +37,8 @@ type Deps = {
   archive: (agentId: string) => Promise<boolean>;
   // the old agent was archived once the new one started: its plain open questions close
   handedOff?: (agentId: string) => void;
+  // brings the new agent back when archiving the old one archived it too; true when it had to
+  keep?: (agentId: string) => Promise<boolean>;
   models?: Pick<Models, 'check' | 'mode'>;
   link?: { linked(): { agentId: string; key: RowKey }[]; linkAgent(a: { agentId: string; workspaceId?: string | null; cwd?: string | null; title?: string | null }): Promise<unknown>; briefed(agentId: string): unknown };
   waitMs?: number;
@@ -107,7 +112,7 @@ export function firstMessage({ owner, fromTitle, from, source, briefing, note, f
   ].join('\n');
 }
 
-export function createHandoff({ DATA, owner, modelsOf, client, say, start, archiveWhenDone, archive, handedOff = () => {}, models, link, waitMs = WAIT_MS, pollMs = POLL_MS }: Deps) {
+export function createHandoff({ DATA, owner, modelsOf, client, say, start, archiveWhenDone, archive, handedOff = () => {}, keep, models, link, waitMs = WAIT_MS, pollMs = POLL_MS }: Deps) {
   const FILE = path.join(DATA, 'handoffs.json');
   const DIR = path.join(DATA, 'handoffs');
   const load = (): Handoff[] => {
@@ -155,12 +160,13 @@ export function createHandoff({ DATA, owner, modelsOf, client, say, start, archi
   }
   if (cut.size) recover().catch(() => {});
 
-  // the model, thinking and mode picked, else the old agent's own
+  // the new agent runs the work's model; the source's own, and the thinking that goes with it, is the other pick on the card
   async function setupOf(found: Snapshot, input: HandoffInput) {
     const ms = modelsOf(typeof found.labels?.work === 'string' ? found.labels.work : null);
     const current = found.provider && found.model ? `${found.provider}/${found.model}` : null;
-    const picked = models ? await models.check({ provider: input.provider, thinking: input.thinking }, current ?? ms.default) : {};
-    const provider = picked.provider || current || ms.default;
+    // nothing picked is the work's default; the old agent's own model, with its thinking, comes as provider + thinking
+    const picked = models ? await models.check({ provider: input.provider, thinking: input.thinking }, ms.default) : {};
+    const provider = picked.provider || ms.default;
     const same = provider.split('/')[0] === found.provider;
     const thinking = picked.thinking || (provider === current ? found.thinkingOptionId : null) || startThinking(ms, provider);
     const kept = same ? found.currentModeId || null : null;
@@ -224,6 +230,8 @@ export function createHandoff({ DATA, owner, modelsOf, client, say, start, archi
     }
     const archived = await archiveWhenDone(h.from, { timeoutMs: ARCHIVE_WAIT_MS }).catch(() => false) || (await archive(h.from).catch(() => false));
     update(h, { archived });
+    // the source goes, its successor stays: archiving the old agent must never take the new one with it
+    if (archived && keep && (await keep(to).catch(() => false))) update(h, { rescued: true });
     if (archived) handedOff(h.from);
   }
 
@@ -241,27 +249,39 @@ export function createHandoff({ DATA, owner, modelsOf, client, say, start, archi
       const prior = of(from).to;
       if (prior && BUSY.includes(prior.step)) throw new HttpError(409, 'this agent is already handing off');
       if (prior?.step === 'done') throw new HttpError(409, `this agent was already handed off to ${prior.toTitle ?? prior.to}`);
-      const agent = (await client()).agents.ref(from);
-      const found = (await agent.refresh())?.agent as Snapshot | undefined;
-      if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
-      const note = typeof input.note === 'string' ? input.note.trim().slice(0, NOTE_MAX) : '';
-      const setup = await setupOf(found, input);
-      const h: Handoff = { from, fromTitle: titleOf(found.title, from), to: null, toTitle: null, step: 'summary', source: null, note, file: null, error: null, archived: false, at: new Date().toISOString(), doneAt: null };
+      const h: Handoff = { from, fromTitle: titleOf(null, from), to: null, toTitle: null, step: 'summary', source: null, note: typeof input.note === 'string' ? input.note.trim().slice(0, NOTE_MAX) : '', file: null, error: null, archived: false, at: new Date().toISOString(), doneAt: null };
       if (prior) list.splice(list.indexOf(prior), 1);
       list.push(h);
+      // on the timeline from its first millisecond: a hand-off that dies in Paseo is a record with its error, not a silence
       save();
-      const done = run(h, agent, found, setup);
-      return { handoff: { ...h }, done };
+      try {
+        const agent = (await client()).agents.ref(from);
+        const found = (await agent.refresh())?.agent as Snapshot | undefined;
+        if (!found) throw new HttpError(404, 'Paseo no longer knows this agent');
+        update(h, { fromTitle: titleOf(found.title, from), fromProvider: found.provider ?? null, fromModel: found.provider && found.model ? `${found.provider}/${found.model}` : null });
+        const setup = await setupOf(found, input);
+        update(h, { provider: setup.provider ?? null, thought: setup.thinking ?? null });
+        const done = run(h, agent, found, setup);
+        return { handoff: { ...h }, done };
+      } catch (e) {
+        update(h, { step: 'failed', error: errorMessage(e) });
+        throw e;
+      }
     } finally {
       opening.delete(from);
     }
   }
 
-  // GET /api/agent-chat/<agentId>/handoff · POST /api/agent-chat/<agentId>/handoff {note, provider, thinking, mode}
+  // GET /api/agent-chat/<agentId>/handoff · POST /api/agent-chat/<agentId>/handoff {note, model, thinking, mode}
   async function handle(req: Req, res: Res, parts: string[], readBody: ReadBody, send: Send) {
     const id = parts[1];
     try {
-      if (req.method === 'GET') return send(res, 200, of(id));
+      // the two picks its card offers: the work's default model and the old agent's own
+      if (req.method === 'GET') {
+        const found = (await (await client()).agents.ref(id).refresh().catch(() => null))?.agent;
+        const picks: HandoffModel = { work: modelsOf(typeof found?.labels?.work === 'string' ? found.labels.work : null).default, source: found?.provider && found.model ? `${found.provider}/${found.model}` : null, thought: found?.thinkingOptionId ?? null };
+        return send(res, 200, { ...of(id), picks });
+      }
       if (req.method !== 'POST') return send(res, 404, { error: 'no route' });
       let body: HandoffInput;
       try {

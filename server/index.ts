@@ -342,7 +342,7 @@ works.hooks.onRekeyed = (slug, from, to) => {
   void gates.summarize(slug).catch(() => {});
 };
 const agentControls = createAgentControls({ client: paseoAgents.client, models, renamed: (agentId, title) => void ask.rename(agentId, title) });
-const handoff = createHandoff({ DATA, owner: config.owner.name, modelsOf: (work) => modelsFor(config, work ? works.get(work)?.repo ?? null : null), client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), models, link: paseoLink });
+const handoff = createHandoff({ DATA, owner: config.owner.name, modelsOf: (work) => modelsFor(config, work ? works.get(work)?.repo ?? null : null), client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), keep: (agentId) => workAgents.unarchive(agentId).then((r) => r.unarchived, () => false), models, link: paseoLink });
 const finished = createFinishedAgents({ client: paseoAgents.client, agents: permissions.agents, linked: () => paseoLink.linked(), successors: handoff.successors, maxAgeMs: LAST_WORD_MS });
 const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, permissions, finished, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
 for (const on of [cards.onChange, threads.onChange, ask.onChange, permissions.onChange]) on(() => waiting.touch());

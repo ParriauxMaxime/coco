@@ -634,10 +634,14 @@ export type RunEdge = { parentAgentId?: string | null; rootAgentId?: string | nu
 export type WorkAgent = { id: string; agentId: string | null; askId: string | null; kind: string; title: string; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; provider: string | null; thinking: string | null; openCards: number; subagents?: { running: number; total: number } } & RunEdge & AgentMetrics;
 // any Paseo agent, in a work or not (GET /api/agent-chat/<agentId>)
 export type AgentInfo = { agentId: string; title: string; kind: string; work: string | null; pr: string | null; status: WorkAgentStatus; updatedAt: string | null; autoArchive?: boolean; provider: string | null; thinking: string | null; mode?: string | null; workspaceId?: string | null; serverId: string | null; openCards: number } & RunEdge & AgentMetrics;
-// an agent handed to a fresh one (server/handoff.ts): step summary (the old one writes its briefing), starting, done or failed
-export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: 'summary' | 'starting' | 'done' | 'failed'; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null };
+// an agent handed to a fresh one (server/handoff.ts): step summary (the old one writes its briefing), starting, done or failed;
+// fromModel: what the old agent ran on, provider/thought: what the new one starts on, rescued: its archive had taken the new one with it
+export type Handoff = { from: string; fromTitle: string; to: string | null; toTitle: string | null; step: 'summary' | 'starting' | 'done' | 'failed'; source: 'agent' | 'transcript' | null; note: string; file: string | null; error: string | null; archived: boolean; at: string; doneAt: string | null; fromProvider?: string | null; fromModel?: string | null; provider?: string | null; thought?: string | null; rescued?: boolean };
+// the two picks its card offers: the work's default model, the old agent's own, and the thinking that goes with the second
+export type HandoffModel = { work: string | null; source: string | null; thought: string | null };
 // GET /api/agent-chat/<agentId>/handoff: to, its hand-off to a new agent; from, the one it took over from
-export type AgentHandoffs = { to: Handoff | null; from: Handoff | null };
+export type AgentHandoffs = { to: Handoff | null; from: Handoff | null; picks?: HandoffModel | null };
+// nothing picked is the work's default model
 export type HandoffBody = { note?: string; mode?: string } & ModelChoice;
 // estimated tokens of the first prompt and system prompt; input tokens (cached reads included) and cost as Paseo reports them; the context window at the last turn
 export type AgentMetrics = { promptTokens: number | null; systemTokens: number | null; inputTokens: number | null; costUsd: number | null; contextTokens?: number | null; contextMax?: number | null };
