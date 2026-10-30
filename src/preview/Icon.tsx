@@ -1,7 +1,6 @@
 // Inline lucide-style icons for the design preview.
 import React, { useId } from 'react';
-
-export type MarkName = 'whale' | 'claude' | 'openai' | 'gemini' | 'apple';
+import type { MarkName } from './chat/model-view.ts';
 
 export type IconName =
   | 'search'

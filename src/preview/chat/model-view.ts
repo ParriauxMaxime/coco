@@ -1,5 +1,6 @@
-import type { IconName } from '../Icon.tsx';
 import type { ModelEntry } from '../../types.ts';
+
+export type MarkName = 'whale' | 'claude' | 'openai' | 'gemini' | 'apple';
 
 type Named = Pick<ModelEntry, 'id' | 'label'>;
 
@@ -29,7 +30,7 @@ export function latestModels<T extends Named>(models: T[], keep: string[] = []):
   return models.filter((m) => latest.has(m) || keep.includes(m.id));
 }
 
-const MARKS: [RegExp, IconName][] = [
+const MARKS: [RegExp, MarkName][] = [
   [/deepseek/i, 'whale'],
   [/claude|opus|sonnet|haiku|fable|anthropic/i, 'claude'],
   [/gpt|codex|openai|(^|\W)o\d/i, 'openai'],
@@ -39,4 +40,4 @@ const MARKS: [RegExp, IconName][] = [
 // the mark of the maker a model id or provider label names, if it names one
 export const makerMark = (id: string, label: string | null = '') => MARKS.find(([re]) => re.test(`${id} ${label}`))?.[1] ?? null;
 // the mark a model row shows: the maker's, a plain chip when nothing says
-export const modelMark = (id: string, label: string | null = '') => makerMark(id, label) ?? 'cpu';
+export const modelMark = (id: string, label: string | null = ''): MarkName | 'cpu' => makerMark(id, label) ?? 'cpu';
