@@ -20,3 +20,7 @@ export function jobOf(jobs: Job[], pr: string | number | null, action: string) {
   if (isLive(job) || job.state === 'failed' || job.state === 'lost') return job;
   return job.endedAt && Date.now() - Date.parse(job.endedAt) < RECENT_MS ? job : null;
 }
+
+// the failures nothing said yet: a job can be stamped failed before its own running render reaches the page, so its id decides, not a transition
+export const unannounced = (jobs: Job[], said: ReadonlySet<string>, now = Date.now()) =>
+  jobs.filter((j) => (j.state === 'failed' || j.state === 'lost') && !said.has(j.id) && j.endedAt && now - Date.parse(j.endedAt) < RECENT_MS);

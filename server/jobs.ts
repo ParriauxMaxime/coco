@@ -149,7 +149,8 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     changed(job);
   }
 
-  const list = (work?: string | null) => (work ? load(work) : all()).filter((j) => !j.dismissed).slice(-KEEP);
+  // the newest jobs kept: across works the map order is load order, not time, so a busy work must not push another one's out
+  const list = (work?: string | null) => (work ? load(work) : [...all()].sort((a, b) => a.startedAt.localeCompare(b.startedAt))).filter((j) => !j.dismissed).slice(-KEEP);
   function dismiss(id: string) {
     const job = find(id);
     if (!job) throw new HttpError(404, 'no such job');

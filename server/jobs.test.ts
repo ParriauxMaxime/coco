@@ -83,3 +83,12 @@ test('a spare worktree cut by a restart leaves the list: the boot makes it again
   createJobs({ DATA }).start({ action: 'spare:app:1', label: 'Spare worktree for app', kind: 'setup' }, () => new Promise<void>(() => {}));
   assert.deepEqual(createJobs({ DATA }).list(), []);
 });
+
+test('the global list keeps the newest jobs across works, not whichever work loaded last', () => {
+  const DATA = tmp();
+  const job = (work: string, s: number) => ({ id: `${work}-${s}`, work, pr: null, action: 'github-refresh', label: 'GitHub refresh', kind: 'sync', state: 'done', agentId: null, startedAt: `2026-10-30T00:00:${String(s).padStart(2, '0')}Z`, endedAt: '2026-10-30T00:01:00Z', output: '', error: '' });
+  fs.mkdirSync(path.join(DATA, 'jobs'));
+  fs.writeFileSync(path.join(DATA, 'jobs', 'busy.json'), JSON.stringify(Array.from({ length: 50 }, (_, s) => job('busy', s))));
+  fs.writeFileSync(path.join(DATA, 'jobs', 'newer.json'), JSON.stringify([job('newer', 59)]));
+  assert.deepEqual(createJobs({ DATA }).list().map((j) => j.id), [...Array.from({ length: 49 }, (_, s) => `busy-${s + 1}`), 'newer-59']);
+});

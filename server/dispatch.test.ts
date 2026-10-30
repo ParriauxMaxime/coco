@@ -15,7 +15,7 @@ const config: Config = {
   rituals: [{ kind: 'review-as', label: 'Review as', prompt: '/review-as {login} {pr}' }],
 };
 
-function setup({ contextFails = false, writerFails = false, models = undefined as Parameters<typeof createDispatch>[0]['models'] } = {}) {
+function setup({ contextFails = false, writerFails = false, startFails = false, models = undefined as Parameters<typeof createDispatch>[0]['models'] } = {}) {
   let work: Work = { slug: 'csv', title: 'CSV export', repo: 'widgets', timeline: [], stack: [{ number: 101, personas: ['bob'] }, { number: 102 }] };
   const works = { get: (s: string) => (s === 'csv' ? structuredClone(work) : null), save: (w: Work) => ((work = structuredClone(w)), w) };
   const placed: unknown[] = [];
@@ -32,7 +32,13 @@ function setup({ contextFails = false, writerFails = false, models = undefined a
       track: (run) => tracked.push(run),
     },
     placement: { place: async (scope) => (placed.push(scope), { workspaceId: 'kind' in scope && scope.kind === 'row' && scope.edits ? 'wks_row' : 'wks_plan', cwd: '/tmp/x' }) },
-    agents: { start: async (opts) => (started.push(opts), { agentId: AGENT, workspaceId: String(opts.workspaceId) }) },
+    agents: {
+      start: async (opts) => {
+        started.push(opts);
+        if (startFails) throw new Error(`Provider 'omp' cannot preapprove exact MCP tools for unattended execution`);
+        return { agentId: AGENT, workspaceId: String(opts.workspaceId) };
+      },
+    },
     briefs: {
       context: async () => {
         if (contextFails) throw new Error('gh down');
@@ -175,4 +181,12 @@ test('an editing brief names the directory the agent runs in, not another worktr
   await dispatch.start('csv', { entry: 'gate:self-review:code-review', key: 101 });
   assert.equal(started[0].cwd, '/tmp/x');
   assert.match(String(writes[0].facts), /- Worktree: `\/tmp\/x`; branch `feat\/csv-2`/);
+});
+
+test('a dispatch whose agent never starts leaves its reason on the work timeline', async () => {
+  const { dispatch, timeline } = setup({ startFails: true });
+  const { job, done } = dispatch.enqueue('csv', { entry: 'ask', key: 102, prompt: 'Why?' });
+  assert.equal(job, null);
+  await assert.rejects(done, /cannot preapprove exact MCP tools/);
+  assert.deepEqual(timeline, [`dispatch Ask · Why? failed: Provider 'omp' cannot preapprove exact MCP tools for unattended execution`]);
 });

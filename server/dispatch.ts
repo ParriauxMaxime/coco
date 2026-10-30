@@ -233,8 +233,13 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const { entry, key, prompt, persona, edits } = resolve(slug, input);
     const action = entry.kind === 'ask' || entry.kind === 'prompt' ? `${entry.id}:${randomUUID()}` : entry.kind === 'persona-review' ? `${entry.id}:${persona}` : entry.id;
     const label = titleOf(entry, key, true, { prompt, persona });
-    if (!jobs) return { job: null, done: start(slug, input) };
-    return jobs.start({ work: slug, pr: key, action, label, kind: 'agent' }, () => start(slug, input));
+    const run = () =>
+      start(slug, input).catch((e) => {
+        reviewAgent.timeline(slug, 'agent', `dispatch ${label} failed: ${errorMessage(e)}`);
+        throw e;
+      });
+    if (!jobs) return { job: null, done: run() };
+    return jobs.start({ work: slug, pr: key, action, label, kind: 'agent' }, run);
   }
 
   return { catalog: entriesFor, start, enqueue, handle };

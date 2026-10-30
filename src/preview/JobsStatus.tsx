@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import { api, errorMessage } from '../api.ts';
-import { isLive, useJobs } from '../jobs.ts';
+import { RECENT_MS, isLive, unannounced, useJobs } from '../jobs.ts';
 import { toast } from '../components/Toast.tsx';
 import { notifyAway } from '../desktop.ts';
 import Icon from './Icon.tsx';
@@ -11,21 +11,24 @@ import type { Job } from '../types.ts';
 const SHOWN = 12;
 const STATE: Record<Job['state'], string> = { running: 'running', 'needs-you': 'needs you', done: 'done', failed: 'failed', lost: 'lost' };
 
-// each job's end, said once, by the one status bar every page has
+// each job's end, said once, by the one status bar every page has: the ids outlive a re-render, so a failure batched next to its own running render still says why
 function useEndToasts(jobs: Job[]) {
-  const seen = useRef<Map<string, Job['state']> | null>(null);
+  const said = useRef(new Set<string>());
   useEffect(() => {
-    const before = seen.current;
-    seen.current = new Map(jobs.map((j) => [j.id, j.state]));
-    if (!before) return;
+    const fresh = new Set(unannounced(jobs, said.current).map((j) => j.id));
     for (const j of jobs) {
-      const was = before.get(j.id);
-      if (was === j.state || (was === undefined && !isLive(j))) continue;
+      const key = isLive(j) ? `${j.id}:${j.state}` : j.id;
+      if (said.current.has(key)) continue;
+      said.current.add(key);
+      // an end from before this page opened is settled, not replayed
+      if (!isLive(j) && !fresh.has(j.id) && !(j.state === 'done' && j.endedAt && Date.now() - Date.parse(j.endedAt) < RECENT_MS)) continue;
       if (j.state === 'done') toast.success(`${j.label}: done`);
       else if (j.state === 'failed' || j.state === 'lost') toast.error(`${j.label}: ${j.error || j.state}`);
       else if (j.state === 'needs-you') toast.success(`${j.label} needs you: its agent waits on a permission`);
       if (j.state !== 'running') notifyAway(j.label, j.state === 'needs-you' ? 'Its agent waits on a permission' : j.state === 'done' ? 'Done' : j.error || j.state);
     }
+    const listed = new Set(jobs.map((j) => j.id));
+    for (const key of said.current) if (!listed.has(key.split(':')[0])) said.current.delete(key);
   }, [jobs]);
 }
 
@@ -52,14 +55,20 @@ export default function JobsStatus({ onOpenAgent }: { onOpenAgent: (job: Job) =>
         <div className="dp-pop dp-on dp-jobspop">
           <div className="dp-pop-h"><b>Jobs</b><span className="dp-count">{live.length}</span><span className="dp-sp" /><button type="button" className="dp-ibtn" onClick={() => setOpen(false)}><Icon name="x" size={14} /></button></div>
           <div className="dp-pop-s">
-            {shown.map((j) => (
-              <div key={j.id} className={`dp-mi dp-job-row dp-job-${j.state}`} title={[j.error, j.output].filter(Boolean).join('\n\n') || j.label} onClick={() => j.agentId && onOpenAgent(j)}>
-                {isLive(j) ? <span className="dp-ag-dot dp-ag-running dp-thr-spin" aria-hidden /> : <Icon name={j.state === 'done' ? 'check' : 'x'} size={12} />}
-                <span className="dp-ell dp-grow">{j.label}</span>
-                <span className="dp-r">{j.work ? `${j.work} · ` : ''}{STATE[j.state]} · {ago(j.endedAt || j.startedAt)}</span>
-                {!isLive(j) && <button type="button" className="dp-ibtn" title="Dismiss" aria-label="Dismiss" onClick={(e) => { e.stopPropagation(); api.dismissJob(j.id).catch((er) => toast.error(errorMessage(er))); }}><Icon name="x" size={12} /></button>}
-              </div>
-            ))}
+            {shown.map((j) => {
+              const why = j.state === 'failed' || j.state === 'lost' ? j.error || j.output : '';
+              return (
+                <div key={j.id} className={`dp-mi dp-job-row dp-job-${j.state}`} title={[j.error, j.output].filter(Boolean).join('\n\n') || j.label} onClick={() => j.agentId && onOpenAgent(j)}>
+                  {isLive(j) ? <span className="dp-ag-dot dp-ag-running dp-thr-spin" aria-hidden /> : <Icon name={j.state === 'done' ? 'check' : 'x'} size={12} />}
+                  <span className="dp-grow dp-job-lbl">
+                    <span className="dp-ell">{j.label}</span>
+                    {why && <span className="dp-ell dp-job-why">{why}</span>}
+                  </span>
+                  <span className="dp-r">{j.work ? `${j.work} · ` : ''}{STATE[j.state]} · {ago(j.endedAt || j.startedAt)}</span>
+                  {!isLive(j) && <button type="button" className="dp-ibtn" title="Dismiss" aria-label="Dismiss" onClick={(e) => { e.stopPropagation(); api.dismissJob(j.id).catch((er) => toast.error(errorMessage(er))); }}><Icon name="x" size={12} /></button>}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

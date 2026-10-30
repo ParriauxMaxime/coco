@@ -44,7 +44,7 @@ export function JobButton({ job, label, onRun, primary, disabled, title }: { job
     return (
       <span className="dp-job-fail">
         <button type="button" className="dp-btn dp-sm dp-job dp-job-bad" title={[job.error, job.output].filter(Boolean).join('\n\n')} onClick={open}><Icon name="x" size={12} />{label} {job.state === 'lost' ? 'lost' : 'failed'}</button>
-        <button type="button" className="dp-btn dp-sm" disabled={disabled} onClick={() => { void dismiss(); onRun(); }}><Icon name="refresh" size={12} />Retry</button>
+        <button type="button" className="dp-btn dp-sm" disabled={disabled} onClick={() => { void onRun(); }}><Icon name="refresh" size={12} />Retry</button>
         <button type="button" className="dp-ibtn" title="Dismiss" aria-label="Dismiss" onClick={dismiss}><Icon name="x" size={12} /></button>
       </span>
     );
