@@ -64,6 +64,7 @@ import { createWorkAgents } from './work-agents.ts';
 import { AGENT_CONTROLS, createAgentControls } from './agent-controls.ts';
 import { createSubagents } from './subagents.ts';
 import { createModels, startThinking } from './models.ts';
+import { createMcpStatus } from './mcp-status.ts';
 import { createHub } from './events.ts';
 import { createJobs } from './jobs.ts';
 import { createSelf } from './self.ts';
@@ -122,6 +123,7 @@ const agentUsage = createAgentUsage(path.join(DATA, 'agent-usage.json'));
 const paseoAgents = createPaseoAgents({ APP, usage: agentUsage, onArchive: (agentId) => cards.cocoArchives(agentId) });
 const subagents = createSubagents({ client: paseoAgents.client });
 const models = createModels({ client: paseoAgents.client, config });
+const mcpStatus = createMcpStatus({ config });
 const jobs = createJobs({ DATA });
 const works = createWorks({ DATA, PERSONAS, REPO, config, agents: paseoAgents, jobs });
 const repos = createRepos({ DATA, repos: config.repos });
@@ -597,6 +599,9 @@ async function api(req: Req, res: Res, url: URL) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1);
   const [root, a, b, c] = parts;
   try {
+    // the bottom bar's MCP menu: the configured servers, and a check that one answers
+    if (root === 'mcp' && a && req.method === 'POST') return send(res, 200, await mcpStatus.check(decodeURIComponent(a), { fresh: req.url?.includes('fresh=1') }));
+    if (root === 'mcp') return send(res, 200, mcpStatus.list());
     if (root === 'models') return send(res, 200, await models.list());
     if (root === 'server') return self.handle(req, res, parts, send);
     if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider), cloneDir: config.cloneDir });

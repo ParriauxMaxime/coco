@@ -11,6 +11,7 @@ import type { PermissionClient, PermissionRequest } from './permissions.ts';
 import type { UploadRef } from './uploads.ts';
 import type { SubagentApi } from './subagents.ts';
 import type { Landed } from './core-types.ts';
+import { expandServer } from './config.ts';
 import type { McpServer } from './config.ts';
 
 export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
@@ -405,13 +406,6 @@ export type AgentSession = Started & {
   detach(): void;
   close(): Promise<void>;
 };
-
-const envOf = (s: string) => s.replace(/\$\{(\w+)\}/g, (_, k: string) => process.env[k] || '');
-// a configured server's ~ and ${ENV} read once, when the agent starts; its tools load eagerly, the only way Paseo runs MCP on a provider it cannot preapprove (Oh My Pi)
-const expandServer = (s: McpServer): McpServer =>
-  s.type === 'stdio'
-    ? { ...s, alwaysLoad: s.alwaysLoad ?? true, command: expandHome(envOf(s.command)), ...(s.args ? { args: s.args.map((a) => expandHome(envOf(a))) } : {}), ...(s.env ? { env: Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, envOf(v)])) } : {}) }
-    : { ...s, alwaysLoad: s.alwaysLoad ?? true, url: envOf(s.url), ...(s.headers ? { headers: Object.fromEntries(Object.entries(s.headers).map(([k, v]) => [k, envOf(v)])) } : {}) };
 
 // onArchive: told just before coco itself archives an agent (a run's end, a conversation closed, archiveWhenDone, archive)
 export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null, onArchive = () => {} }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null; onArchive?: (agentId: string) => void } = {}) {

@@ -659,3 +659,8 @@ export type WaitingAction = { id: string; kind: 'pick' | 'approve' | 'dismiss' |
 export type WaitingItem = { id: string; kind: 'card' | 'permission' | 'approve' | 'thread' | 'ask' | 'agent'; agentId: string | null; work: string | null; pr: string | null; key?: string; title: string; excerpt: string; at: string; link: string; actions: WaitingAction[]; diagrams?: number };
 // byAgent, byWork: how many items each Paseo agent id and each work slug holds
 export type WaitingView = { items: WaitingItem[]; count: number; byAgent: Record<string, number>; byWork: Record<string, number> };
+
+// a check of one configured MCP server (the bottom bar's MCP menu): a real handshake and tools/list, or why it failed
+export type McpCheck = { at: string; ok: boolean; tools: string[]; error: string | null };
+export type McpServerInfo = { name: string; type: 'stdio' | 'http' | 'sse'; target: string; onAsk: boolean; onNotion: boolean; check: McpCheck | null };
+export type McpServers = { servers: McpServerInfo[] };

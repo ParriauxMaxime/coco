@@ -54,6 +54,13 @@ export type RepoConfig = RepoIdentity & { id: string; name: string; settings: Re
 // an MCP server coco can mount on an agent, as Paseo takes it; ~ and ${ENV} expand when the agent starts
 export type McpServer = { type: 'stdio'; command: string; args?: string[]; env?: Record<string, string>; alwaysLoad?: boolean } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string>; alwaysLoad?: boolean };
 
+const envOf = (s: string) => s.replace(/\$\{(\w+)\}/g, (_, k: string) => process.env[k] || '');
+// a configured server's ~ and ${ENV} read once, when an agent mounts it or the MCP menu checks it
+export const expandServer = (s: McpServer): McpServer =>
+  s.type === 'stdio'
+    ? { ...s, alwaysLoad: s.alwaysLoad ?? true, command: home(envOf(s.command)), ...(s.args ? { args: s.args.map((a) => home(envOf(a))) } : {}), ...(s.env ? { env: Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, envOf(v)])) } : {}) }
+    : { ...s, alwaysLoad: s.alwaysLoad ?? true, url: envOf(s.url), ...(s.headers ? { headers: Object.fromEntries(Object.entries(s.headers).map(([k, v]) => [k, envOf(v)])) } : {}) };
+
 export interface Config {
   owner: { name: string; login: string };
   // the default repo: the first of `repos`

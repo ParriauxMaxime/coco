@@ -8,7 +8,7 @@ import type {
 } from './types.ts';
 import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
-import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
+import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, McpServerInfo, McpServers, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
 import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
 import type { FsEntry, FsFile, GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
 import type { BrowserTab, WorkspaceScript, WorkspaceTerminal } from './types.ts';
@@ -157,6 +157,8 @@ export const api = {
   agents: () => get<AgentsResponse>('/api/agents'),
   agentActivity: (id: string) => get<AgentLog>(`/api/agents-activity/${id}`),
   usage: () => get<{ usage: ProviderUsage | null }>('/api/usage').then((r) => r.usage),
+  mcp: () => get<McpServers>('/api/mcp'),
+  checkMcp: (name: string, fresh?: boolean) => postEmpty<McpServerInfo>(`/api/mcp/${encodeURIComponent(name)}${fresh ? '?fresh=1' : ''}`),
   respondPermission: (agentId: string, requestId: string, body: PermissionResponse) => postJson(`/api/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}`, body).then(jsonOrError<{ ok: boolean }>),
   askConversation: (id: string) => get<AskRun>(`/api/ask/${encodeURIComponent(id)}`),
   linkedAgents: (slug?: string) => get<{ agents: LinkedAgent[] }>(`/api/paseo-link/agents${slug ? `?work=${encodeURIComponent(slug)}` : ''}`).then((r) => r.agents),

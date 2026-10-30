@@ -19,6 +19,7 @@ import type { Overview, WorkSummary } from '../types.ts';
 import JobsStatus from './JobsStatus.tsx';
 import ServerStatus from './ServerStatus.tsx';
 import Quota from './Quota.tsx';
+import McpStatus from './McpStatus.tsx';
 import PaseoStatus from './PaseoStatus.tsx';
 import WorkMenu from './WorkMenu.tsx';
 import { openLauncher } from './launcher.ts';
@@ -468,6 +469,7 @@ function ShellView({ ov, root, crumbs, slug, attention, titleRight, views, repo,
           <span className="dp-sp" />
           {waiting.length > 0 && <span className="dp-sbi dp-wait" onClick={() => (prefs.questions === 'tab' && onWaitingTab ? onWaitingTab() : setWaitOpen((w) => !w))}><Icon name="message-square" />{waiting.length} waiting on you</span>}
           {statusRight}
+          <McpStatus />
           <Quota />
           <PaseoStatus />
           <ServerStatus />
