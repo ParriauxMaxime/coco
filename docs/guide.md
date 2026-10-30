@@ -187,7 +187,8 @@ A work can carry `decisions[]`: `{ id, title, question, details,
 confidence, options: [{ key, label, details, confidence }], recommended,
 positions: { <who>: <markdown> }, source, pr, status: pending | taken,
 choice, rationale, decidedAt }`. `pr` (optional) is the stack row key the
-card belongs to (`101`, or `b:<branch>` for a local row) and lets a PR's
+card belongs to (`101`, `b:<branch>` for a row with a branch, `r:<order>` for
+a row that ships on the default branch) and lets a PR's
 review feed keep only its cards. `confidence` (0-100, optional) is how sure
 the author is: on the card, of the recommendation; on an option, that it is
 the right call; on a row of a `rows` card, of its recommended pick. It shows
@@ -1303,6 +1304,13 @@ Pull based, no webhooks:
   or local `b:<branch>`), every row of the work re-reads its head (fresh for
   PRs, the branch tip for local rows) and re-anchors its comments, in the
   background, one refresh per work at a time.
+- Row keys: a row is named by its PR number (`218`), by its branch
+  (`b:feat/x`, `/` written `:`) or, when it ships straight on the default
+  branch and so has no branch of its own, by its plan position (`r:7`, read
+  "row 7"). No two rows of a work share one: the key is what a tab, an agent's
+  `pr` label, a finding and a decision point at, so a stack write that would
+  give two rows the same key is refused, and a row whose stored branch is the
+  default branch loses it at startup and reads as its order from then on.
 - Planned rows: each work read asks GitHub (cached 60 s, one query per repo)
   for an open or merged PR on each planned branch. A row whose branch got one
   (its agent opened it) takes that number, logged on the timeline. What was
@@ -1999,9 +2007,11 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
     title, current milestone chip, state dot, a spinner while a job or an
     agent works on it, the orange count of agents waiting on you); a click
     opens `pr-<n>`, the caret unfolds Review code (`review-<n>`), Findings
-    (`findings-<n>`, open count) and the PR's agents; a planned row reviews
-    its local branch (`review-b:<branch>`) the same way. Merged and planned PRs
-    fold into two lines at the end ("2 merged", "25 planned"); a folded line
+    (`findings-<n>`, open count) and the PR's agents; a planned row with a
+    branch reviews it (`review-b:<branch>`) the same way, one that ships on the
+    default branch has no branch to review and reads as `row <order>`.
+    Merged and planned PRs fold into two lines at the end ("2 merged",
+    "25 planned"); a folded line
     or group keeps the spinner and waiting count of what it hides. Agents
     show status dots (blue working, orange waiting, green done, red failed,
     grey archived), archived ones behind a fold; a group's archive button

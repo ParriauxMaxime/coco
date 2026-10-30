@@ -47,7 +47,7 @@ export function writeReviewContext(DATA: string, slug: string, n: RowKey, ctx: R
 
 export function readReviewContext(DATA: string, { pr, work }: { pr: unknown; work?: string | null }): ReviewContext | { error: string } {
   const n = parseKey(pr);
-  if (n === null) return { error: 'pr must be a PR number or b:<branch>' };
+  if (n === null) return { error: 'pr must be a row key: a PR number, b:<branch>, or r:<order> for a row with no branch' };
   if (work && !SLUG.test(work)) return { error: 'no such work' };
   const slug = latestWork(DATA, work, (s) => reviewContextFile(DATA, s, n));
   if (!slug) return { error: `no review plan run recorded for ${keyLabel(n)}${work ? ` in work ${work}` : ''}` };
@@ -84,7 +84,7 @@ export function slimWork(w: Work, sections: string[] = [], facts: Record<string,
 // every finding on a PR with how it was settled (status, resolution, the end of its thread), plus the review plan's watch points: the ones still pending and the ones the owner dismissed
 export function readPrFindings(DATA: string, { pr, work }: { pr: unknown; work?: string | null }) {
   const n = parseKey(pr);
-  if (n === null) return { error: 'pr must be a PR number or b:<branch>' };
+  if (n === null) return { error: 'pr must be a row key: a PR number, b:<branch>, or r:<order> for a row with no branch' };
   if (work && !SLUG.test(work)) return { error: 'no such work' };
   const slug = latestWork(DATA, work, (s) => commentsFile(DATA, s, n)) ?? latestWork(DATA, work, (s) => planFile(DATA, s, n));
   if (!slug) return { work: work ?? null, pr: keyLabel(n), findings: [], pendingWatchPoints: [], dismissedWatchPoints: [] };

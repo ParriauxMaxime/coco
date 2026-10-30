@@ -88,7 +88,7 @@ import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Work } from './core-types.ts';
 import { cacheFile, mapLimit, swrCache } from './swr.ts';
 import { backfillParents, nextSummary } from './lineage.ts';
-import { backfillLanded } from './landed.ts';
+import { backfillLanded, branchlessRows } from './landed.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -298,6 +298,7 @@ if (reopened.length) console.log(`cards: ${reopened.length} closed with their ar
 for (const l of backfillParents(works, cards.workOfAgent)) console.log(`work ${l.slug} spun off ${l.parent}`);
 // rows an agent titled "✓ " by hand before rows could land
 void backfillLanded(works, works.gitOf).then((done) => done.forEach((l) => console.log(`work ${l.slug}: ${l.rows} shipped rows landed`)), (e) => console.error(`landed backfill: ${errorMessage(e)}`));
+for (const l of branchlessRows(works, works.gitOf)) console.log(`work ${l.slug}: ${l.rows} rows read as their planned order (they ship on the default branch)`);
 // an agent archived outside coco closes its plain open questions; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
 const archivedAgent = (agentId: string) => paseoAgents.attach(agentId).then((a) => a === null);
 const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} of archived agents closed`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));

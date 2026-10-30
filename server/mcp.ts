@@ -42,8 +42,10 @@ server.tool('get_work', `A work, slim by default (a full one runs to 150k charac
   for (const p of (live.ok && Array.isArray(live.data.prs) ? live.data.prs : []) as { number?: number; head?: string; title?: string; state?: string }[]) if (p?.number) facts[p.number] = { branch: p.head, title: p.title, state: p.state };
   return text(slimWork(w, sections, facts, fs.existsSync(art) ? fs.readdirSync(art) : []));
 });
-server.tool('get_review_context', `What a review plan on a PR runs under: ${OWNER}'s guidance for its latest run (it overrides your defaults), ${OWNER}'s rules (global, then work, then PR; code breaking one is a watch point) and the owner personas of its paths with hit counts.`, { pr: z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet'), work: z.string().optional().describe('work slug; omit to take the latest run on that PR in any work') }, async ({ pr, work }) => text(readReviewContext(config.dataDir, { pr, work })));
-server.tool('get_pr_findings', `What is already raised on a PR, so a review does not raise it again: every finding (any author) with its status (open, sent, fixed, declined, outdated), resolution note and fix commit, and the end of its thread where ${OWNER} and an agent settled it; plus the review plan's watch points with the head they were pinned to, those still pending (each counts as already raised) and the ones ${OWNER} dismissed, with their note.`, { pr: z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet'), work: z.string().optional().describe('work slug; omit to take the work that last reviewed that PR') }, async ({ pr, work }) => text(readPrFindings(config.dataDir, { pr, work })));
+// how an agent names a stack row everywhere below: its PR, its branch, or (a row that ships on the default branch) its order
+const ROW_REF = 'PR number, "b:<branch>" for a row with a branch and no PR, or "r:<order>" for a row that ships straight on the default branch';
+server.tool('get_review_context', `What a review plan on a PR runs under: ${OWNER}'s guidance for its latest run (it overrides your defaults), ${OWNER}'s rules (global, then work, then PR; code breaking one is a watch point) and the owner personas of its paths with hit counts.`, { pr: z.union([z.number(), z.string()]).describe(ROW_REF), work: z.string().optional().describe('work slug; omit to take the latest run on that PR in any work') }, async ({ pr, work }) => text(readReviewContext(config.dataDir, { pr, work })));
+server.tool('get_pr_findings', `What is already raised on a PR, so a review does not raise it again: every finding (any author) with its status (open, sent, fixed, declined, outdated), resolution note and fix commit, and the end of its thread where ${OWNER} and an agent settled it; plus the review plan's watch points with the head they were pinned to, those still pending (each counts as already raised) and the ones ${OWNER} dismissed, with their note.`, { pr: z.union([z.number(), z.string()]).describe(ROW_REF), work: z.string().optional().describe('work slug; omit to take the work that last reviewed that PR') }, async ({ pr, work }) => text(readPrFindings(config.dataDir, { pr, work })));
 server.tool('list_personas', 'Reviewer and message-writer personas with their surfaces (path globs) and confidence.', {}, async () => {
   const out = [];
   for (const login of personaLogins(personaFiles(), config.personaFiles)) {
@@ -126,7 +128,7 @@ server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${
   summary: z.string().describe('one sentence fallback when the description is long'),
   paseoProject: z.object({ existingProjectId: z.string().optional(), createNamed: z.string().optional(), rootPath: z.string().optional() }).describe('reuse an existing Paseo project id, or propose a name to create; rootPath only when the worktree already exists in list_paseo'),
   tier: z.enum(['solo', 'stack', 'away']).describe('size of the work: solo (small, one PR), stack (several stacked PRs), away (unattended: open questions wait on a decision page)'),
-  stack: z.array(z.object({ order: z.number(), title: z.string(), scope: z.string(), branch: z.string(), personas: z.array(z.string()), existingPr: z.number().optional(), notionPage: z.object({ url: z.string(), title: z.string() }).optional().describe("the row's Notion page (a notion.so url); omit to keep the page of the matching current row") })).describe('planned PRs in merge order: order PRs so each merges safely on its own, user-visible switch last; personas from suggest_personas on the files the PR touches; no persona = gap to flag in notes'),
+  stack: z.array(z.object({ order: z.number().optional(), title: z.string(), scope: z.string(), branch: z.string().optional().describe("the row's branch; omit it for a row that ships straight on the default branch (no branch of its own: the row reads as its order)"), personas: z.array(z.string()), existingPr: z.number().optional(), notionPage: z.object({ url: z.string(), title: z.string() }).optional().describe("the row's Notion page (a notion.so url); omit to keep the page of the matching current row") })).describe('planned PRs in merge order: order PRs so each merges safely on its own, user-visible switch last; personas from suggest_personas on the files the PR touches; no persona = gap to flag in notes; two rows may not name the same branch'),
   surfaces: z.array(z.object({ surface: z.string(), entryPoint: z.string(), coverage: z.string() })).describe('surface table: every entry point the work changes and how the work covers it'),
   personas: z.array(z.string()),
   links: z.array(z.object({ label: z.string(), url: z.string() })),
@@ -136,7 +138,7 @@ server.tool('propose_work_scaffold', `Propose a new or updated work, shown to ${
   betaFlags: z.array(z.object({ code: z.string().describe("the flag's code, as the repo names it"), why: z.string().describe('the surface it gates, e.g. "the Export CSV button"'), prs: z.array(z.number()).optional().describe('planned PR orders it applies to; omit for every PR') })).optional().describe('feature flags a tester must switch on to reach the surfaces this work touches (grep the flag checks on the entry points); empty when nothing is gated'),
 }, async (proposal) => propose('work_scaffold', proposal));
 
-const rowRef = z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a row with no PR yet');
+const rowRef = z.union([z.number(), z.string()]).describe(ROW_REF);
 server.tool('propose_split', `Propose the stack side of a PR split, shown to ${OWNER} as ONE Apply card. Call it after you created the branches and opened the PRs (parts without a PR yet become planned rows); never use propose_work_scaffold's replace for a split. The original row is replaced in place by the parts, in order, keeping every other row and its fields; the first part keeps the original's Notion page; approving sets each part's GitHub base (the first on the original's base, each next on the previous part's branch, the row after the split on the last part), can create Notion pages for the new rows and queue a PR body refresh card per PR, and returns a result per step. The git splitting stays yours. ${ON_CARD}`, {
   work: z.string().optional().describe("work slug; omit to use this agent's work"),
   pr: rowRef.describe('the row being split'),
@@ -160,7 +162,7 @@ server.tool('propose_stack_edit', `Propose edits to an existing work's stack, sh
     row: rowRef.optional().describe('update, remove: the row'),
     after: z.union([z.literal('start'), rowRef]).optional().describe('add: the row it goes after, "start" for the top, omit for the end; update: moves the row there'),
     pr: z.number().int().optional().describe('add: the PR; update: the PR a planned row became'),
-    branch: z.string().optional().describe('add: the branch of a planned row with no PR yet'),
+    branch: z.string().optional().describe('add: the branch of a planned row with no PR yet; omit for a row that ships straight on the default branch (it reads as its order)'),
     title: z.string().max(200).optional().describe('planned title'),
     scope: z.string().max(2000).optional(),
     personas: z.array(z.string()).optional().describe('reviewer logins; replaces the list'),
@@ -215,7 +217,7 @@ server.tool('propose_paseo_agent',`Propose starting a Paseo agent (local, in an 
 const dispatchable = catalog(config).map((e) => `${e.id} (${e.label}${e.kind === 'prompt' ? ', read-only unless edits' : e.edits ? ', works on the PR branch' : ', read-only'}${e.needsPrompt ? ', needs prompt' : ''}${e.needsPersona ? ', needs persona' : ''})`).join('; ');
 server.tool('dispatch', `Propose dispatching a catalog agent on a work or one of its PRs, shown to ${OWNER} as a card. Nothing starts until ${OWNER} presses Dispatch on the card; then coco adds the work brief and picks the Paseo workspace (read-only kinds in the work's Plan workspace, the others in the PR's own). Call it once, at the end. Entries: ${dispatchable}. ${ON_CARD}`, {
   entry: z.string().describe('catalog entry id, e.g. "ask", "persona-review", "fix-findings", "sync-remote", "gate:self-review:<skill>", "prompt"'),
-  pr: z.union([z.number(), z.string()]).optional().describe('PR number, or "b:<branch>" for a stack row with no PR yet; omit only for a free prompt on the whole work'),
+  pr: z.union([z.number(), z.string()]).optional().describe(`${ROW_REF}; omit only for a free prompt on the whole work`),
   prompt: z.string().optional().describe('the question (ask) or the task (prompt); extra instructions for a gate run'),
   persona: z.string().optional().describe('persona login, for persona-review'),
   edits: z.boolean().optional().describe('free prompt only: true when the agent must work on the PR branch'),
@@ -341,7 +343,7 @@ async function target(work?: string, pr?: string | number | null) {
   return { slug: slug ? encodeURIComponent(slug) : null, pr: pr != null ? rowParam(pr) : slug === here.work ? here.pr : null };
 }
 const NO_WORK = 'no work: pass work (the work slug); this agent carries no work label';
-const NO_PR = 'no pr: pass pr (the PR number, or "b:<branch>" for a row with no PR yet); this agent carries no PR label';
+const NO_PR = `no pr: pass pr (${ROW_REF.toLowerCase()}); this agent carries no PR label`;
 const heads = new Map<string, { headSha?: string; mergeBase?: string }>();
 async function refsOf(pr: string) {
   if (heads.has(pr)) return heads.get(pr) ?? {};
@@ -353,7 +355,7 @@ async function refsOf(pr: string) {
 }
 
 const workArg = z.string().optional().describe("work slug; omit to use this agent's work");
-const rowArg = z.union([z.number(), z.string()]).describe('PR number, or "b:<branch>" for a stack row with no PR yet');
+const rowArg = z.union([z.number(), z.string()]).describe(ROW_REF);
 const richBlocks = z.array(z.looseObject({ type: z.string() })).describe('the evidence as typed blocks, 16 at most, usually 2-4: text {text}, callout {tone, title?, text}, steps {title?, items[], outcome?}, table {columns[], rows: cell[][], caption?}, suggestion {path, startLine, endLine, lang?, after} (before is read at the sha), code {path?, line?, lang?, code, caption?}, diagram {mermaid, caption?}, media {kind: image|video, src (from attach_media), caption?}. Inline text takes **bold**, *italic*, `code`, path/file.ts:12 refs, #101 and <risk|warn|ok|note|mute>…</…> marks');
 const sourcesArg = z.array(z.object({ label: z.string().max(120), path: z.string().optional(), url: z.string().optional().describe('https link') })).max(8).describe('where the evidence comes from: a review page path or an https url');
 

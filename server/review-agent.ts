@@ -307,8 +307,11 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     return started.agentId;
   }
 
+  // the branch's head on origin; a row that ships straight to the default branch has no branch of its own
   const remoteHead = async (n: RowKey, repo = REPO) => {
-    const r = await exec('git', ['-C', repo, 'ls-remote', 'origin', isLocal(n) ? `refs/heads/${branchOf(n)}` : `refs/pull/${n}/head`]);
+    const branch = branchOf(n);
+    if (isLocal(n) && !branch) return null;
+    const r = await exec('git', ['-C', repo, 'ls-remote', 'origin', isLocal(n) ? `refs/heads/${branch}` : `refs/pull/${n}/head`]);
     if (!r.ok) return null;
     return r.stdout.trim().split(/\s+/)[0] || null;
   };
@@ -331,10 +334,11 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
     if (!isLocal(key)) return fetchPr(key, repo);
     const planned = row.planned ?? {};
     const head = planned.branch ?? '';
+    if (!head) throw new HttpError(409, `${keyLabel(key)} has no branch: it ships straight to the default branch`);
     const sha = await branchSha(head, repo.path);
     if (!sha) throw new HttpError(404, `branch ${head} not found locally`);
     const parent = work.stack[index - 1];
-    const base = !parent ? repo.defaultBranch : parent.planned?.branch || (await fetchPr(parent.number, repo)).head;
+    const base = !parent ? repo.defaultBranch : parent.planned?.branch || (parent.number ? (await fetchPr(parent.number, repo)).head : repo.defaultBranch);
     return { number: key, title: planned.title || head, url: '', state: 'LOCAL', isDraft: true, head, base, sha, body: planned.scope || '', repo: repo.path };
   }
   async function fetchStackState(number: RowKey | null | undefined, github = GH): Promise<StackPr> {

@@ -2,7 +2,7 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { branchOf, findRow, isLocal, parseKey, rowKey } from './stack.ts';
+import { findRow, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { errorMessage } from './core-types.ts';
 import { parseBlame } from './blame.ts';
 import type { Blame } from './blame.ts';
@@ -191,15 +191,18 @@ function repoCode({ path: REPO, github: GITHUB, defaultBranch: BRANCH }: Repo, w
     return mb;
   }
 
-  // a local row diffs its branch against the previous row's branch (first row: origin/<default branch>)
+  // a local row diffs its branch against the previous row's branch (first row, or a parent with no branch: origin/<default branch>)
   async function localRefs(key: string): Promise<Refs> {
-    const branch = branchOf(key);
+    const found = findRow(works, key);
+    if (!found) throw new HttpError(404, `no work has a row ${keyLabel(key)}`);
+    const branch = found.row.planned?.branch || '';
+    if (!branch) throw new HttpError(409, `${keyLabel(key)} has no branch: it ships straight to the default branch, there is nothing to diff`);
     const headSha = await revParse(`refs/heads/${branch}`);
     if (!headSha) throw new HttpError(404, `branch ${branch} not found locally`);
-    const found = findRow(works, key);
-    if (!found) throw new HttpError(404, `no work has a row on ${branch}`);
     const parentKey = rowKey(found.parent);
-    const baseSha = !found.parent ? (await revParse(`origin/${BRANCH}`)) || (await revParse(BRANCH)) : isLocal(parentKey) ? await revParse(`refs/heads/${branchOf(parentKey)}`) : (await ensureRefs(parentKey ?? '')).headSha;
+    const parentBranch = found.parent?.planned?.branch || '';
+    const root = async () => (await revParse(`origin/${BRANCH}`)) || (await revParse(BRANCH));
+    const baseSha = isLocal(parentKey) ? (parentBranch ? await revParse(`refs/heads/${parentBranch}`) : await root()) : parentKey != null ? (await ensureRefs(parentKey)).headSha : await root();
     if (!baseSha) throw new HttpError(404, `no base for ${branch}`);
     return { number: key, branch, headSha, baseSha, mergeBase: await mergeBaseOf(baseSha, headSha) };
   }

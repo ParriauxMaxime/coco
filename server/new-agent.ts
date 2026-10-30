@@ -125,7 +125,8 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
     const rows = work
       ? (await Promise.all((work.stack || []).map(async (s) => {
           const key = rowKey(s);
-          if (key === null || s.landed) return [];
+          // a row that ships straight to the default branch has no branch to check out: no worktree to offer
+          if (key === null || s.landed || (!s.number && !s.planned?.branch)) return [];
           const pr = s.number && prInfo ? await prInfo(work, s.number).catch(() => null) : null;
           return pr?.state && ENDED.includes(pr.state) ? [] : [{ key: String(key), label: keyLabel(key), title: pr?.title || s.planned?.title || '' }];
         }))).flat()

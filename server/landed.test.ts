@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { backfillLanded, landedRow, landedTip } from './landed.ts';
+import { backfillLanded, branchlessRows, landedRow, landedTip } from './landed.ts';
+import { rowKey } from './stack.ts';
 import type { Git } from './landed.ts';
 import { createWorks } from './works.ts';
 import { renderWorkMarkdown } from './notion.ts';
@@ -61,6 +62,16 @@ test('a row is found by its order, branch or key; a branch two rows share needs 
   assert.equal(landedRow(stack, 'b:feat:x').planned?.order, 3);
   assert.throws(() => landedRow(stack, 'main'), { status: 409 });
   assert.throws(() => landedRow(stack, 9), { status: 404 });
+});
+
+test('a row whose branch is the default branch loses it once and reads as its order from then on', () => {
+  const work = { id: 'w', slug: 'w', title: 'w', stack: [row(1, 'main', 'On main'), row(2, 'feat/a', 'Branch'), row(3, 'main', 'Also on main'), { planned: { branch: 'main' } }] } as unknown as Work;
+  const saved: Work[] = [];
+  const store = { list: () => [work], save: (w: Work) => void saved.push(w) };
+  assert.deepEqual(branchlessRows(store, () => ({ base: 'main' })), [{ slug: 'w', rows: 2 }]);
+  assert.deepEqual((work.stack ?? []).map(rowKey), ['r:1', 'b:feat:a', 'r:3', 'b:main']);
+  assert.equal(saved.length, 1);
+  assert.deepEqual(branchlessRows(store, () => ({ base: 'main' })), []);
 });
 
 test('rows titled "✓ " by hand lose the mark and land once: at their branch tip when it landed, else at main', async (t) => {

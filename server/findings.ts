@@ -314,8 +314,9 @@ export function createFindings({ DATA, REPO, config, works, comments, code, revi
         const pr = s.number ? null : await reviewAgent.rowPr(work, index).catch(() => null);
         return { key, number: s.number || null, branch: s.planned?.branch || pr?.head || null, headSha: refs.headSha, files };
       } catch (e) {
-        const notBuiltYet = !s.number && (e as { code?: number }).code === 404;
-        return { key, number: s.number || null, branch: s.planned?.branch || null, headSha: null, files: new Set<string>(), error: notBuiltYet ? undefined : errText(e) };
+        // a branch not built yet, or a row that ships on the default branch and has nothing to diff: not an error
+        const quiet = !s.number && ((e as { code?: number }).code === 404 || !s.planned?.branch);
+        return { key, number: s.number || null, branch: s.planned?.branch || null, headSha: null, files: new Set<string>(), error: quiet ? undefined : errText(e) };
       }
     }).then((x) => x.filter((r) => r !== null));
   }

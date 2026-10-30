@@ -1,6 +1,6 @@
 // Landed rows: a planned row shipped straight to the default branch, with no PR. Its agent or the owner says so, or git shows it.
 import { HttpError } from './core-types.ts';
-import { parseKey, rowKey } from './stack.ts';
+import { orderOf, parseKey, rowKey } from './stack.ts';
 import type { Landed, RunResult, StackRow, Work } from './core-types.ts';
 
 export type Git = (args: string[]) => Promise<RunResult>;
@@ -8,10 +8,11 @@ export const SHA = /^[0-9a-f]{7,40}$/i;
 // the mark agents put on a shipped row's title before rows could land
 const SHIPPED = /^✓\s*/;
 
-// a row by its planned order, its key (b:<branch>) or its branch; a branch two rows share needs the order
+// a row by its planned order, its key (r:<order>, b:<branch>) or its branch; a row with no branch reads as row <order>
 export function landedRow(stack: StackRow[], ref: unknown): StackRow {
   const s = String(ref ?? '').trim();
-  const rows = /^\d+$/.test(s) ? stack.filter((r) => r.planned?.order === Number(s)) : s.startsWith('b:') ? stack.filter((r) => rowKey(r) === parseKey(s)) : stack.filter((r) => r.planned?.branch === s);
+  const order = /^\d+$/.test(s) ? Number(s) : orderOf(s);
+  const rows = order != null ? stack.filter((r) => rowKey(r) === `r:${order}` || r.planned?.order === order) : s.startsWith('b:') ? stack.filter((r) => rowKey(r) === parseKey(s)) : stack.filter((r) => r.planned?.branch === s);
   if (!rows.length) throw new HttpError(404, `no row ${s || '(none)'} in this work: pass its order or branch`);
   if (rows.length > 1) throw new HttpError(409, `${rows.length} rows on ${s}: pass the order`);
   return rows[0];
@@ -49,6 +50,21 @@ export async function backfillLanded(store: { list(): Work[]; save(work: Work, o
       s.planned = { ...s.planned, title: s.planned?.title?.replace(SHIPPED, '') };
       s.landed ??= { ...((branch && (await landedTip(git, branch, base))) || tip), by: 'owner' };
     }
+    store.save(work, { touch: false });
+    done.push({ slug: work.slug, rows: rows.length });
+  }
+  return done;
+}
+
+// one-time, idempotent: a row whose branch is the default branch shipped straight on it and has no branch of its own; without it
+// the row reads as its planned order, which no sibling shares (two rows on one branch were one row to every tab and agent)
+export function branchlessRows(store: { list(): Work[]; save(work: Work, opts?: { touch?: boolean }): unknown }, gitOf: (work: Work) => { base: string }) {
+  const done: { slug: string; rows: number }[] = [];
+  for (const work of store.list()) {
+    const base = gitOf(work).base;
+    const rows = (work.stack || []).filter((s) => !s.number && s.planned?.order != null && s.planned?.branch === base);
+    if (!rows.length) continue;
+    for (const s of rows) s.planned = { ...s.planned, branch: undefined };
     store.save(work, { touch: false });
     done.push({ slug: work.slug, rows: rows.length });
   }

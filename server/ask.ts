@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
+import { assertUniqueKeys, replaceRows } from './stack-replace.ts';
 import { UUID, activityEvents, createPaseoAgents, workCwd } from './paseo-agent.ts';
 import type { AgentSession, Outcome } from './paseo-agent.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
@@ -20,7 +21,7 @@ import type { Upload, Uploads } from './uploads.ts';
 import type { ModelPick, Models } from './models.ts';
 import { startThinking } from './models.ts';
 import { notionOf } from './stack-edit.ts';
-import { replaceRows, stackDiff } from './stack-replace.ts';
+import { stackDiff } from './stack-replace.ts';
 import { linkParent } from './lineage.ts';
 
 const TIMEOUT_MS = 20 * 60 * 1000;
@@ -42,7 +43,7 @@ type Scaffold = {
   summary?: string;
   tier?: string;
   paseoProject?: { existingProjectId?: string; createNamed?: string };
-  stack?: { order: number; title: string; scope: string; branch: string; personas?: string[]; existingPr?: number; notionPage?: { url: string; title: string } }[];
+  stack?: { order?: number; title: string; scope: string; branch?: string; personas?: string[]; existingPr?: number; notionPage?: { url: string; title: string } }[];
   surfaces?: { surface: string; entryPoint: string; coverage: string }[];
   personas?: string[];
   links?: { label: string; url: string }[];
@@ -142,7 +143,7 @@ function scaffoldOf(p: Raw): Scaffold {
     summary: opt(p.summary, 1000, 'summary'),
     tier: opt(p.tier, 20, 'tier'),
     paseoProject: project,
-    stack: each(p.stack, 'stack', 40, (s, at) => strip({ order: optNumber(s.order) ?? 0, title: str(s.title, 200, `${at}.title`), scope: opt(s.scope, 2000, `${at}.scope`) ?? '', branch: str(s.branch, 200, `${at}.branch`), personas: texts(s.personas, `${at}.personas`, 20), existingPr: optNumber(s.existingPr), notionPage: notionOf(s.notionPage, `${at}.notionPage`) ?? undefined })),
+    stack: each(p.stack, 'stack', 40, (s, at) => strip({ order: optNumber(s.order), title: str(s.title, 200, `${at}.title`), scope: opt(s.scope, 2000, `${at}.scope`) ?? '', branch: opt(s.branch, 200, `${at}.branch`), personas: texts(s.personas, `${at}.personas`, 20), existingPr: optNumber(s.existingPr), notionPage: notionOf(s.notionPage, `${at}.notionPage`) ?? undefined })),
     surfaces: each(p.surfaces, 'surfaces', 40, (s, at) => ({ surface: str(s.surface, 200, `${at}.surface`), entryPoint: opt(s.entryPoint, 500, `${at}.entryPoint`) ?? '', coverage: opt(s.coverage, 1000, `${at}.coverage`) ?? '' })),
     personas: texts(p.personas, 'personas', 20),
     links: each(p.links, 'links', 20, (l, at) => ({ label: str(l.label, 200, `${at}.label`), url: str(l.url, 2000, `${at}.url`) })),
@@ -153,7 +154,7 @@ function scaffoldOf(p: Raw): Scaffold {
   });
 }
 
-const scaffoldRows = (p: Scaffold): StackRow[] => (p.stack || []).map((s) => ({ number: s.existingPr || null, planned: { order: s.order, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [], ...(s.notionPage ? { notionPage: s.notionPage } : {}) }));
+const scaffoldRows = (p: Scaffold): StackRow[] => (p.stack || []).map((s, i) => ({ number: s.existingPr || null, planned: { order: s.order ?? i + 1, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [], ...(s.notionPage ? { notionPage: s.notionPage } : {}) }));
 
 // the confirm card of a scaffold: what Create work (or Update work) writes, and whether an existing stack is replaced (on by default when the proposed stack differs)
 function scaffoldCard(p: Scaffold, existing: AskWork | null | undefined): Raw {
@@ -168,7 +169,7 @@ function scaffoldCard(p: Scaffold, existing: AskWork | null | undefined): Raw {
     blocks.push({ type: 'text', text: `${lines.length ? lines.join(' · ') : 'Same rows in the same order'} · ${diff.linksKept} Notion links kept, ${diff.linksLost} lost (if replaced)` });
     if (diff.linksLost) blocks.push({ type: 'callout', tone: 'warn', title: 'Notion links would be lost', text: `Replacing drops ${diff.linksLost} Notion page link${diff.linksLost === 1 ? '' : 's'} (removed rows). Rows matched by PR or branch keep theirs.` });
   }
-  if (p.stack?.length) blocks.push({ type: 'table', caption: 'Planned stack', columns: ['#', 'PR', 'Scope', 'Branch', 'Reviewers'], rows: p.stack.map((s) => [String(s.order), s.existingPr ? `${s.title} (#${s.existingPr})` : s.title, s.scope || '', `\`${s.branch}\``, s.personas?.length ? s.personas.join(', ') : { text: 'none', tone: 'warn' }]) });
+  if (p.stack?.length) blocks.push({ type: 'table', caption: 'Planned stack', columns: ['#', 'PR', 'Scope', 'Branch', 'Reviewers'], rows: p.stack.map((s, i) => [String(s.order ?? i + 1), s.existingPr ? `${s.title} (#${s.existingPr})` : s.title, s.scope || '', s.branch ? `\`${s.branch}\`` : 'ships on the default branch', s.personas?.length ? s.personas.join(', ') : { text: 'none', tone: 'warn' }]) });
   if (p.surfaces?.length) blocks.push({ type: 'table', caption: 'Surfaces', columns: ['Surface', 'Entry point', 'Coverage'], rows: p.surfaces.map((s) => [s.surface, s.entryPoint ? `\`${s.entryPoint}\`` : '', s.coverage]) });
   if (p.openQuestions?.length) blocks.push({ type: 'table', caption: 'Open questions', columns: ['Question', 'Recommended', 'Tradeoff'], rows: p.openQuestions.map((q) => [q.question, q.recommendation, { text: q.tradeoff || '-', tone: 'mute' }]) });
   if (p.betaFlags?.length) blocks.push({ type: 'table', caption: 'Feature flags', columns: ['Flag', 'Gates', 'PRs'], rows: p.betaFlags.map((f) => [`\`${f.code}\``, f.why, f.prs?.length ? f.prs.join(', ') : 'all']) });
@@ -540,6 +541,8 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const spunFrom = !existing && parent && parent !== p.slug ? works.get(parent) : null;
     const stackKept = Boolean(existing?.stack?.length && !replaceStack);
     const stack = scaffoldRows(p);
+    const rowStack = existing && stackKept ? existing.stack : replaceRows(existing?.stack || [], stack);
+    assertUniqueKeys(rowStack);
     const notes = [p.notes, '', '## Surface table', '', '| Surface | Entry point | Coverage |', '| --- | --- | --- |', ...(p.surfaces || []).map((s) => `| ${s.surface} | ${s.entryPoint} | ${s.coverage} |`), '', '## Open questions', '', ...(p.openQuestions || []).map((q, i) => `${i + 1}. ${q.question} Recommended: ${q.recommendation}. Tradeoff: ${q.tradeoff}`), '', '## Next steps', '', ...(p.nextSteps || []).map((s) => `- ${s}`)].join('\n');
     const work: AskWork = {
       ...(existing || { createdAt: new Date().toISOString(), timeline: [] }),
@@ -551,7 +554,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       tier: p.tier,
       projectId: p.paseoProject?.existingProjectId || existing?.projectId || null,
       projectName: p.paseoProject?.createNamed || existing?.projectName || null,
-      stack: existing && stackKept ? existing.stack : replaceRows(existing?.stack || [], stack),
+      stack: rowStack,
       personas: p.personas || [],
       links: p.links || [],
       notes,

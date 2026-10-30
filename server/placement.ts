@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { rowKey } from './stack.ts';
+import { keyLabel, rowKey } from './stack.ts';
 import type { RepoConfig } from './config.ts';
 import type { RowKey, StackRow, Work } from './core-types.ts';
 
@@ -222,7 +222,7 @@ export function createPlacement({ repos, APP, DATA, exec = defaultExec, listWork
     else if (row.number) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'checkout-pr', '--pr-number', String(row.number), '--title', title], title);
     else if (branch && (await exec('git', ['-C', repo.path, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).ok) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'checkout-branch', '--branch', branch, '--title', title], title);
     else if (branch) placed = await createWorkspace(['--isolation', 'worktree', '--path', p.path, '--project', p.projectId, '--mode', 'branch-off', '--new-branch', branch, '--base', previousBranch(stack, i, repo), '--title', title], title);
-    else throw new Error(`row ${key} of ${work.slug} has neither a PR nor a planned branch`);
+    else throw new Error(`${keyLabel(key)} of ${work.slug} has no branch: it ships straight to the default branch, so there is no worktree to place an agent in`);
     remember(fresh.slug, key, placed.workspaceId);
     return placed;
   }

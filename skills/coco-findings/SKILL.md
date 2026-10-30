@@ -32,7 +32,8 @@ curl -s "$COCO/api/code/pr/<n>/refs?fresh=1"
 # → { headSha, … }   anchor every finding on this sha
 ```
 
-A local row without a PR number uses the key `b:<branch>` instead of `<n>`.
+A row with no PR number is keyed by its branch (`b:<branch>`) or, when it
+ships straight on the default branch, by its plan order (`r:12`, "row 12").
 Post each finding on the PR whose diff contains its file; in a stack, that is
 the highest PR touching the file.
 

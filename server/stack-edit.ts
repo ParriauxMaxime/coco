@@ -1,6 +1,7 @@
 // propose_stack_edit: add, update, move or remove stack rows of a work without replacing the stack; untouched fields of a row stay (Notion page, gates, kit, workspace).
 // Approving can also start the work's Notion sync, which rewrites the linked page's stack table (docs/agent-io.md).
 import { keyLabel, parseKey, rowKey } from './stack.ts';
+import { assertUniqueKeys } from './stack-replace.ts';
 import { list, opt, str, strip } from './cards.ts';
 import type { ActionDef } from './cards.ts';
 import type { Raw } from './blocks.ts';
@@ -25,7 +26,7 @@ type Change = 'added' | 'updated' | 'moved' | 'kept';
 
 const keyOf = (v: unknown, field: string): RowKey => {
   const k = parseKey(v);
-  if (k == null) throw new Error(`${field} must be a PR number or "b:<branch>"`);
+  if (k == null) throw new Error(`${field} must be a row: its PR number, "b:<branch>", or "r:<order>" for a row with no branch`);
   return k;
 };
 const prOf = (v: unknown, field: string) => {
@@ -64,6 +65,8 @@ export function opOf(o: Raw, at: string): StackOp {
 // the stack after the ops, in order; each changed row says how. Throws naming the op that cannot apply.
 export function applyStackOps(stack: StackRow[], ops: StackOp[]) {
   const rows = stack.map((row) => ({ row, change: 'kept' as Change }));
+  // an added row with no branch ships on the default branch: its planned order is the next free one, and its key
+  let nextOrder = rows.reduce((max, r) => Math.max(max, r.row.planned?.order ?? 0), 0) + 1;
   const indexOf = (k: RowKey) => rows.findIndex((r) => rowKey(r.row) === k);
   const place = (entry: { row: StackRow; change: Change }, after: StackOp['after'], at: string) => {
     if (after === undefined) return rows.push(entry);
@@ -74,10 +77,11 @@ export function applyStackOps(stack: StackRow[], ops: StackOp[]) {
   ops.forEach((o, n) => {
     const at = `ops[${n}]`;
     if (o.op === 'add') {
-      if (!o.pr && !o.branch) throw new Error(`${at}: an added row needs pr or branch`);
+      if (!o.pr && !o.branch && !o.title) throw new Error(`${at}: an added row needs a pr, a branch or a title`);
+      const planned = strip({ order: o.pr || o.branch ? undefined : nextOrder++, title: o.title, branch: o.branch });
       const row: StackRow = strip({
         number: o.pr ?? null,
-        planned: o.title || o.branch ? strip({ title: o.title, branch: o.branch }) : undefined,
+        planned: Object.keys(planned).length ? planned : undefined,
         scope: o.scope,
         personas: o.personas ?? [],
         notionPage: o.notionPage ?? undefined,
@@ -101,6 +105,7 @@ export function applyStackOps(stack: StackRow[], ops: StackOp[]) {
     if (o.after === undefined) rows.splice(i, 0, moved);
     else place(moved, o.after, at);
   });
+  assertUniqueKeys(rows.map((r) => r.row));
   return rows;
 }
 

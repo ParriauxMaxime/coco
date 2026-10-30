@@ -1,9 +1,14 @@
 // Update work's stack replace: which proposed row is which current row (same PR number, else same branch), what the replace adds, drops and moves, and the merged rows that keep the current rows' fields.
-import { keyLabel, rowKey } from './stack.ts';
+import { keyClash, keyLabel, rowKey } from './stack.ts';
 import type { StackRow } from './core-types.ts';
 
 const branchOf = (r: StackRow) => r.planned?.branch || null;
 
+// a stack a write is about to store: two rows may not share a key, or the tabs, agents and findings of one would land on the other
+export function assertUniqueKeys(stack: StackRow[]) {
+  const clash = keyClash(stack);
+  if (clash !== null) throw new Error(`two rows read as ${keyLabel(clash)}: a row carries a PR number, a branch of its own, or (shipping on the default branch) no branch at all`);
+}
 // for each proposed row the index of the current row it replaces, or -1; a PR number wins over a branch, a current row matches once
 export function matchRows(current: StackRow[], next: StackRow[]): number[] {
   const taken = new Set<number>();

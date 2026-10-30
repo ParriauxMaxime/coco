@@ -38,7 +38,7 @@ test('a stack edit names a planned row by its branch as written, slashes include
   const left = applyStackOps(rows, ops({ op: 'remove', row: 'b:feat/design-preview' }, { op: 'remove', row: 'b:main' }, { op: 'update', row: 'b:main', title: 'Base' }, { op: 'update', row: 'b:feat/redesign-shell', after: 'start' }));
   assert.deepEqual(left.map((r) => [r.row.planned?.branch, r.change]), [['feat/redesign-shell', 'moved'], ['main', 'updated']]);
   assert.deepEqual(applyStackOps(rows, ops({ op: 'remove', row: 'b:main' }, { op: 'remove', row: 'b:main' })).map((r) => r.row.planned?.branch), ['feat/design-preview', 'feat/redesign-shell']);
-  assert.throws(() => opOf({ op: 'remove', row: 'b:/x' }, 'ops[0]'), /ops\[0\]\.row must be a PR number or "b:<branch>"/);
+  assert.throws(() => opOf({ op: 'remove', row: 'b:/x' }, 'ops[0]'), /ops\[0\]\.row must be a row/);
 });
 
 test('approving a stack edit card writes the merged stack and starts the Notion sync only when ticked', async () => {

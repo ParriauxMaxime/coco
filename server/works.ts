@@ -458,7 +458,8 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       return r.ok ? r.stdout.split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
     });
   const prBody = (number: number, github?: string): Promise<string> => prNode(number, false, github ?? githubOf(number)).then((n) => n.body, () => '');
-  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await rowInfo(work, s, fresh)), key: rowKey(s), personas: s.personas || [] })));
+  // a row's own fields go along: a row with no PR reads its title, branch and order from the plan, and its key is its order
+  const stackInfo = (work: Work, fresh?: boolean) => Promise.all((work.stack || []).map(async (s) => ({ ...(await rowInfo(work, s, fresh)), key: rowKey(s), planned: s.planned ?? null, personas: s.personas || [] })));
 
   async function plan(work: Work) {
     const prs = await stackInfo(work);

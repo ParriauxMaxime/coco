@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { kitScope } from './briefs.ts';
 import { cacheFile, swrCache } from './swr.ts';
-import { branchOf, isLocal, parseKey, rowKey } from './stack.ts';
+import { isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { HttpError, httpStatus, errorMessage } from './core-types.ts';
 import type { ArtifactMeta, ReadBody, Req, Res, RowKey, Send, StackRow, Work } from './core-types.ts';import type { FeatureFlags } from './feature-flags.ts';
 
@@ -210,7 +210,9 @@ export function createKit({ REPO, DATA, config, works, betaFlags, exec = default
     const n = parseKey(raw);
     const row = (work.stack || []).find((s) => rowKey(s) === n);
     if (n === null || !row) throw Object.assign(new Error(`${raw} is not in this work`), { status: 404 });
-    const facts = isLocal(n) ? await branchFacts(branchOf(n), localBase(work, row)) : await prFacts(Number(n));
+    const branch = row.planned?.branch || '';
+    if (!row.number && !branch) throw Object.assign(new Error(`${keyLabel(n)} has no branch: it ships straight to the default branch`), { status: 409 });
+    const facts = isLocal(n) ? await branchFacts(branch, localBase(work, row)) : await prFacts(Number(n));
     const key = String(n);
     const artifacts = works.listArtifacts(slug);
     const shas = [...new Set(artifacts.flatMap((a) => (a.meta?.pr === key && a.meta.headSha ? [a.meta.headSha] : [])))];

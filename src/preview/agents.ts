@@ -58,7 +58,7 @@ export const useWorkers = (chief: string | null | undefined) =>
 // waiting: the waiting queue's count per agent (useWaitingByAgent), the one source of "waiting on you"
 export const stateOf = (a: WorkAgent, waiting: Record<string, number>): AgentState => (a.agentId && a.status !== 'archived' && waiting[a.agentId] ? 'waiting' : a.status);
 export const paseoLink = (serverId: string | null, agentId: string | null) => (serverId && agentId ? `paseo://h/${encodeURIComponent(serverId)}/agent/${encodeURIComponent(agentId)}` : null);
-export const prLabel = (key: string) => (/^\d+$/.test(key) ? `#${key}` : key.replace(/^b:/, '').replaceAll(':', '/'));
+export const prLabel = (key: string) => (/^\d+$/.test(key) ? `#${key}` : /^r:\d+$/.test(key) ? `row ${key.slice(2)}` : key.replace(/^b:/, '').replaceAll(':', '/'));
 
 const byState = (a: ListedAgent, b: ListedAgent) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || (b.updatedAt || '').localeCompare(a.updatedAt || '');
 

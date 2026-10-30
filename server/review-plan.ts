@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
+import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { deferredJob } from './jobs.ts';
 import type { Jobs } from './jobs.ts';
 import { capitalize } from './review-agent.ts';
@@ -219,7 +219,7 @@ type PromptInput = { n: RowKey; slug?: string; refs: Pick<Refs, 'headSha' | 'mer
 
 export function buildPrompt({ n, slug, refs: { headSha: head, mergeBase: base }, fileCount }: PromptInput) {
   return [
-    `Plan the review of ${isLocal(n) ? `local branch ${branchOf(n)} (no PR yet, skip github_pr)` : `PR #${n}`}${slug ? ` (work ${slug})` : ''}.`,
+    `Plan the review of ${isLocal(n) ? `${keyLabel(n)} (no PR yet, skip github_pr)` : `PR #${n}`}${slug ? ` (work ${slug})` : ''}.`,
     `head ${head} · merge-base ${base} (diff base; a stacked PR shows its own slice)${fileCount === undefined ? '' : ` · ${fileCount} changed files`}.`,
     '',
     `Call get_review_context with pr "${n}"${slug ? ` and work "${slug}"` : ''} first, then get_pr_findings with the same arguments. The diff is not in this prompt: read it through git.`,
@@ -386,7 +386,7 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     };
     const ms = work ? modelsFor(config, work.repo) : config.models;
     (work && place ? place(slug) : (work ? workCwd({ repo, work, key: n, prInfo: works.prInfo }) : Promise.resolve(repo)).then((cwd) => ({ cwd, workspaceId: null })))
-      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: systemPrompt(OWNER, repo), provider: ms.fast || ms.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
+      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? keyLabel(n) : `#${n}`}`, prompt, systemPrompt: systemPrompt(OWNER, repo), provider: ms.fast || ms.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
       .then((r) => finish(r), (e) => finish(null, e));
     return { ok: true };
   }
@@ -394,7 +394,9 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
   // the Review tab of a stack row with no plan for its head starts one; a head that had a run, done or failed, is not planned again on its own
   async function auto(slug: string, n: RowKey) {
     const k = `${slug}:${n}`;
-    if (!(works.get(slug)?.stack || []).some((s) => rowKey(s) === n)) return { ok: true, started: false };
+    const row = (works.get(slug)?.stack || []).find((s) => rowKey(s) === n);
+    // a row that ships straight to the default branch has no diff of its own: nothing to plan
+    if (!row || (!row.number && !row.planned?.branch)) return { ok: true, started: false };
     if (live.has(k) || starting.has(k)) return { ok: true, started: false, running: true };
     const { headSha } = await code.ensureRefs(n);
     const data = read(slug, n);

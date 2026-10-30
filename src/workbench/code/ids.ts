@@ -1,11 +1,17 @@
 import type { PrKey, RefFile } from '../types.ts';
 
-// a stack row key: a PR number, or `b:<branch with / as :>` for a local branch
-const KEY = '(\\d+|b:[\\w][\\w.:-]*)';
+// a stack row key: a PR number, `b:<branch with / as :>` for a row with a branch, `r:<planned order>` for a row that ships straight on
+// the default branch (its order is the only identity it has)
+const KEY = '(\\d+|r:\\d+|b:[\\w][\\w.:-]*)';
+const ORDER = /^r:(\d+)$/;
 const toKey = (s: string): PrKey => (/^\d+$/.test(s) ? Number(s) : s);
 
-export const isLocalKey = (k: PrKey) => String(k).startsWith('b:');
-export const keyLabel = (k: PrKey) => (isLocalKey(k) ? String(k).slice(2).replaceAll(':', '/') : `#${k}`);
+export const isLocalKey = (k: PrKey) => /^(?:b:|r:)/.test(String(k));
+export const keyLabel = (k: PrKey) => {
+  const order = ORDER.exec(String(k));
+  if (order) return `row ${order[1]}`;
+  return isLocalKey(k) ? String(k).slice(2).replaceAll(':', '/') : `#${k}`;
+};
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // a tab id naming row `from` (as `-<key>` or in a thread key `c.<file key>.`) names `to` instead

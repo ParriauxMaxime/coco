@@ -29,7 +29,7 @@ export function splitOf(raw: Raw, fallback: string | null): Split {
   const work = opt(raw.work, 80, 'work') || fallback;
   if (!work) throw new Error('no work: pass work (the work slug); this agent carries no work label');
   const pr = parseKey(raw.pr);
-  if (pr == null) throw new Error('pr must be the PR number (or "b:<branch>") of the row to split');
+  if (pr == null) throw new Error('pr must be the row to split: its PR number, "b:<branch>", or "r:<order>"');
   const parts = list(raw.parts, 2, 12, 'parts').map((p, i) => partOf(p, `parts[${i}]`));
   const keys = parts.map(partKey);
   if (new Set(keys).size < keys.length || new Set(parts.map((p) => p.branch)).size < parts.length) throw new Error('parts must have distinct branches and PRs');
