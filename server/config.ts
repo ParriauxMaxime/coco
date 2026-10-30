@@ -47,10 +47,12 @@ export type RepoIdentity ={ path: string; github: string; defaultBranch: string;
 // the repo a work lives in (repos.repoFor); a module built with one REPO defaults to config.repo at that path
 export type RepoOf = (work: { repo?: string | null } | null | undefined) => RepoIdentity;
 // settings that belong to a repo; one left out falls back to the top-level value
-export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree', 'preflight', 'land', 'models'] as const;
+export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree', 'preflight', 'land', 'models', 'mcpServers', 'agentMcp'] as const;
 // models is a partial overlay: a key a repo leaves out falls back to the top-level models
 export type RepoSettings = Partial<Pick<Config, Exclude<(typeof REPO_SETTINGS)[number], 'models'>>> & { models?: Partial<Config['models']> };
 export type RepoConfig = RepoIdentity & { id: string; name: string; settings: RepoSettings };
+// an MCP server coco can mount on an agent, as Paseo takes it; ~ and ${ENV} expand when the agent starts
+export type McpServer = { type: 'stdio'; command: string; args?: string[]; env?: Record<string, string>; alwaysLoad?: boolean } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string>; alwaysLoad?: boolean };
 
 export interface Config {
   owner: { name: string; login: string };
@@ -72,6 +74,10 @@ export interface Config {
   kitBody: { maxChars: number; mustMatch: string };
   // connectors: the model whose agents hold the claude.ai connectors (Notion), when default and fast run elsewhere
   models: { default: string; fast: string; judge?: string; judgeShadow?: string; connectors?: string; thinking?: string };
+  // MCP servers an agent can mount by name, for a connector Claude holds on its account and another provider cannot
+  mcpServers: Record<string, McpServer>;
+  // the mcpServers of those the agents you talk to mount (Ask, New agent): Slack, Gmail, whatever you want at hand there
+  agentMcp: string[];
   importRoots: string[];
   kitKinds: string[];
   gateSkills: Record<string, (string | { name: string; ask?: string })[]>;
@@ -125,6 +131,8 @@ export const DEFAULTS: Config = {
   personaFiles: { ignore: ['README', 'CHANGELOG'], companionSuffixes: [] },
   kitBody: { maxChars: 0, mustMatch: '' },
   models: { default: 'claude/claude-opus-5-5', fast: 'claude/claude-sonnet-5-5' },
+  mcpServers: {},
+  agentMcp: [],
   importRoots: ['/tmp', '/private/tmp', '~/.paseo/worktrees'],
   kitKinds: ['body', 'diagram', 'video'],
   gateSkills: { 'self-review': [], history: [], 'kit-body': [], 'kit-diagram': [], 'kit-video': [], 'review-pr': [] },
@@ -214,6 +222,13 @@ export const modelsFor = <M extends ModelsConfig>(config: { models: M; repos?: r
   ...config.models,
   ...(typeof repo === 'string' ? config.repos?.find((r) => r.id === repo) : repo)?.settings?.models,
 });
+
+type ServerSettings = { mcpServers?: Record<string, McpServer>; agentMcp?: string[] };
+type ServerHolder = { id?: string; settings?: ServerSettings };
+// a repo's MCP servers over the top-level ones, by name: one repo adds its own Slack or Gmail without changing the others
+export const mcpServersFor = (config: { mcpServers?: Record<string, McpServer>; repos?: readonly ServerHolder[] }, repo: string | ServerHolder | null | undefined): Record<string, McpServer> => ({ ...config.mcpServers, ...(typeof repo === 'string' ? config.repos?.find((r) => r.id === repo) : repo)?.settings?.mcpServers });
+// the servers the agents you talk to mount: the repo's list when it sets one, else the top-level
+export const agentMcpFor = (config: { agentMcp?: string[]; repos?: readonly ServerHolder[] }, repo: string | ServerHolder | null | undefined): string[] => (typeof repo === 'string' ? config.repos?.find((r) => r.id === repo) : repo)?.settings?.agentMcp ?? config.agentMcp ?? [];
 
 export function personaLogins(files: string[], { ignore = [], companionSuffixes = [] }: { ignore?: string[]; companionSuffixes?: string[] } = {}): string[] {
   const companion = companionSuffixes.length ? new RegExp(`-(${companionSuffixes.join('|')})\\.md$`) : null;

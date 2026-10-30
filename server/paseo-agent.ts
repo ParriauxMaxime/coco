@@ -11,6 +11,7 @@ import type { PermissionClient, PermissionRequest } from './permissions.ts';
 import type { UploadRef } from './uploads.ts';
 import type { SubagentApi } from './subagents.ts';
 import type { Landed } from './core-types.ts';
+import type { McpServer } from './config.ts';
 
 export const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 export const TITLE_PREFIX = 'coco · ';
@@ -388,7 +389,7 @@ export type AgentHistory = { status: string | null; archived: boolean; updatedAt
 export type Outcome = { status: string; error: string | null; entries: Entry[]; submitted: Record<string, unknown>; text: string; finalText: string; cost: number | null };
 export type Started = { agentId: string; workspaceId: string | null | undefined; createdWorkspace: string | null };
 // mode: a Paseo mode of the provider the owner picked; without it a Claude agent runs in AGENT_MODE, another provider in its own default
-type AgentConfig = { provider?: string; thinking?: string; mode?: string; systemPrompt?: string; mcp?: boolean };
+type AgentConfig = { provider?: string; thinking?: string; mode?: string; systemPrompt?: string; mcp?: boolean | string[]; servers?: Record<string, McpServer> };
 // every coco agent works on its own; a brief saying not to touch code is what keeps one read-only
 export const AGENT_MODE = 'auto';
 const PREAPPROVES = /^(claude[\w-]*|codex|opencode)(\/|$)/;
@@ -404,6 +405,13 @@ export type AgentSession = Started & {
   detach(): void;
   close(): Promise<void>;
 };
+
+const envOf = (s: string) => s.replace(/\$\{(\w+)\}/g, (_, k: string) => process.env[k] || '');
+// a configured server's ~ and ${ENV} read once, when the agent starts
+const expandServer = (s: McpServer): McpServer =>
+  s.type === 'stdio'
+    ? { ...s, command: expandHome(envOf(s.command)), ...(s.args ? { args: s.args.map((a) => expandHome(envOf(a))) } : {}), ...(s.env ? { env: Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, envOf(v)])) } : {}) }
+    : { ...s, url: envOf(s.url), ...(s.headers ? { headers: Object.fromEntries(Object.entries(s.headers).map(([k, v]) => [k, envOf(v)])) } : {}) };
 
 // onArchive: told just before coco itself archives an agent (a run's end, a conversation closed, archiveWhenDone, archive)
 export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null, onArchive = () => {} }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null; onArchive?: (agentId: string) => void } = {}) {
@@ -444,17 +452,19 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
     return { workspace, created: true };
   }
 
-  const configFor = ({ provider, thinking, mode, systemPrompt, mcp = true }: AgentConfig) => {
-    const system = mcp ? [systemPrompt, CARDS_LINE].filter(Boolean).join('\n') : systemPrompt;
+  const configFor = ({ provider, thinking, mode, systemPrompt, mcp = true, servers = {} }: AgentConfig) => {
+    const extra = Array.isArray(mcp) ? mcp.flatMap((name) => (servers[name] ? [[name, expandServer(servers[name])] as const] : [])) : [];
+    const withMcp = mcp !== false;
+    const system = withMcp ? [systemPrompt, CARDS_LINE].filter(Boolean).join('\n') : systemPrompt;
     return {
       provider,
       // auto is a Claude mode: another provider (opencode, pi, codex) starts in its own default mode
       ...(mode ? { modeId: mode } : !provider || provider.startsWith('claude') ? { modeId: AGENT_MODE } : {}),
       ...(thinking ? { thinkingOptionId: thinking } : {}),
       ...(system ? { systemPrompt: system } : {}),
-      ...(mcp
+      ...(withMcp
         ? {
-            mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true } },
+            mcpServers: { cocopilot: { type: 'stdio', command: process.execPath, args: [path.join(APP ?? '', 'server/mcp.ts')], alwaysLoad: true }, ...Object.fromEntries(extra) },
             // Paseo refuses exact MCP preapproval for the others (omp runs its own approval modes)
             ...(PREAPPROVES.test(String(provider || 'claude')) ? { toolPolicy: { preapproved: COCO_MCP_TOOLS.map((tool) => ({ kind: 'mcp', server: 'cocopilot', tool })) } } : {}),
             // a provider that extends Claude (claude-perso) takes Claude's options too

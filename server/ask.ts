@@ -11,8 +11,8 @@ import type { Sink } from './events.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
 import type { AddRepoResult } from './repos.ts';
 import { list as listOf, opt, str, strip } from './cards.ts';
-import { modelsFor } from './config.ts';
-import type { ModelsConfig } from './config.ts';
+import { agentMcpFor, mcpServersFor, modelsFor } from './config.ts';
+import type { McpServer, ModelsConfig } from './config.ts';
 import type { ActionDef, Card } from './cards.ts';
 import type { Raw } from './blocks.ts';
 import { FILES_ONLY, agentInput, createUploads, uploadRef } from './uploads.ts';
@@ -107,7 +107,7 @@ type AskOptions = {
   DATA: string;
   APP?: string | null;
   REPO: string;
-  config: { owner: { name: string }; models: ModelsConfig; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string; settings?: { models?: Partial<ModelsConfig> } }[] };
+  config: { owner: { name: string }; agentMcp?: string[]; mcpServers?: Record<string, McpServer>; models: ModelsConfig; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string; settings?: { models?: Partial<ModelsConfig>; mcpServers?: Record<string, McpServer>; agentMcp?: string[] } }[] };
   works: { get(slug: string): AskWork | null | undefined; save(work: AskWork): unknown; prInfo(n: number): Promise<PrInfo | null> };
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
@@ -251,7 +251,8 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     return `\nThis is the global Ask coco: questions across ${OWNER}'s repos${names ? ` (${names})` : ''}. A work belongs to one repo: for a new work, say which repo it belongs to and send ${OWNER} to that repo's page, whose Ask coco scaffolds it; do not call propose_work_scaffold here.${addRepo ? ` To add a repo to coco (its GitHub slug owner/name, or the absolute path of a local clone), end with one propose_repo call: once ${OWNER} confirms on the card, coco reuses a clone already on disk or clones it, adds its Paseo project and starts a setup run proposing its config.` : ''}`;
   };
 
-  const convModels = (conv: Conv) => modelsFor(config, conv.scope.kind === 'repo' ? conv.scope.repoId : conv.scope.kind === 'work' ? works.get(conv.scope.slug)?.repo ?? null : null);
+  const convRepo = (conv: Conv) => (conv.scope.kind === 'repo' ? conv.scope.repoId : conv.scope.kind === 'work' ? works.get(conv.scope.slug)?.repo ?? null : null);
+  const convModels = (conv: Conv) => modelsFor(config, convRepo(conv));
   const providerFor = (model: string | null | undefined, ms: ModelsConfig) => (!model ? ms.default : model.includes('/') ? model : `${ms.default.split('/')[0]}/${model}`);
 
   const fileOf = (id: string, ext: string) => path.join(DIR, `${id}.${ext}`);
@@ -322,6 +323,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       const ms = convModels(conv);
       const provider = providerFor(conv.model, ms);
       const thinking = conv.thinking || startThinking(ms, provider);
+      const mcp = agentMcpFor(config, convRepo(conv));
       const s = await agents.session({
         title: conv.title || `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${provider}${thinking ? `, thinking ${thinking}` : ''}.`,
@@ -330,6 +332,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         cwd,
         workspaceId,
         labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, pr: conv.pr == null ? null : fileKey(conv.pr), repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
+        ...(mcp.length ? { mcp, servers: mcpServersFor(config, convRepo(conv)) } : {}),
         ...stream,
       });
       Object.assign(conv, { agentId: s.agentId, agentIds: agentsOf({ agentId: s.agentId, agentIds: conv.agentIds }), costBase: conv.cost || 0, fresh: true });
@@ -562,9 +565,11 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     let error = '';
     try {
       const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv?.scope ?? { kind: 'global' });
-      const ms = modelsFor(config, work?.repo ?? null);
+      const repo = work?.repo ?? (conv ? convRepo(conv) : null);
+      const ms = modelsFor(config, repo);
       const provider = providerFor(p.provider, ms);
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider, thinking: p.thinking || startThinking(ms, provider), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
+      const mcp = agentMcpFor(config, repo);
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider, thinking: p.thinking || startThinking(ms, provider), ...(mcp.length ? { mcp, servers: mcpServersFor(config, repo) } : {}), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
     } catch (e) {
       error = errorMessage(e);
     }

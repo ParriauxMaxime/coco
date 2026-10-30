@@ -81,11 +81,28 @@ The server port and bind address are command-line arguments, not config:
 | `models.judge` | `models.fast` | Paseo provider/model for small no-tool decisions (today: which follow-ups become brief lessons). A failed or unparseable answer falls back to `models.fast`. Each answer is logged to `data/judge-log.jsonl`, so a smaller or local model (e.g. Ollama through Paseo's `opencode` or `pi` provider) can be tried here first. |
 | `models.judgeShadow` | none | A model that answers each judge prompt too, in the background: its answer is logged, never acted on. The repo page's Lessons section shows how often it makes the main judge's call, next to the share of the judge's lessons you did not drop, so you can tell when it is good enough to become `models.judge`. A Claude model here doubles the judge's calls. |
 | `models.thinking` | none | The thinking level agents start with when nothing picks one, on `models.default`'s provider family only; a pick always wins. Per repo too: `repos[].settings.models` overlays `models` key by key, so a repo can set only `default` and keep the top-level `fast` and `thinking`. |
+| `mcpServers` | `{}` | MCP servers an agent can mount by name, for a connector Claude holds on its account and another provider cannot: Notion, Slack, Gmail. Per repo too: `repos[].settings.mcpServers` merges over it by name. See [Connectors on any provider](#connectors-on-any-provider). |
+| `agentMcp` | `[]` | The `mcpServers` the agents you talk to mount (Ask, its proposed Paseo agents, New agent), by name: `["slack", "gmail"]`. Per repo too: `repos[].settings.agentMcp` replaces the top-level list (an empty list mounts none). Dispatched, gate, review and thread agents keep the cocopilot server only. |
 | `importRoots` | `["/tmp", "/private/tmp", "~/.paseo/worktrees"]` | Folders files may be imported from as work artifacts. Add your repo or another scratch folder if agents write kit files there. |
 | `agentWorktree` | `null` | How coco readies the worktree of a code-writing agent and checks its commits; per repo too (`repos[].settings`). See [Agent worktrees](#agent-worktrees). |
 | `preflight` | `null` | Checks shown on a kit-video dispatch and injected in its brief; per repo too. See [Preflight](#preflight). |
 | `land` | `"pr"` | How a planned row ships; per repo too. `"pr"`: a row is a PR, done when GitHub merges it. `"main"`: a row may also land straight on the local default branch with no PR, marked by its agent (`mark_row_landed`), by you (**Mark landed**) or seen in git, and its work auto-archives once every row landed or merged. The cocopilot repo coco adds on its own uses `"main"`. |
 | `rituals` | `[]` | Buttons on the Rituals page, each starting a Paseo agent in your repo. Item: `{ "kind", "label", "prompt", "hint"?, "fields"? }`. `prompt` may hold `{login}`, `{pr}`, `{paths}`, `{text}` placeholders, which become form fields unless `fields` lists them. |
+
+### Connectors on any provider
+
+A claude.ai connector (Notion, Slack, Gmail) is bound to the Claude account: a DeepSeek, Codex or OpenCode agent cannot call it. `mcpServers` names MCP servers of your own instead, and an agent mounts the ones it asks for:
+
+```json
+"mcpServers": {
+  "notion": { "type": "http", "url": "https://mcp.notion.com/mcp", "headers": { "Authorization": "Bearer ${NOTION_MCP_TOKEN}" } },
+  "slack": { "type": "stdio", "command": "npx", "args": ["-y", "slack-mcp-server"], "env": { "SLACK_MCP_XOXP_TOKEN": "${SLACK_TOKEN}" } },
+  "gmail": { "type": "stdio", "command": "npx", "args": ["-y", "mcp-remote", "https://gmailmcp.googleapis.com/mcp"] }
+},
+"agentMcp": ["slack", "gmail"]
+```
+
+`${ENV}` and a leading `~` expand when the agent starts, so credentials stay in the environment, never in this file. `agentMcp` is what an Ask conversation, the Paseo agent it proposes and a New agent mount, so those can read and answer Slack or Gmail while build agents never see them. A repo adds its own servers under `repos[].settings.mcpServers` (merged by name over the top-level ones) and its own `agentMcp` list, which replaces the top-level one, so lempire and a personal repo can mount different tools. The Notion sync mounts a server named `notion` when it is configured and then runs on `models.fast`/`models.default` with the same `notion-*` tools, instead of on `models.connectors`. Paseo sends remote `headers` as they are: an OAuth-only endpoint (Notion's hosted MCP, Gmail's MCP) needs a token issued ahead, or a stdio bridge such as `npx -y mcp-remote <url>` that runs the OAuth flow once. On a provider Paseo cannot preapprove MCP tools for (Oh My Pi), Paseo asks before each connector tool call.
 
 ### Checklist and kit
 

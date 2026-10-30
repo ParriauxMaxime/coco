@@ -11,7 +11,7 @@ const AGENT = '12345678-1234-1234-1234-123456789abc';
 const repo = (id: string, path: string) => ({ ...DEFAULTS.repo, id, name: id, path, github: `acme/${id}`, defaultBranch: 'main', settings: {} });
 const config: Config = { ...DEFAULTS, repos: [repo('widgets', '/src/widgets'), repo('cocopilot', '/src/coco')], baseUrl: 'http://127.0.0.1:8777' };
 
-function setup() {
+function setup(settings: Partial<Config> = {}) {
   const work: Work = { slug: 'csv', title: 'CSV export', repo: 'widgets', timeline: [], stack: [{ number: 101 }, { planned: { title: 'Docs', branch: 'feat/csv-docs' } }] };
   const old: Work = { slug: 'old', title: 'Old', repo: 'widgets', timeline: [], stack: [], archived: { at: '2026-10-01', reason: 'merged' } };
   const all = [work, old];
@@ -19,7 +19,7 @@ function setup() {
   const started: Record<string, unknown>[] = [];
   const linked: unknown[] = [];
   const agent = createNewAgent({
-    config,
+    config: { ...config, ...settings },
     works: { get: (s) => all.find((w) => w.slug === s) ?? null, list: () => all },
     placement: {
       place: async (scope) => (placed.push(scope), { workspaceId: 'wks_1', cwd: '/tmp/x' }),
@@ -62,6 +62,12 @@ test('a work agent starts in its Plan workspace with the owner’s words first, 
   assert.match(msg, /The brief below is context[\s\S]*# CSV export/);
   assert.doesNotMatch(msg, /Read-only/);
   assert.deepEqual(started[0].labels, { source: 'cocopilot', kind: 'agent', work: 'csv' });
+});
+
+test('a new agent mounts the interactive MCP servers the config names', async () => {
+  const { agent, started } = setup({ agentMcp: ['slack'] });
+  await agent.start({ place: { kind: 'repo', repoId: 'widgets' }, prompt: 'Summarise the Slack thread' });
+  assert.deepEqual(started[0].mcp, ['slack']);
 });
 
 test('a PR agent runs in the row’s worktree, is linked to the row and counted as briefed; a repo or fresh one gets no brief', async () => {

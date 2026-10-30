@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import { firstMessage, workFacts } from './dispatch.ts';
 import { renderBrief } from './briefs.ts';
-import { modelsFor } from './config.ts';
+import { agentMcpFor, mcpServersFor, modelsFor } from './config.ts';
 import { startThinking } from './models.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
@@ -20,7 +20,7 @@ export type NewAgentInput = { place?: unknown; prompt?: unknown; attachments?: u
 
 type BriefContext = Parameters<typeof renderBrief>[0];
 type Deps = {
-  config: Pick<Config, 'repos' | 'models' | 'baseUrl'>;
+  config: Pick<Config, 'agentMcp' | 'mcpServers' | 'repos' | 'models' | 'baseUrl'>;
   works: { get(slug: string): Work | null; list(): Work[] };
   placement: { place(scope: Scope): Promise<Placed>; freshWorkspace(repoId: string, opts: { branch: string; title: string }): Promise<Placed>; appRepoId(): string | null };
   agents: { start(opts: Record<string, unknown>): Promise<{ agentId: string; workspaceId?: string | null }> };
@@ -90,7 +90,8 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
 
   async function start(input: NewAgentInput) {
     const { place, files, prompt } = check(input);
-    const ms = modelsFor(config, place.kind === 'repo' || place.kind === 'fresh' ? place.repoId : works.get(place.slug)?.repo ?? null);
+    const repo = place.kind === 'repo' || place.kind === 'fresh' ? place.repoId : works.get(place.slug)?.repo ?? null;
+    const ms = modelsFor(config, repo);
     const fallback = ms.default;
     const pick = models ? await models.check({ provider: input.provider, thinking: input.thinking }, fallback) : {};
     const provider = pick.provider || fallback;
@@ -105,7 +106,8 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
     const key = place.kind === 'row' ? place.key : null;
     const labels = { source: 'cocopilot', kind: 'agent', ...(slug ? { work: slug } : {}), ...(key === null ? {} : { pr: fileKey(key) }) };
     const thinking = pick.thinking || startThinking(ms, provider);
-    const started = await agents.start({ title, provider, ...(thinking ? { thinking } : {}), ...(mode ? { mode } : {}), prompt: message, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}), labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    const mcp = agentMcpFor(config, repo);
+    const started = await agents.start({ title, provider, ...(thinking ? { thinking } : {}), ...(mode ? { mode } : {}), ...(mcp.length ? { mcp, servers: mcpServersFor(config, repo) } : {}), prompt: message, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}), labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
     if (messageId) uploads?.record(started.agentId, { messageId, text: message, at: new Date().toISOString(), attachments: files.map(uploadRef) });
     if (edits) readier?.started(started.agentId, placed.cwd, { slug: slug ?? undefined, key });
     if (key !== null && link) {

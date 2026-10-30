@@ -1,11 +1,11 @@
 // Notion sync: one way, cocopilot → Notion. The linked page is owned by cocopilot (body replaced on every sync).
-// Sync runs a Paseo agent with the claude.ai Notion connector; only the user's click starts it.
+// Sync runs a Paseo agent with the claude.ai Notion connector, or a Notion MCP server of our own (mcpServers.notion) on any provider; only the user's click starts it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createPaseoAgents, workCwd } from './paseo-agent.ts';
-import { modelsFor } from './config.ts';
-import type { Config } from './config.ts';
+import { mcpServersFor, modelsFor } from './config.ts';
+import type { Config, McpServer } from './config.ts';
 import { errorMessage } from './core-types.ts';
 import type { Artifact, PrInfo, StackRow, Work } from './core-types.ts';
 import { rowKey } from './stack.ts';
@@ -37,7 +37,7 @@ interface AgentRun {
 }
 
 export interface NotionAgents {
-  run(opts: { title: string; prompt: string; provider: string; cwd: string; workspaceId?: string | null; labels: Record<string, string>; timeoutMs: number }): Promise<AgentRun>;
+  run(opts: { title: string; prompt: string; provider: string; cwd: string; workspaceId?: string | null; labels: Record<string, string>; timeoutMs: number; mcp?: boolean | string[]; servers?: Record<string, McpServer> }): Promise<AgentRun>;
 }
 
 interface NotionWorks {
@@ -258,8 +258,11 @@ Final answer: one line of JSON only: {"lastEditedTime":"<iso or null>","changes"
         fs.appendFileSync(runsFile(slug), JSON.stringify({ ts: run.startedAt, mode, force, parentPageId, agentId, workspaceId, createdWorkspace, status, cost, result, err: err.slice(0, 500) }) + '\n');
       };
       const ms = modelsFor(config, work.repo);
+      // a Notion MCP server of our own carries the same notion-* tools: the sync then runs on any provider, fast/default
+      const servers = mcpServersFor(config, work.repo);
+      const own = servers.notion ? ['notion'] : null;
       (works.place?.(slug) || (REPO ? workCwd({ repo: REPO, work, prInfo: works.prInfo }) : Promise.resolve(DATA)).then((cwd) => ({ cwd, workspaceId: null })))
-        .then((where) => agents.run({ title: `Notion ${preview ? 'preview' : 'sync'}: ${work.title}`, prompt: brief, provider: ms.connectors || ms.fast || ms.default, ...where, labels: { source: 'cocopilot', kind: `notion-${mode}`, work: slug }, timeoutMs: TIMEOUT_MS }))
+        .then((where) => agents.run({ title: `Notion ${preview ? 'preview' : 'sync'}: ${work.title}`, prompt: brief, provider: own ? ms.fast || ms.default : ms.connectors || ms.fast || ms.default, ...(own ? { mcp: own, servers } : {}), ...where, labels: { source: 'cocopilot', kind: `notion-${mode}`, work: slug }, timeoutMs: TIMEOUT_MS }))
         .then(
           (r) => finish({ status: r.status, result: lastJson(r.finalText) || lastJson(r.text), cost: r.cost, agentId: r.agentId, workspaceId: r.workspaceId, createdWorkspace: r.createdWorkspace, err: r.error || '' }),
           (e: unknown) => finish({ err: errorMessage(e) }),
