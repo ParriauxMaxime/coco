@@ -136,7 +136,7 @@ function Detail({ slug, r, bucket, pr, inFlight, busy, onAct, onDismiss, onDispa
   const place = r.path ? `${r.path}${r.line ? `:${r.line}` : ''}` : '';
   const live = bucket === 'open' || bucket === 'accepted';
   const dismissal: Verdict[] = live ? [{ label: 'Dismiss with this reason', title: 'Dismiss the finding, the text as its reason', pending: inFlight === 'dismiss', on: (text) => onDismiss(text) }] : [];
-  const verdicts: Verdict[] = bucket === 'open' ? [{ label: 'Accept with this note', title: 'Accept the finding: its fix agent starts with the text as note', pending: inFlight === 'accept', on: (text) => void onDispatch(text) }, ...dismissal] : dismissal;
+  const verdicts: Verdict[] = bucket === 'open' ? [{ label: 'Accept with this note', title: 'Accept the finding: its fix agent starts with the text as note and the attached files', pending: inFlight === 'accept', takesFiles: true, on: (text, files) => void onDispatch(text, undefined, files) }, ...dismissal] : dismissal;
   const jump = () => r.n != null && r.path && openCodeAt(slug, r.n, r.path, r.line, { group: useWorkbench.getState().otherGroup() });
   const dispatch: Send = async (text, model, files) => {
     setSending(true);

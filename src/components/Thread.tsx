@@ -34,7 +34,7 @@ const STATE_CHIP: Record<string, string> = { pending: 'dp-info', queued: 'dp-war
 const STATE_NOTE: Record<string, string> = { queued: 'approved while the PR worktree was busy: Approve again', conflict: 'does not apply on the PR branch', superseded: 'the agent rewrote this commit: approve the newer one' };
 
 type ThreadsOf = { summaries: Record<string, ThreadSummary>; groups: ThreadGroup[] };
-export type Verdict = { label: string; title?: string; on: (text: string, files?: UploadRef[]) => void; allowEmpty?: boolean; className?: string; pending?: boolean };
+export type Verdict = { label: string; title?: string; on: (text: string, files?: UploadRef[]) => void; allowEmpty?: boolean; className?: string; pending?: boolean; takesFiles?: boolean };
 type SendResult = boolean | undefined | void;
 
 // per work: thread summaries ({ count, waiting, lastTs, groupId, open }) and dispatch groups, for toggles, the activity feed and regrouping
@@ -606,8 +606,14 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
   );
 }
 
+// a verdict keeps the box text as its reason; with files attached one that cannot store them waits, since Send is where a file goes
+function VerdictButton({ v, text, files, busy, pending, onClick }: { v: Verdict; text: string; files: UploadRef[]; busy: boolean; pending?: string | null; onClick: () => void }) {
+  const holds = files.length > 0 && !v.takesFiles;
+  return <button type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={holds ? `${v.title ?? v.label} · attached files go with Send, not this button` : v.title} disabled={busy || holds || (!v.allowEmpty && !text && !files.length)} onClick={onClick}>{v.label}</button>;
+}
+
 // the one text box of an item: Dispatch sends it to the scoped agent (model picked on the first dispatch), verdicts close the item with it as reason
-// verdicts: [{ label, title, on(text), allowEmpty?, className?, pending? }] · pending: 'send' while the dispatch is in flight
+// verdicts: [{ label, title, on(text, files), allowEmpty?, pending?, takesFiles? }] · pending: 'send' while the dispatch is in flight
 type ComposerProps = {
   busy: boolean;
   pending?: string | null;
@@ -639,7 +645,7 @@ export function ThreadComposer({ busy, pending, withModel, sendLabel = 'Start ag
         <>
           {persona && <button type="button" className="dp-btn dp-sm dp-ghost" title={`Prefill the box with a question for ${persona}: a quick consult, not a persona review`} onClick={() => fill(`What would ${persona} do here?`)}><Avatar login={persona} />Ask <PersonaName login={persona} /></button>}
           {verdicts.map((v) => (
-            <button key={v.label} type="button" className={`dp-btn dp-sm${pendingClass(v.pending || pending === v.label)}`} title={v.title} disabled={busy || (!v.allowEmpty && !text && !files.length)} onClick={() => { v.on(text, files); clear(); }}>{v.label}</button>
+            <VerdictButton key={v.label} v={v} text={text} files={files} busy={busy} pending={pending} onClick={() => { v.on(text, files); clear(); }} />
           ))}
         </>
       )}

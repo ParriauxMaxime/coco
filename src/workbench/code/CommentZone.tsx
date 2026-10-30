@@ -19,7 +19,7 @@ import type { ReviewHandle } from './use-comments.ts';
 import type { LineRange, PrKey, Proposal, RefFile, ReviewComment, Side } from '../types.ts';
 import './code.css';
 
-type StatusChange = (comment: ReviewComment, status: string, note?: string) => unknown;
+type StatusChange = (comment: ReviewComment, status: string, note?: string, files?: UploadRef[]) => unknown;
 type RowVerdict = { icon: IconName; title: string; cls?: string; on: () => unknown };
 
 const SEV_WORD: Record<string, string> = { blocking: 'Blocking', major: 'Major', minor: 'Minor', nit: 'Nit' };
@@ -114,7 +114,7 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
             busy={busy}
             withModel
             verdicts={[
-              { label: '✓ Accept', title: 'Accept as a comment, the text saved as reason in the work notes', on: (note) => accept(wp, note).catch((e) => toast.error(errorMessage(e))) },
+              { label: '✓ Accept', title: 'Accept as a comment, the text saved as reason in the work notes; attached files join the comment', takesFiles: true, on: (note, files) => accept(wp, note, files ?? []).catch((e) => toast.error(errorMessage(e))) },
               { label: '✕ Dismiss', title: 'Dismiss, the text saved as reason in the work notes', on: (note) => dismiss(wp, note) },
             ]}
             placeholder="Ask a scoped agent whether it holds or to fix it (accepts it as a comment), or accept / dismiss with this text as reason (markdown, ↵)"
@@ -128,10 +128,10 @@ export function WatchActions({ wp, rv, onJump, onDispatched }: { wp: Proposal; r
 
 // resolve / decline / reopen a comment; onStatus(comment, status, note) · onDelete(comment) · onEdit() · thread: the agent thread toggle
 export const isLive = (comment: ReviewComment) => comment.status === 'open' || comment.status === 'sent';
-// verdicts a thread box offers on a live comment, the box text going along as reason
+// verdicts a thread box offers on a live comment, the box text going along as reason and its files added to the comment
 export const remarkVerdicts = (comment: ReviewComment, onStatus: StatusChange): Verdict[] => (isLive(comment) ? [
-  { label: '✓ Resolve', title: 'Resolve (fixed), the text saved as reason in the work notes', on: (note) => onStatus(comment, 'fixed', note) },
-  { label: '✕ Decline', title: 'Decline: will not fix, the text saved as reason in the work notes', on: (note) => onStatus(comment, 'declined', note) },
+  { label: '✓ Resolve', title: 'Resolve (fixed), the text saved as reason in the work notes; attached files join the comment', takesFiles: true, on: (note, files) => onStatus(comment, 'fixed', note, files) },
+  { label: '✕ Decline', title: 'Decline: will not fix, the text saved as reason in the work notes; attached files join the comment', takesFiles: true, on: (note, files) => onStatus(comment, 'declined', note, files) },
 ] : []);
 
 type CommentActionsProps = {
@@ -217,7 +217,7 @@ function DraftComposer({ onAdd, onStart, onCancel }: { onAdd: (body: string, fil
       autoFocus
       busy={busy}
       withModel
-      verdicts={[{ label: 'Add comment', title: 'Save the comment without starting an agent', on: (body, files) => onAdd(body, files ?? []) }]}
+      verdicts={[{ label: 'Add comment', title: 'Save the comment without starting an agent', takesFiles: true, on: (body, files) => onAdd(body, files ?? []) }]}
       placeholder="Comment, then start an agent on it (↵), or only add it (⇧↵ new line, esc cancels)"
       onCancel={onCancel}
       onSend={async (...args) => {
@@ -300,21 +300,21 @@ export default function CommentZone({ comment, onSave, onStart, onDelete, onStat
           {(status === 'fixed' || status === 'declined') && resolution?.note && <div className="cc-note">{resolution.note}</div>}
           {status === 'outdated' && comment.snippet && <pre className="cc-snippet">{comment.snippet}</pre>}
           {!editing && <CommentActions comment={comment} onStatus={(c, s, note) => onStatus?.(c, s, note)} onDelete={(c) => onDelete?.(c)} onEdit={() => setEditing(true)} thread={thread && key && <ThreadToggle slug={thread.slug} threadKey={key} open={talking} onClick={toggleTalking} />} />}
-          {thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note) => onStatus?.(c, s, note))} />}
+          {thread && key && talking && <Thread slug={thread.slug} threadKey={key} onSettled={thread.onSettled} verdicts={remarkVerdicts(comment, (c, s, note, files) => onStatus?.(c, s, note, files))} />}
         </div>
       )}
     </div>
   );
 }
 
-// a status change with a remark keeps the remark on the comment and sends it to the work notes
-export const setStatus = (rv: ReviewHandle, c: ReviewComment, status: string, note?: string) => rv.update(c.id, { status, ...(note ? { resolution: { ...(c.resolution || {}), note }, remark: note } : {}) });
+// a status change with a remark keeps the remark on the comment and sends it to the work notes; the files a verdict carried join the comment's own
+export const setStatus = (rv: ReviewHandle, c: ReviewComment, status: string, note?: string, files: UploadRef[] = []) => rv.update(c.id, { status, ...(note ? { resolution: { ...(c.resolution || {}), note }, remark: note } : {}), ...(files.length ? { files: [...(c.files ?? []).map((f) => f.id), ...files.map((f) => f.id)] } : {}) });
 
 // accept resolves with the new comment, which keeps the watch point's severity and confidence
 export function proposalActions(rv: ReviewHandle) {
   return {
-    accept: async (c: Proposal, note?: string) => {
-      const comment = await rv.add({ path: c.path, side: 'head', sha: c.sha, startLine: c.startLine, endLine: c.endLine, body: c.body, severity: c.severity, confidence: c.confidence });
+    accept: async (c: Proposal, note?: string, files: UploadRef[] = []) => {
+      const comment = await rv.add({ path: c.path, side: 'head', sha: c.sha, startLine: c.startLine, endLine: c.endLine, body: c.body, severity: c.severity, confidence: c.confidence, ...(files.length ? { files: files.map((f) => f.id) } : {}) });
       await rv.setWatch(c.index, 'accepted', note);
       return comment;
     },
@@ -354,6 +354,6 @@ export function fileCommentProps(rv: ReviewHandle, path: string, file?: RefFile)
     }
   };
   const del = async (c: ReviewComment) => (c.draft ? rv.dropDraft(c.id) : (await confirmDelete()) && rv.remove(c.id).catch(fail));
-  const zone = (c: ReviewComment) => (isProposal(c) ? <ProposalZone comment={c} rv={rv} /> : <CommentZone comment={c} draft={Boolean(c.draft)} onSave={save} onStart={start} onDelete={del} onStatus={(x, status, note) => setStatus(rv, x, status, note).catch(fail)} thread={rv.slug ? { slug: rv.slug, n: rv.n, onSettled: rv.load } : undefined} />);
+  const zone = (c: ReviewComment) => (isProposal(c) ? <ProposalZone comment={c} rv={rv} /> : <CommentZone comment={c} draft={Boolean(c.draft)} onSave={save} onStart={start} onDelete={del} onStatus={(x, status, note, files) => setStatus(rv, x, status, note, files).catch(fail)} thread={rv.slug ? { slug: rv.slug, n: rv.n, onSettled: rv.load } : undefined} />);
   return { mine, onCreate, zone };
 }

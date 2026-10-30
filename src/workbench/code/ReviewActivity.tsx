@@ -89,7 +89,7 @@ function CommentRow({ c, rv, slug, open, onToggle, onJump, ts }: { c: ReviewComm
         onDelete={async (x) => (await confirmDelete()) && rv.remove(x.id).catch(fail)}
         thread={<ThreadToggle slug={slug} threadKey={key} open={open} onClick={onToggle} />}
       />
-      {open && <Thread slug={slug} threadKey={key} onSettled={rv.load} verdicts={remarkVerdicts(c, (x, status, note) => setStatus(rv, x, status, note).catch(fail))} />}
+      {open && <Thread slug={slug} threadKey={key} onSettled={rv.load} verdicts={remarkVerdicts(c, (x, status, note, files) => setStatus(rv, x, status, note, files).catch(fail))} />}
     </div>
   );
 }

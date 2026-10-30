@@ -1860,7 +1860,11 @@ coco's own record: an Ask conversation's log, or
 `data/uploads/sent/<agent>.jsonl` for any other agent, paired by message id
 or text. A review comment keeps its own files on the comment (`files` in its
 JSON, shown under its body): a files-only comment is allowed, and editing
-the text leaves them alone unless you add more. `GET /api/uploads/<id>`
+the text leaves them alone unless you add more. A box's verdict buttons take
+a file only where it can land (Add comment, Accept, ✓ Resolve and ✕ Decline
+add it to that comment, Accept with this note hands it to the fix agent's
+first message); the others wait while files are attached, Send being where a
+file goes. `GET /api/uploads/<id>`
 serves a file back. At boot and daily, uploads older than 24 h that no record
 names (dropped from the composer, never sent, held by no comment) are
 deleted; sent and attached ones stay.
