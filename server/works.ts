@@ -306,7 +306,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   const landedCache = swrCache<Omit<Landed, 'by'> | null>(60000);
   async function linkLanded(work: Work, fresh = false) {
     const { git, base, land } = gitOf(work);
-    if (land !== 'main') return work;
+    if (land !== 'main' && land !== 'auto') return work;
     const planned = (work.stack || []).filter((s) => !s.number && s.landed === undefined && s.planned?.branch && s.planned.branch !== base);
     if (!planned.length) return work;
     const found = await Promise.all(planned.map((s) => landedCache(`${work.repo} ${s.planned?.branch}`, () => landedTip(git, s.planned?.branch as string, base), fresh).catch(() => null)));
@@ -335,7 +335,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       work.timeline.unshift({ ts: new Date().toISOString(), kind: 'coco', text: `${label}: not landed after all (${by})` });
     } else {
       const { git, base, land } = gitOf(work);
-      if (land !== 'main') throw new HttpError(409, `this repo ships rows as PRs: set its settings.land to "main" to land rows on ${base}`);
+      if (land !== 'main' && land !== 'auto') throw new HttpError(409, `this repo ships rows as PRs: set its settings.land to "main" or "auto" to land rows on ${base}`);
       const commit = await commitOf(git, typeof sha === 'string' ? sha : `refs/heads/${base}`);
       if (!commit) throw new HttpError(400, `${sha || base} is not a commit of the work's repo`);
       if (!(await onBase(git, commit.sha, base))) throw new HttpError(409, `${commit.sha.slice(0, 7)} is not on ${base}: fast-forward ${base} first`);
@@ -759,5 +759,5 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   }
 
   const dropPr = (number: number) => prCache.drop(prKey(githubOf(number), number));
-  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, setArchived, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion, refresh: (slug: string) => detail(slug, true) };
+  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, setArchived, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion, land, refresh: (slug: string) => detail(slug, true) };
 }

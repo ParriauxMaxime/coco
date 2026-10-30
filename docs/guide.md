@@ -1327,16 +1327,30 @@ Pull based, no webhooks:
   conversations and cards. Agent labels and open tabs still naming
   `b:<branch>` resolve to the number. A `propose_stack_edit` that gives a
   planned row its PR moves the same way.
-- Landed rows, in a repo whose `land` setting is `"main"` (the cocopilot
-  repo; others ship rows as PRs): a planned row shipped straight to the
-  default branch, with no PR, reads **landed** (merged colors) everywhere a row's state shows, and
-  gets no PR nudges. Its agent says so with the MCP `mark_row_landed` right
-  after it fast-forwards the branch, you with **Mark landed** in the PR
-  details (at the default branch's tip), and each work read sees it on its
-  own (cached 60 s): a planned branch, other than the default one, that moved
-  since it was created and whose tip sits on the default branch. **Undo**
-  keeps it planned for good (`stack[i].landed: null`). `POST
-  /api/works/<slug>/landed { row: <order|branch>, sha?, by, clear? }`.
+- Landed rows, in a repo whose `land` setting is `"main"` or `"auto"` (the
+  cocopilot repo is `"auto"`; others ship rows as PRs): a planned row shipped
+  straight to the default branch, with no PR, reads **landed** (merged colors)
+  everywhere a row's state shows, and gets no PR nudges. Its agent says so with
+  the MCP `mark_row_landed` right after it fast-forwards the branch, you with
+  **Mark landed** in the PR details (at the default branch's tip), and each
+  work read sees it on its own (cached 60 s): a planned branch, other than the
+  default one, that moved since it was created and whose tip sits on the
+  default branch. **Undo** keeps it planned for good (`stack[i].landed: null`).
+  `POST /api/works/<slug>/landed { row: <order|branch>, sha?, by, clear? }`.
+- **A row lands itself** where the repo is `"auto"`: one press (the merge
+  arrow on a planned row, or MCP `land_row`) does the mechanical half —
+  `POST /api/works/<slug>/land { row, by }` refuses a dirty app checkout
+  (naming the paths) and a non-fast-forward (naming the rebase), merges the
+  row's branch `--ff-only` into the default branch, writes the attempt to
+  `<dataDir>/landings.json` and restarts coco. The row is marked landed only
+  by the boot that answers on that sha (`settle` in `server/landed.ts`); a boot
+  on any other commit — or a server that does not answer within two minutes,
+  through a detached watcher — fast-forwards back to the sha it ran before and
+  restarts on it. `GET /api/works/<slug>/land` gives the last record
+  (`landing`, `landed`, `rolled-back`, its detail). **A landing never pushes**:
+  `GET /api/works/<slug>/push` lists the commits the default branch is ahead
+  of its remote and `POST` sends them, from the **Push main** press in the
+  stack's toolbar.
 - Review runs are ingested on each `GET /api/works/<slug>/prs/<n>/review-runs`
   (the same 30 s poll): result file, `Cc-Comment:` trailers, agent state and
   the push guard are read then, nothing runs in the background.

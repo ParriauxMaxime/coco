@@ -97,8 +97,9 @@ export interface Config {
   agentWorktree: AgentWorktreeConfig | null;
   // checks shown on a kit-video dispatch and injected in its brief as known blockers; null: the built-in ones
   preflight: PreflightConfig | null;
-  // how a planned row ships: "pr", as a PR GitHub merges; "main", also straight onto the local default branch with no PR (landed.ts)
-  land: 'pr' | 'main';
+  // how a planned row ships: "pr", as a PR GitHub merges; "main", also straight onto the local default branch with no PR (landed.ts);
+  // "auto", the same, and a finished row lands itself: coco fast-forwards, restarts and marks it (landed.ts, land_row)
+  land: 'pr' | 'main' | 'auto';
   // where a repo added by its GitHub slug is looked for, then cloned; empty: the folder holding the default repo's clone
   cloneDir: string;
   // the work that owns cocopilot itself, where flag_coco_issue files the changes users ask of coco; empty: the work whose repo is cocopilot
@@ -218,7 +219,7 @@ function loadRepos(c: Config, raw: { repos?: (Partial<RepoConfig> & { path: stri
   });
   for (const r of repos) used.add(r.id);
   if (!repos.some((r) => r.path && path.resolve(r.path) === path.resolve(APP))) {
-    repos.push({ ...identify({ ...DEFAULTS.repo, path: APP }), id: used.has('cocopilot') ? repoId(APP, used) : 'cocopilot', name: 'cocopilot', settings: { land: 'main' } });
+    repos.push({ ...identify({ ...DEFAULTS.repo, path: APP }), id: used.has('cocopilot') ? repoId(APP, used) : 'cocopilot', name: 'cocopilot', settings: { land: 'auto' } });
   }
   return repos;
 }

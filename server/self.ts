@@ -83,5 +83,5 @@ export function createSelf({ APP, DATA, DIST = path.join(APP, 'dist') }: { APP: 
     return send(res, 405, { error: 'GET /api/server or POST /api/server/restart' });
   }
 
-  return { info, handle, index };
+  return { info, handle, index, restart };
 }

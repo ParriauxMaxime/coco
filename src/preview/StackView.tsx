@@ -13,6 +13,9 @@ import { usePrefs } from './prefs.ts';
 import { reloadOverview } from './overview.ts';
 import StackKeeper from './StackKeeper.tsx';
 import { useMilestones } from './milestones.ts';
+import { api, errorMessage } from '../api.ts';
+import { toast } from '../components/Toast.tsx';
+import type { PushState } from '../types.ts';
 import './stack.css';
 
 type Filter = 'all' | 'open' | 'merged' | 'planned';
@@ -46,7 +49,7 @@ function AgentsCell({ d, pr }: { d: PreviewData; pr: WorkPr }) {
   );
 }
 
-function Row({ d, pr, index, step, working, selected, narrow, dispatching, onSelect, onOpen, onDispatch, onClose }: { d: PreviewData; pr: WorkPr; index: number; step: string | null; working: boolean; selected: boolean; narrow: boolean; dispatching: boolean; onSelect: () => void; onOpen: () => void; onDispatch: () => void; onClose: () => void }) {
+function Row({ d, pr, index, step, working, selected, narrow, dispatching, landing, auto, onSelect, onOpen, onDispatch, onClose, onLand }: { d: PreviewData; pr: WorkPr; index: number; step: string | null; working: boolean; selected: boolean; narrow: boolean; dispatching: boolean; landing: boolean; auto: boolean; onSelect: () => void; onOpen: () => void; onDispatch: () => void; onClose: () => void; onLand: () => void }) {
   const state = prState(pr);
   const key = prKey(pr);
   const findings = findingsOf(d, pr).length;
@@ -72,6 +75,8 @@ function Row({ d, pr, index, step, working, selected, narrow, dispatching, onSel
       {!narrow && <span className="dp-c-dev">{d.dev.data?.on && <DevServerCell slug={d.slug} row={devOf(d, pr)} onChange={d.dev.reload} />}</span>}
       <span className="dp-c-go" ref={pop} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <button type="button" className="dp-ibtn" title={state === 'planned' ? 'Open with an agent' : 'Start an agent'} onClick={onDispatch}><Icon name="play" size={14} /></button>
+        {/* a repo set to land "auto": one press fast-forwards the app checkout onto this row, restarts coco and marks it landed */}
+        {auto && state === 'planned' && !pr.number && <button type="button" className={`dp-ibtn${landing ? ' dp-on' : ''}`} title={landing ? 'Landing: coco fast-forwards, restarts and comes back on this row' : 'Land this row: fast-forward the app checkout onto it, restart coco, mark it landed (never pushes)'} disabled={landing} onClick={onLand}><Icon name="git-merge" size={14} /></button>}
         {dispatching && (
           <div className="dp-pop dp-on">
             <DispatchMenu slug={d.slug} prKey={key} personas={pr.personas} onClose={onClose} />
@@ -87,6 +92,9 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState(false);
   const [dispatching, setDispatching] = useState<string | null>(null);
+  const [landing, setLanding] = useState<string | null>(null);
+  const [pushing, setPushing] = useState<PushState | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
   const [width, setWidth] = useState(0);
   const [keeping, setKeeping] = useState(false);
   const restack = d.overview?.works.find((x) => x.slug === d.slug)?.progress.restack;
@@ -147,7 +155,33 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
       onOpen(selected);
     } else if (e.key === 'Escape') setDispatching(null);
   };
-
+  // a repo set to land "auto": the press fast-forwards the app checkout onto the row and restarts coco; the boot that answers marks it landed
+  const auto = d.work.w?.land === 'auto';
+  const landRow = (key: string) => {
+    setLanding(key);
+    api.landRow(d.slug, key).then(
+      (rec) => toast.success(`Landing ${rec.row}: coco fast-forwards ${rec.base} onto ${rec.sha.slice(0, 7)}, restarts, and marks it landed once it answers there.`),
+      (e) => {
+        setLanding(null);
+        toast.error(errorMessage(e));
+      },
+    );
+  };
+  const push = () => {
+    setPushBusy(true);
+    api.push(d.slug).then(
+      (r) => {
+        setPushBusy(false);
+        setPushing(null);
+        toast.success(r.detail || 'pushed');
+        void d.work.load(true);
+      },
+      (e) => {
+        setPushBusy(false);
+        toast.error(errorMessage(e));
+      },
+    );
+  };
   const base = d.prs.find((p) => p.base)?.base;
   const title = d.work.w?.title;
   return (
@@ -160,7 +194,18 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
         <span className="dp-sp" />
         {!narrow && <span className="dp-xs dp-t3 dp-num dp-counts">{[done - landed && `${done - landed} merged`, landed && `${landed} landed`, open && `${open} open`, planned && `${planned} planned`].filter(Boolean).join(' · ')}</span>}
         {restack && <button type="button" className="dp-btn dp-sm dp-restack" title="A parent PR merged: its children still sit on the old base" onClick={() => setKeeping(true)}><Icon name="git-branch" size={12} />Restack…</button>}
+        {auto && <button type="button" className="dp-btn dp-sm" title="See what the default branch is ahead of its remote, then push on your press: a landing never pushes" onClick={() => void api.pushState(d.slug).then(setPushing, (e) => toast.error(errorMessage(e)))}><Icon name="send" size={12} />Push main</button>}
       </div>
+      {pushing && (
+        <div className="dp-box dp-push">
+          <b>{pushing.error || `${pushing.commits.length} commit${pushing.commits.length === 1 ? '' : 's'} to ${pushing.remote}/${pushing.branch}`}</b>
+          {pushing.commits.slice(0, 12).map((c) => <div key={c.sha} className="dp-xs"><span className="dp-num dp-t3">{c.sha}</span> {c.subject}</div>)}
+          <div className="dp-row">
+            {!pushing.error && Boolean(pushing.commits.length) && <button type="button" className="dp-btn dp-sm dp-primary" disabled={pushBusy} onClick={push}>{pushBusy ? 'Pushing…' : `Push ${pushing.commits.length} commit${pushing.commits.length === 1 ? '' : 's'}`}</button>}
+            <button type="button" className="dp-btn dp-ghost dp-sm" disabled={pushBusy} onClick={() => setPushing(null)}>Close</button>
+          </div>
+        </div>
+      )}
       {keeping && <StackKeeper slug={d.slug} onClose={() => setKeeping(false)} onChange={() => { d.work.load(); void reloadOverview(); }} />}
       <div className="dp-stack-head">
         <div className="dp-grow">
@@ -180,7 +225,7 @@ export default function StackView({ d, selected, onSelect, onOpen }: { d: Previe
         if (item.kind === 'fold') return <div key="fold" className="dp-srow dp-more" onClick={() => setExpanded(false)}><span className="dp-ix"><Icon name="chevron-down" size={12} /></span><span>Fold planned</span></div>;
         if (item.kind === 'more') return <div key="more" className="dp-srow dp-more" onClick={() => setExpanded(true)}><span className="dp-ix"><Icon name="chevron-right" size={12} /></span><span className="dp-ell">+{item.hidden.length} planned <span className="dp-t4">· {item.hidden.slice(0, 3).map(prTitle).join(', ')}{item.hidden.length > 3 ? ', …' : ''}</span></span></div>;
         const key = prKey(item.pr);
-        return <Row key={`${key}-${item.index}`} d={d} pr={item.pr} index={item.index} step={steps[key] ?? null} working={working.has(key)} selected={key === selected} narrow={narrow} dispatching={dispatching === key} onSelect={() => onSelect(key)} onOpen={() => onOpen(key)} onDispatch={() => setDispatching(dispatching === key ? null : key)} onClose={() => setDispatching(null)} />;
+        return <Row key={`${key}-${item.index}`} d={d} pr={item.pr} index={item.index} step={steps[key] ?? null} working={working.has(key)} selected={key === selected} narrow={narrow} dispatching={dispatching === key} landing={landing === key} auto={auto} onSelect={() => onSelect(key)} onOpen={() => onOpen(key)} onDispatch={() => setDispatching(dispatching === key ? null : key)} onClose={() => setDispatching(null)} onLand={() => landRow(key)} />;
       })}
       {items.length === 0 && <div className="dp-sdiv">{d.work.w ? 'Nothing here' : 'Loading…'}</div>}
     </div>

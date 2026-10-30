@@ -261,7 +261,12 @@ export type Work = {
 };
 export type SpunOffWork = { slug: string; title: string; archived: boolean; next: string | null; nextAt: string | null; createdAt: string | null };
 export type WorkLineage = { parentWork?: { slug: string; title: string; archived: boolean } | null; spunOff?: SpunOffWork[]; lessons?: { repo: string; count: number } | null };
-export type WorkDetail = Work & WorkLineage & { prs: PrInfo[]; artifacts: Artifact[]; notionStatus: NotionStatus; fetchedAt: string; land?: 'pr' | 'main' };
+export type WorkDetail = Work & WorkLineage & { prs: PrInfo[]; artifacts: Artifact[]; notionStatus: NotionStatus; fetchedAt: string; land?: 'pr' | 'main' | 'auto' };
+// a row landing itself on a repo whose land setting is "auto" (server/landed.ts): 'landing' until the boot that answers on its sha marks it
+export type LandRec = { work: string; row: string; label: string; base: string; branch: string | null; sha: string; previous: string; at: string; by: 'agent' | 'owner'; state: 'landing' | 'landed' | 'rolled-back'; detail: string | null };
+// the commits the default branch is ahead of its remote, listed before its own press pushes them
+export type PushState = { branch: string; remote: string | null; commits: { sha: string; subject: string }[]; error: string | null };
+export type PushResult = { pushed?: boolean; count?: number; remote?: string | null; detail?: string };
 export type WorkPlan = Work & { prs: PlanPr[] };
 export type NotionStatus = { running?: boolean; [key: string]: unknown };
 export type NotionResult = { error?: string; [key: string]: unknown };

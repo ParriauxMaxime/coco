@@ -522,6 +522,34 @@ server.tool('mark_row_landed', `Say a planned row shipped straight to the defaul
   return r.ok ? text(r.data) : refused(`landed refused: ${r.error}`);
 });
 
+const LAND_WAIT_MS = 180_000;
+// the string fields of coco's own JSON reply, nothing assumed about its shape
+const fieldsOf = (data: unknown, keys: string[]) => (!data || typeof data !== 'object' ? {} : Object.fromEntries(Object.entries(data).filter(([k, v]) => keys.includes(k) && typeof v === 'string')));
+const runningOf = (data: unknown) => fieldsOf(data, ['running']).running ?? '';
+const lastLandingOf = (data: unknown) => (!data || typeof data !== 'object' ? {} : fieldsOf('last' in data ? data.last : null, ['state', 'detail']));
+server.tool('land_row', `Land a planned row on a repo whose land setting is "auto": the same press the row menu makes. Coco checks the app checkout is clean (naming the paths) and the row's branch a fast-forward of the default branch (naming the rebase), merges it --ff-only, restarts coco, and marks the row landed only once the restarted server reports that sha; a server that does not answer within three minutes is fast-forwarded back and restarted on the sha it ran before. The row then reads landed (stack, Overview, Notion) with no PR. It never pushes: pushing main is a separate press ${OWNER} makes. A refusal names the fix.`, {
+  work: workArg,
+  row: z.union([z.number(), z.string()]).optional().describe("the row's planned order (get_work), or its branch; default this agent's row"),
+}, async ({ work: slugIn, row }) => {
+  const t = await target(slugIn);
+  if (!t.slug) return refused(NO_WORK);
+  if (row == null && !t.pr) return refused('no row: pass row (its planned order or branch); this agent carries no PR label');
+  const r = await coco('POST', `/api/works/${t.slug}/land`, { row: row ?? t.pr, by: 'agent' });
+  if (!r.ok) return refused(`land refused: ${r.error}`);
+  const rec = fieldsOf(r.data, ['row', 'sha', 'base', 'previous']);
+  if (!rec.sha) return refused('land refused: coco answered without the commit it landed on');
+  // the restart is under way: the row is landed by the server that answers on its sha, never before
+  for (const until = Date.now() + LAND_WAIT_MS; Date.now() < until; await sleep(1000)) {
+    const s = await coco('GET', '/api/server', undefined, 'application/json', 3000);
+    if (!s.ok || runningOf(s.data) !== rec.sha) continue;
+    const m = await coco('POST', `/api/works/${t.slug}/landed`, { row: rec.row, sha: rec.sha, by: 'agent' });
+    return m.ok ? text({ landed: rec.row, sha: rec.sha, base: rec.base, detail: `coco runs ${rec.sha.slice(0, 7)}: the row is landed` }) : refused(`landed refused: ${m.error}`);
+  }
+  const last = await coco('GET', `/api/works/${t.slug}/land`, undefined, 'application/json', 3000);
+  const state = last.ok ? lastLandingOf(last.data) : {};
+  return refused(`coco did not answer on ${rec.sha.slice(0, 7)} within three minutes (${state.state ?? 'no landing record'}${state.detail ? `: ${state.detail}` : ''}): it is fast-forwarded back to ${rec.previous?.slice(0, 7) ?? 'the commit it ran before'} and restarted on it. Nothing is pushed.`);
+});
+
 server.tool('pair_link', `A one-time link that pairs ${OWNER}'s phone with coco while ${OWNER} is away from the Mac: the same code Settings > Devices shows, good once within five minutes. Returns url (the first address a phone reaches coco under), others (the same code on the other addresses), expiresAt and a note; hand ${OWNER} the url as is.`, {
   apk: z.boolean().optional().describe('true: after pairing, the link downloads the Android app'),
 }, async ({ apk }) => {

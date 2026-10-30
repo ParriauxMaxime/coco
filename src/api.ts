@@ -9,7 +9,7 @@ import type {
 import type { Card, CardAnswerBody, DriftResponse, Job, ServerInfo } from './types.ts';
 import type { UploadRef, WaitingAction, WaitingView } from './types.ts';
 import type { AgentCommand, AgentInfo, AgentModes, AgentPrompt, McpServerInfo, McpServers, ModelCatalog, ModelChoice, NewAgentBody, NewAgentPlaces, NewAgentStarted, ProviderUsage } from './types.ts';
-import type { AgentHandoffs, Handoff, HandoffBody } from './types.ts';
+import type { AgentHandoffs, Handoff, HandoffBody, LandRec, PushResult, PushState } from './types.ts';
 import type { FsEntry, FsFile, GitCommit, GitFile, GitPr, GitStatus, GitTexts } from './types.ts';
 import type { BrowserTab, WorkspaceScript, WorkspaceTerminal } from './types.ts';
 import type { ScheduleInput, ScheduleRun, ScheduleView, SchedulesResponse } from '../server/schedule-view.ts';
@@ -221,6 +221,12 @@ export const api = {
   kit: (slug: string, n: string | number) => get<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`),
   kitScope: (slug: string, n: string | number, pieces: Record<string, boolean>) => post<KitResponse>(`${works(slug)}/kit/${encodeURIComponent(n)}`, { pieces, by: 'owner' } satisfies { pieces: Record<string, boolean>; by: KitScope['by'] }),
   landed: (slug: string, row: string | number, clear = false) => postJson(`${works(slug)}/landed`, { row, by: 'owner', clear }).then((r) => jsonOrError<{ key: string | number | null; landed: Landed | null }>(r)),
+  // a row lands itself: fast-forward the checkout, restart coco, mark it landed on the boot that answers (server/landed.ts)
+  landRow: (slug: string, row: string | number) => postJson(`${works(slug)}/land`, { row, by: 'owner' }).then((r) => jsonOrError<LandRec>(r)),
+  landing: (slug: string) => get<{ last: LandRec | null }>(`${works(slug)}/land`),
+  // the commits the default branch is ahead of its remote, then the push of its own press
+  pushState: (slug: string) => get<PushState>(`${works(slug)}/push`),
+  push: (slug: string) => postJson(`${works(slug)}/push`, {}).then((r) => jsonOrError<PushResult>(r)),
   decide: (slug: string, body: Record<string, unknown>) => post<Work['decisions']>(`${works(slug)}/decisions`, body),
   importArtifact: (slug: string, body: ImportArtifactBody) => post<ImportedArtifact>(`${works(slug)}/artifacts`, body),
   suggestPersonas: (slug: string, pr: string | number | null) => get<PersonaSuggestion>(`${works(slug)}/personas-suggest${pr ? `?pr=${pr}` : ''}`),

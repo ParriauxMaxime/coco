@@ -90,7 +90,7 @@ import { rowKey } from './stack.ts';
 import type { Req, Res, RowKey, RunResult, Work } from './core-types.ts';
 import { cacheFile, mapLimit, swrCache } from './swr.ts';
 import { backfillParents, nextSummary } from './lineage.ts';
-import { backfillLanded, branchlessRows } from './landed.ts';
+import { backfillLanded, branchlessRows, createLanding } from './landed.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
@@ -152,6 +152,27 @@ works.hooks.placeWork = (slug) => placement.place({ kind: 'work', slug });
 works.hooks.forgetWork = (work) => placement.forgetWork(work);
 const ask = createAsk({ DATA, APP, REPO, config, works, agents: paseoAgents, place: (scope, pr) => placement.place(scope.kind === 'work' && pr != null ? { kind: 'row', slug: scope.slug, key: pr, edits: true } : scope), dispatch: (slug, input) => dispatch.enqueue(slug, input).done, preflight: async (slug, entry, key) => (isVideoEntry(entry) ? preflight.run(slug, key) : null), addRepo: (source) => repoAdder.add(source), uploads, cards: () => cards, models });
 const rules = createRules({ DATA, config, works, ask });
+
+// a finished row on a repo set to land "auto" lands itself: the checkout fast-forwards, coco restarts, and the boot that answers marks it
+const landing = createLanding({
+  DATA,
+  APP,
+  url: config.baseUrl,
+  gitOf: (slug) => works.gitOf(works.get(slug)),
+  stackOf: (slug) => works.get(slug)?.stack || [],
+  restart: async () => self.restart(),
+  running: async () => self.info().running,
+  marked: (rec) => works.land(rec.work, { row: rec.row, sha: rec.sha, by: rec.by }),
+});
+// the commits the default branch is ahead of its remote, and the push that sends them: never part of a landing, one press of its own
+async function pushState(slug: string) {
+  const { git, base } = works.gitOf(works.get(slug));
+  const up = (await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])).stdout.trim();
+  if (!up) return { branch: base, remote: null, commits: [] as { sha: string; subject: string }[], error: `${base} tracks no remote: set its upstream first` };
+  const log = (await git(['log', '--format=%h\t%s', `@{u}..refs/heads/${base}`])).stdout.trim();
+  const commits = log ? log.split('\n').map((l) => ({ sha: l.split('\t')[0], subject: l.split('\t').slice(1).join('\t') })) : [];
+  return { branch: base, remote: up.split('/')[0], commits, error: null };
+}
 const inbox = createInbox({ config, ask });
 const repoOf = repos.repoFor;
 const code = createCode({ REPO, config, works, repoOf });
@@ -371,6 +392,8 @@ works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
 void paseoHealth.boot().then(sweepArchivedCards).then(() => jobs.rearm(rearmJob)).catch((e) => console.error(`jobs rearm: ${errorMessage(e)}`));
 setInterval(sweepArchivedCards, 10 * 60 * 1000);
+// a landing the last restart left open settles on this boot: on the row's sha it is marked landed, on another commit it is fast-forwarded back
+void landing.settle().then((recent) => recent.length && console.log(`landing: ${recent.map((r) => `${r.row} ${r.state}`).join(', ')}`), (e) => console.error(`landing settle: ${errorMessage(e)}`));
 agentChecks.resume(threads.codeWorktrees()).catch((e) => console.error(`agent worktrees: ${errorMessage(e)}`));
 spares.start().catch((e) => console.error(`spare worktrees: ${errorMessage(e)}`));
 const sweepGroups = () =>
@@ -710,6 +733,28 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'works' && b === 'briefs') return briefs.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'kit') return kit.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'drift') return drift.handle(req, res, parts, readBody, send);
+    // a row lands itself: the same route the land_row tool and the row menu press
+    if (root === 'works' && a && b === 'land') {
+      if (req.method === 'GET') return send(res, 200, { last: landing.of(a) });
+      if (req.method !== 'POST') return send(res, 405, { error: 'GET or POST /api/works/<slug>/land' });
+      try {
+        return send(res, 200, await landing.land(a, JSON.parse((await readBody(req)) || '{}')));
+      } catch (e) {
+        return send(res, httpStatus(e), { error: errorMessage(e) });
+      }
+    }
+    // pushed by its own press, never by a landing: the commits first, then the push
+    if (root === 'works' && a && b === 'push') {
+      if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: 'GET or POST /api/works/<slug>/push' });
+      const state = await pushState(a);
+      if (req.method === 'GET') return send(res, 200, state);
+      if (state.error) return send(res, 409, { error: state.error });
+      if (!state.commits.length) return send(res, 200, { pushed: false, detail: `nothing to push: ${state.branch} is level with ${state.remote}` });
+      const { git, base } = works.gitOf(works.get(a));
+      const pushed = await git(['push', state.remote || 'origin', `refs/heads/${base}`]);
+      if (!pushed.ok) return send(res, 502, { error: (pushed.stderr || pushed.stdout).trim().slice(-400) || 'git push failed' });
+      return send(res, 200, { pushed: true, count: state.commits.length, remote: state.remote, detail: `pushed ${state.commits.length} commit${state.commits.length === 1 ? '' : 's'} to ${state.remote}/${state.branch}` });
+    }
     if (root === 'works' && b === 'stack-keeper') return stackKeeper.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'gates') return gates.handle(req, res, parts, readBody, send);
     if (root === 'cards' || (root === 'agent-chat' && b === 'cards')) return cards.handle(req, res, parts, readBody, send);
