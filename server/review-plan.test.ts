@@ -191,8 +191,8 @@ test('get_work is slim by default: summary, stack rows with branch and title, de
   const facts = { 6: { branch: 'feat/b', title: 'Button', state: 'OPEN' } };
   const slim = slimWork(work, [], facts, ['brief.md']);
   assert.deepEqual(slim.stack, [
-    { number: 5, branch: 'feat/a', title: 'Endpoint', state: null, notionPage: { url: 'https://n/1', title: 'PR 1' } },
-    { number: 6, branch: 'feat/b', title: 'Button', state: 'OPEN', notionPage: null },
+    { key: 5, number: 5, branch: 'feat/a', title: 'Endpoint', state: null, notionPage: { url: 'https://n/1', title: 'PR 1' } },
+    { key: 6, number: 6, branch: 'feat/b', title: 'Button', state: 'OPEN', notionPage: null },
   ]);
   assert.deepEqual(slim.decisions, [{ id: 'd1', title: 'Format', status: 'taken', summary: 'CSV' }, { id: 'd2', title: 'Eviction', status: 'open' }]);
   assert.equal(slim.recentNotes.length, 5);
