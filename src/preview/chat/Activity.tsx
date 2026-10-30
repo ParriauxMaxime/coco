@@ -172,7 +172,7 @@ export default function Activity({ events, active = false, issues: offer = false
       {perTool ? (
         <>
           {groupCallsByTool(calls).map((g, gi) => (
-            <Row key={`t${gi}`} icon="wrench" label={`${g.name} · ${g.name.includes('.') ? `${g.calls.length} call${g.calls.length > 1 ? 's' : ''}` : tallyLabel(g.counts)}`} running={active && g.calls.some((c) => c.status === 'running')} open={open[`t${gi}`]} onToggle={() => toggle(`t${gi}`)}>
+            <Row key={`t${gi}`} icon="wrench" label={`${g.name} · ${g.mcp || g.name === 'browser' ? `${g.calls.length} call${g.calls.length > 1 ? 's' : ''}` : tallyLabel(g.counts)}`} running={active && g.calls.some((c) => c.status === 'running')} open={open[`t${gi}`]} onToggle={() => toggle(`t${gi}`)}>
               {g.calls.map((c, j) => <Call key={c.id || j} c={c} active={active} />)}
             </Row>
           ))}

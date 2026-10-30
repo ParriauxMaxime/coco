@@ -54,20 +54,28 @@ export function countCalls(calls: ActivityEvent[]): CallCounts {
 }
 
 const GROUPS: Record<string, string> = { shell: 'bash', read: 'read', edit: 'edit', write: 'write', search: 'search', fetch: 'fetch' };
-// the tool a call belongs to, for the log's rows per tool: bash, read, edit, search, or an MCP tool by name (coco.ask)
-export const callGroupOf = (call: ActivityEvent) => {
-  const named = toolLabel(call.name);
-  if (named && named.includes('.')) return named;
-  return GROUPS[kindOf(call)] || named || kindOf(call);
+// Paseo names an MCP tool "server / tool"; coco's own logs keep the mcp__server__tool form
+const mcpServer = (name?: string) => {
+  const raw = String(name ?? '');
+  if (raw.includes(' / ')) return raw.split(' / ')[0];
+  const named = toolLabel(name);
+  return named?.includes('.') ? named.split('.')[0] : '';
 };
-// calls grouped by the tool they used, in the order their tools first appear
+// the tool a call belongs to, for the log's rows per tool: bash, read, edit, search, fetch, an MCP server (cocopilot), the browser
+export const callGroupOf = (call: ActivityEvent) => {
+  const server = mcpServer(call.name);
+  if (server) return server;
+  if (/^browser_/.test(String(call.name ?? ''))) return 'browser';
+  return GROUPS[kindOf(call)] || String(call.name ?? '') || kindOf(call);
+};
+// calls grouped by the tool they used, in the order their tools first appear; mcp: an MCP server's calls, counted rather than tallied
 export function groupCallsByTool(calls: ActivityEvent[]) {
-  const out: { name: string; calls: ActivityEvent[]; counts: CallCounts }[] = [];
+  const out: { name: string; calls: ActivityEvent[]; counts: CallCounts; mcp: boolean }[] = [];
   for (const c of calls) {
     const name = callGroupOf(c);
     const hit = out.find((g) => g.name === name);
     if (hit) hit.calls.push(c);
-    else out.push({ name, calls: [c], counts: countCalls([c]) });
+    else out.push({ name, calls: [c], counts: countCalls([c]), mcp: Boolean(mcpServer(c.name)) });
   }
   for (const g of out) g.counts = countCalls(g.calls);
   return out;
