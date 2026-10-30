@@ -4,6 +4,7 @@ import { peek, useResource } from '../../resource.ts';
 import type { Gate, GateActionBody, GatesResponse } from '../../types.ts';
 import { useAction, pendingClass } from '../../components/action.ts';
 import Checks from '../../components/Checks.tsx';
+import PersonaPicker from '../../components/PersonaPicker.tsx';
 import { ask } from '../../components/Dialogs.tsx';
 import { KitRedo } from './DriftPanel.tsx';
 import { JobButton } from '../../components/JobButton.tsx';
@@ -17,8 +18,9 @@ const POLL_MS = 60000;
 const MARK: Record<string, string> = { done: '✓', running: '●', skipped: '–', todo: '○' };
 const CHECKS = 'agent-checks';
 const CHECK_MARK: Record<string, string> = { passed: '✓', failed: '✕', unavailable: '–' };
+const PERSONA_ASK = 'Persona login';
 // a gate skill is a name, or { name, ask } when it takes "<answer> <pr>" as arguments
-export const skillSpec = (s: Gate['skills'][number]) => (typeof s === 'string' ? { name: s, ask: /review-as$/.test(s) ? 'Persona login' : '' } : { name: s.name, ask: s.ask || '' });
+export const skillSpec = (s: Gate['skills'][number]) => (typeof s === 'string' ? { name: s, ask: /review-as$/.test(s) ? PERSONA_ASK : '' } : { name: s.name, ask: s.ask || '' });
 
 // null: no PR to read milestones of
 export function useGates(slug: string, n: PrKey | null) {
@@ -31,7 +33,8 @@ export function useGates(slug: string, n: PrKey | null) {
   const act = (id: string, body: GateActionBody) => n !== null && go(`${id}:${body.action}`, async () => res.put(await api.gateAction(slug, n, id, body)));
   const run = async (id: string, s: Gate['skills'][number]) => {
     const { name, ask: question } = skillSpec(s);
-    const answer = question ? (await ask({ title: `/${name}`, fields: [question], ok: 'Run' }))?.[0] : '';
+    const field = question === PERSONA_ASK ? { placeholder: question, input: (value: string, set: (v: string) => void, autoFocus: boolean) => <PersonaPicker slug={slug} pr={n} value={value} onChange={set} autoFocus={autoFocus} /> } : question;
+    const answer = question ? (await ask({ title: `/${name}`, fields: [field], ok: 'Run' }))?.[0] : '';
     if (answer == null || (question && !answer.trim())) return;
     act(id, { action: 'run', skill: name, ...(question ? { args: `${answer.trim()} ${n}` } : {}) });
   };

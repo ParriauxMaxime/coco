@@ -4,7 +4,7 @@ import { useAction } from './action.ts';
 import { toast } from './Toast.tsx';
 import { Composer } from '../preview/chat/Composer.tsx';
 import { ModelControls, useModelChoice } from '../preview/chat/ModelPicker.tsx';
-import { loadPersonas } from '../preview/parts.tsx';
+import PersonaPicker from './PersonaPicker.tsx';
 import type { DispatchEntry, PreflightResult } from '../types.ts';
 import './parts.css';
 
@@ -32,7 +32,6 @@ const catalogOf = (slug: string) => {
 // pick a catalog agent (or a free prompt) and dispatch it; coco places it: read-only in the Plan workspace, the rest in the PR's own
 export default function DispatchMenu({ slug, prKey = null, rows = [], personas = [], initial, commentIdsFor, onClose }: Props) {
   const [entries, setEntries] = useState<DispatchEntry[] | null>(null);
-  const [known, setKnown] = useState<string[]>([]);
   const [id, setId] = useState(initial || 'ask');
   const [key, setKey] = useState<string>(prKey == null ? String(rows[0]?.key ?? '') : String(prKey));
   const [persona, setPersona] = useState(personas[0] || '');
@@ -42,7 +41,6 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
   const model = useModelChoice(`dispatch-${id}`, { fast: id === 'persona-review' });
   useEffect(() => {
     catalogOf(slug).then(setEntries, (e) => toast.error(errorMessage(e)));
-    loadPersonas().then((list) => setKnown(list.map((p) => p.login)));
   }, [slug]);
   const video = id.startsWith('gate:kit-video:') && key !== '';
   const [pre, setPre] = useState<PreflightResult | null>(null);
@@ -83,8 +81,7 @@ export default function DispatchMenu({ slug, prKey = null, rows = [], personas =
       </div>
       {entry.needsPersona && (
         <div className="dp-dsp-r">
-          <input className="dp-inp" list={`dispatch-personas-${slug}`} value={persona} placeholder="persona login" onChange={(e) => setPersona(e.target.value)} />
-          <datalist id={`dispatch-personas-${slug}`}>{[...new Set([...personas, ...known])].map((p) => <option key={p} value={p} />)}</datalist>
+          <PersonaPicker slug={slug} pr={onPr ? key : null} value={persona} onChange={setPersona} />
         </div>
       )}
       {video && (

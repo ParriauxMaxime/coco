@@ -104,3 +104,7 @@
 .dp-dsp-chk input { margin: 0; accent-color: var(--dp-accent); }
 .dp-dsp .dp-composer { padding: 0; }
 .dp-dsp .dp-composer-in { max-width: none; }
+.dp-pp { display: flex; flex-direction: column; gap: 4px; flex: 1 1 200px; min-width: 0; }
+.dp-pp-list { max-height: 216px; overflow: auto; padding: 4px 0; border: 1px solid var(--dp-line); border-radius: var(--dp-r3); background: var(--dp-panel); }
+.dp-pp-list .dp-mi { flex: none; }
+.dp-pp-medal { width: 16px; flex: none; text-align: center; }

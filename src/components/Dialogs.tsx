@@ -6,7 +6,8 @@ import { useUnsaved } from '../updates.ts';
 // In-app stand-ins for window.prompt / confirm, which the desktop app (Electron) does not show: each returns a promise.
 // ask({ title, fields }) → the values or null · confirmDialog({ title }) → true or false · choose({ title, choices }) → a choice's value or null
 type Choice<T> = { label: string; value: T; primary?: boolean; danger?: boolean };
-type Field = { placeholder: string; initial?: string };
+// input: a custom control in place of the text box
+type Field = { placeholder: string; initial?: string; input?: (value: string, set: (v: string) => void, autoFocus: boolean) => React.ReactNode };
 type Request = { id: number; title: string; body?: React.ReactNode; fields: Field[]; choices: Choice<unknown>[]; done: (value: unknown, values: string[]) => void };
 
 const useDialogs = create<{ list: Request[] }>(() => ({ list: [] }));
@@ -49,9 +50,12 @@ function Dialog({ req }: { req: Request }) {
       {req.body && <div>{req.body}</div>}
       {req.fields.length > 0 && (
         <form style={{ display: 'contents' }} onSubmit={(e) => { e.preventDefault(); req.done(main?.value ?? null, values); }}>
-          {req.fields.map((f, i) => (
-            <input key={f.placeholder} className="dp-inp" autoFocus={i === 0} value={values[i]} placeholder={f.placeholder} aria-label={f.placeholder} onChange={(e) => setValues((v) => v.map((x, j) => (j === i ? e.target.value : x)))} />
-          ))}
+          {req.fields.map((f, i) => {
+            const set = (value: string) => setValues((v) => v.map((x, j) => (j === i ? value : x)));
+            return f.input
+              ? <React.Fragment key={f.placeholder}>{f.input(values[i], set, i === 0)}</React.Fragment>
+              : <input key={f.placeholder} className="dp-inp" autoFocus={i === 0} value={values[i]} placeholder={f.placeholder} aria-label={f.placeholder} onChange={(e) => set(e.target.value)} />;
+          })}
           <button type="submit" hidden />
         </form>
       )}
