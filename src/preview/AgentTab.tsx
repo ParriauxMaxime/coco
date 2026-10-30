@@ -33,7 +33,7 @@ import { GitPanel, openWorkspaceCommit, useAgentWorkspace } from './GitPanel.tsx
 import { FilesPanel, openWorkspaceFile } from './FilesPanel.tsx';
 import { TerminalPanel } from './TerminalPanel.tsx';
 import { BrowserPanel, useAgentBrowser } from './BrowserPanel.tsx';
-import { ArchiveCountdown, RestoreButton, useArchiveOnLeave } from './AutoArchive.tsx';
+import { ArchiveCountdown, RestoreButton, markSent, useArchiveOnLeave } from './AutoArchive.tsx';
 
 const NEW = 'ask-new-';
 export const newAgentPr = (tabId: string) => (tabId.startsWith(NEW) ? tabId.slice(NEW.length) : null);
@@ -109,7 +109,7 @@ export function AskAgentTab({ tabId }: { tabId: string }) {
   const base = listed ? stateOf(listed, asked) : 'done';
   const state = working && base !== 'waiting' ? 'running' : base;
   const askAgent = run?.agentId ?? listed?.agentId;
-  useArchiveOnLeave(slug, askAgent, listed, working || Boolean(askAgent && asked[askAgent]) || cards.some((c) => c.status === 'open'));
+  useArchiveOnLeave(slug, tabId, askAgent, listed, working || Boolean(askAgent && asked[askAgent]) || cards.some((c) => c.status === 'open'));
   return (
     <div ref={seen} className="dp-tabview dp-agtab">
       <Header title={listed?.title || run?.title || run?.prompt?.split('\n')[0] || 'Ask coco'} kind="ask" pr={run?.pr == null ? null : String(run.pr)} state={state} agentId={run?.agentId ?? listed?.agentId ?? null} metrics={listed} />
@@ -163,6 +163,7 @@ function useAgentChat(agentId: string) {
     const nonce = nonceOf();
     setPending((p) => [...p, { nonce, text, ...(files.length ? { attachments: files } : {}) }]);
     try {
+      markSent(agentId);
       await api.agentSay(agentId, text, files.map((f) => f.id), pick);
       return true;
     } catch (e) {
@@ -242,7 +243,7 @@ export function PaseoAgentTab({ tabId }: { tabId: string }) {
     ...(browserTabs.length ? [BROWSER] : []),
   ];
   const toApprove = keys.reduce((n, k) => n + (summaries[k].open ?? 0), 0);
-  useArchiveOnLeave(slug, agentId, listed, toApprove > 0 || Boolean(asked[agentId]));
+  useArchiveOnLeave(slug, tabId, agentId, listed, toApprove > 0 || Boolean(asked[agentId]));
   const commits = <CommitBadges keys={keys} summaries={summaries} className="dp-ag-pend" />;
   const pinned = <>{commits}{!toApprove && listed?.autoArchive && state !== 'archived' && <ArchiveCountdown agentId={agentId} turn={listed.updatedAt} />}</>;
   const actions = <>{group?.status === 'active' && <GroupActions slug={slug} group={group} keys={keys} summaries={summaries} />}{state === 'archived' && !group && <RestoreButton agentId={agentId} />}</>;

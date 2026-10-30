@@ -9,23 +9,30 @@ import type { Activity, Signal } from './signals.ts';
 import { workHref } from './prefs.ts';
 
 const STEP_MS = 10000;
+// each read spawns `paseo logs` on the server: one in flight per agent, and a read younger than the poll is reused
 const steps = new Map<string, { at: number; step: string | null }>();
+const reading = new Map<string, Promise<string | null>>();
+const readStep = (agentId: string) => {
+  const hit = steps.get(agentId);
+  if (hit && Date.now() - hit.at < STEP_MS - 1000) return Promise.resolve(hit.step);
+  const running = reading.get(agentId);
+  if (running) return running;
+  const p = api.agentActivity(agentId).then((r) => (r.ok ? lastStep(r.out) : null), () => hit?.step ?? null).then((s) => {
+    steps.set(agentId, { at: Date.now(), step: s });
+    reading.delete(agentId);
+    return s;
+  });
+  reading.set(agentId, p);
+  return p;
+};
 
-// the step a running agent is on, read when its line shows and again after 10 s
+// the step a running agent is on, read when its line shows and every 10 s while it does
 function useStep(agentId: string | null) {
   const [step, setStep] = useState(() => (agentId ? steps.get(agentId)?.step ?? null : null));
   useEffect(() => {
     if (!agentId) return undefined;
     let live = true;
-    const read = () => {
-      const hit = steps.get(agentId);
-      if (hit && Date.now() - hit.at < STEP_MS) return setStep(hit.step);
-      api.agentActivity(agentId).then((r) => {
-        const s = r.ok ? lastStep(r.out) : null;
-        steps.set(agentId, { at: Date.now(), step: s });
-        if (live) setStep(s);
-      }, () => {});
-    };
+    const read = () => { void readStep(agentId).then((s) => { if (live) setStep(s); }); };
     read();
     const t = setInterval(read, STEP_MS);
     return () => { live = false; clearInterval(t); };
@@ -49,7 +56,7 @@ const since = (a: Activity) => {
 function Line({ a }: { a: Activity }) {
   const step = useStep(a.kind === 'agent' ? a.agentId : null);
   return (
-    <button type="button" className="dp-sigl" onClick={() => openActivity(a)} title={a.kind === 'agent' ? 'Open the agent' : a.agentId ? 'Open the agent it starts' : 'Open Jobs'}>
+    <button type="button" className="dp-sigl" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openActivity(a); }} title={a.kind === 'agent' ? 'Open the agent' : a.agentId ? 'Open the agent it starts' : 'Open Jobs'}>
       <Icon name={a.kind === 'agent' ? 'bot' : 'activity'} size={14} />
       <span className="dp-sigl-b">
         <span className="dp-ell dp-sigl-t">{a.label}</span>
@@ -65,7 +72,7 @@ function Pop({ running, at, titles, onEnter, onLeave }: { running: Activity[]; a
   const left = Math.min(at.right + 8, innerWidth - 336);
   const top = Math.max(8, Math.min(at.top - 10, innerHeight - 40 - running.length * 44 - works.length * 24));
   return (
-    <div className="dp-sigpop" style={{ left, top }} role="dialog" aria-label="Running" onMouseEnter={onEnter} onMouseLeave={onLeave}>
+    <div className="dp-sigpop" style={{ left, top }} role="dialog" aria-label="Running" onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
       <div className="dp-sigpop-h">{running.length} running</div>
       {works.map((w) => (
         <React.Fragment key={w}>
@@ -98,7 +105,8 @@ function Spinner({ running, titles }: { running: Activity[]; titles?: (slug: str
         onMouseLeave={hide}
         onFocus={show}
         onBlur={hide}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (at) setAt(null); else show(); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); show(); }}
+        onKeyDown={(e) => { if (e.key === 'Escape') setAt(null); if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); show(); } }}
       >
         <span className="dp-ag-dot dp-ag-running dp-thr-spin" />
         {running.length > 1 && <span className="dp-sigspin-n">{running.length}</span>}

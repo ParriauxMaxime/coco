@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addSignals, isQuiet, lastStep, ownPart, rowsTotal, workSignals, workTotal } from './signals.ts';
+import { addSignals, byWork, isQuiet, lastStep, ownPart, rowsTotal, workSignals, workTotal } from './signals.ts';
 import type { Job, WorkAgent } from '../types.ts';
 
 const agent = (x: Partial<WorkAgent>): WorkAgent => ({ id: 'a', agentId: 'a', askId: null, kind: 'agent', title: 'Fix', pr: null, status: 'running', updatedAt: '2026-10-30T00:00:00Z', openCards: 0, promptTokens: null, systemTokens: null, inputTokens: null, costUsd: null, ...x });
@@ -45,6 +45,12 @@ test('an unfolded row keeps its jobs, its failures and the items no agent row un
   assert.deepEqual(own.running.map((a) => a.id), ['j1']);
   assert.equal(own.waiting, 1);
   assert.equal(own.failed, 1);
+});
+
+test('jobs and waiting items group by work, those of no work left out', () => {
+  const by = byWork([job({ id: 'a', work: 'w' }), job({ id: 'b', work: 'x' }), job({ id: 'c', work: 'w' }), job({ id: 'd', work: null })]);
+  assert.deepEqual([...by.keys()], ['w', 'x']);
+  assert.deepEqual(by.get('w')?.map((j) => j.id), ['a', 'c']);
 });
 
 test('the step a running agent is on is its last tool line, thoughts left out', () => {

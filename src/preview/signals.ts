@@ -48,6 +48,13 @@ export function workSignals(w: Pick<WorkSummary, 'slug'> & { rows?: RowState[] }
   return out;
 }
 
+// jobs or waiting items by work, so each work's signals read only its own
+export function byWork<T extends { work: string | null }>(list: T[]) {
+  const out = new Map<string, T[]>();
+  for (const x of list) if (x.work) out.set(x.work, [...(out.get(x.work) ?? []), x]);
+  return out;
+}
+
 // everything under a work, for its folded row or its repo's
 export const workTotal = (s: WorkSignals) => addSignals([...s.values()]);
 

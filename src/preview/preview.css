@@ -697,4 +697,5 @@ html[data-theme="dark"] .dp .dp-th-moon, html[data-theme="light"] .dp .dp-th-sun
   .dp-agent-log-in > * { animation: dp-fade-in .16s ease-out; }
 }
 @keyframes dp-ag-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--dp-warn) 8%, transparent); } }
-@media (max-width: 900px) { .dp .dp-ag-bin, .dp-row-add { display: inline-flex; } }
+/* no hover to reveal them: a phone, a narrow window or a touch screen of any size */
+@media (max-width: 900px), (hover: none) { .dp .dp-ag-bin, .dp-row-add { display: inline-flex; } .dp-repo-go, .dp-work-more { opacity: 1; } }

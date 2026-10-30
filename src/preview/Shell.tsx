@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
 import WaitingList from './WaitingList.tsx';
 import { useOverview } from './overview.ts';
@@ -11,7 +11,7 @@ import { useWaiting } from './waiting.ts';
 import { useJobs } from '../jobs.ts';
 import { useAllWorkAgents } from './agents.ts';
 import SignalBadges from './SignalBadges.tsx';
-import { NO_SIGNAL, addSignals, ownPart, workSignals, workTotal } from './signals.ts';
+import { NO_SIGNAL, addSignals, byWork, ownPart, workSignals, workTotal } from './signals.ts';
 import type { Signal } from './signals.ts';
 import { WorkViews } from './WorkSidebar.tsx';
 import { CHOICES, useBetaPanel, usePersistedList, usePrefs, workHref } from './prefs.ts';
@@ -143,6 +143,8 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
   const repoOfSlug = slug ? works.get(slug)?.repo : undefined;
   // the open work shows unfolded without being saved so; a fold or unfold by hand during the visit is saved and wins
   const [touched, setTouched] = useState<{ slug?: string; work?: boolean; repo?: boolean }>({});
+  // a new visit starts untouched, back to a work seen before included
+  if (touched.slug && touched.slug !== slug) setTouched({});
   const mine = touched.slug === slug ? touched : {};
   const repoOpen = (id: string) => repo !== undefined || !folded.includes(id) || (id === repoOfSlug && !mine.repo);
   const workOpen = (s: string) => expanded.includes(s) || (s === slug && !mine.work);
@@ -160,7 +162,11 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
   const agentsBy = useAllWorkAgents();
   const queue = useWaiting();
   const jobs = useJobs();
-  const signals = new Map([...works.values()].map((w) => [w.slug, workSignals(w, agentsBy[w.slug]?.agents || [], queue?.items || [], jobs)]));
+  const signals = useMemo(() => {
+    const jobsOf = byWork(jobs);
+    const waitingOf = byWork(queue?.items || []);
+    return new Map((ov?.works || []).map((w) => [w.slug, workSignals(w, agentsBy[w.slug]?.agents || [], waitingOf.get(w.slug) || [], jobsOf.get(w.slug) || [])]));
+  }, [ov?.works, agentsBy, queue, jobs]);
   const titleOf = (s: string) => works.get(s)?.title ?? s;
   return (
     <>
@@ -169,7 +175,7 @@ function WorkTree({ ov, slug, views, repo }: { ov: Overview | null; slug?: strin
         return (
           <React.Fragment key={r.id}>
             {!repo && (
-              <div role="button" tabIndex={0} aria-expanded={open} className={`dp-repo dp-repo-fold${open ? '' : ' dp-folded'}`} title={open ? `Fold ${r.name}` : `Unfold ${r.name}`} onClick={() => flipRepo(r.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flipRepo(r.id); } }}>
+              <div role="button" tabIndex={0} aria-expanded={open} className={`dp-repo dp-repo-fold${open ? '' : ' dp-folded'}`} title={open ? `Fold ${r.name}` : `Unfold ${r.name}`} onClick={() => flipRepo(r.id)} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); flipRepo(r.id); } }}>
                 <span className={`dp-caret${open ? ' dp-open' : ''}`}><Icon name="chevron-right" size={12} /></span>
                 <Icon name="git-branch" size={14} /><span className="dp-ell">{r.name}</span>
                 {!open && <SignalBadges s={addSignals(r.works.map((s) => workTotal(signals.get(s) ?? new Map())))} titles={titleOf} />}
