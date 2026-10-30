@@ -68,6 +68,7 @@ import { createModels, startThinking } from './models.ts';
 import { createMcpStatus } from './mcp-status.ts';
 import { createHub } from './events.ts';
 import { createJobs } from './jobs.ts';
+import type { Job } from './jobs.ts';
 import { createSelf } from './self.ts';
 import { SKIPPED, createCards, relaunchPrompt } from './cards.ts';
 import type { Card, CardAnswer } from './cards.ts';
@@ -368,7 +369,7 @@ events.topic('terminal', workspaceTerminals.watchTerminal);
 events.topic('dictation', dictation.watch);
 works.sweepArchive().catch(() => {});
 setInterval(() => works.sweepArchive().catch(() => {}), 10 * 60 * 1000);
-void paseoHealth.boot().then(sweepArchivedCards);
+void paseoHealth.boot().then(sweepArchivedCards).then(() => jobs.rearm(rearmJob)).catch((e) => console.error(`jobs rearm: ${errorMessage(e)}`));
 setInterval(sweepArchivedCards, 10 * 60 * 1000);
 agentChecks.resume(threads.codeWorktrees()).catch((e) => console.error(`agent worktrees: ${errorMessage(e)}`));
 spares.start().catch((e) => console.error(`spare worktrees: ${errorMessage(e)}`));
@@ -389,6 +390,33 @@ const sweepUploads = () => {
 };
 sweepUploads();
 setInterval(sweepUploads, SWEEP_AGE);
+
+// an analysis run a restart cut starts over once, through its own producer and untracked so its own record is the one that runs; a write run keeps its Retry
+async function rearmJob(job: Job) {
+  const slug = job.work;
+  if (!slug) throw new Error('it runs on no work: start it again from where it was started');
+  const key = job.pr == null ? null : parseKey(job.pr);
+  if (job.action === 'review-plan') {
+    if (key === null) throw new Error('no row to plan again');
+    await reviewPlan.start(slug, key, { track: false });
+    return 'started over: the plan agent runs again';
+  }
+  if (job.action === 'findings-collect') return `${(await findings.collect(slug, key)).rows.length} findings`;
+  if (job.action === 'github-refresh') {
+    await works.refresh(slug);
+    return 'refreshed from GitHub';
+  }
+  if (job.action.startsWith('gate:')) {
+    const [, id, skill] = job.action.split(':');
+    await gates.act(slug, String(job.pr), id, { action: 'run', skill, track: false });
+    return 'started over: the gate agent runs again';
+  }
+  const driftView = job.action.startsWith('drift:') ? await drift.view(slug) : null;
+  const item = driftView ? [...driftView.drift, ...driftView.next].find((i) => i.id === job.action.slice(6)) : null;
+  if (!item?.action || item.action.type !== 'run') throw new Error(`${job.action} cannot start over by itself`);
+  await drift.runItem(slug, item.id, item.action.command);
+  return 'run again';
+}
 ask.boot();
 permissions.boot();
 briefWriter.boot();

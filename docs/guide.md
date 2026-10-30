@@ -730,10 +730,15 @@ with 409 and the running job.
   (a worktree's dependency install, a repo add) are waited on by their caller:
   while the same one runs, a second request runs untracked rather than refused.
 - The last 50 jobs of each work are kept in `<dataDir>/jobs/<work>.json`. After
-  a restart, a command, a review plan or a Notion sync that was running is
-  lost; an agent job keeps following its agent; a spare worktree or an agent
-  worktree's install starts over on boot under a new job, its cut one dropped
-  from the list.
+  a restart, an agent job keeps following its agent; a spare worktree or an
+  agent worktree's install starts over on boot under a new job, its cut one
+  dropped from the list. An **analysis** run a restart cut (`review-plan`,
+  `findings-collect`, `github-refresh`, `gate:…`, and a drift `push`) starts
+  over **once** on its own record, only after Paseo answers (`jobs.rearm`,
+  `rearmJob` in `server/index.ts`), so two plan reviews are no longer lost to
+  a restart; a run a second restart cuts stays `lost` ("coco restarted twice
+  while it ran: start it again"). A **write** run — `fix-findings`, a rebase
+  or a base reset, any other command — keeps its Retry and is never replayed.
 
 Each action button stands for its job: a running chip with the elapsed time
 that opens the agent, then a ✓ for a minute, or a failure with Retry and

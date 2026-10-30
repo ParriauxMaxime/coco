@@ -303,11 +303,12 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
     return { refs, files, cats: await categories(repo, refs, files) };
   }
 
-  async function start(slug: string, n: RowKey, { guidance = '' }: { guidance?: unknown } = {}) {
+  // track: false when a re-arm already owns the job record this run fills
+  async function start(slug: string, n: RowKey, { guidance = '', track = true }: { guidance?: unknown; track?: boolean } = {}) {
     const k = `${slug}:${n}`;
     if (live.get(k)?.status === 'running' || starting.has(k)) return { ok: true, running: true };
     starting.add(k);
-    const tracked = deferredJob(jobs, { work: slug, pr: n, action: 'review-plan', label: `Plan review ${keyLabel(n)}`, kind: 'agent', settle: 'promise' });
+    const tracked = deferredJob(track ? jobs : null, { work: slug, pr: n, action: 'review-plan', label: `Plan review ${keyLabel(n)}`, kind: 'agent', settle: 'promise' });
     const work = works.get(slug);
     const repo = repoOf(work).path;
     const prepared = await prepare(repo, n).catch((e) => {

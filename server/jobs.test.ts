@@ -84,6 +84,61 @@ test('a spare worktree cut by a restart leaves the list: the boot makes it again
   assert.deepEqual(createJobs({ DATA }).list(), []);
 });
 
+// jobs left running in the file, as a restart finds them
+const cutIn = (DATA: string, jobs: Record<string, unknown>[]) => {
+  fs.mkdirSync(path.join(DATA, 'jobs'), { recursive: true });
+  const base = { work: 'w', pr: '7', kind: 'agent', state: 'running', agentId: 'a1', startedAt: new Date().toISOString(), endedAt: null, output: '', error: '', settle: 'promise' };
+  fs.writeFileSync(path.join(DATA, 'jobs', 'w.json'), JSON.stringify(jobs.map((j, i) => ({ id: `j${i}`, label: 'a run', ...base, ...j }))));
+};
+
+test('an analysis run a restart cut starts over once, on its own record, once Paseo answers', async () => {
+  const DATA = tmp();
+  cutIn(DATA, [{ action: 'review-plan' }]);
+  const jobs = createJobs({ DATA });
+  const [job] = jobs.list('w');
+  assert.deepEqual([job.state, job.cuts, job.error], ['lost', 1, 'coco restarted while it ran: it starts over once Paseo answers']);
+  const ran: string[] = [];
+  const done = jobs.rearm(async (j) => (ran.push(j.id), '2 watch points'));
+  assert.equal(jobs.list('w')[0].state, 'running');
+  await done;
+  assert.deepEqual([ran, jobs.list('w').map((j) => [j.state, j.output])], [['j0'], [['done', '2 watch points']]]);
+});
+
+test('a run a second restart cuts stays failed, and a write run keeps its Retry without ever being replayed', async () => {
+  const DATA = tmp();
+  cutIn(DATA, [{ action: 'findings-collect', kind: 'sync', settle: undefined, agentId: null }]);
+  const jobs = createJobs({ DATA });
+  void jobs.rearm(() => new Promise<void>(() => {}));
+  assert.equal(jobs.list('w')[0].state, 'running');
+  // the second restart lands while the re-armed run was in flight
+  const again = createJobs({ DATA });
+  assert.deepEqual([again.list('w')[0].state, again.list('w')[0].cuts, again.list('w')[0].error], ['lost', 2, 'coco restarted twice while it ran: start it again']);
+  const ran: string[] = [];
+  await again.rearm(async (j) => void ran.push(j.id));
+  assert.deepEqual([ran, again.list('w')[0].state], [[], 'lost']);
+  const writes = tmp();
+  cutIn(writes, [{ action: 'fix-findings', kind: 'command', settle: undefined, agentId: null }]);
+  const keep = createJobs({ DATA: writes });
+  assert.deepEqual([keep.list('w')[0].state, keep.list('w')[0].error, Boolean(keep.list('w')[0].rearm)], ['lost', 'coco restarted while it ran', false]);
+  await keep.rearm(async () => {
+    throw new Error('a write run must never be replayed');
+  });
+  assert.equal(keep.list('w')[0].state, 'lost');
+});
+
+test('a push starts over after a restart; a rebase or a base reset keeps its Retry', async () => {
+  const DATA = tmp();
+  cutIn(DATA, [
+    { action: 'drift:7:unpushed', kind: 'command', settle: undefined, agentId: null, rearm: true },
+    { action: 'drift:7:diverged', kind: 'command', settle: undefined, agentId: null },
+  ]);
+  const jobs = createJobs({ DATA });
+  assert.deepEqual(jobs.list('w').map((j) => [j.action, j.error]), [['drift:7:unpushed', 'coco restarted while it ran: it starts over once Paseo answers'], ['drift:7:diverged', 'coco restarted while it ran']]);
+  const ran: string[] = [];
+  await jobs.rearm(async (j) => void ran.push(j.action));
+  assert.deepEqual(ran, ['drift:7:unpushed']);
+});
+
 test('the global list keeps the newest jobs across works, not whichever work loaded last', () => {
   const DATA = tmp();
   const at = (s: number) => new Date(Date.now() - 3600_000 + s * 1000).toISOString();

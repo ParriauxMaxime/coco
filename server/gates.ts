@@ -51,6 +51,8 @@ interface ActInput {
   reason?: string;
   skill?: string;
   args?: string;
+  // false when a re-arm already owns the job record this launch fills
+  track?: boolean;
 }
 
 interface GatesWorks {
@@ -245,7 +247,7 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
   }
 
   // run: a self-review skill goes to the agent of the PR worktree (or a new one there); ready flips the draft; done, skipped and todo are the owner's ticks
-  async function act(slug: string, raw: string, id: string, { action, reason = '', skill, args = '' }: ActInput) {
+  async function act(slug: string, raw: string, id: string, { action, reason = '', skill, args = '', track = true }: ActInput) {
     const { work, n, index } = rowOf(slug, raw);
     const gate = GATES.find((g) => g.id === id);
     if (!gate) throw new HttpError(404, 'no such milestone');
@@ -267,7 +269,7 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
         reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ${id}: started ${prompt} in ${runner.mode} agent ${String(agentId || '').slice(0, 8)}`);
         return { agentId };
       };
-      if (!jobs) await launch();
+      if (!jobs || !track) await launch();
       else jobs.start({ work: slug, pr: n, action: `gate:${id}:${skill}`, label: title, kind: 'agent' }, launch);
     } else if (action === 'ready') {
       if (id !== 'ready') throw new HttpError(400, 'only the ready milestone flips a draft');
@@ -303,5 +305,5 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
     }
   }
 
-  return { handle, view, summarize, lastSummary: (slug: string) => allSummaries()[slug] || null };
+  return { handle, view, act, summarize, lastSummary: (slug: string) => allSummaries()[slug] || null };
 }

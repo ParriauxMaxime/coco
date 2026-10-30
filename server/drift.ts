@@ -231,7 +231,8 @@ export function createDrift({ config, DATA, works, kit, reviewAgent, comments, r
     const item = (await view(slug)).drift.find((i) => i.id === id);
     const pr = id.slice(0, id.lastIndexOf(':'));
     const label = `${item?.action?.label || 'Run'} ${pr === 'work' ? '' : keyLabel(parseKey(pr) ?? pr)}`.trim();
-    return jobs.start({ work: slug, pr: pr === 'work' ? null : pr, action: `drift:${id}`, label, kind: 'command' }, async () => {
+    // a push starts over after a restart (git takes it again); a rebase or a base reset keeps its Retry: a write is never replayed
+    return jobs.start({ work: slug, pr: pr === 'work' ? null : pr, action: `drift:${id}`, label, kind: 'command', ...(item?.run?.type === 'push' ? { rearm: true } : {}) }, async () => {
       const r = await runItem(slug, id, command);
       if (!r.ok) throw Object.assign(new Error((r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n') || `${label} failed`), { output: `${r.stdout}\n${r.stderr}` });
       return { output: r.stdout };

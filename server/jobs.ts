@@ -16,12 +16,14 @@ const SETTLE_MS = 15000;
 const TAIL = 4000;
 const GLOBAL = '_global';
 const RESUMED = /^(spare|deps):/;
+// a run that only reads and can start over by itself once Paseo answers; a write run keeps its Retry and is never replayed
+const ANALYSIS = /^(review-plan|findings-collect|github-refresh|gate:)/;
 
 export type JobKind = 'agent' | 'command' | 'sync' | 'setup';
 export type JobState = 'running' | 'needs-you' | 'done' | 'failed' | 'lost';
 // settle: agent (an agent job ends with its agent's first turn) or promise (it ends when run resolves, its agent only linked)
-export type Job = { id: string; work: string | null; pr: string | null; action: string; label: string; kind: JobKind; state: JobState; agentId: string | null; startedAt: string; endedAt: string | null; output: string; error: string; settle?: 'promise'; dismissed?: boolean; ran?: boolean };
-export type JobMeta = { work?: string | null; pr?: string | number | null; action: string; label: string; kind: JobKind; settle?: 'promise' };
+export type Job = { id: string; work: string | null; pr: string | null; action: string; label: string; kind: JobKind; state: JobState; agentId: string | null; startedAt: string; endedAt: string | null; output: string; error: string; settle?: 'promise'; dismissed?: boolean; ran?: boolean; rearm?: boolean; cuts?: number };
+export type JobMeta = { work?: string | null; pr?: string | number | null; action: string; label: string; kind: JobKind; settle?: 'promise'; rearm?: boolean };
 export type JobResult = { agentId?: string | null; output?: string } | void;
 
 const live = (j: Job) => j.state === 'running' || j.state === 'needs-you';
@@ -38,6 +40,8 @@ export class JobConflict extends HttpError {
 export function createJobs({ DATA }: { DATA?: string } = {}) {
   const dir = DATA ? path.join(DATA, 'jobs') : '';
   const byWork = new Map<string, Job[]>();
+  // the analysis runs this boot cut, waiting for Paseo to answer
+  const cut: Job[] = [];
   const listeners = new Set<(job: Job) => void>();
   const fileOf = (work: string) => path.join(dir, `${work}.json`);
 
@@ -51,11 +55,18 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     // a finished run older than KEEP_MS leaves the list on its own; a live one never does
     jobs = jobs.filter((j) => live(j) || Date.now() - Date.parse(j.endedAt || j.startedAt) < KEEP_MS);
     // a command cut by a restart cannot be followed again, nor an agent job cut before its agent started; a started agent keeps running and reports through its events;
-    // a spare worktree or an agent worktree's install starts over on boot (spares.start, agentChecks.resume) under a new job, so its cut one leaves the list
+    // an analysis run starts over once, on its own record, after Paseo answers (rearm): a second cut leaves it failed for the owner
     for (const j of jobs) {
       if (!live(j) || (j.kind === 'agent' && j.settle !== 'promise' && j.agentId)) continue;
       const over = RESUMED.test(j.action);
-      Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: over ? 'coco restarted while it ran: it starts over' : 'coco restarted while it ran', ...(over ? { dismissed: true } : {}) });
+      if (over) {
+        Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), error: 'coco restarted while it ran: it starts over', dismissed: true });
+        continue;
+      }
+      const cuts = (j.cuts || 0) + 1;
+      const again = cuts === 1 && (j.rearm || ANALYSIS.test(j.action));
+      Object.assign(j, { state: 'lost', endedAt: new Date().toISOString(), cuts, error: again ? 'coco restarted while it ran: it starts over once Paseo answers' : cuts > 1 ? 'coco restarted twice while it ran: start it again' : 'coco restarted while it ran' });
+      if (again) cut.push(j);
     }
     byWork.set(work, jobs);
     return jobs;
@@ -68,6 +79,8 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     fs.writeFileSync(`${fileOf(work)}.tmp`, JSON.stringify(load(work)));
     fs.renameSync(`${fileOf(work)}.tmp`, fileOf(work));
   };
+  // what the cut marked goes on disk before anything runs, so a second restart reads it as the second cut
+  if (dir) for (const work of [...byWork.keys()]) save(work);
   const changed = (job: Job) => {
     save(job.work || GLOBAL);
     listeners.forEach((l) => l(job));
@@ -87,7 +100,7 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     const pr = meta.pr == null ? null : String(meta.pr);
     const running = load(work || GLOBAL).find((j) => live(j) && j.pr === pr && j.action === meta.action);
     if (running) throw new JobConflict(running);
-    const job: Job = { id: randomUUID(), work, pr, action: meta.action, label: meta.label, kind: meta.kind, state: 'running', agentId: null, startedAt: new Date().toISOString(), endedAt: null, output: '', error: '', ...(meta.settle ? { settle: meta.settle } : {}) };
+    const job: Job = { id: randomUUID(), work, pr, action: meta.action, label: meta.label, kind: meta.kind, state: 'running', agentId: null, startedAt: new Date().toISOString(), endedAt: null, output: '', error: '', ...(meta.settle ? { settle: meta.settle } : {}), ...(meta.rearm ? { rearm: true } : {}) };
     const list = load(work || GLOBAL);
     list.push(job);
     list.splice(0, Math.max(0, list.length - KEEP));
@@ -199,7 +212,21 @@ export function createJobs({ DATA }: { DATA?: string } = {}) {
     if (moved.length) changed(moved[0]);
   }
 
-  return { start, wrap, link, onAgent, list, dismiss, clear, watch, handle, rekey, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
+  // the analysis runs this boot cut start over on their own record, once, when the caller says Paseo answers; a write run never comes through here
+  async function rearm(run: (job: Job) => Promise<unknown>) {
+    for (const job of cut.splice(0)) {
+      Object.assign(job, { state: 'running', endedAt: null, error: '', output: '' });
+      changed(job);
+      try {
+        const out = await run(job);
+        end(job, 'done', { output: typeof out === 'string' ? out : '' });
+      } catch (e) {
+        end(job, 'failed', { error: errorMessage(e) });
+      }
+    }
+  }
+
+  return { start, wrap, link, onAgent, list, dismiss, clear, watch, handle, rekey, rearm, onChange: (l: (job: Job) => void) => (listeners.add(l), () => listeners.delete(l)) };
 }
 
 export type Jobs = ReturnType<typeof createJobs>;

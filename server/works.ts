@@ -759,5 +759,5 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   }
 
   const dropPr = (number: number) => prCache.drop(prKey(githubOf(number), number));
-  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, setArchived, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion };
+  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, setArchived, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion, refresh: (slug: string) => detail(slug, true) };
 }
