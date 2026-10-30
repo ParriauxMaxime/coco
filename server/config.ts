@@ -108,6 +108,8 @@ export interface Config {
   screenshot: { chrome: string; hosts: string[] };
   // "auto": while the Paseo desktop app is closed, agents' browser_* tools run in that headless Chrome (browser-host.ts); "off": never
   browserHost: 'auto' | 'off';
+  // the workers an agent hires (spawn_agent): how many run at once in one run, how deep a run nests, what its workers may cost together, and their model
+  orchestration: { maxWorkers: number; maxDepth: number; budgetUsd: number; workerModel: string };
   file?: string | null;
 }
 
@@ -156,6 +158,8 @@ export const DEFAULTS: Config = {
   cocoWork: '',
   screenshot: { chrome: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', hosts: [] },
   browserHost: 'auto',
+  // a workerModel Paseo does not list falls back to models.fast
+  orchestration: { maxWorkers: 8, maxDepth: 2, budgetUsd: 10, workerModel: 'omp/openrouter-deepseek/@preset/dev-deepseek-v4-1-flash-1017' },
 };
 
 export const skillFor = (config: Partial<Pick<Config, 'skillOverrides' | 'methodSkill'>> | null | undefined, name: string): string => config?.skillOverrides?.[name] || (name === 'coco-work' && config?.methodSkill) || name;

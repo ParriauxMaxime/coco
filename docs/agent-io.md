@@ -298,6 +298,43 @@ A picked option whose effect did the work is not delivered.
 - `archive_me()`: `POST /api/agent-chat/<agentId>/archive-when-done`; coco
   archives the agent once its turn ends idle (`archiveWhenDone`, as for a
   one-off run), and refuses with 409 while one of its cards is open.
+- `spawn_agent({ work?, prompt, role? | provider?, thinking?, mode?, title?, paths?, acceptance?, wait?, timeoutMs? })`:
+  hires a worker with no card (`POST /api/agent-chat/<caller>/workers`,
+  `server/hire.ts`). Returns `{ agentId, parentAgentId, rootAgentId, depth,
+  title, provider, thinking, mode, workspaceId, cwd, branch?, base? }`, plus
+  `result` (the `wait_agent` shape) with `wait: true`. The worker is a
+  sibling Paseo agent started with `parent: <caller>` and labels `kind:
+  worker`, `work`, the caller's `pr`, `run: <root>` and
+  `paseo.parent-agent-id`; `base` (its start commit) when it may edit.
+  `paths` give it its own worktree (`placement.sideWorkspace`, a new branch
+  off the caller's current branch, readied like any code-writing agent);
+  without them it runs read-only in the caller's workspace. Model:
+  `provider`, else `role` (`worker`, a `models` tier, or a dispatch catalog
+  entry: `persona-review` takes `models.fast`, the others `models.default`),
+  else `orchestration.workerModel`, `models.fast` when Paseo does not list
+  it; each checked with `checkPick`. Mode: the given one, else the
+  provider's default (claude `auto`, omp `full`). The prompt gets a brief
+  appended: the work's kept rules and notes `## Rules`, the worktree and the
+  paths it may change (or read-only), the acceptance, how to ask (a card
+  titled `Q for conductor`) and the return contract (files, commands, output,
+  blocked: evidence, no verdict). Refused (409) when the caller sits at
+  `orchestration.maxDepth` already (the caller is depth 0 when it has no
+  parent), when `maxWorkers` workers of the run are already running, or when
+  the run's workers already cost `budgetUsd` (archived ones count).
+- `wait_agent({ agentId, timeoutMs? })`: `GET …/workers/<id>?timeoutMs=`
+  (default 120000, at most 270000 so it answers before the MCP fetch gives
+  up). Returns `{ agentId, state: running | blocked | done | failed |
+  archived, lastMessage, files, branch, costUsd, blockedCardId?, blockedOn? }`:
+  `blocked` on an open card (`Q for conductor` first, its id and question)
+  or a pending permission; `files` changed against `base`, committed or not.
+- `message_agent({ agentId, text, behavior? })`: `POST …/workers/<id>/messages`;
+  `steer` (default) or `interrupt`. Closes the worker's open cards outside
+  threads, as an owner's message does.
+- `stop_agent({ agentId, cascade? })`: `POST …/workers/<id>/stop`; `paseo
+  agent stop` then archive; `cascade` first does the same to the workers
+  under it, deepest first. Returns `{ stopped, failed }`.
+- The three last ones reach only a worker under the caller (its parent chain
+  holds the caller), else 403.
 - `propose_work_scaffold`, `propose_paseo_agent`, `dispatch`, `propose_repo`,
   `propose_rules`: same names and inputs as before, now posting a proposal
   card (`action`) and returning `{ id, status: 'open', note }`.

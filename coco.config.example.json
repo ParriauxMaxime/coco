@@ -20,6 +20,7 @@
   "personaFiles": { "ignore": ["README", "CHANGELOG"], "companionSuffixes": ["notes"] },
   "kitBody": { "maxChars": 4000, "mustMatch": "" },
   "models": { "default": "claude/claude-opus-5-5", "fast": "claude/claude-sonnet-5-5" },
+  "orchestration": { "maxWorkers": 8, "maxDepth": 2, "budgetUsd": 10, "workerModel": "omp/openrouter-deepseek/@preset/dev-deepseek-v4-1-flash-1017" },
   "importRoots": ["/tmp", "/private/tmp", "~/.paseo/worktrees", "~/code/widgets"],
   "kitKinds": ["body", "diagram", "video", "docs"],
   "gateSkills": {

@@ -648,6 +648,57 @@ server.tool('list_work_agents', `Who works on a work now: each agent coco starte
   return text({ agents, jobs });
 });
 
+// hiring: a worker starts with no card; caps, depth and budget are coco's (orchestration in coco.config.json)
+const NO_AGENT = 'no PASEO_AGENT_ID in this MCP server environment: only a Paseo agent started by coco hires workers';
+const workerId = z.string().describe('the worker\'s agent id, from spawn_agent');
+const timeoutArg = z.number().int().min(1000).max(270000).optional().describe('how long to wait, default 120000 (2 min), at most 270000; call again to keep waiting');
+const workerPath = (id: string, tail = '') => `/api/agent-chat/${encodeURIComponent(AGENT_ID ?? '-')}/workers/${encodeURIComponent(id)}${tail}`;
+server.tool('spawn_agent', `Hire a worker: a real Paseo agent with its own tab, model and mode, started at once with no card. For your own context (explore, read, prove a point instead of asserting it), to work in parallel, or for a task another model does better. With paths, it gets its own worktree on a new branch off your current commit (commit first what it must build on) and may change only those paths; without, it works read-only in your checkout. It knows nothing but your prompt and the brief coco appends (the work's rules, its paths, the acceptance, how to ask and report): name the exact files and what done means, not "go explore". A worker's question comes to you as a card titled "Q for conductor" (wait_agent returns its id): answer with message_agent, and ask ${OWNER} only when you cannot decide. Caps per run: ${config.orchestration.maxWorkers} workers at once, depth ${config.orchestration.maxDepth}, $${config.orchestration.budgetUsd} of worker cost; past one the call is refused. Default model ${config.orchestration.workerModel}.`, {
+  work: workArg,
+  prompt: z.string().describe('the whole task: what to do, the exact files, what to return'),
+  role: z.string().optional().describe('instead of provider: "worker" (default), a models tier ("default", "fast") or a dispatch entry id ("persona-review"), resolved to its model'),
+  provider: z.string().optional().describe('<provider>/<model>, when the task earns another model than the worker default'),
+  thinking: z.string().optional(),
+  mode: z.string().optional().describe("a Paseo mode of the provider; default the provider's unattended one (claude auto, omp full). A worker in a mode that asks waits on its permission: wait_agent says so"),
+  title: z.string().max(60).optional().describe('tab title; default the first line of the prompt'),
+  paths: z.array(z.string()).optional().describe('repo-relative paths it may change; omit for a read-only worker'),
+  acceptance: z.string().optional().describe('what done means, checkable: a command that passes, a file that holds X'),
+  wait: z.boolean().optional().describe('true: wait for it as wait_agent does and return its result too'),
+  timeoutMs: timeoutArg.describe('with wait: how long to wait, default 120000'),
+}, async (input) => {
+  if (!AGENT_ID) return refused(NO_AGENT);
+  const r = await coco('POST', `/api/agent-chat/${encodeURIComponent(AGENT_ID)}/workers`, input);
+  return r.ok ? text(r.data) : refused(`spawn refused: ${r.error}`);
+});
+
+server.tool('wait_agent', `Wait on a worker you hired until its turn ends, it blocks, or timeoutMs passes. Returns evidence, never a verdict: { agentId, state: running | blocked | done | failed | archived, lastMessage, files (changed against its start commit), branch, costUsd, blockedCardId and blockedOn when it waits on a card or a permission }. You judge the result; a "Q for conductor" card is answered with message_agent.`, {
+  agentId: workerId,
+  timeoutMs: timeoutArg,
+}, async ({ agentId, timeoutMs }) => {
+  if (!AGENT_ID) return refused(NO_AGENT);
+  const r = await coco('GET', workerPath(agentId, timeoutMs ? `?timeoutMs=${timeoutMs}` : ''));
+  return r.ok ? text(r.data) : refused(`wait refused: ${r.error}`);
+});
+
+server.tool('message_agent', 'Send a worker you hired a message: an answer to its "Q for conductor" card (the message closes its open cards), a correction, the next step. steer (default) joins its turn in flight; interrupt ends that turn first.', {
+  agentId: workerId,
+  text: z.string(),
+  behavior: z.enum(['steer', 'interrupt']).optional(),
+}, async ({ agentId, ...body }) => {
+  if (!AGENT_ID) return refused(NO_AGENT);
+  const r = await coco('POST', workerPath(agentId, '/messages'), body);
+  return r.ok ? text(r.data) : refused(`message refused: ${r.error}`);
+});
+
+server.tool('stop_agent', 'Stop a worker you hired: ends its turn and archives it (wait_agent first to keep its result). cascade also stops the workers it hired. Returns { stopped, failed }.', {
+  agentId: workerId,
+  cascade: z.boolean().optional(),
+}, async ({ agentId, cascade }) => {
+  if (!AGENT_ID) return refused(NO_AGENT);
+  const r = await coco('POST', workerPath(agentId, '/stop'), { cascade });
+  return r.ok ? text(r.data) : refused(`stop refused: ${r.error}`);
+});
+
 server.tool('archive_me', `When nothing is left for you to do (no card open, nothing ${OWNER} still has to answer), coco archives you once this turn ends, as ${OWNER}'s Archive button does: end that turn on a one-line summary, not a next-steps card. Refused while one of your cards is open.`, {}, async () => {
   if (!AGENT_ID) return refused('no PASEO_AGENT_ID in this MCP server environment: only a Paseo agent started by coco archives itself');
   const r = await coco('POST', `/api/agent-chat/${encodeURIComponent(AGENT_ID)}/archive-when-done`);

@@ -1753,6 +1753,47 @@ so no second agent starts. Routes: `POST /api/agent-chat/<agentId>/handoff` (`no
 `GET /api/agent-chat/<agentId>/handoff` → `{ to, from }`, kept in
 `data/handoffs.json` (`server/handoff.ts`).
 
+## Workers (an agent hires another)
+
+Any coco agent can hire a worker with the cocopilot `spawn_agent` tool, with
+no card in between: to keep its own context small, to work in parallel, or to
+prove a point instead of asserting it. A worker is a real Paseo agent, a
+sibling of the one that hired it (its **conductor**), with its own tab,
+model and mode; it reports back. Two delegation tiers, one rule: a provider
+subagent (Claude's `Task`) for cheap exploration in the same provider family,
+a worker when the task needs its own worktree, cards, permissions or another
+model.
+
+- **Model**: `orchestration.workerModel` (DeepSeek by default; `models.fast`
+  when Paseo does not list it). The conductor names another `provider`, or a
+  `role` (`fast`, `default`, a dispatch entry) when the task earns it.
+- **Mode**: the conductor's pick, else the provider's unattended default
+  (claude `auto`, omp `full`). A worker in a mode that asks shows its pending
+  permission like any agent, and `wait_agent` returns `blocked`.
+- **Place**: with `paths`, its own worktree on a new branch off the
+  conductor's current commit (commit first what it builds on); it may change
+  only those paths and commits there, never pushes. Without `paths`, it works
+  read-only in the conductor's checkout.
+- **Brief**: a worker inherits nothing (no AGENTS.md, rules or conversation).
+  coco appends to its prompt the work's rules, its paths, the acceptance, how
+  to ask and what to return: files, commands, output, blocked. Evidence, no
+  verdict: the conductor judges.
+- **Questions**: a worker posts a card titled **Q for conductor** and ends its
+  turn; `wait_agent` returns its id, the conductor answers with
+  `message_agent` (which closes the card) and asks you only when it cannot
+  decide.
+- **Caps per run** (the first agent that hired, and every worker under it),
+  in `coco.config.json` `orchestration`: `maxWorkers` (8) running at once,
+  `maxDepth` (2: a worker may hire once more, not deeper), `budgetUsd` (10)
+  of worker cost, archived workers included. Past a cap, `spawn_agent` is
+  refused with the reason.
+- **Stop**: `stop_agent` ends a worker's turn and archives it; `cascade`
+  stops the workers under it too.
+
+Workers carry `kind: worker`, `run: <root agent>` and Paseo's parent label,
+so they list under their work's agents. Routes and result shapes:
+docs/agent-io.md, "MCP tools" (`server/hire.ts`).
+
 ## Subagents (what an agent starts itself)
 
 An agent can start its own subagents (Claude's `Agent` or `Task` tool, in the

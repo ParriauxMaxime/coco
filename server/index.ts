@@ -61,6 +61,7 @@ import { createPaseoHealth } from './paseo-health.ts';
 import { contextOf, createAgentUsage, fromPaseo } from './agent-usage.ts';
 import { createChatSnapshots } from './chat-snapshots.ts';
 import { createWorkAgents } from './work-agents.ts';
+import { createHire } from './hire.ts';
 import { AGENT_CONTROLS, createAgentControls } from './agent-controls.ts';
 import { createSubagents } from './subagents.ts';
 import { createModels, startThinking } from './models.ts';
@@ -308,6 +309,7 @@ const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
 const newAgent = createNewAgent({ config, works, placement, agents: paseoAgents, briefs, prInfo: (w, n) => (repos.repoFor(w).github === config.repo.github ? works.prInfo(n) : Promise.resolve(null)), models, uploads, link: paseoLink, readier: agentChecks.readier });
 const workAgents = createWorkAgents({ client: paseoAgents.client, asks: (slug) => ask.list(`work:${slug}`), linked: (slug) => paseoLink.linked(slug), onAgent: permissions.onAgent, serverId: () => daemonServerId(), usage: agentUsage.get, cards, uploads, beforeTurn: agentChecks.beforeTurn, closeAsk: (id) => ask.close(id), archiveAgent: paseoAgents.archive, archiveWhenDone: paseoAgents.archiveWhenDone, handedOff: () => handoff.successors(), models, subagents, snapshots: createChatSnapshots(path.join(DATA, 'chat-snapshots')), keyOf: (slug, key) => String(currentKey(works.get(slug), parseKey(key) ?? key)) });
 works.hooks.onClosed = (w) => workAgents.forget(w.slug);
+const hire = createHire({ config, client: paseoAgents.client, works, agents: paseoAgents, archive: paseoAgents.archive, models, placement, rules, cards, readier: agentChecks.readier });
 // a planned row that got its PR: what was kept under its branch key follows the number
 works.hooks.onRekeyed = (slug, from, to) => {
   rekeyWorkFiles(DATA, slug, from, to);
@@ -683,6 +685,7 @@ async function api(req: Req, res: Res, url: URL) {
     }
     if (root === 'agent-chat' && b === 'subagents') return subagents.handle(req, res, parts, send);
     if (root === 'agent-chat' && a && b === 'handoff') return handoff.handle(req, res, parts, readBody, send);
+    if (root === 'agent-chat' && a && b === 'workers') return hire.handle(req, res, parts, readBody, send);
     if (root === 'agent-chat' && AGENT_CONTROLS.includes(b)) return agentControls.handle(req, res, parts, readBody, send);
     if ((root === 'works' && b === 'agents') || root === 'agent-chat') return workAgents.handle(req, res, parts, readBody, send);
     if (root === 'works' && b === 'dispatch') return dispatch.handle(req, res, parts, readBody, send);
