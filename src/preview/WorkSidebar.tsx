@@ -4,7 +4,7 @@ import SignalBadges from './SignalBadges.tsx';
 import { NO_SIGNAL, ownPart, rowsTotal, workSignals } from './signals.ts';
 import Icon from './Icon.tsx';
 import type { IconName } from './Icon.tsx';
-import { AgentList, useArchive } from './AgentsSection.tsx';
+import { AgentList, useArchive, useStopRun } from './AgentsSection.tsx';
 import { agentOf, groupAgents, prLabel, useWorkAgents } from './agents.ts';
 import type { AgentGroup } from './agents.ts';
 import { isDone, prKey, prState, prTitle } from './data.ts';
@@ -58,6 +58,7 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
   const data = useWorkAgents(w.slug, live);
   const queue = useWaiting();
   const arc = useArchive(w.slug);
+  const stop = useStopRun(w.slug);
   const groups = groupAgents(data?.agents || [], queue?.byAgent ?? {}, prs);
   const byPr = new Map<string | null, AgentGroup>(groups.map((g) => [g.pr, g]));
   const jobs = useJobs(w.slug);
@@ -111,7 +112,7 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
         </div>
         <div className={`dp-collapse${on ? ' dp-open' : ''}`}>
           <div className="dp-pr-kids">
-            <AgentList g={g} onOpen={go} arc={arc} starting={starting(r.key)} />
+            <AgentList g={g} onOpen={go} arc={arc} stop={stop} starting={starting(r.key)} />
           </div>
         </div>
       </React.Fragment>
@@ -136,7 +137,7 @@ export function WorkViews({ w, open, isOpen = () => false, prs = [], focused = '
   return (
     <div className="dp-views">
       {data?.error && !groups.length && <div className="dp-ag-note">{data.error}</div>}
-      <AgentList g={byPr.get(null)} onOpen={go} arc={arc} starting={starting(null)} />
+      <AgentList g={byPr.get(null)} onOpen={go} arc={arc} stop={stop} starting={starting(null)} />
       {opened.map(prRow)}
       {fold(MERGED, [[merged.length - closed - landed, 'merged'], [landed, 'landed'], [closed, 'closed']].filter(([n]) => n).map(([n, word]) => `${n} ${word}`).join(' · '), merged)}
       {fold(PLANNED, `${planned.length} planned`, planned)}

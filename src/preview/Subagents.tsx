@@ -5,6 +5,7 @@ import { useWorkbench } from '../workbench/workbench-store.ts';
 import { Log } from './chat/Composer.tsx';
 import Conversation from './chat/Conversation.tsx';
 import { SUBAGENT_LABEL, SubagentDot, took } from './chat/SubagentCall.tsx';
+import { modelMark } from './chat/model-view.ts';
 import Icon from './Icon.tsx';
 import Modal from './Modal.tsx';
 import { useWorkAgent } from './agents.ts';
@@ -116,6 +117,7 @@ export function SidebarSubagents({ agentId }: { agentId: string }) {
         <div key={s.id} className="dp-view dp-ag dp-sa-row" title={`${subagentLabel(s)} · subagent · working`} onClick={() => openSubagent(agentId, s.id)}>
           <SubagentDot status={s.status} />
           <span className="dp-ell dp-grow">{subagentLabel(s)}</span>
+          <ModelMark provider={s.provider} />
           <span className="dp-ag-ago">{took(s, now)}</span>
         </div>
       ))}
@@ -123,4 +125,7 @@ export function SidebarSubagents({ agentId }: { agentId: string }) {
   );
 }
 
-export const SubagentCount = ({ n }: { n: number }) => <span className="dp-sa-count" title={`${n} subagent${n === 1 ? '' : 's'} working`}>⑂ {n}</span>;
+// the maker's mark of the model a run member works on, its <provider>/<model> on hover
+export const ModelMark = ({ provider }: { provider: string | null | undefined }) => (provider ? <span className="dp-ag-mdl" title={provider}><Icon name={modelMark(provider)} size={12} /></span> : null);
+
+export const SubagentCount =({ n }: { n: number }) => <span className="dp-sa-count" title={`${n} subagent${n === 1 ? '' : 's'} working`}>⑂ {n}</span>;

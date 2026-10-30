@@ -4,9 +4,9 @@ import { subscribe, topic } from '../live.ts';
 import { useWorkbench } from '../workbench/workbench-store.ts';
 import type { ActivityEvent } from '../types.ts';
 
-// one subagent an agent started itself, as Paseo lists it; id is the tool call that started it
+// one subagent an agent started itself, as Paseo lists it; id is the tool call that started it; provider: absent on an older server
 export type SubagentStatus = 'running' | 'completed' | 'failed' | 'canceled';
-export type Subagent = { id: string; parentAgentId: string; title: string | null; description: string | null; status: SubagentStatus; createdAt: string; updatedAt: string; toolCallId: string | null; subtitle: string | null };
+export type Subagent = { id: string; parentAgentId: string; title: string | null; description: string | null; status: SubagentStatus; createdAt: string; updatedAt: string; toolCallId: string | null; subtitle: string | null; provider?: string | null };
 
 const useStore = create<{ by: Record<string, Subagent[]> }>(() => ({ by: {} }));
 const put = (parent: string) => (d: { subagents?: Subagent[] }) => useStore.setState((s) => ({ by: { ...s.by, [parent]: d.subagents ?? [] } }));
