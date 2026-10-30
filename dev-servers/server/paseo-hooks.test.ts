@@ -68,7 +68,7 @@ const hookAgent = (id: string, cwd: string): PluginHookAgent => ({
   title: `Agent ${id}`,
 });
 
-test("agent.create gives a project agent the MCP with its own key, loaded up front and preapproved, for any provider", async () => {
+test("agent.create gives a project agent the MCP with its own key, loaded up front and preapproved, on a provider that can carry a tool policy", async () => {
   const { hooks, store } = await setup();
   const request = createRequest(path.join(worktree, "src"), {
     provider: "codex",
@@ -106,6 +106,22 @@ test("agent.create gives a project agent the MCP with its own key, loaded up fro
   const otherKey = again?.type === "http" ? again.headers?.["x-dev-servers-key"] : undefined;
   assert.match(otherKey ?? "", KEY_PATTERN);
   assert.notEqual(otherKey, key);
+});
+
+test("agent.create mounts the MCP without a tool policy on a provider Paseo cannot preapprove, dropping a stale one", async () => {
+  const { hooks, store } = await setup();
+  const request = createRequest(path.join(worktree, "src"), {
+    provider: "omp/openrouter-deepseek/@preset/dev-deepseek-v4-1-flash-1017",
+    toolPolicy: { preapproved: [{ kind: "mcp", server: "dev-servers", tool: "dev_servers" }] },
+  });
+  const result = await hooks.beforeAgentCreate({ request });
+  assert.ok(result);
+  const injected = result.config.mcpServers?.["dev-servers"];
+  assert.ok(injected?.type === "http");
+  assert.equal(injected.alwaysLoad, true);
+  assert.equal("toolPolicy" in result.config ? result.config.toolPolicy : undefined, undefined);
+  assert.match(injected.headers?.["x-dev-servers-key"] ?? "", KEY_PATTERN);
+  assert.ok(store.snapshot().keys[injected.headers?.["x-dev-servers-key"] ?? ""]);
 });
 
 test("agent.create leaves the config alone for internal agents, other directories, injection off, or no runtime", async () => {

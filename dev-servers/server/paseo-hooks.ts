@@ -36,14 +36,23 @@ const within = <T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> 
     );
   });
 
+// Paseo only accepts exact MCP preapproval from the providers whose contract has it; the others (Oh My Pi) refuse the agent outright
+const PREAPPROVES = /^(claude[\w-]*|codex|opencode)(\/|$)/;
+
 export function withDevServersMcp(config: SessionConfig, { url, key }: { url: string; key: string }): SessionConfig {
+  const mcpServers = {
+    ...config.mcpServers,
+    [MCP_SERVER_NAME]: { type: "http" as const, url, headers: { [KEY_HEADER]: key, [CWD_HEADER]: encodeURIComponent(config.cwd) }, alwaysLoad: true },
+  };
+  // such a provider cannot carry any toolPolicy: they run these tools under their own approval mode
+  if (!PREAPPROVES.test(String(config.provider ?? ""))) {
+    const { toolPolicy: _policy, ...rest } = config;
+    return { ...rest, mcpServers };
+  }
   const preapproved = (config.toolPolicy?.preapproved ?? []).filter((ref) => ref.server !== MCP_SERVER_NAME);
   return {
     ...config,
-    mcpServers: {
-      ...config.mcpServers,
-      [MCP_SERVER_NAME]: { type: "http", url, headers: { [KEY_HEADER]: key, [CWD_HEADER]: encodeURIComponent(config.cwd) }, alwaysLoad: true },
-    },
+    mcpServers,
     toolPolicy: {
       ...config.toolPolicy,
       preapproved: [...preapproved, ...MCP_TOOL_NAMES.map((tool) => ({ kind: "mcp" as const, server: MCP_SERVER_NAME, tool }))],
