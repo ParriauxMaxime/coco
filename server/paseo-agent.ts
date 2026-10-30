@@ -413,7 +413,8 @@ export type AgentSession = Started & {
 };
 
 // onArchive: told just before coco itself archives an agent (a run's end, a conversation closed, archiveWhenDone, archive)
-export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null, onArchive = () => {} }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null; onArchive?: (agentId: string) => void } = {}) {
+// onAgentStart: told the labels of every agent coco starts, before the workspace is even picked, so a work it starts one on is live again
+export function createPaseoAgents({ APP = null, connect = connectDaemon, usage = null, onArchive = () => {}, onAgentStart = () => {} }: { APP?: string | null; connect?: () => Promise<DaemonClient>; usage?: Pick<UsageStore, 'record'> | null; onArchive?: (agentId: string) => void; onAgentStart?: (labels: Record<string, string>) => unknown } = {}) {
   let pending: Promise<DaemonClient> | null = null;
   const client = () =>
     (pending ||= connect().catch((e) => {
@@ -476,11 +477,13 @@ export function createPaseoAgents({ APP = null, connect = connectDaemon, usage =
 
   // places and creates the agent; with a prompt it starts right away, coco does not follow it
   async function start({ title, prompt, input, labels, cwd = null, workspaceId = null, worktree = null, parent = null, ...config }: StartOptions) {
+    const named = cleanLabels(labels);
+    // the work must be live before the agent lands in its workspace: an archived one drops the link
+    await onAgentStart(named);
     const { workspace, created } = workspaceId ? { workspace: (await client()).workspaces.ref(workspaceId), created: false } : worktree ? await worktreeWorkspace(cwd, worktree) : await workspaceFor(cwd ?? '');
     const { messageId, ...files } = input || {};
     const agentConfig = configFor(config);
-    const edge = parent ? { parent, labels: cleanLabels({ ...labels, [PARENT_AGENT_ID_LABEL]: parent }) } : { labels: cleanLabels(labels) };
-    const agent = await workspace.agents.create({ title: cocoTitle(title), config: agentConfig, ...edge, ...(prompt ? { prompt, ...files, ...(messageId ? { clientMessageId: messageId } : {}) } : {}) });
+    const agent = await workspace.agents.create({ title: cocoTitle(title), config: agentConfig, labels: parent ? { ...named, [PARENT_AGENT_ID_LABEL]: parent } : named, ...(parent ? { parent } : {}), ...(prompt ? { prompt, ...files, ...(messageId ? { clientMessageId: messageId } : {}) } : {}) });
     usage?.record(agent.id, { ...promptSize(prompt), ...systemSize(agentConfig.systemPrompt) });
     return { agent, agentId: agent.id, workspaceId: workspace.id, createdWorkspace: created ? workspace.id : null };
   }

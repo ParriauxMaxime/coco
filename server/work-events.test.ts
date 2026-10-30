@@ -23,6 +23,15 @@ const make = () => {
   return { DATA, works, sink, w };
 };
 
+test('unarchiving because an agent was started on the work says so, and keeps auto-archive off', () => {
+  const { works } = make();
+  works.setArchived('w', true, 'manual');
+  assert.ok(works.get('w')?.archived);
+  works.setArchived('w', false, 'agent');
+  const back = works.get('w');
+  assert.deepEqual([Boolean(back?.archived), back?.autoArchive, back?.timeline?.[0]?.text], [false, false, 'unarchived: an agent was started on this work; auto-archive off for this work']);
+});
+
 test('a work save is announced to the work topic as a work change, a stack save as a stack change', () => {
   const { works, sink, w } = make();
   const s = sink();

@@ -165,6 +165,15 @@ test('a plan call Paseo bridged to omp ("cocopilot / propose_review_plan", or it
   assert.deepEqual(hashed.submitted, { propose_review_plan: plan });
 });
 
+test('every agent coco starts hands its labels to onAgentStart before it lands, so the work it belongs to can be made live first', async () => {
+  const daemon = fakeDaemon({ workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }] });
+  const handed: Record<string, string>[] = [];
+  const agents = createPaseoAgents({ APP, connect: daemon.connect, onAgentStart: (labels) => void handed.push(labels) });
+  await agents.start({ title: 'Fix review', prompt: 'go', cwd: '/acme/widgets', labels: { source: 'cocopilot', kind: 'agent', work: 'csv', pr: 7, empty: '' } });
+  assert.deepEqual(handed, [{ source: 'cocopilot', kind: 'agent', work: 'csv', pr: '7' }]);
+  assert.deepEqual(daemon.calls.agents[0].labels, { source: 'cocopilot', kind: 'agent', work: 'csv', pr: '7' });
+});
+
 test('a refused plan call is kept as refused, with its own reason', async () => {
   const refused = fakeDaemon({
     workspaces: [{ id: 'wks_plan', projectId: 'p1', workspaceDirectory: '/acme/widgets' }],

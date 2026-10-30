@@ -122,7 +122,16 @@ interface FeedbackItem {
 fs.mkdirSync(DATA, { recursive: true });
 const uploads = createUploads({ DATA });
 const agentUsage = createAgentUsage(path.join(DATA, 'agent-usage.json'));
-const paseoAgents = createPaseoAgents({ APP, usage: agentUsage, onArchive: (agentId) => cards.cocoArchives(agentId) });
+// an agent started on a work makes that work live again: an archived work drops every link, so its new agent would stay invisible
+const paseoAgents = createPaseoAgents({
+  APP,
+  usage: agentUsage,
+  onArchive: (agentId) => cards.cocoArchives(agentId),
+  onAgentStart: (labels) => {
+    const work = labels.work ? works.get(labels.work) : null;
+    if (work?.archived) works.setArchived(work.slug, false, 'agent');
+  },
+});
 const subagents = createSubagents({ client: paseoAgents.client });
 const models = createModels({ client: paseoAgents.client, config });
 const mcpStatus = createMcpStatus({ config });

@@ -521,7 +521,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
     } else {
       delete work.archived;
       work.autoArchive = false;
-      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'archive', text: 'unarchived by hand; auto-archive off for this work' });
+      work.timeline.unshift({ ts: new Date().toISOString(), kind: 'archive', text: reason === 'agent' ? 'unarchived: an agent was started on this work; auto-archive off for this work' : 'unarchived by hand; auto-archive off for this work' });
     }
     const saved = save(work);
     if (archived) Promise.resolve(hooks.onClosed?.(saved)).catch(() => {});
@@ -755,5 +755,5 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   }
 
   const dropPr = (number: number) => prCache.drop(prKey(githubOf(number), number));
-  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion };
+  return { paseo, handle, fromPr, watch, watchWork, onChange, changed, dropPr, serveArtifact, list, get, save, setArchived, remark, decide, upsertDecision, sweepArchive, personasForPaths, prInfo, prBody, listArtifacts, setArtifactMeta, gitOf, hooks, notion };
 }
