@@ -6,6 +6,7 @@ import { firstMessage, workFacts } from './dispatch.ts';
 import { renderBrief } from './briefs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
+import { startThinking } from './models.ts';
 import type { Upload, Uploads } from './uploads.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
@@ -101,7 +102,8 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
     const slug = place.kind === 'work' || place.kind === 'row' ? place.slug : null;
     const key = place.kind === 'row' ? place.key : null;
     const labels = { source: 'cocopilot', kind: 'agent', ...(slug ? { work: slug } : {}), ...(key === null ? {} : { pr: fileKey(key) }) };
-    const started = await agents.start({ title, provider, ...(pick.thinking ? { thinking: pick.thinking } : {}), ...(mode ? { mode } : {}), prompt: message, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}), labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
+    const thinking = pick.thinking || startThinking(config.models, provider);
+    const started = await agents.start({ title, provider, ...(thinking ? { thinking } : {}), ...(mode ? { mode } : {}), prompt: message, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}), labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
     if (messageId) uploads?.record(started.agentId, { messageId, text: message, at: new Date().toISOString(), attachments: files.map(uploadRef) });
     if (edits) readier?.started(started.agentId, placed.cwd, { slug: slug ?? undefined, key });
     if (key !== null && link) {

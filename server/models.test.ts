@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkPick, createModels } from './models.ts';
+import { checkPick, createModels, startThinking } from './models.ts';
 import type { Catalog, ModelsClient } from './models.ts';
 
 const config = { models: { default: 'claude/claude-opus-5-5', fast: 'claude/claude-sonnet-5-5' } };
@@ -99,4 +99,14 @@ test('every provider Paseo has ready is offered after the ones coco uses, with i
   assert.deepEqual(listed, ['claude', 'claude-perso', 'opencode']);
   assert.deepEqual(cat.providers.map((p) => [p.id, p.label, p.models.length, p.modes?.map((m) => m.id), p.defaultMode]), [['claude', 'Claude', 3, ['auto'], 'auto'], ['claude-perso', 'Claude (Perso)', 3, ['plan'], 'auto']]);
   assert.deepEqual(checkPick(cat, { provider: 'claude-perso/sonnet', thinking: 'low' }), { provider: 'claude-perso/claude-sonnet-5-5', thinking: 'low' });
+});
+
+test('the starting thinking level is models.thinking on the default provider family only, else the call site’s own level', () => {
+  const models = { default: 'omp/openrouter-deepseek', fast: 'omp/openrouter-deepseek', thinking: 'auto' };
+  assert.equal(startThinking(models, 'omp/openrouter-deepseek'), 'auto');
+  assert.equal(startThinking(models, 'omp/another-model', 'high'), 'auto');
+  assert.equal(startThinking(models, 'claude/claude-opus-5-5', 'high'), 'high');
+  assert.equal(startThinking(models, 'claude/claude-opus-5-5'), undefined);
+  assert.equal(startThinking({ default: 'omp/x' }, 'omp/y', 'high'), 'high');
+  assert.equal(startThinking({ default: 'omp/y' }, 'claude/x', 'high'), 'high');
 });

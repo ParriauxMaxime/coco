@@ -63,7 +63,7 @@ import { createChatSnapshots } from './chat-snapshots.ts';
 import { createWorkAgents } from './work-agents.ts';
 import { AGENT_CONTROLS, createAgentControls } from './agent-controls.ts';
 import { createSubagents } from './subagents.ts';
-import { createModels } from './models.ts';
+import { createModels, startThinking } from './models.ts';
 import { createHub } from './events.ts';
 import { createJobs } from './jobs.ts';
 import { createSelf } from './self.ts';
@@ -575,7 +575,9 @@ async function launchRitual(body: { kind: string; provider?: string; [key: strin
     const repoId = typeof body.repo === 'string' ? body.repo : config.repos[0].id;
     const pr = Number(String(body.pr ?? '').replace(/^#/, ''));
     const where = await placement.place(spec.scope === 'global' ? { kind: 'global' } : Number.isInteger(pr) && pr > 0 ? { kind: 'pr', repoId, number: pr, edits: false } : { kind: 'repo', repoId });
-    started = await paseoAgents.start({ title, provider: body.provider || config.models.default, thinking: 'high', ...where, labels: { source: 'cockpit', ritual: body.kind }, prompt });
+    const ms = config.models;
+    const provider = body.provider || ms.default;
+    started = await paseoAgents.start({ title, provider, thinking: startThinking(ms, provider, 'high'), ...where, labels: { source: 'cockpit', ritual: body.kind }, prompt });
   } catch (e) {
     error = errorMessage(e);
   }

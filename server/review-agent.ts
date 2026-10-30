@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, createPaseoAgents, expandHome, launcherEnv, sameDir, worktreeFor as worktreeOf } from './paseo-agent.ts';
 import { notesSection } from './briefs.ts';
+import { startThinking } from './models.ts';
 import { HttpError, errorMessage, errorStatus } from './core-types.ts';
 import type { Config, RepoIdentity, RepoOf } from './config.ts';
 import type { Comment, CommentsApi, Exec, LaunchInput, PaseoAgentInfo, ReadBody, Req, Res, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
@@ -271,7 +272,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
   }
 
   // starts the brief on the runner, returns the agent id; labels tell the Paseo plugin which cocopilot run the agent is on
-  async function launch(runner: Runner, { title, provider, thinking = 'high', prompt, labels, requestedBy, n, branch }: LaunchInput) {
+  async function launch(runner: Runner, { title, provider, thinking = startThinking(config.models, provider, 'high'), prompt, labels, requestedBy, n, branch }: LaunchInput) {
     const all: Record<string, unknown> = { source: 'cocopilot', ...labels };
     const workSlug = labels?.work;
     const meta = { slug: typeof workSlug === 'string' ? workSlug : undefined, key: n ?? null };

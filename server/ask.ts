@@ -16,6 +16,7 @@ import type { Raw } from './blocks.ts';
 import { FILES_ONLY, agentInput, createUploads, uploadRef } from './uploads.ts';
 import type { Upload, Uploads } from './uploads.ts';
 import type { ModelPick, Models } from './models.ts';
+import { startThinking } from './models.ts';
 import { notionOf } from './stack-edit.ts';
 import { replaceRows, stackDiff } from './stack-replace.ts';
 import { linkParent } from './lineage.ts';
@@ -315,11 +316,13 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       push(conv, { type: 'step', text: conv.scope.kind === 'work' && conv.pr != null ? `Opening the worktree of ${keyLabel(conv.pr)} (a new one takes about 15 s)` : 'Finding the workspace' });
       const { workspaceId, cwd } = await where(conv.scope, conv.pr ?? null);
       push(conv, { type: 'step', text: 'Starting the agent' });
+      const provider = providerFor(conv.model);
+      const thinking = conv.thinking || startThinking(config.models, provider);
       const s = await agents.session({
         title: conv.title || `Ask: ${conv.prompt.split('\n')[0]}`,
-        systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${providerFor(conv.model)}${conv.thinking ? `, thinking ${conv.thinking}` : ''}.`,
-        provider: providerFor(conv.model),
-        ...(conv.thinking ? { thinking: conv.thinking } : {}),
+        systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${provider}${thinking ? `, thinking ${thinking}` : ''}.`,
+        provider,
+        ...(thinking ? { thinking } : {}),
         cwd,
         workspaceId,
         labels: { source: 'cocopilot', kind: conv.kind, ask: conv.id.slice(0, 8), work: conv.workSlug, pr: conv.pr == null ? null : fileKey(conv.pr), repo: conv.scope.kind === 'repo' ? conv.scope.repoId : null },
@@ -394,12 +397,14 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     const current = providerFor(conv.model);
     const p = await models.check(pick, current);
     const model = p.provider ?? conv.model;
+    const provider = providerFor(model);
     const thinking = p.thinking ?? conv.thinking ?? null;
-    if (providerFor(model) === current && thinking === (conv.thinking ?? null)) return;
+    // nothing changes: the next agent would start on the same provider at the same thinking level
+    if (provider === current && (thinking ?? startThinking(config.models, provider)) === (conv.thinking ?? startThinking(config.models, current))) return;
     Object.assign(conv, { model, thinking });
     save(conv);
     const live = conv.agentId && OPEN.includes(conv.status) ? await models.apply(conv.agentId, p).then(() => true, () => false) : false;
-    push(conv, { type: 'meta', text: `model ${providerFor(model)}${thinking ? ` · thinking ${thinking}` : ''}${live ? '' : ', from the next agent'}` });
+    push(conv, { type: 'meta', text: `model ${provider}${thinking ? ` · thinking ${thinking}` : ''}${live ? '' : ', from the next agent'}` });
   }
 
   // a message opens a turn, or steers the turn in flight; a parked or closed conversation gets a new agent
@@ -552,7 +557,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     let error = '';
     try {
       const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv?.scope ?? { kind: 'global' });
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking, ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking || startThinking(config.models, providerFor(p.provider)), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
     } catch (e) {
       error = errorMessage(e);
     }

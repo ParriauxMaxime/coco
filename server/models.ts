@@ -56,6 +56,13 @@ export function checkPick(catalog: Catalog, pick: ModelPick, fallback?: string |
   return { ...(provider ? { provider: `${family(provider)}/${model?.id}` } : {}), ...(thinking ? { thinking } : {}) };
 }
 
+// the thinking level an agent starts with when nothing picked one: models.thinking when its provider family is the default's, else `fallback`
+export function startThinking(models: { default: string; thinking?: string }, provider: string, fallback: string): string;
+export function startThinking(models: { default: string; thinking?: string }, provider: string, fallback?: string | null): string | undefined;
+export function startThinking(models: { default: string; thinking?: string }, provider: string, fallback?: string | null): string | undefined {
+  return (family(provider) === family(models.default) ? models.thinking : undefined) ?? fallback ?? undefined;
+}
+
 // a mode pick for the provider's family: one of the modes Paseo lists for it; none picked is its default (undefined: Paseo's or coco's own)
 export function checkMode(catalog: Catalog, provider: string, mode: unknown): string | undefined {
   const entry = catalog.providers.find((p) => p.id === family(provider));

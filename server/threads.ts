@@ -30,6 +30,7 @@ import type { Models } from './models.ts';
 import type { Jobs } from './jobs.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
 import type { RepoIdentity, RepoOf } from './config.ts';
+import { startThinking } from './models.ts';
 
 const SETTLE_MS = 15000;
 const TURN_MS = 45 * 60 * 1000;
@@ -552,7 +553,8 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       if (group.kind === 'code' && 'workspaceId' in where && where.cwd) group.worktree = expandHome(where.cwd);
       if (group.kind === 'code' && 'spare' in where && where.spare) group.spare = true;
       onStep('Starting the agent');
-      s = await agents.session({ title, provider: MODELS[group.model] || group.model, thinking: group.thinking || 'high', ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id, ...(group.kind === 'decision' ? {} : { pr: fileKey(group.n) }) }, ...streamFor(slug, group.id) });
+      const provider = MODELS[group.model] || group.model;
+      s = await agents.session({ title, provider, thinking: group.thinking || startThinking(config.models, provider, 'high'), ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id, ...(group.kind === 'decision' ? {} : { pr: fileKey(group.n) }) }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
     }

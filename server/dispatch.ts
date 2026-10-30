@@ -10,6 +10,7 @@ import type { BriefDispatch, Written } from './brief-writer.ts';
 import type { Readier } from './review-agent.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
+import { startThinking } from './models.ts';
 import type { Models } from './models.ts';
 import { isVideoEntry } from './preflight.ts';
 import type { Preflight } from './preflight.ts';
@@ -175,7 +176,7 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const fallback = entry.kind === 'persona-review' ? config.models.fast : config.models.default;
     const pick = models ? await models.check({ provider: input.provider, thinking: input.thinking }, fallback) : {};
     const provider = pick.provider || fallback;
-    const thinking = pick.thinking || 'high';
+    const thinking = pick.thinking || startThinking(config.models, provider, 'high');
 
     if (entry.kind === 'fix-findings' && key !== null) {
       const given = Array.isArray(input.commentIds) ? input.commentIds.filter((x): x is string => typeof x === 'string') : [];
