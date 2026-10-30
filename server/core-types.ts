@@ -62,6 +62,8 @@ export interface GateRecord {
 
 export interface StackRow {
   number?: number | null;
+  // the repo of a row that lives in another repo than its work's (a companion PR): a config repo id, absent for the work's own
+  repo?: string;
   planned?: Planned;
   // null: the owner undid it, git is not asked again
   landed?: Landed | null;

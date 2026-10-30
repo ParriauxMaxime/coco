@@ -32,6 +32,13 @@ test('a stack edit updates, moves and removes rows, sets or unlinks a Notion pag
   assert.throws(() => opOf({ op: 'update', row: 100, notionPage: { url: 'https://example.com/x', title: 'x' } }, 'ops[0]'), /ops\[0\]\.notionPage\.url must be a notion\.so link/);
 });
 
+test("a stack edit adds a companion row in another repo and keeps its repo on later updates", () => {
+  const added = applyStackOps(stack(), ops({ op: 'add', pr: 237, repo: 'docs', title: 'Docs companion', after: 102 }));
+  assert.deepEqual(added.at(-1)?.row, { number: 237, repo: 'docs', planned: { title: 'Docs companion' }, personas: [] });
+  const kept = applyStackOps(added.map((r) => r.row), ops({ op: 'update', row: 237, title: 'Docs, renamed' }));
+  assert.deepEqual([kept.at(-1)?.change, kept.at(-1)?.row.repo, kept.at(-1)?.row.planned?.title], ['updated', 'docs', 'Docs, renamed']);
+});
+
 test('a stack edit names a planned row by its branch as written, slashes included, and two ops on a shared branch take its rows in turn', () => {
   const planned = (branch: string): StackRow => ({ number: null, planned: { branch }, personas: [] });
   const rows = ['main', 'main', 'feat/design-preview', 'feat/redesign-shell'].map(planned);

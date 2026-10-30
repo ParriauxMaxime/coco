@@ -19,6 +19,8 @@ export type StackOp = {
   title?: string;
   scope?: string;
   personas?: string[];
+  // a companion row's repo id: its PR lives in another repo than the work's
+  repo?: string;
   notionPage?: NotionPage | null;
 };
 export type StackEdit = { work: string; ops: StackOp[]; syncNotion: boolean; why?: string };
@@ -58,6 +60,7 @@ export function opOf(o: Raw, at: string): StackOp {
     title: opt(o.title, 200, `${at}.title`),
     scope: opt(o.scope, 2000, `${at}.scope`),
     personas,
+    repo: opt(o.repo, 40, `${at}.repo`),
     notionPage: notionOf(o.notionPage, `${at}.notionPage`),
   });
 }
@@ -84,6 +87,7 @@ export function applyStackOps(stack: StackRow[], ops: StackOp[]) {
         planned: Object.keys(planned).length ? planned : undefined,
         scope: o.scope,
         personas: o.personas ?? [],
+        repo: o.repo,
         notionPage: o.notionPage ?? undefined,
       });
       const k = rowKey(row);
@@ -97,10 +101,10 @@ export function applyStackOps(stack: StackRow[], ops: StackOp[]) {
     if (o.op === 'remove') return;
     const { row } = entry;
     const planned = o.title || o.branch ? { ...row.planned, ...strip({ title: o.title, branch: o.branch }) } : row.planned;
-    const next: StackRow = strip({ ...row, number: o.pr ?? row.number, planned, scope: o.scope ?? row.scope, personas: o.personas ?? row.personas, notionPage: o.notionPage === null ? undefined : o.notionPage ?? row.notionPage });
+    const next: StackRow = strip({ ...row, number: o.pr ?? row.number, planned, scope: o.scope ?? row.scope, personas: o.personas ?? row.personas, repo: o.repo ?? row.repo, notionPage: o.notionPage === null ? undefined : o.notionPage ?? row.notionPage });
     const k = rowKey(next);
     if (k !== rowKey(row) && k != null && indexOf(k) >= 0) throw new Error(`${at}: ${keyLabel(k)} is already in the stack`);
-    const fields = o.pr != null || o.title || o.branch || o.scope != null || o.personas || o.notionPage !== undefined;
+    const fields = o.pr != null || o.title || o.branch || o.scope != null || o.personas || o.repo || o.notionPage !== undefined;
     const moved = { row: next, change: (entry.change === 'added' ? 'added' : fields ? 'updated' : o.after !== undefined ? 'moved' : entry.change) as Change };
     if (o.after === undefined) rows.splice(i, 0, moved);
     else place(moved, o.after, at);

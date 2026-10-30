@@ -82,7 +82,9 @@ export function createCode({ REPO, config, works, repoOf = () => ({ path: REPO, 
   const of = (key: RowKey | null) => {
     const hit = rowRepos.get(String(key));
     if (hit && Date.now() - hit.at < ROW_REPO_MS) return at(hit.repo);
-    const repo = repoOf(findRow(works, key)?.work);
+    const found = findRow(works, key);
+    // a companion row lives in another repo than its work's: its refs, diffs and files come from there
+    const repo = repoOf(found?.row?.repo ? { repo: found.row.repo } : found?.work);
     rowRepos.set(String(key), { at: Date.now(), repo });
     return at(repo);
   };

@@ -43,7 +43,7 @@ type Scaffold = {
   summary?: string;
   tier?: string;
   paseoProject?: { existingProjectId?: string; createNamed?: string };
-  stack?: { order?: number; title: string; scope: string; branch?: string; personas?: string[]; existingPr?: number; notionPage?: { url: string; title: string } }[];
+  stack?: { order?: number; title: string; scope: string; branch?: string; personas?: string[]; existingPr?: number; repo?: string; notionPage?: { url: string; title: string } }[];
   surfaces?: { surface: string; entryPoint: string; coverage: string }[];
   personas?: string[];
   links?: { label: string; url: string }[];
@@ -143,7 +143,7 @@ function scaffoldOf(p: Raw): Scaffold {
     summary: opt(p.summary, 1000, 'summary'),
     tier: opt(p.tier, 20, 'tier'),
     paseoProject: project,
-    stack: each(p.stack, 'stack', 40, (s, at) => strip({ order: optNumber(s.order), title: str(s.title, 200, `${at}.title`), scope: opt(s.scope, 2000, `${at}.scope`) ?? '', branch: opt(s.branch, 200, `${at}.branch`), personas: texts(s.personas, `${at}.personas`, 20), existingPr: optNumber(s.existingPr), notionPage: notionOf(s.notionPage, `${at}.notionPage`) ?? undefined })),
+    stack: each(p.stack, 'stack', 40, (s, at) => strip({ order: optNumber(s.order), title: str(s.title, 200, `${at}.title`), scope: opt(s.scope, 2000, `${at}.scope`) ?? '', branch: opt(s.branch, 200, `${at}.branch`), personas: texts(s.personas, `${at}.personas`, 20), existingPr: optNumber(s.existingPr), repo: opt(s.repo, 40, `${at}.repo`), notionPage: notionOf(s.notionPage, `${at}.notionPage`) ?? undefined })),
     surfaces: each(p.surfaces, 'surfaces', 40, (s, at) => ({ surface: str(s.surface, 200, `${at}.surface`), entryPoint: opt(s.entryPoint, 500, `${at}.entryPoint`) ?? '', coverage: opt(s.coverage, 1000, `${at}.coverage`) ?? '' })),
     personas: texts(p.personas, 'personas', 20),
     links: each(p.links, 'links', 20, (l, at) => ({ label: str(l.label, 200, `${at}.label`), url: str(l.url, 2000, `${at}.url`) })),
@@ -154,7 +154,7 @@ function scaffoldOf(p: Raw): Scaffold {
   });
 }
 
-const scaffoldRows = (p: Scaffold): StackRow[] => (p.stack || []).map((s, i) => ({ number: s.existingPr || null, planned: { order: s.order ?? i + 1, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [], ...(s.notionPage ? { notionPage: s.notionPage } : {}) }));
+const scaffoldRows = (p: Scaffold): StackRow[] => (p.stack || []).map((s, i) => ({ number: s.existingPr || null, ...(s.repo ? { repo: s.repo } : {}), planned: { order: s.order ?? i + 1, title: s.title, scope: s.scope, branch: s.branch }, personas: s.personas || [], ...(s.notionPage ? { notionPage: s.notionPage } : {}) }));
 
 // the confirm card of a scaffold: what Create work (or Update work) writes, and whether an existing stack is replaced (on by default when the proposed stack differs)
 function scaffoldCard(p: Scaffold, existing: AskWork | null | undefined): Raw {

@@ -49,6 +49,16 @@ test('two works in two repos holding PR 101 each read their own repo, cached apa
   assert.deepEqual(sent.map((d) => d.prs?.map((p) => p.title)), [['acme/app'], ['acme/tool']]);
 });
 
+test("a row that names its own repo reads its PR from there, so a companion PR of another repo shows on its work", async () => {
+  const { works, queries } = make();
+  works.save({ slug: 'crm', title: 'crm', repo: 'app', stack: [{ number: 16981 }, { number: 237, repo: 'tool' }], timeline: [] } as unknown as Work);
+  assert.deepEqual([(await works.prInfo(237)).title, (await works.prInfo(16981)).title], ['acme/tool', 'acme/app']);
+  const sent: { prs?: { title?: string; number?: number }[] }[] = [];
+  await works.handle({ method: 'GET', url: '/api/works/crm' } as never, {} as never, ['works', 'crm'], async () => '', ((_res: unknown, _code: number, body: never) => void sent.push(body)) as never);
+  assert.deepEqual(sent[0].prs?.map((p) => p.title), ['acme/app', 'acme/tool']);
+  assert.deepEqual(queries.sort(), ['acme/app', 'acme/tool']);
+});
+
 test('the number to repo memo is forgotten when a work changes', async () => {
   const { works, work } = make();
   work('cli', 'tool', [101]);

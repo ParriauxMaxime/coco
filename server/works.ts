@@ -171,13 +171,17 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
       .flatMap((f) => readWork(path.join(ROOT, f)) ?? [])
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   const get = (slug: string): Work | null => readWork(file(slug));
-  // the GitHub repo of a PR number: that of the work whose stack holds it (a live work before an archived one), else the default repo; forgotten on every change
+  // a row in another repo than its work's (a companion PR) names that repo: its PRs, state and diffs come from there
+  const repoOfRow = (s: StackRow) => (s.repo ? config.repos.find((r) => r.id === s.repo) ?? null : null);
+  const rowGithub = (work: Work | null | undefined, s: StackRow) => repoOfRow(s)?.github || githubOfWork(work);
+  // the GitHub repo of a PR number: that of the work whose stack holds it (a live work before an archived one), a row's own repo first, else the default repo; forgotten on every change
   let githubs: Map<number, string> | null = null;
   const githubOf = (number: number) => {
     if (!githubs) {
       const ws = list();
       const map = (githubs = new Map<number, string>());
-      for (const w of [...ws.filter((x) => !x.archived), ...ws.filter((x) => x.archived)]) for (const s of w.stack || []) if (s.number && !map.has(s.number)) map.set(s.number, githubOfWork(w));
+      // a row that names its repo wins over one that does not: l3mpire/mintlify#237 is not l3mpire/lempire#237
+      for (const w of [...ws.filter((x) => !x.archived), ...ws.filter((x) => x.archived)]) for (const s of w.stack || []) if (s.number && (s.repo || !map.has(s.number))) map.set(s.number, rowGithub(w, s));
     }
     return githubs.get(number) ?? GITHUB;
   };
@@ -350,7 +354,7 @@ export function createWorks({ DATA, PERSONAS, REPO, config, agents, jobs, run = 
   }
   // a row's PR; a row with none reads landed once it did, else planned
   const rowInfo = (work: Work | null, s: StackRow, fresh = false): Promise<PrInfo> =>
-    !s.number && s.landed ? Promise.resolve({ number: null, state: 'LANDED', isDraft: false, ci: 'none', checks: [], reviewers: [], landed: s.landed }) : prInfo(s.number, fresh, githubOfWork(work));
+    !s.number && s.landed ? Promise.resolve({ number: null, state: 'LANDED', isDraft: false, ci: 'none', checks: [], reviewers: [], landed: s.landed }) : prInfo(s.number, fresh, rowGithub(work, s));
   function toPrInfo(d: GhPr): PrInfo {
     const contexts = d.commits?.nodes[0]?.commit.statusCheckRollup?.contexts.nodes || [];
     // a status context has a state only: SUCCESS / FAILURE / ERROR are final, PENDING / EXPECTED run

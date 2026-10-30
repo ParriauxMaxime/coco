@@ -135,6 +135,10 @@ test('repoOf: a row of a work in another repo reads that repo, with its default 
     const req = Object.assign(new IncomingMessage(new Socket()), { method: 'GET', url: `/api/code/commit/${side}/refs` });
     await two.handle(req, new ServerResponse(req), ['code', 'commit', side, 'refs'], async () => '', (_r, status, body) => void Object.assign(out, { status, body }));
     assert.equal(out.body.mergeBase, trunk);
+    // a row that names its own repo wins over its work's: a companion PR reads its own repo's branch
+    const mixed = { slug: 'w3', repo: 'app', stack: [{ repo: 'two', planned: { branch: 'side' } }] };
+    const mixedCode = createCode({ REPO: dir, works: { get: () => null, list: () => [mixed] as never }, repoOf });
+    assert.deepEqual((await mixedCode.prFilesFromGit('b:side')).map((f) => f.filename), ['two.txt']);
   } finally {
     fs.rmSync(dir2, { recursive: true, force: true });
   }
