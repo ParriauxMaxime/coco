@@ -7,6 +7,8 @@ const ORDER = /^r:(\d+)$/;
 const toKey = (s: string): PrKey => (/^\d+$/.test(s) ? Number(s) : s);
 
 export const isLocalKey = (k: PrKey) => /^(?:b:|r:)/.test(String(k));
+// a row that ships on the default branch: no branch, so no diff, no review and no worktree behind its key
+export const isRowOrder = (k: PrKey) => ORDER.test(String(k));
 export const keyLabel = (k: PrKey) => {
   const order = ORDER.exec(String(k));
   if (order) return `row ${order[1]}`;

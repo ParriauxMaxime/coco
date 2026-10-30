@@ -358,6 +358,7 @@ export default function Review({ tabId }: { tabId: string }) {
   const handle = (side: 'left' | 'right') => <div className="rv-handle" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(side); }} onPointerMove={resize} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)} />;
 
   if (!pr) return <div className="rv-missing">{keyLabel(n)} is not in this work.</div>;
+  if (!pr.number && !pr.planned?.branch) return <div className="rv-missing">{keyLabel(n)} has no branch: it ships straight on the default branch, so there is no diff to review.</div>;
   const title = pr.title || pr.planned?.title;
   const toggleCat = (c: string) => setHidden(hidden.includes(c) ? hidden.filter((x) => x !== c) : [...hidden, c]);
   const onFold = (key: string) => setFolded(folded.includes(key) ? folded.filter((x) => x !== key) : [...folded, key]);

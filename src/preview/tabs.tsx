@@ -167,7 +167,7 @@ const ICONS: [RegExp, IconName][] = [
 ];
 
 export function previewTabDef(id: string): TabDef {
-  const def = VIEWS[id] || agentDef(id) || runDef(id) || findingsDef(id) || (id.startsWith('pr-') ? { title: () => `#${id.slice(3)}`, tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
+  const def = VIEWS[id] || agentDef(id) || runDef(id) || findingsDef(id) || (id.startsWith('pr-') ? { title: () => keyLabel(id.slice(3)), tip: () => 'PR details', Component: PrTab, flush: true } : tabDef(id));
   const icon = ICONS.find(([re]) => re.test(id))?.[1];
   return icon && !def.icon ? { ...def, icon: <Icon name={icon} size={14} /> } : def;
 }

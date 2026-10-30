@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { create } from 'zustand';
 import { useShownInterval, useVisible } from '../../resource.ts';
+import { isRowOrder } from './ids.ts';
 import { codeApi } from './code-api.ts';
 import type { CommentInput, CommentPatch, PrKey, Proposal, Refs, ReviewComment, ReviewPlanState, ReviewRun } from '../types.ts';
 
@@ -62,6 +63,8 @@ const put = (slug: string, n: PrKey, f: (cur: ReviewEntry) => Partial<ReviewEntr
 
 const inflight = new Map<string, Promise<void>>();
 export function loadReview(slug: string, n: PrKey, { fresh = false }: { fresh?: boolean } = {}) {
+  // a row that ships on the default branch has no branch to read a diff from: no refs, no plan to ask for
+  if (isRowOrder(n)) return Promise.resolve();
   const k = key(slug, n);
   const running = inflight.get(k);
   if (running) return running;

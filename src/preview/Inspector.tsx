@@ -16,7 +16,7 @@ import { briefKeyOfTab } from './BriefView.tsx';
 import { openCodeAt } from '../workbench/tabs/Code.tsx';
 import ReviewActivity from '../workbench/code/ReviewActivity.tsx';
 import { useComments } from '../workbench/code/use-comments.ts';
-import { changesTabId, findingsKeyOfTab, isLocalKey, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
+import { changesTabId, findingsKeyOfTab, keyLabel, prOfTab, reviewKeyOfTab } from '../workbench/code/ids.ts';
 import { GitSummary, useRowWorkspace } from './GitPanel.tsx';
 import type { PrKey, WorkPr } from '../workbench/types.ts';
 import type { Gate, Landed } from '../types.ts';
@@ -296,7 +296,8 @@ export function inspectorFor(tabId: string, prs: WorkPr[], selected: string | nu
   if (tabId.startsWith('pr-')) {
     const n = reviewKeyOfTab(`review-${tabId.slice(3)}`);
     const row = prs.find((p) => prKey(p) === tabId.slice(3));
-    if (n !== null && (row?.number || isLocalKey(n))) return { kind: 'review', title: 'Review activity', n };
+    // a row with no branch has nothing to review: its tab is all there is
+    if (n !== null && (row?.number || row?.planned?.branch)) return { kind: 'review', title: 'Review activity', n };
     return { kind: 'note', title: 'PR', text: 'Not opened yet: the tab holds all there is' };
   }
   const list = tabId === 'findings' || tabId === 'decisions' ? picked[tabId] : null;
