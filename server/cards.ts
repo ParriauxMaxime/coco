@@ -60,6 +60,8 @@ export type Card = CardBody & {
   // closed because its agent was archived outside coco (closedBy archive) or handed off: nothing can answer it any more
   archived?: string;
   closedBy?: 'archive' | 'handoff';
+  // its Paseo agent is closed or archived: the card takes no answer, leaves every count, and one press relaunches a fresh agent on its brief
+  orphaned?: { at: string; reason: 'archived' | 'closed' };
 };
 export const EXPLAIN_TEXT = 'Explain the options in more detail before I pick';
 export const DISMISS_TEXT = 'The user dismissed this card without choosing. Continue with your recommendation if it is safe; otherwise stop and say what is left.';
@@ -295,6 +297,19 @@ export function answerSummary(card: Card) {
   return lines.join('\n');
 }
 
+// the first message of the fresh agent an orphaned card launches: the question, its context, and the owner's answer when they gave one
+export function relaunchPrompt(card: Card, answer: Omit<CardAnswer, 'at'> | null) {
+  return [
+    card.title,
+    'An agent asked this and was archived before the answer came: you take the question on, as the same brief you start from.',
+    ...(card.question ? ['', '## The question', '', card.question] : []),
+    ...(card.blocks?.length ? ['', '## Its context', '', '```json', JSON.stringify(card.blocks, null, 1).slice(0, 4000), '```'] : []),
+    ...(answer ? ['', "## The owner's answer", '', answerSummary({ ...card, answer: { at: '', ...answer } })] : []),
+    '',
+    "If the owner's word is truly needed, ask it again with the cocopilot `ask` tool; otherwise decide and carry on.",
+  ].join('\n');
+}
+
 export function deliveryText(card: Card) {
   if (card.status === 'cancelled') return `[coco card ${card.id} dismissed] ${card.title}\n${DISMISS_TEXT}`;
   const r = card.result;
@@ -303,10 +318,11 @@ export function deliveryText(card: Card) {
 
 // deliver resolves to SKIPPED when nobody waits for the answer (a one-shot run that ended)
 // outlives: agents whose cards stay open once archived (an Ask conversation's: answering revives it)
-type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef>; threads?: ThreadHook; outlives?: (agentId: string) => boolean };
+// relaunch: an orphaned card's answer, taken by a fresh agent on the same brief
+type Options = { DATA: string; place?: (agentId: string) => Promise<Place>; deliver: (agentId: string, text: string) => Promise<unknown>; actions?: Record<string, ActionDef>; threads?: ThreadHook; outlives?: (agentId: string) => boolean; relaunch?: (card: Card, answer: Omit<CardAnswer, 'at'> | null) => Promise<{ agentId: string }> };
 const KEPT_MAX = 2000;
 
-export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {}, threads, outlives = () => false }: Options) {
+export function createCards({ DATA, place = async () => ({ work: null, pr: null }), deliver, actions = {}, threads, outlives = () => false, relaunch: startOnBrief }: Options) {
   const DIR = path.join(DATA, 'cards');
   fs.mkdirSync(DIR, { recursive: true });
   // agents coco archived itself (a one-shot run, a closed conversation, a gate run): their cards wait for the owner
@@ -428,6 +444,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
 
   async function answer(id: string, input: Raw) {
     const c = open(id);
+    if (c.orphaned) throw new HttpError(409, 'its agent is gone: relaunch a fresh agent on its brief instead');
     const given = checked(() => validateAnswer(c, input));
     c.status = 'answered';
     c.answer = { at: now(), ...given };
@@ -438,6 +455,27 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
       return save(c);
     }
     return tell(c);
+  }
+
+  // an orphaned card takes no answer: the one way is a fresh agent on the same brief, taking the owner's answer when they picked one
+  async function relaunch(id: string, body: Raw) {
+    const c = open(id);
+    if (!c.orphaned) throw new HttpError(409, 'this card still has its agent: answer it');
+    if (!startOnBrief) throw new HttpError(409, 'coco cannot start an agent for this card');
+    // a draft the owner touched nothing in says nothing: it relaunches without an answer
+    const said = Object.fromEntries(Object.entries(body).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v as Raw).length)));
+    const answer = Object.keys(said).length ? checked(() => validateAnswer(c, said)) : null;
+    try {
+      const started = await startOnBrief(c, answer);
+      c.status = 'answered';
+      c.answer = { at: now(), ...(answer ?? {}) };
+      c.result = { at: now(), ok: true, detail: 'a fresh agent took the question on the same brief', link: `#/agents/${started.agentId}` };
+    } catch (e) {
+      c.result = { at: now(), ok: false, detail: errorMessage(e).slice(0, 500) };
+      save(c);
+      throw new HttpError(httpStatus(e), errorMessage(e));
+    }
+    return save(c);
   }
 
   // "Explain more": the agent is asked for detail, the card stays open and unanswered
@@ -471,22 +509,28 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
   // only a plain question dies with its agent: a proposal is applied by coco and a thread's card answered through its thread
   const plain = (c: Card) => c.status === 'open' && !c.action && !c.thread;
   const outlived = (agentId: string) => kept.includes(agentId) || outlives(agentId);
-  const close = (agentId: string, closedBy: 'archive' | 'handoff') => {
+  const close = (agentId: string) => {
     const closed = [...cards.values()].filter((c) => c.agentId === agentId && plain(c));
-    for (const c of closed) save({ ...c, status: 'cancelled', archived: now(), closedBy, delivery: { at: now(), ok: true, skipped: true } });
+    for (const c of closed) save({ ...c, status: 'cancelled', archived: now(), closedBy: 'handoff', delivery: { at: now(), ok: true, skipped: true } });
     return closed.map((c) => c.id);
   };
+  // its agent takes no message any more: the question keeps its place on the agent's page, leaves every count, and one press relaunches a fresh agent on its brief
+  function orphan(agentId: string, reason: 'archived' | 'closed') {
+    const left = [...cards.values()].filter((c) => c.agentId === agentId && plain(c) && !c.orphaned);
+    for (const c of left) save({ ...c, orphaned: { at: now(), reason } });
+    return left.map((c) => c.id);
+  }
 
-  // an agent archived outside coco (by hand in Paseo) takes no message: its plain open questions close, nothing delivered
-  const agentArchived = (agentId: string) => (outlived(agentId) ? [] : close(agentId, 'archive'));
+  // an agent archived (by hand in Paseo, or by coco: the card stayed for the owner) or closed takes no message: its plain open questions leave the counts; an Ask conversation revives instead
+  const agentArchived = (agentId: string, reason: 'archived' | 'closed' = 'archived') => (outlives(agentId) ? [] : orphan(agentId, reason));
 
-  // the agents of open plain questions, each checked once: archived (true) closes its cards, unknown (null) or unreachable leaves them
-  async function sweepArchived(isArchived: (agentId: string) => Promise<boolean | null>) {
-    const closed: string[] = [];
-    for (const agentId of new Set([...cards.values()].filter((c) => plain(c) && !outlived(c.agentId)).map((c) => c.agentId))) {
-      if ((await isArchived(agentId).catch(() => null)) === true) closed.push(...agentArchived(agentId));
+  // the agents of open plain questions, each checked once: gone (true) orphans its cards, unknown (null) or unreachable leaves them
+  async function sweepArchived(isGone: (agentId: string) => Promise<boolean | null>) {
+    const orphans: string[] = [];
+    for (const agentId of new Set([...cards.values()].filter((c) => plain(c) && !outlives(c.agentId)).map((c) => c.agentId))) {
+      if ((await isGone(agentId).catch(() => null)) === true) orphans.push(...agentArchived(agentId));
     }
-    return closed;
+    return orphans;
   }
 
   // the cards an earlier sweep closed with their agent that the rule above keeps open: reopened, once (later closures carry closedBy)
@@ -496,9 +540,11 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     return back.map((c) => c.id);
   }
 
+  // dismissing a card whose agent is gone tells nobody: there is nobody left to tell
   async function cancel(id: string) {
     const c = open(id);
     c.status = 'cancelled';
+    if (c.orphaned) return save({ ...c, delivery: { at: now(), ok: true, skipped: true } });
     save(c);
     return tell(c);
   }
@@ -519,6 +565,7 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
       if (root === 'cards' && a && !b && req.method === 'GET') return send(res, 200, get(a));
       if (root === 'cards' && a && b === 'answer' && req.method === 'POST') return send(res, 200, await answer(a, await body()));
       if (root === 'cards' && a && b === 'cancel' && req.method === 'POST') return send(res, 200, await cancel(a));
+      if (root === 'cards' && a && b === 'relaunch' && req.method === 'POST') return send(res, 200, await relaunch(a, await body()));
       if (root === 'cards' && a && b === 'explain' && req.method === 'POST') return send(res, 200, await explain(a));
       return send(res, 404, { error: 'no route' });
     } catch (e) {
@@ -541,12 +588,14 @@ export function createCards({ DATA, place = async () => ({ work: null, pr: null 
     cocoArchives,
     reopenArchived,
     // the agent handed its work to a new one: its plain open questions close, whoever archived it
-    handedOff: (agentId: string) => close(agentId, 'handoff'),
+    handedOff: close,
     ofThread: (work: string, thread: string) => [...cards.values()].filter((c) => c.work === work && c.thread === thread).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     // the work an agent's cards were posted in, by its full id or its first characters
     workOfAgent: (idPrefix: string) => (idPrefix ? [...cards.values()].find((c) => c.agentId.startsWith(idPrefix) && c.work)?.work ?? null : null),
-    open: () => [...cards.values()].filter((c) => c.status === 'open').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open').length,
+    // a card whose agent is gone keeps its place on the agent's page but waits on nobody, so it leaves every count
+    open: () => [...cards.values()].filter((c) => c.status === 'open' && !c.orphaned).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    openCount: (agentId: string) => ofAgent(agentId).filter((c) => c.status === 'open' && !c.orphaned).length,
+    relaunch,
     handle,
     onChange: (l: (agentId: string, card: Card) => void) => (listeners.add(l), () => listeners.delete(l)),
     // a planned row that got its PR: its cards and the threads they answer in follow it

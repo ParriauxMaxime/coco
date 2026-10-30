@@ -174,10 +174,11 @@ test("a message typed to the agent answers its open cards in chat, a thread mess
   assert.equal(createCards({ DATA, deliver: async () => {} }).get(plain.id).answer?.chat, true);
 });
 
-test("an archived agent's open cards close as agent archived, nothing delivered, and leave the waiting count", async () => {
+test("a card whose agent is gone leaves every count, keeps its place on the agent's page, and answers on a fresh agent in one press; an idle agent's card keeps counting", async () => {
   const sent: string[] = [];
   const DATA = tmpDir();
-  const cards = createCards({ DATA, deliver: async (_a, text) => void sent.push(text) });
+  const briefs: [string, unknown][] = [];
+  const cards = createCards({ DATA, deliver: async (_a, text) => void sent.push(text), relaunch: async (card, answer) => (briefs.push([card.id, answer]), { agentId: 'fresh' }) });
   const asked = await cards.create({ ...choice, agentId: AGENT });
   const answered = await cards.create({ ...choice, agentId: AGENT });
   await cards.answer(answered.id, { picked: ['csv'] });
@@ -185,19 +186,33 @@ test("an archived agent's open cards close as agent archived, nothing delivered,
   const waiting = createWaiting({ works: { list: () => [] }, cards, threads: { queue: () => [], ready: async () => null }, ask: { list: () => [] } });
   assert.equal((await waiting.view()).count, 2);
   sent.length = 0;
-  assert.deepEqual(cards.agentArchived(AGENT), [asked.id]);
-  const closed = cards.get(asked.id);
-  assert.deepEqual([closed.status, Boolean(closed.archived), closed.delivery?.skipped], ['cancelled', true, true]);
-  assert.deepEqual([cards.get(answered.id).status, cards.get(answered.id).archived, cards.get(other.id).status], ['answered', undefined, 'open']);
+  assert.deepEqual(cards.agentArchived(AGENT, 'closed'), [asked.id]);
+  const left = cards.get(asked.id);
+  assert.deepEqual([left.status, left.orphaned?.reason, cards.openCount(AGENT)], ['open', 'closed', 0]);
+  // still on its agent's page, unanswered and untold, while an agent nobody reported gone keeps counting
+  assert.deepEqual(cards.ofAgent(AGENT).map((c) => c.id).sort(), [asked.id, answered.id].sort());
+  assert.deepEqual([cards.get(answered.id).orphaned, cards.get(other.id).orphaned], [undefined, undefined]);
   assert.deepEqual(sent, []);
-  assert.equal(cards.openCount(AGENT), 0);
   waiting.touch();
   assert.deepEqual((await waiting.view()).items.map((i) => i.id), [`card:${other.id}`]);
-  await assert.rejects(cards.cancel(asked.id), /already cancelled/);
-  assert.ok(createCards({ DATA, deliver: async () => {} }).get(asked.id).archived);
+  // it takes no answer of its own: the one press starts a fresh agent on the same brief, with the pick when there is one
+  await assert.rejects(cards.answer(asked.id, { picked: ['csv'] }), /relaunch a fresh agent/);
+  await assert.rejects(cards.relaunch(other.id, {}), /still has its agent/);
+  const relaunched = await cards.relaunch(asked.id, { picked: ['csv'] });
+  assert.deepEqual([relaunched.status, relaunched.result?.ok, relaunched.result?.link, relaunched.answer?.picked], ['answered', true, '#/agents/fresh', ['csv']]);
+  assert.deepEqual(briefs, [[asked.id, { picked: ['csv'] }]]);
+  await assert.rejects(cards.relaunch(asked.id, {}), /already answered/);
+  // one with nothing picked relaunches without an answer, and an orphan is orphaned once
+  const bare = await cards.create({ ...choice, agentId: 'a-lonely-agent' });
+  assert.deepEqual(cards.agentArchived('a-lonely-agent'), [bare.id]);
+  assert.deepEqual(cards.agentArchived('a-lonely-agent'), []);
+  await cards.relaunch(bare.id, { picked: [], other: '' });
+  assert.deepEqual(briefs.at(-1), [bare.id, null]);
+  const again = createCards({ DATA, deliver: async () => {} }).get(asked.id);
+  assert.deepEqual([again.status, again.result?.ok], ['answered', true]);
 });
 
-test('the boot sweep closes the cards of agents found archived, once per agent, and leaves those it cannot check', async () => {
+test('the boot sweep orphans the cards of agents found gone, once per agent, and leaves those it cannot check', async () => {
   const cards = createCards({ DATA: tmpDir(), deliver: async () => {} });
   const ids = { gone: '11111111-0000-0000-0000-000000000001', live: '11111111-0000-0000-0000-000000000002', unreachable: '11111111-0000-0000-0000-000000000003' };
   const made = { gone: [await cards.create({ ...choice, agentId: ids.gone }), await cards.create({ ...choice, agentId: ids.gone })], live: await cards.create({ ...choice, agentId: ids.live }), unreachable: await cards.create({ ...choice, agentId: ids.unreachable }) };
@@ -210,6 +225,7 @@ test('the boot sweep closes the cards of agents found archived, once per agent, 
   assert.deepEqual(closed.sort(), made.gone.map((c) => c.id).sort());
   assert.deepEqual(asked.sort(), Object.values(ids).sort());
   assert.deepEqual([cards.get(made.live.id).status, cards.get(made.unreachable.id).status], ['open', 'open']);
+  assert.deepEqual(made.gone.map((c) => cards.get(c.id).orphaned?.reason), ['archived', 'archived']);
   assert.deepEqual(await cards.sweepArchived(async () => true).then((x) => x.length), 2);
 });
 
@@ -227,9 +243,10 @@ test('an archive closes only the plain questions of an agent archived outside co
   const asked = await cards.create({ ...choice, agentId: ids.ask });
   cards.cocoArchives(ids.coco);
   assert.deepEqual(cards.agentArchived(ids.hand), [plain.id]);
-  assert.deepEqual([cards.agentArchived(ids.coco), cards.agentArchived(ids.ask)], [[], []]);
-  assert.deepEqual([proposal, threadCard, once, asked].map((c) => cards.get(c.id).status), ['open', 'open', 'open', 'open']);
-  assert.equal(cards.get(plain.id).closedBy, 'archive');
+  // a coco-archived agent cannot take an answer either: its card leaves the count too; an Ask conversation's revives instead
+  assert.deepEqual([cards.agentArchived(ids.coco), cards.agentArchived(ids.ask)], [[once.id], []]);
+  assert.deepEqual([proposal, threadCard, once, asked].map((c) => [cards.get(c.id).status, cards.get(c.id).orphaned?.reason]), [['open', undefined], ['open', undefined], ['open', 'archived'], ['open', undefined]]);
+  assert.deepEqual([cards.get(plain.id).closedBy, cards.get(plain.id).archived], [undefined, undefined]);
   assert.deepEqual(await cards.sweepArchived(async () => true), []);
   // a hand-off closes the old agent's plain questions even though coco archived it
   const old = await cards.create({ ...choice, agentId: ids.handed });

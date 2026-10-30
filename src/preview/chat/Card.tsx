@@ -203,6 +203,7 @@ const delivered = (c: Card) => {
 
 function Status({ c }: { c: Card }) {
   if (c.archived) return <div className="dp-cd-st"><Icon name="archive" size={12} /><span>Closed {clock(c.archived)}</span><span>its agent was archived: nothing left to answer it</span></div>;
+  if (c.orphaned) return c.status === 'cancelled' ? <div className="dp-cd-st"><Icon name="x" size={12} />Dismissed: its agent was gone, so nobody was told</div> : <div className="dp-cd-st"><Icon name="archive" size={12} /><span>Relaunched {clock(c.result?.at)}</span><span>its agent was gone: a fresh one took the brief</span></div>;
   if (c.status === 'cancelled') return <div className="dp-cd-st"><Icon name="x" size={12} />Dismissed: the agent goes on with its recommendation if safe, else says what is left</div>;
   if (c.answer?.chat) return <div className="dp-cd-st"><Icon name="message-square" size={12} /><span>Answered in chat {clock(c.answer.at)}</span><span>your message went to the agent instead</span></div>;
   const bad = c.delivery && !c.delivery.ok;
@@ -230,6 +231,7 @@ function Result({ c }: { c: Card }) {
 }
 
 const outcome = (c: Card): [string, string] => {
+  if (c.orphaned) return c.status === 'open' ? ['agent archived', ''] : ['relaunched', 'dp-ok'];
   if (c.status === 'open') return ['waiting on you', 'dp-warn'];
   if (c.archived) return ['agent archived', ''];
   if (c.status === 'cancelled') return ['dismissed', ''];
@@ -286,7 +288,9 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
   const answer = (key: string, body: CardAnswerBody) => run(key, () => api.answerCard(c.id, body));
   const submit = () => {
     setTried(true);
-    if (ok && !busy) void answer('answer', answerOf(c, d));
+    if (busy) return;
+    if (c.orphaned) return void run('relaunch', () => api.relaunchCard(c.id, answerOf(c, d)));
+    if (ok) void answer('answer', answerOf(c, d));
   };
   const note = d.other.trim() || undefined;
   const approve = () => {
@@ -336,7 +340,12 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
       </div>
       {open && !post && (
         <div className="dp-cq-f dp-cd-f">
-          {c.kind === 'confirm' ? (
+          {c.orphaned ? (
+            <>
+              <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'relaunch')}`} disabled={busy} title="Its agent is gone: this starts a fresh agent on the same brief, with your answer if you gave one" onClick={submit}><Icon name="archive" size={12} />Relaunch on this brief</button>
+              <span className="dp-xs dp-t3">its agent was archived: your answer goes to a fresh one</span>
+            </>
+          ) : c.kind === 'confirm' ? (
             <>
               <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'yes')}`} disabled={busy} onClick={approve}><Icon name="check" size={12} />{c.confirmLabel || 'Approve'}</button>
               <button type="button" className={`dp-btn dp-danger dp-sm${pendingClass(pending === 'no')}`} disabled={busy} onClick={() => void answer('no', { approved: false, other: note })}><Icon name="x" size={12} />{c.rejectLabel || 'Reject'}</button>

@@ -337,6 +337,8 @@ export type Card = {
   explained?: { at: string; ok: boolean; error?: string; skipped?: boolean };
   // closed when its agent was archived
   archived?: string;
+  // its agent is closed or archived: it waits on nobody, and answering it starts a fresh agent on the same brief
+  orphaned?: { at: string; reason: 'archived' | 'closed' };
 };
 
 export type ActivityEvent = {

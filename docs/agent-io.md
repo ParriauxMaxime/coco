@@ -101,8 +101,9 @@ type Card = {
   answer?: CardAnswer;
   result?: CardResult;            // what the action or the picked option's effect did, before delivery
   delivery?: { at: string; ok: boolean; error?: string; skipped?: boolean };  // skipped: nobody waits (a one-shot run)
-  archived?: string;              // when it closed (status 'cancelled') because its agent was archived outside coco or handed off
-  closedBy?: 'archive' | 'handoff'; // which of the two; only a plain question (no action, no thread) closes so
+  archived?: string;              // when it closed (status 'cancelled') because its agent was handed off
+  closedBy?: 'handoff';           // only a plain question (no action, no thread) closes so
+  orphaned?: { at: string; reason: 'archived' | 'closed' };  // its agent takes no message any more: status stays 'open', it leaves every count, and one relaunch starts a fresh agent on its brief
 };
 
 type CardAnswer = {
@@ -200,6 +201,13 @@ Cards are stored one JSON file each under `<dataDir>/cards/`.
 - `POST /api/cards/<id>/cancel` → `Card` (user dismisses an open ask; the agent
   is told it was dismissed and to go on with its recommendation if safe, see
   Delivery).
+- `POST /api/cards/<id>/relaunch` body `CardAnswer` minus `at`, or `{}` → `Card`
+  (an `orphaned` card's one press): starts a fresh agent in the card's own
+  place (`row` when the PR is one of the work's rows, else the work, else the
+  repo clone), on the work's brief and default model, whose first message is
+  the card (title, question, blocks) and the owner's answer when they picked
+  one; the card becomes `answered` and `result.link` is `#/agents/<agentId>`.
+  `answer` refuses an orphaned card (409); `cancel` on one tells nobody.
 - Answered in chat: when the owner writes to the agent instead of answering
   (`POST /api/agent-chat/<agentId>/messages`, `POST /api/ask/<id>/messages`
   for every agent of the conversation, `POST /api/works/<slug>/threads/<key>`

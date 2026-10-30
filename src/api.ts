@@ -255,6 +255,7 @@ export const api = {
   answerCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/answer`, answer).then(jsonOrError<Card>),
   cancelCard: (id: string) => postJson(`/api/cards/${encodeURIComponent(id)}/cancel`).then(jsonOrError<Card>),
   explainCard: (id: string) => postJson(`/api/cards/${encodeURIComponent(id)}/explain`).then(jsonOrError<Card>),
+  relaunchCard: (id: string, answer: CardAnswerBody) => postJson(`/api/cards/${encodeURIComponent(id)}/relaunch`, answer).then(jsonOrError<Card>),
   waiting: (work?: string) => get<WaitingView>(work ? `/api/works/${work}/waiting` : '/api/waiting'),
   // one button of a waiting item: its own endpoint and body, plus the text of a reply
   waitingAct: (a: WaitingAction, text?: string) => postJson(a.url, a.kind === 'reply' ? { [a.field || 'text']: text } : a.body).then(jsonOrError<unknown>),

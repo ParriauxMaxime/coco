@@ -69,7 +69,8 @@ import { createMcpStatus } from './mcp-status.ts';
 import { createHub } from './events.ts';
 import { createJobs } from './jobs.ts';
 import { createSelf } from './self.ts';
-import { SKIPPED, createCards } from './cards.ts';
+import { SKIPPED, createCards, relaunchPrompt } from './cards.ts';
+import type { Card, CardAnswer } from './cards.ts';
 import { createStackEdit } from './stack-edit.ts';
 import { createStackSplit } from './stack-split.ts';
 import { createPrReply } from './pr-reply.ts';
@@ -298,6 +299,8 @@ const cards = createCards({
     return conv ? ask.say(conv.id, text) : workAgents.say(agentId, text);
   },
   outlives: (agentId) => Boolean(ask.convOf(agentId)),
+  // a card whose agent is gone: one press starts a fresh agent in the card's own place, on the work's brief and default model
+  relaunch: (card, answer) => newAgent.start({ place: placeOfCard(card), prompt: relaunchPrompt(card, answer) }),
 });
 cards.onChange((_agentId, card) => card.work && card.thread && threads.cardChanged(card.work, card.thread));
 // cards an earlier sweep closed with an agent coco archived itself (a proposal, a thread's, an Ask conversation's) wait again
@@ -308,11 +311,18 @@ for (const l of backfillParents(works, cards.workOfAgent)) console.log(`work ${l
 // rows an agent titled "✓ " by hand before rows could land
 void backfillLanded(works, works.gitOf).then((done) => done.forEach((l) => console.log(`work ${l.slug}: ${l.rows} shipped rows landed`)), (e) => console.error(`landed backfill: ${errorMessage(e)}`));
 for (const l of branchlessRows(works, works.gitOf)) console.log(`work ${l.slug}: ${l.rows} rows read as their planned order (they ship on the default branch)`);
-// an agent archived outside coco closes its plain open questions; one Paseo dropped from the live list is looked up first (gone or archived: attach gives null)
+// an agent archived or closed takes no message: its plain open questions keep their place on its page, leave every count, and take one press to relaunch; one Paseo dropped from the live list is looked up first (gone, archived or closed: attach gives null)
 const archivedAgent = (agentId: string) => paseoAgents.attach(agentId).then((a) => a === null);
-const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} of archived agents closed`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));
+const sweepArchivedCards = () => cards.sweepArchived(archivedAgent).then((ids) => ids.length && console.log(`cards: ${ids.length} left the counts with their agent gone`), (e) => console.error(`cards sweep: ${errorMessage(e)}`));
+// where an orphaned card's fresh agent runs: its row's worktree, else its work's Plan, else the repo's clone
+const placeOfCard = (card: Card) => {
+  const work = card.work ? works.get(card.work) : null;
+  const key = card.pr == null ? null : parseKey(card.pr);
+  if (work && !work.archived) return key !== null && (work.stack || []).some((s) => rowKey(s) === key) ? { kind: 'row', slug: work.slug, key } : { kind: 'work', slug: work.slug };
+  return { kind: 'repo', repoId: repos.repoFor(work).id };
+};
 permissions.onAgent((a, removed) => {
-  if (a && (a.archivedAt || a.status === 'closed') && cards.openCount(a.id)) cards.agentArchived(a.id);
+  if (a && (a.archivedAt || a.status === 'closed') && cards.openCount(a.id)) cards.agentArchived(a.id, a.archivedAt ? 'archived' : 'closed');
   else if (removed && cards.openCount(removed)) void archivedAgent(removed).then((gone) => gone && cards.agentArchived(removed), () => {});
 });
 const paseoHealth = createPaseoHealth({ client: paseoAgents.client });
