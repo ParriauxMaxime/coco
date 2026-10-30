@@ -327,19 +327,19 @@ test('a Notion sync runs in the work workspace on the fast model and reads the J
   assert.equal(JSON.parse(fs.readFileSync(log, 'utf8')).agentId, AGENT);
 });
 
-test('a Notion MCP server of our own moves the sync off the Claude connector model onto fast/default', async () => {
+test('a Notion MCP server of our own mounts on models.connectors, the provider Paseo can preapprove it for', async () => {
   const DATA = tmpDir();
   let work: NotionWork = { slug: 'widgets', title: 'Widgets', stack: [], timeline: [], notion: { pageId: '0123456789abcdef0123456789abcdef', url: 'https://www.notion.so/acme/Widgets-0123456789abcdef0123456789abcdef', syncedAt: undefined } };
   const works = { get: () => structuredClone(work), save: (w: NotionWork) => (work = structuredClone(w)), listArtifacts: () => [], detailPrs: async () => [], prInfo: async () => ({ number: null }) };
   const answer = '{"status":"synced","pageId":"0123456789abcdef0123456789abcdef","url":"https://www.notion.so/acme/Widgets","lastEditedTime":null,"message":"ok"}';
   const daemon = fakeDaemon({ workspaces: [{ id: 'wks_widgets', projectId: 'p1', workspaceDirectory: '/acme/widgets' }], events: [say(`Synced.\n${answer}`)], results: [{ status: 'idle', lastMessage: `Synced.\n${answer}` }] });
-  const own = { ...config, models: { ...config.models, default: 'omp/deepseek', fast: 'omp/deepseek', connectors: 'claude/claude-sonnet-5-5' }, mcpServers: { notion: { type: 'http' as const, url: 'https://mcp.notion.com/mcp' } } };
+  const own = { ...config, models: { ...config.models, default: 'omp/deepseek', fast: 'omp/deepseek', connectors: 'opencode/opencode/deepseek-v4.1-flash-free' }, mcpServers: { notion: { type: 'http' as const, url: 'https://mcp.notion.com/mcp' } } };
   const notion = createNotionSync({ DATA, REPO: '/acme/widgets', config: own, works, agents: createPaseoAgents({ APP, connect: daemon.connect }) });
   assert.ok('ok' in (await notion.sync('widgets')));
   const log = path.join(DATA, 'works', 'widgets', 'notion-runs.jsonl');
   for (let i = 0; i < 200 && !fs.existsSync(log); i++) await new Promise((r) => setImmediate(r));
   const [created] = daemon.calls.agents;
-  assert.equal(created.config.provider, 'omp/deepseek');
+  assert.equal(created.config.provider, 'opencode/opencode/deepseek-v4.1-flash-free');
   assert.deepEqual(Object.keys(created.config.mcpServers ?? {}), ['cocopilot', 'notion']);
 });
 
