@@ -271,7 +271,7 @@ test('a configured connector server mounts only when an agent asks for it, with 
   delete process.env.NOTION_TOKEN;
   const [withNotion, plain] = daemon.calls.agents;
   assert.deepEqual(Object.keys(withNotion.config.mcpServers ?? {}), ['cocopilot', 'notion']);
-  assert.deepEqual((withNotion.config.mcpServers as Record<string, unknown>).notion, { type: 'http', url: 'https://mcp.notion.com/mcp', headers: { Authorization: 'Bearer secret-token' } });
+  assert.deepEqual((withNotion.config.mcpServers as Record<string, unknown>).notion, { type: 'http', alwaysLoad: true, url: 'https://mcp.notion.com/mcp', headers: { Authorization: 'Bearer secret-token' } });
   assert.deepEqual(Object.keys(plain.config.mcpServers ?? {}), ['cocopilot']);
 });
 
