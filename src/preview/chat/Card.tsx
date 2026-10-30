@@ -17,16 +17,19 @@ const KIND: Record<Card['kind'], [string, IconName]> = { post: ['note', 'noteboo
 export const cardDomId = (id: string) => `coco-card-${id}`;
 const clock = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
 
-type Draft = { picked: string[]; rows: string[]; rowPicks: Record<string, string>; values: Record<string, CardValue>; other: string };
+type Draft = { picked: string[]; rows: string[]; rowPicks: Record<string, string>; rowNotes: Record<string, string>; values: Record<string, CardValue>; other: string };
 type Part = { c: Card; d: Draft; set: (p: Partial<Draft>) => void; ro: boolean };
+
+const ownRows = (c: Card) => (c.rows ?? []).some((r) => r.options);
 
 const draftOf = (c: Card): Draft => {
   const a = c.answer;
-  if (c.status !== 'open') return { picked: a?.picked ?? [], rows: a?.rows ?? [], rowPicks: a?.rowPicks ?? {}, values: a?.values ?? {}, other: a?.other ?? '' };
+  if (c.status !== 'open') return { picked: a?.picked ?? [], rows: a?.rows ?? [], rowPicks: a?.rowPicks ?? {}, rowNotes: a?.rowNotes ?? {}, values: a?.values ?? {}, other: a?.other ?? '' };
   return {
     picked: (c.options ?? []).filter((o) => o.recommended).map((o) => o.key).slice(0, c.multi ? undefined : 1),
     rows: (c.rows ?? []).filter((r) => r.recommended === true).map((r) => r.key).slice(0, c.select === 'one' ? 1 : undefined),
-    rowPicks: Object.fromEntries((c.rows ?? []).flatMap((r) => (typeof r.recommended === 'string' ? [[r.key, r.recommended]] : []))),
+    rowPicks: ownRows(c) ? {} : Object.fromEntries((c.rows ?? []).flatMap((r) => (typeof r.recommended === 'string' ? [[r.key, r.recommended]] : []))),
+    rowNotes: {},
     values: Object.fromEntries((c.fields ?? []).map((f) => [f.key, f.default ?? (f.type === 'toggle' ? false : '')])),
     other: '',
   };
@@ -48,6 +51,10 @@ const isValid = (c: Card, d: Draft) => {
   const other = hasOther(c) && d.other.trim() !== '';
   if (c.kind === 'choice') return d.picked.length > 0 || other;
   if (c.kind === 'rows') {
+    if (ownRows(c)) {
+      const open = (c.rows ?? []).filter((r) => !d.rowPicks[r.key] && !d.rowNotes[r.key]?.trim()).length;
+      return open === 0 || (other && open === c.rows?.length);
+    }
     if (c.rowOptions?.length) return other || Object.keys(d.rowPicks).length > 0;
     return other || (c.select === 'one' ? d.rows.length === 1 : d.rows.length > 0);
   }
@@ -64,6 +71,7 @@ const valuesOf = (c: Card, d: Draft) => Object.fromEntries((c.fields ?? []).flat
 const answerOf = (c: Card, d: Draft): CardAnswerBody => {
   const other = (hasOther(c) && d.other.trim()) || undefined;
   if (c.kind === 'choice') return { picked: d.picked, other };
+  if (c.kind === 'rows' && ownRows(c)) return { rowPicks: d.rowPicks, rowNotes: Object.fromEntries(Object.entries(d.rowNotes).flatMap(([k, v]) => (v.trim() ? [[k, v.trim()]] : []))), other };
   if (c.kind === 'rows') return c.rowOptions?.length ? { rowPicks: d.rowPicks, other } : { rows: d.rows, other };
   if (c.kind === 'form') return { values: valuesOf(c, d), other };
   return { other };
@@ -150,7 +158,7 @@ function Choice({ c, d, set, ro }: Part) {
 
 function Rows({ c, d, set, ro }: Part) {
   return (
-    <RowsPicker name={c.id} columns={c.columns} rows={c.rows ?? []} options={c.rowOptions} select={c.select} ticked={d.rows} picks={d.rowPicks} ro={ro} onTick={(rows) => set({ rows })} onPick={(rowPicks) => set({ rowPicks })}>
+    <RowsPicker name={c.id} columns={c.columns} rows={c.rows ?? []} options={c.rowOptions} select={c.select} ticked={d.rows} picks={d.rowPicks} ro={ro} onTick={(rows) => set({ rows })} onPick={(rowPicks) => set({ rowPicks })} pickColumn={c.pickColumn} notes={d.rowNotes} onNote={(rowNotes) => set({ rowNotes })}>
       {hasOther(c) && <Other value={d.other} ro={ro} onChange={(v) => set({ other: v })} />}
     </RowsPicker>
   );
@@ -353,8 +361,8 @@ function CardBody({ card: c, onCard, focus = false }: CardProps) {
             </>
           ) : (
             <>
-              <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'answer')}`} disabled={busy || (tried && !ok)} onClick={submit}>Send answer<kbd>↵</kbd></button>
-              {tried && !ok && <span className="dp-cd-err">{c.kind === 'form' ? 'Fix the fields above' : c.kind === 'rows' && c.select === 'one' && !c.rowOptions?.length ? 'Tick one row, or write your own' : 'Pick one, or write your own'}</span>}
+              <button type="button" className={`dp-btn dp-primary dp-sm${pendingClass(pending === 'answer')}`} disabled={busy || ((tried || ownRows(c)) && !ok)} onClick={submit}>Send answer<kbd>↵</kbd></button>
+              {tried && !ok && <span className="dp-cd-err">{c.kind === 'form' ? 'Fix the fields above' : ownRows(c) ? 'Pick or write a note on every row, or write your own' : c.kind === 'rows' && c.select === 'one' && !c.rowOptions?.length ? 'Tick one row, or write your own' : 'Pick one, or write your own'}</span>}
             </>
           )}
           {c.kind === 'choice' && (

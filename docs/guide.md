@@ -1471,6 +1471,28 @@ to draw the options of an architecture or flow choice (12 nodes at most, the
 same layout across options), not every choice. The Waiting page and the
 waiting popover show such a card's "N diagrams" chip, not the diagrams.
 
+A `rows` card asks one pick per row three ways: a shared `rowOptions` list
+(2-4 options as radio columns, the same for every row), or each row its own
+`options` (2-8), shown as a dropdown in a last column headed `pickColumn`
+(default "Pick"). A row's `recommended` names one of its own options: it is
+marked with a dot, not preselected. A row with `note` (the placeholder) gets a
+text input under its dropdown. Such a row answers with a pick or a non-empty
+note, and Send answer waits until every row holds one (or "Other" alone
+answers the whole card). The answer carries `rowPicks: { <row>: <option> }`
+and `rowNotes: { <row>: <text> }` (500 characters each). A card takes
+`rowOptions` or per-row `options`, never both, and an unknown key in a row
+refuses the card by name rather than being dropped.
+
+```json
+{
+  "kind": "rows", "title": "Test plan", "columns": ["Test"], "pickColumn": "Call",
+  "rows": [
+    { "key": "csv", "cells": ["CSV export"], "options": [{ "key": "unit", "label": "Unit" }, { "key": "e2e", "label": "End to end" }, { "key": "skip", "label": "Skip" }], "recommended": "unit", "note": "Why, if not unit" },
+    { "key": "perm", "cells": ["Permission check"], "options": [{ "key": "write", "label": "Write" }, { "key": "skip", "label": "Skip" }] }
+  ]
+}
+```
+
 You can also just write to the agent: every agent view has a composer (agent
 tabs, `#/agents/<agentId>` for agents outside a work, Ask, threads). A message
 sent there (or a Waiting-page reply to an Ask chat) closes the agent's open

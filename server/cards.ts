@@ -20,10 +20,10 @@ export type CardEffect = { type: 'take_decision'; option: string } | { type: 'di
 // diagram: Mermaid source, on the options of a choice card only; images: up to two renderings shown under the option, choice or rows
 export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string; images?: string[] };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
-// recommended: with rowOptions, the option key to pre-pick; without them, true (Yes) or false (No) derives a Yes/No picker
-export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
+// options: the row's own pick list; note: the placeholder of its free-text input
+export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean; options?: CardOption[]; note?: string };
 // chat: closed by a message the owner typed to the agent instead of answering the card
-export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string; chat?: boolean };
+export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; rowNotes?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string; chat?: boolean };
 export type CardBody = {
   kind: CardKind;
   title: string;
@@ -37,6 +37,8 @@ export type CardBody = {
   rows?: CardRow[];
   select?: 'many' | 'one';
   rowOptions?: CardOption[];
+  // the header of the pick column when rows carry their own options
+  pickColumn?: string;
   fields?: CardField[];
   confirmLabel?: string;
   rejectLabel?: string;
@@ -173,18 +175,32 @@ const derivedPick = (rows: Raw[]): CardOption[] => {
   if (!rows.some((r) => r?.recommended != null)) throw new Error('rows must be pickable: give rowOptions (2-4 options picked per row), or recommended: true or false on the rows you advise and a Yes/No picker is derived');
   return YES_NO;
 };
-const rowsOf = (raw: Raw[], columns: string[], given: CardOption[] | undefined): { rows: CardRow[]; rowOptions: CardOption[] } => {
+const ROW_FIELDS = ['key', 'cells', 'recommended', 'options', 'note'];
+// rows are picked: from the card's rowOptions (given, or a Yes/No picker derived from the rows you mark), or each from its own options and note
+const rowsOf = (raw: Raw[], columns: string[], given: CardOption[] | undefined): { rows: CardRow[]; rowOptions: CardOption[] | undefined } => {
+  const own = raw.some((r) => r?.options != null);
+  if (own && given) throw new Error(`rows[${raw.findIndex((r) => r?.options != null)}].options: a card takes rowOptions or per-row options, not both`);
   const table = raw.map((r, i) => {
     const at = `rows[${i}]`;
+    const stray = Object.keys(r ?? {}).find((k) => !ROW_FIELDS.includes(k));
+    if (stray) throw new Error(`${at}.${stray} is not a row field (${ROW_FIELDS.join(', ')})`);
     if (!Array.isArray(r?.cells) || r.cells.length !== columns.length) throw new Error(`${at}.cells must hold ${columns.length} cells`);
-    return { at, key: key(r.key, `${at}.key`), cells: r.cells.map((x: Raw | string | number, j: number) => cell(x, `${at}.cells[${j}]`)), recommended: r.recommended as string | boolean | undefined };
+    const cells = r.cells.map((x: Raw | string | number, j: number) => cell(x, `${at}.cells[${j}]`));
+    if (own) {
+      const opts = options(r.options, 2, 8, `${at}.options`);
+      if (r.recommended != null && !opts.some((o) => o.key === r.recommended)) throw new Error(`${at}.recommended must be one of its options: ${opts.map((o) => o.key).join(', ')}`);
+      return { at, row: strip({ key: key(r.key, `${at}.key`), cells, recommended: r.recommended ?? undefined, options: opts, note: opt(r.note, 120, `${at}.note`) }) as CardRow };
+    }
+    if (r.note != null) throw new Error(`${at}.note needs ${at}.options`);
+    return { at, row: { key: key(r.key, `${at}.key`), cells, recommended: r.recommended as string | boolean | undefined } as CardRow };
   });
-  unique(table.map((r) => r.key), 'rows');
+  unique(table.map((t) => t.row.key), 'rows');
+  if (own) return { rows: table.map((t) => t.row), rowOptions: undefined };
   const rowOptions = given ?? derivedPick(raw);
-  const rows = table.map((r): CardRow => {
-    const side = typeof r.recommended === 'boolean' ? (r.recommended ? 'yes' : 'no') : r.recommended;
-    if (side != null && !rowOptions.some((o) => o.key === side)) throw new Error(`${r.at}.recommended must be a rowOptions key`);
-    return strip({ key: r.key, cells: r.cells, recommended: side });
+  const rows = table.map(({ at, row }): CardRow => {
+    const side = typeof row.recommended === 'boolean' ? (row.recommended ? 'yes' : 'no') : row.recommended;
+    if (side != null && !rowOptions.some((o) => o.key === side)) throw new Error(`${at}.recommended must be a rowOptions key`);
+    return strip({ key: row.key, cells: row.cells, recommended: side });
   });
   return { rows, rowOptions };
 };
@@ -208,9 +224,10 @@ export function validateCard(c: Raw): CardBody {
   }
   if (kind === 'rows') {
     const columns = list(c.columns, 1, 8, 'columns').map((x, i) => str(String(x ?? ''), 60, `columns[${i}]`));
-    const listed = list(c.rows, 1, 40, 'rows');
-    const { rows, rowOptions } = rowsOf(listed, columns, c.rowOptions == null ? undefined : options(c.rowOptions, 2, 4, 'rowOptions'));
-    return strip({ ...head, columns, rows, rowOptions, other });
+    const { rows, rowOptions } = rowsOf(list(c.rows, 1, 40, 'rows'), columns, c.rowOptions == null ? undefined : options(c.rowOptions, 2, 4, 'rowOptions'));
+    const own = rows.some((r) => r.options);
+    if (c.pickColumn != null && !own) throw new Error('pickColumn is only for rows that carry their own options');
+    return strip({ ...head, columns, rows, rowOptions, pickColumn: opt(c.pickColumn, 60, 'pickColumn'), other });
   }
   if (kind === 'form') return strip({ ...head, fields: fieldsOf(c.fields, 1), other });
   return strip({ ...head, fields: c.fields == null ? undefined : fieldsOf(c.fields, 0), confirmLabel: opt(c.confirmLabel, 40, 'confirmLabel'), rejectLabel: opt(c.rejectLabel, 40, 'rejectLabel'), other });
@@ -244,6 +261,36 @@ const keysIn = (v: unknown, known: string[], field: string) => {
   return [...new Set(v as string[])];
 };
 
+const rowMap = (v: unknown, field: string, to: string): Raw => {
+  if (v == null) return {};
+  if (typeof v !== 'object' || Array.isArray(v)) throw new Error(`${field} must map row keys to ${to}`);
+  return v;
+};
+
+// rows carrying their own options: each answers with one of them or a note, unless the free text answers the whole card
+const ownRowsAnswer = (rows: CardRow[], a: Raw, other: string | undefined) => {
+  const row = (k: string, field: string) => {
+    const r = rows.find((x) => x.key === k);
+    if (!r) throw new Error(`${field}.${k} is not a row of this card`);
+    return r;
+  };
+  const rowPicks: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rowMap(a.rowPicks, 'rowPicks', 'option keys'))) {
+    const keys = (row(k, 'rowPicks').options ?? []).map((o) => o.key);
+    if (!keys.includes(v)) throw new Error(`rowPicks.${k} must be one of ${keys.join(', ')}`);
+    rowPicks[k] = v;
+  }
+  const rowNotes: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rowMap(a.rowNotes, 'rowNotes', 'text'))) {
+    if (!row(k, 'rowNotes').note) throw new Error(`rowNotes.${k}: this row takes no note`);
+    if (v != null && typeof v !== 'string') throw new Error(`rowNotes.${k} must be text`);
+    if (v?.trim()) rowNotes[k] = str(v, 500, `rowNotes.${k}`);
+  }
+  const open = rows.filter((r) => !rowPicks[r.key] && !rowNotes[r.key]);
+  if (open.length && !(other && open.length === rows.length)) throw new Error(`rows ${open.map((r) => r.key).join(', ')}: pick an option or write a note on each`);
+  return strip({ rowPicks, rowNotes: Object.keys(rowNotes).length ? rowNotes : undefined, other });
+};
+
 // the owner's answer, checked against the card it answers
 export function validateAnswer(card: CardBody, a: Raw): Omit<CardAnswer, 'at'> {
   if (a?.other != null && a.other !== '' && !card.other) throw new Error('this card takes no free text');
@@ -255,6 +302,7 @@ export function validateAnswer(card: CardBody, a: Raw): Omit<CardAnswer, 'at'> {
     return strip({ picked, other });
   }
   const rowKeys = (card.rows || []).map((r) => r.key);
+  if (card.kind === 'rows' && card.rows?.some((r) => r.options)) return ownRowsAnswer(card.rows, a, other);
   if (card.kind === 'rows' && card.rowOptions) {
     const optionKeys = card.rowOptions.map((o) => o.key);
     const picks = a.rowPicks ?? {};
@@ -290,7 +338,12 @@ export function answerSummary(card: Card) {
   const lines: string[] = [];
   if (a.picked?.length) lines.push(`Picked: ${a.picked.map((k) => label(card.options, k)).join(', ')}`);
   if (a.rows) lines.push(a.rows.length ? `Ticked: ${a.rows.map(rowLabel).join(', ')}` : 'Ticked: no row');
-  for (const [k, v] of Object.entries(a.rowPicks || {})) lines.push(`${rowLabel(k)}: ${label(card.rowOptions, v)}`);
+  if (card.rows?.some((r) => r.options)) {
+    for (const r of card.rows) {
+      const said = [a.rowPicks?.[r.key] && label(r.options, a.rowPicks[r.key]), a.rowNotes?.[r.key] && `"${a.rowNotes[r.key]}"`].filter(Boolean);
+      if (said.length) lines.push(`${rowLabel(r.key)}: ${said.join(' · ')}`);
+    }
+  } else for (const [k, v] of Object.entries(a.rowPicks || {})) lines.push(`${rowLabel(k)}: ${label(card.rowOptions, v)}`);
   if (a.approved != null) lines.push(a.approved ? 'Approved' : 'Rejected');
   for (const f of card.fields || []) if (a.values && f.key in a.values) lines.push(`${f.label}: ${a.values[f.key] === true ? 'yes' : a.values[f.key] === false ? 'no' : a.values[f.key]}`);
   if (a.other) lines.push(`Other: ${a.other}`);

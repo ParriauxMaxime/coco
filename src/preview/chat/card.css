@@ -78,6 +78,12 @@ button.dp-cd-cmph:disabled { cursor: default; }
 .dp-tbl th.dp-cd-pickh .dp-chip { height: 16px; font-size: 10px; padding: 0 4px; }
 .dp-tbl td.dp-cd-pick { text-align: center; width: 1%; }
 .dp-tbl td.dp-cd-pick.dp-cd-rec { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--dp-accent) 55%, transparent); }
+.dp-tbl td.dp-cd-own { width: 1%; min-width: 180px; }
+.dp-cd-own .dp-inp { display: block; width: 100%; box-sizing: border-box; }
+.dp-cd-own select.dp-inp { padding: 0 4px; }
+.dp-cd-own .dp-inp + .dp-inp { margin-top: 4px; height: 26px; font-size: 12.5px; }
+.dp-cd-own .dp-inp.dp-on { border-color: color-mix(in srgb, var(--dp-accent) 55%, var(--dp-line)); }
+.dp-cd-done .dp-cd-own .dp-inp:disabled { color: var(--dp-t1); }
 .dp-cd-hint { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--dp-t3); }
 .dp-cd-recdot { width: 12px; height: 2px; background: color-mix(in srgb, var(--dp-accent) 55%, transparent); border-radius: 1px; }
 .dp-tbl td.dp-cd-tone { font-weight: 500; }

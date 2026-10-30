@@ -294,13 +294,14 @@ export type CardKind = 'post' | 'choice' | 'rows' | 'form' | 'confirm';
 export type CardEffect = { type: 'take_decision'; option: string } | { type: 'dismiss_finding' };
 export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string; images?: string[] };
 export type CardField = { key: string; label: string; type: 'text' | 'textarea' | 'number' | 'select' | 'toggle'; options?: string[]; default?: string | number | boolean; required?: boolean; placeholder?: string };
-export type CardRow = { key: string; cells: TableCell[]; recommended?: string | boolean };
+export type CardRow = { key: string; cells: TableCell[]; recommended?: string | boolean; options?: CardOption[]; note?: string };
 export type CardValue = string | number | boolean;
 export type CardAnswer = {
   at: string;
   picked?: string[];
   rows?: string[];
   rowPicks?: Record<string, string>;
+  rowNotes?: Record<string, string>;
   values?: Record<string, CardValue>;
   approved?: boolean;
   other?: string;
@@ -325,6 +326,7 @@ export type Card = {
   rows?: CardRow[];
   select?: 'many' | 'one';
   rowOptions?: CardOption[];
+  pickColumn?: string;
   fields?: CardField[];
   confirmLabel?: string;
   rejectLabel?: string;

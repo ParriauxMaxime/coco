@@ -66,6 +66,27 @@ test('an answer must fit its card', () => {
   assert.deepEqual(validateAnswer(edit, { approved: true, values: { title: 'PR 1' } }), { approved: true, values: { title: 'PR 1' } });
 });
 
+test('rows carrying their own options take a pick among them or a note on each row', () => {
+  const own = { ...rows, pickColumn: 'Call', rows: [{ key: 'f1', cells: rows.rows[0].cells, options: [{ key: 'fix', label: 'Fix' }, { key: 'skip', label: 'Skip' }], recommended: 'fix', note: 'why?' }, { key: 'f2', cells: rows.rows[1].cells, options: [{ key: 'now', label: 'Now' }, { key: 'later', label: 'Later' }, { key: 'never', label: 'Never' }] }] };
+  const card = validateCard(own);
+  assert.equal(card.pickColumn, 'Call');
+  assert.equal(card.select, undefined);
+  assert.deepEqual(card.rows?.[1].options?.map((o) => o.key), ['now', 'later', 'never']);
+  assert.throws(() => validateCard({ ...own, rows: [{ ...own.rows[0], recommended: 'now' }, own.rows[1]] }), /rows\[0\]\.recommended must be one of its options: fix, skip/);
+  assert.throws(() => validateCard({ ...own, rowOptions: [{ key: 'fix', label: 'Fix' }, { key: 'skip', label: 'Skip' }] }), /rows\[0\]\.options: a card takes rowOptions or per-row options, not both/);
+  assert.throws(() => validateCard({ ...own, rows: [own.rows[0], { key: 'f2', cells: rows.rows[1].cells }] }), /rows\[1\]\.options must hold 2-8 entries/);
+  assert.throws(() => validateCard({ ...own, rows: [own.rows[0], { ...own.rows[1], choices: ['a', 'b'] }] }), /rows\[1\]\.choices is not a row field/);
+  assert.throws(() => validateCard({ ...rows, pickColumn: 'Call' }), /pickColumn is only for rows that carry their own options/);
+
+  assert.deepEqual(validateAnswer(card, { rowPicks: { f1: 'skip', f2: 'later' } }), { rowPicks: { f1: 'skip', f2: 'later' } });
+  assert.throws(() => validateAnswer(card, { rowPicks: { f1: 'now', f2: 'later' } }), /rowPicks\.f1 must be one of fix, skip/);
+  assert.deepEqual(validateAnswer(card, { rowPicks: { f2: 'now' }, rowNotes: { f1: ' depends on the API ' } }), { rowPicks: { f2: 'now' }, rowNotes: { f1: 'depends on the API' } });
+  assert.throws(() => validateAnswer(card, { rowPicks: { f2: 'now' }, rowNotes: { f1: '  ' } }), /rows f1: pick an option or write a note on each/);
+  assert.throws(() => validateAnswer(card, { rowPicks: { f1: 'fix' }, rowNotes: { f2: 'x' } }), /rowNotes\.f2: this row takes no note/);
+  assert.throws(() => validateAnswer(card, { rowPicks: { f1: 'fix', f2: 'now' }, rowNotes: { f1: 'x'.repeat(501) } }), /rowNotes\.f1 longer than 500/);
+  assert.deepEqual(validateAnswer(card, { other: 'Skip them all' }), { rowPicks: {}, other: 'Skip them all' });
+});
+
 test('an answer is stored then sent to the agent with its summary and JSON; a dismissal tells the agent; a failed send stays on the card', async () => {
   const DATA = tmpDir();
   const sent: [string, string][] = [];
