@@ -8,10 +8,13 @@ import { SUBAGENT_LABEL, SubagentDot, took } from './chat/SubagentCall.tsx';
 import { modelMark } from './chat/model-view.ts';
 import Icon from './Icon.tsx';
 import Modal from './Modal.tsx';
-import { useWorkAgent } from './agents.ts';
+import { AgentDot } from './AgentsSection.tsx';
+import { STATE_LABEL, stateOf, useWorkAgent, useWorkers } from './agents.ts';
+import type { AgentState } from './agents.ts';
 import { isRunning, openSubagent, parseSubTab, subagentLabel, useNow, useSubagents } from './subagents.ts';
 import type { Subagent } from './subagents.ts';
-import type { ActivityEvent } from '../types.ts';
+import { useWaitingByAgent } from './waiting.ts';
+import type { ActivityEvent, WorkAgent } from '../types.ts';
 
 function Pill({ s, now, onOpen }: { s: Subagent; now: number; onOpen: (s: Subagent) => void }) {
   return (
@@ -19,6 +22,16 @@ function Pill({ s, now, onOpen }: { s: Subagent; now: number; onOpen: (s: Subage
       <SubagentDot status={s.status} />
       <span className="dp-ell">{subagentLabel(s)}</span>
       <span className="dp-sa-time">{took(s, now)}</span>
+    </button>
+  );
+}
+
+function WorkerPill({ w, state, onOpen }: { w: WorkAgent; state: AgentState; onOpen: () => void }) {
+  return (
+    <button type="button" className={`dp-sa-pill${state === 'running' || state === 'waiting' ? '' : ' dp-sa-past'}`} title={`${w.title} · worker · ${STATE_LABEL[state]}${w.provider ? ` · ${w.provider}` : ''}`} onClick={onOpen}>
+      <AgentDot state={state} />
+      <span className="dp-ell">{w.title}</span>
+      <ModelMark provider={w.provider} />
     </button>
   );
 }
@@ -45,22 +58,26 @@ function SubagentTranscript({ parent, sub }: { parent: string; sub: Subagent }) 
   );
 }
 
-// the subagents an agent started: a pill per running one, the others folded into "N done"; a pill opens the subagent's tab,
-// or its transcript in a dialog where there are no tabs (inline)
+// the workers of the agent's run, a pill each, then the subagents it started: a pill per running one, the others folded into
+// "N done"; a worker pill opens its agent tab, a subagent pill its subagent tab, or its transcript in a dialog where there are no tabs (inline)
 export function SubagentBar({ agentId, inline = false }: { agentId: string | null | undefined; inline?: boolean }) {
   const list = useSubagents(agentId);
+  const workers = useWorkers(agentId);
+  const waiting = useWaitingByAgent();
   const [showDone, setShowDone] = useState(false);
   const [shown, setShown] = useState<Subagent | null>(null);
   const running = list?.filter(isRunning) ?? [];
   const done = list?.filter((s) => !isRunning(s)) ?? [];
   const now = useNow(1000, running.length > 0);
-  if (!agentId || !list?.length) return null;
+  if (!agentId || (!list?.length && !workers.length)) return null;
   const open = (s: Subagent) => (inline ? setShown(s) : openSubagent(agentId, s.id));
-  const modal = shown && (list.find((s) => s.id === shown.id) ?? shown);
+  const openWorker = (w: WorkAgent) => (inline ? (location.hash = `#/agents/${w.agentId}`) : useWorkbench.getState().open(w.id));
+  const modal = shown && (list?.find((s) => s.id === shown.id) ?? shown);
   return (
-    <div className="dp-sa-bar" aria-label="Subagents">
+    <div className="dp-sa-bar" aria-label="Workers and subagents">
       <div className="dp-sa-in">
-        <span className="dp-sa-lbl" title="Subagents this agent started"><Icon name="git-fork" size={12} /></span>
+        <span className="dp-sa-lbl" title="Workers and subagents this agent started"><Icon name="git-fork" size={12} /></span>
+        {workers.map((w) => <WorkerPill key={w.id} w={w} state={stateOf(w, waiting)} onOpen={() => openWorker(w)} />)}
         {running.map((s) => <Pill key={s.id} s={s} now={now} onOpen={open} />)}
         {done.length > 0 && (
           <button type="button" className="dp-sa-pill dp-sa-fold" aria-expanded={showDone} onClick={() => setShowDone((o) => !o)}>

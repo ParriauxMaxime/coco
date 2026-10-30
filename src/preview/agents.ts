@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { api } from '../api.ts';
 import { subscribe, topic } from '../live.ts';
 import { useResource } from '../resource.ts';
@@ -50,6 +51,9 @@ export const agentOf = (slug: string, id: string) => find(useAgents.getState().b
 export const useWorkAgent = (slug: string, id: string) => useAgents((s) => find(s.by[slug]?.agents, id));
 export const useAgentList = (slug: string) => useAgents((s) => s.by[slug]?.agents);
 export const useServerId = (slug: string) => useAgents((s) => s.by[slug]?.serverId ?? null);
+// the live workers of a chief's run, in any work listed
+export const useWorkers = (chief: string | null | undefined) =>
+  useAgents(useShallow((s) => (chief ? Object.values(s.by).flatMap((w) => w.agents.filter((a) => a.rootAgentId === chief && a.agentId !== chief && a.status !== 'archived')) : [])));
 
 // waiting: the waiting queue's count per agent (useWaitingByAgent), the one source of "waiting on you"
 export const stateOf = (a: WorkAgent, waiting: Record<string, number>): AgentState => (a.agentId && a.status !== 'archived' && waiting[a.agentId] ? 'waiting' : a.status);
