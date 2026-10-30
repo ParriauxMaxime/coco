@@ -8,6 +8,8 @@ import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { TITLE_PREFIX, cocoTitle, timelineOf } from './paseo-agent.ts';
 import type { DaemonAgent, DaemonClient } from './paseo-agent.ts';
 import type { Models } from './models.ts';
+import { startThinking } from './models.ts';
+import type { ModelsConfig } from './config.ts';
 import type { ReadBody, Req, Res, RowKey, Send } from './core-types.ts';
 
 export type HandoffStep = 'summary' | 'starting' | 'done' | 'failed';
@@ -20,7 +22,8 @@ type Snapshot = NonNullable<NonNullable<Awaited<ReturnType<DaemonAgent['refresh'
 type Deps = {
   DATA: string;
   owner: string;
-  defaultModel: string;
+  // the fallback model of the work the handed-off agent runs for
+  modelsOf: (work: string | null) => ModelsConfig;
   client: () => Promise<Pick<DaemonClient, 'agents'>>;
   say: (agentId: string, text: string) => Promise<unknown>;
   start: (opts: { title: string; prompt: string; labels: Record<string, string>; workspaceId: string | null; cwd: string | null; provider?: string; thinking?: string; mode?: string }) => Promise<{ agentId: string }>;
@@ -101,7 +104,7 @@ export function firstMessage({ owner, fromTitle, from, source, briefing, note, f
   ].join('\n');
 }
 
-export function createHandoff({ DATA, owner, defaultModel, client, say, start, archiveWhenDone, archive, handedOff = () => {}, models, link, waitMs = WAIT_MS, pollMs = POLL_MS }: Deps) {
+export function createHandoff({ DATA, owner, modelsOf, client, say, start, archiveWhenDone, archive, handedOff = () => {}, models, link, waitMs = WAIT_MS, pollMs = POLL_MS }: Deps) {
   const FILE = path.join(DATA, 'handoffs.json');
   const DIR = path.join(DATA, 'handoffs');
   const load = (): Handoff[] => {
@@ -151,11 +154,12 @@ export function createHandoff({ DATA, owner, defaultModel, client, say, start, a
 
   // the model, thinking and mode picked, else the old agent's own
   async function setupOf(found: Snapshot, input: HandoffInput) {
+    const ms = modelsOf(typeof found.labels?.work === 'string' ? found.labels.work : null);
     const current = found.provider && found.model ? `${found.provider}/${found.model}` : null;
-    const picked = models ? await models.check({ provider: input.provider, thinking: input.thinking }, current ?? defaultModel) : {};
-    const provider = picked.provider || current || defaultModel;
+    const picked = models ? await models.check({ provider: input.provider, thinking: input.thinking }, current ?? ms.default) : {};
+    const provider = picked.provider || current || ms.default;
     const same = provider.split('/')[0] === found.provider;
-    const thinking = picked.thinking || (provider === current ? found.thinkingOptionId : null) || undefined;
+    const thinking = picked.thinking || (provider === current ? found.thinkingOptionId : null) || startThinking(ms, provider);
     const kept = same ? found.currentModeId || null : null;
     const pickMode = async () => {
       if (!models) return (input.mode as string) || kept || undefined;

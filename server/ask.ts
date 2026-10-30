@@ -11,6 +11,8 @@ import type { Sink } from './events.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, StackRow, TimelineEntry, Work } from './core-types.ts';
 import type { AddRepoResult } from './repos.ts';
 import { list as listOf, opt, str, strip } from './cards.ts';
+import { modelsFor } from './config.ts';
+import type { ModelsConfig } from './config.ts';
 import type { ActionDef, Card } from './cards.ts';
 import type { Raw } from './blocks.ts';
 import { FILES_ONLY, agentInput, createUploads, uploadRef } from './uploads.ts';
@@ -105,7 +107,7 @@ type AskOptions = {
   DATA: string;
   APP?: string | null;
   REPO: string;
-  config: { owner: { name: string }; models: { default: string; fast?: string }; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string }[] };
+  config: { owner: { name: string }; models: ModelsConfig; gateSkills?: Record<string, (string | { name: string; ask?: string })[]>; methodSkill?: string; methodNotes?: string; repos?: { id: string; name: string; github: string; path: string; settings?: { models?: Partial<ModelsConfig> } }[] };
   works: { get(slug: string): AskWork | null | undefined; save(work: AskWork): unknown; prInfo(n: number): Promise<PrInfo | null> };
   agents?: ReturnType<typeof createPaseoAgents>;
   idleMs?: number;
@@ -249,7 +251,8 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     return `\nThis is the global Ask coco: questions across ${OWNER}'s repos${names ? ` (${names})` : ''}. A work belongs to one repo: for a new work, say which repo it belongs to and send ${OWNER} to that repo's page, whose Ask coco scaffolds it; do not call propose_work_scaffold here.${addRepo ? ` To add a repo to coco (its GitHub slug owner/name, or the absolute path of a local clone), end with one propose_repo call: once ${OWNER} confirms on the card, coco reuses a clone already on disk or clones it, adds its Paseo project and starts a setup run proposing its config.` : ''}`;
   };
 
-  const providerFor = (model?: string | null) => (!model ? config.models.default : model.includes('/') ? model : `${config.models.default.split('/')[0]}/${model}`);
+  const convModels = (conv: Conv) => modelsFor(config, conv.scope.kind === 'repo' ? conv.scope.repoId : conv.scope.kind === 'work' ? works.get(conv.scope.slug)?.repo ?? null : null);
+  const providerFor = (model: string | null | undefined, ms: ModelsConfig) => (!model ? ms.default : model.includes('/') ? model : `${ms.default.split('/')[0]}/${model}`);
 
   const fileOf = (id: string, ext: string) => path.join(DIR, `${id}.${ext}`);
   const agentsOf = (c: { agentId: string | null; agentIds?: string[] | null }) => [...new Set([...(c.agentIds || []), ...(c.agentId ? [c.agentId] : [])])];
@@ -316,8 +319,9 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
       push(conv, { type: 'step', text: conv.scope.kind === 'work' && conv.pr != null ? `Opening the worktree of ${keyLabel(conv.pr)} (a new one takes about 15 s)` : 'Finding the workspace' });
       const { workspaceId, cwd } = await where(conv.scope, conv.pr ?? null);
       push(conv, { type: 'step', text: 'Starting the agent' });
-      const provider = providerFor(conv.model);
-      const thinking = conv.thinking || startThinking(config.models, provider);
+      const ms = convModels(conv);
+      const provider = providerFor(conv.model, ms);
+      const thinking = conv.thinking || startThinking(ms, provider);
       const s = await agents.session({
         title: conv.title || `Ask: ${conv.prompt.split('\n')[0]}`,
         systemPrompt: `${SYSTEM + tierOf(conv)}\nYou run as ${provider}${thinking ? `, thinking ${thinking}` : ''}.`,
@@ -394,13 +398,14 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
   // a composer's model or thinking pick: the live agent switches in place, else the next agent starts with it
   async function repick(conv: Conv, pick: ModelPick) {
     if (!models || (pick.provider == null && pick.thinking == null)) return;
-    const current = providerFor(conv.model);
+    const ms = convModels(conv);
+    const current = providerFor(conv.model, ms);
     const p = await models.check(pick, current);
     const model = p.provider ?? conv.model;
-    const provider = providerFor(model);
+    const provider = providerFor(model, ms);
     const thinking = p.thinking ?? conv.thinking ?? null;
     // nothing changes: the next agent would start on the same provider at the same thinking level
-    if (provider === current && (thinking ?? startThinking(config.models, provider)) === (conv.thinking ?? startThinking(config.models, current))) return;
+    if (provider === current && (thinking ?? startThinking(ms, provider)) === (conv.thinking ?? startThinking(ms, current))) return;
     Object.assign(conv, { model, thinking });
     save(conv);
     const live = conv.agentId && OPEN.includes(conv.status) ? await models.apply(conv.agentId, p).then(() => true, () => false) : false;
@@ -557,7 +562,9 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
     let error = '';
     try {
       const placed = p.workspaceId ? { workspaceId: p.workspaceId, cwd: null } : p.cwd ? { workspaceId: null, cwd: p.cwd } : await where(work ? { kind: 'work', slug: work.slug } : conv?.scope ?? { kind: 'global' });
-      started = await agents.start({ title: p.title, prompt: p.prompt, provider: providerFor(p.provider), thinking: p.thinking || startThinking(config.models, providerFor(p.provider)), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
+      const ms = modelsFor(config, work?.repo ?? null);
+      const provider = providerFor(p.provider, ms);
+      started = await agents.start({ title: p.title, prompt: p.prompt, provider, thinking: p.thinking || startThinking(ms, provider), ...placed, labels: { source: 'cocopilot', kind: 'agent', work: work?.slug, pr: row } });
     } catch (e) {
       error = errorMessage(e);
     }
@@ -603,9 +610,10 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         const where = p.workspaceId ? `workspace \`${p.workspaceId}\`` : p.cwd ? `in \`${p.cwd}\`` : 'workspace picked by coco';
         const brief = { type: 'code', code: cut(p.prompt, 4000), caption: p.prompt.length > 4000 ? 'Brief (cut here: the agent gets all of it)' : 'Brief' };
         const work = p.workSlug || convOf(ctx.agentId)?.workSlug || ctx.work;
+        const ms = modelsFor(config, work ? works.get(work)?.repo ?? null : null);
         return {
           input: p,
-          card: { kind: 'confirm', title: cut(`Start agent: ${p.title}`, 120), question: p.why, blocks: [{ type: 'text', text: `**${providerFor(p.provider)}** · thinking ${p.thinking || 'default'} · ${where}${work ? ` · work \`${work}\`` : ''}` }, brief], confirmLabel: 'Start agent' },
+          card: { kind: 'confirm', title: cut(`Start agent: ${p.title}`, 120), question: p.why, blocks: [{ type: 'text', text: `**${providerFor(p.provider, ms)}** · thinking ${p.thinking || 'default'} · ${where}${work ? ` · work \`${work}\`` : ''}` }, brief], confirmLabel: 'Start agent' },
         };
       },
       run: async (card) => {
@@ -699,7 +707,7 @@ This is a conversation: ${OWNER} follows up in the same session, sometimes while
         if (b.repoId && !repos.some((r) => r.id === b.repoId)) return send(res, 400, { error: `unknown repo ${b.repoId}` });
         let pick;
         try {
-          pick = models ? await models.check({ provider: b.provider, thinking: b.thinking }, config.models.default) : {};
+          pick = models ? await models.check({ provider: b.provider, thinking: b.thinking }, modelsFor(config, b.repoId || (b.workSlug ? works.get(b.workSlug)?.repo ?? null : null)).default) : {};
         } catch (e) {
           return send(res, httpStatus(e), { error: errorMessage(e) });
         }

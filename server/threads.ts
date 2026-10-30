@@ -29,8 +29,9 @@ import type { VerifyRun } from './verify.ts';
 import type { Models } from './models.ts';
 import type { Jobs } from './jobs.ts';
 import type { Decision, Exec, PaseoAgentRow, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
-import type { RepoIdentity, RepoOf } from './config.ts';
+import { modelsFor } from './config.ts';
 import { startThinking } from './models.ts';
+import type { Config, RepoIdentity, RepoOf } from './config.ts';
 
 const SETTLE_MS = 15000;
 const TURN_MS = 45 * 60 * 1000;
@@ -79,7 +80,7 @@ type SharedConfig = Parameters<typeof sharedRules>[0];
 type ThreadsOptions = {
   DATA: string;
   REPO: string;
-  config: SharedConfig & { owner: { name: string }; models: { fast: string; default: string } };
+  config: SharedConfig & Pick<Config, 'models' | 'repos'> & { owner: { name: string } };
   works: {
     get(slug: string): Work | null;
     list(): Work[];
@@ -159,7 +160,12 @@ const defaultExec: Exec = (cmd, args) =>
 
 export function createThreads({ DATA, REPO, config, works, comments, reviewAgent, reviewPlan, exec = defaultExec, agents = createPaseoAgents(), placement, uploads, cardsOf = () => [], chatted, worktrees, models, jobs, hold = { ms: 0, pollMs: 2000 }, repoOf = () => ({ ...config.repo, path: REPO }) as RepoIdentity }: ThreadsOptions) {
   const repoPath = (slug: string) => repoOf(works.get(slug)).path;
-  const MODELS: Record<string, string> = { sonnet: config.models.fast, opus: config.models.default };
+  const modelsOf = (slug: string) => modelsFor(config, works.get(slug)?.repo ?? null);
+  // a group's model pick is a short name; a full provider/model passes through
+  const shortModels = (slug: string) => {
+    const ms = modelsOf(slug);
+    return { sonnet: ms.fast, opus: ms.default } as Record<string, string>;
+  };
   const SHARED_RULES = sharedRules(config);
   const OWNER = config.owner.name;
   const Owner = capitalize(OWNER);
@@ -553,8 +559,9 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
       if (group.kind === 'code' && 'workspaceId' in where && where.cwd) group.worktree = expandHome(where.cwd);
       if (group.kind === 'code' && 'spare' in where && where.spare) group.spare = true;
       onStep('Starting the agent');
-      const provider = MODELS[group.model] || group.model;
-      s = await agents.session({ title, provider, thinking: group.thinking || startThinking(config.models, provider, 'high'), ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id, ...(group.kind === 'decision' ? {} : { pr: fileKey(group.n) }) }, ...streamFor(slug, group.id) });
+      const ms = modelsOf(slug);
+      const provider = { sonnet: ms.fast, opus: ms.default }[group.model] || group.model;
+      s = await agents.session({ title, provider, thinking: group.thinking || startThinking(ms, provider, 'high'), ...where, labels: { source: 'cocopilot', kind: 'cc-group', work: slug, group: group.id, ...(group.kind === 'decision' ? {} : { pr: fileKey(group.n) }) }, ...streamFor(slug, group.id) });
     } catch (e) {
       throw new HttpError(500, `paseo agent start failed: ${errText(e).slice(0, 300)}`);
     }
@@ -602,6 +609,7 @@ export function createThreads({ DATA, REPO, config, works, comments, reviewAgent
     const files = uploads?.resolve(attachments) ?? [];
     const said = String(text || '').trim() || (files.length ? FILES_ONLY : '');
     if (!said) throw new HttpError(400, 'text required');
+    const MODELS = shortModels(slug);
     const short = Boolean(model && MODELS[model]);
     if (model && !short && !models) throw new HttpError(400, `model must be one of ${Object.keys(MODELS).join(', ')}`);
     const picked = models && (thinking || (model && !short)) ? await models.check({ provider: short ? MODELS[model || ''] : model, thinking }, MODELS[model || 'sonnet']) : {};

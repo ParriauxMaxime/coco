@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { errorMessage } from './core-types.ts';
+import { modelsFor } from './config.ts';
 import type { Config } from './config.ts';
 import type { Judge } from './judge.ts';
 import type { AgentHistory } from './paseo-agent.ts';
@@ -117,7 +118,6 @@ const deadline = <T>(p: Promise<T>, ms: number) => {
 };
 
 export function createBriefWriter({ DATA, config, agents, judge, place, now = Date.now, writerMs = WRITER_MS, idleMs = IDLE_MS }: Deps) {
-  const provider = config.models.fast || config.models.default;
   const runsFile = path.join(DATA, 'brief-runs.json');
   const readRuns = (): Tracked[] => {
     try {
@@ -162,7 +162,8 @@ export function createBriefWriter({ DATA, config, agents, judge, place, now = Da
     const job = (async () => {
       const where = await place(d.slug);
       const prompt = writerPrompt(d, facts, d.repoId ? lessons(d.repoId).slice(-LESSONS_IN_BRIEF) : []);
-      const out = await agents.run({ title: `Brief · ${d.title}`, prompt, provider, labels: { source: 'cocopilot', kind: 'brief-writer', work: d.slug }, ...where, timeoutMs: writerMs });
+      const ms = modelsFor(config, d.repoId);
+      const out = await agents.run({ title: `Brief · ${d.title}`, prompt, provider: ms.fast || ms.default, labels: { source: 'cocopilot', kind: 'brief-writer', work: d.slug }, ...where, timeoutMs: writerMs });
       if (out.status !== 'done') throw new Error(out.error || `the brief writer ended ${out.status}`);
       const brief = cleanBrief(out.finalText);
       if (!brief) throw new Error('the brief writer answered nothing');

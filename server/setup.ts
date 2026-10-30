@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createPaseoAgents, launcherEnv } from './paseo-agent.ts';
 import type { ExecFileOptions } from 'node:child_process';
-import { REPO_SETTINGS, skillFor } from './config.ts';
+import { modelsFor, REPO_SETTINGS, skillFor } from './config.ts';
 import type { Config, RepoConfig } from './config.ts';
 import { startThinking } from './models.ts';
 import type { ReadBody, Req, Res, RunResult, Send } from './core-types.ts';
@@ -135,7 +135,8 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
     const todo = steps.filter((s) => !s.done && s.id !== 'work').map((s) => `- ${s.label}${s.hint ? `: ${s.hint}` : ''}`);
     const prompt = [`Finish setting up cocopilot by following ${guide}. cocopilot is already cloned in ${APP} and its server runs: treat it as an existing install.`, todo.length ? `Still open:\n${todo.join('\n')}` : 'Every step is ticked: only check the result.'].join('\n\n');
     const where = place ? await place() : { cwd: APP };
-    const { agentId, createdWorkspace } = await agents.start({ title: 'Set up cocopilot', provider: config.models.default, thinking: startThinking(config.models, config.models.default, 'high'), ...where, labels: { source: 'cocopilot', kind: 'setup' }, prompt });
+    const ms = config.models;
+    const { agentId, createdWorkspace } = await agents.start({ title: 'Set up cocopilot', provider: ms.default, thinking: startThinking(ms, ms.default, 'high'), ...where, labels: { source: 'cocopilot', kind: 'setup' }, prompt });
     return { agentId, createdWorkspace };
   }
 
@@ -148,7 +149,8 @@ export function createSetup({ APP, config, works, personaCount, exec = defaultEx
       `Show ${config.owner.name} the proposal as a table and write it into that entry only once they agree, keeping every other key and the file's formatting. Then tell them to restart the cocopilot server so the settings apply.`,
     ].join('\n\n');
     const where = place ? await place() : { cwd: APP };
-    return agents.start({ title: `Set up ${repo.name} in cocopilot`, provider: config.models.default, thinking: startThinking(config.models, config.models.default, 'high'), ...where, labels: { source: 'cocopilot', kind: 'setup', repo: repo.id }, prompt });
+    const ms = modelsFor(config, repo);
+    return agents.start({ title: `Set up ${repo.name} in cocopilot`, provider: ms.default, thinking: startThinking(ms, ms.default, 'high'), ...where, labels: { source: 'cocopilot', kind: 'setup', repo: repo.id }, prompt });
   }
 
   async function handle(req: Req, res: Res, parts: string[], _readBody: ReadBody, send: Send) {

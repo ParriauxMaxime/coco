@@ -8,6 +8,8 @@ import { isLocal, rowKey } from './stack.ts';
 import { byFileThenLine, capitalize, commentSection, fenced as fence, notesBrief, personaPointers, sharedRules } from './review-agent.ts';
 import { blocksToMarkdown } from './blocks.ts';
 import type { Block } from './blocks.ts';
+import { modelsFor } from './config.ts';
+import { startThinking } from './models.ts';
 import type { RepoIdentity, RepoOf } from './config.ts';
 import { HttpError, errorMessage } from './core-types.ts';
 import type { Comment, Exec, PaseoAgentInfo, ReadBody, Refs, Req, Res, ReviewAgentApi, ReviewPr, RowKey, Runner, Send, Work, Works } from './core-types.ts';
@@ -31,7 +33,7 @@ type FixAgent = Pick<ReviewAgentApi, 'agentsList' | 'branchSha' | 'worktreeFor' 
 type Deps = {
   DATA: string;
   REPO: string;
-  config: { repo: { defaultBranch: string; rules?: string[]; commitConvention?: string }; owner: { name: string }; models: { default: string } };
+  config: { repo: { defaultBranch: string; rules?: string[]; commitConvention?: string }; owner: { name: string }; models: { default: string; fast?: string; thinking?: string } };
   works: Pick<Works, 'get'>;
   comments: { list(slug: string, key: RowKey): { comments?: FixComment[] }; update(slug: string, key: RowKey, id: string, patch: Record<string, unknown>): Promise<unknown>; reanchor(slug: string, key: RowKey, refs: { headSha: string; mergeBase: string }): Promise<unknown> };
   code: { ensureRefs(key: RowKey): Promise<Pick<Refs, 'headSha' | 'mergeBase'>> };
@@ -263,8 +265,9 @@ export function createStackFix({ DATA, REPO, config, works, comments, code, revi
       fs.mkdirSync(dir(slug), { recursive: true });
       fs.writeFileSync(brief, buildBrief({ work, rows, id, commits, resultPath }));
       const runner: Runner = place ? { mode: 'workspace', ...(await place(slug)) } : rows[0].worktree ? { mode: 'cwd', cwd: rows[0].worktree } : { mode: 'checkout-branch', repo: repoOf(work).path };
-      const provider = input.provider || config.models.default;
-      const agentId = await reviewAgent.launch(runner, { title: `Fix stack ${slug} (${total})`, provider, prompt: `Read ${brief} and follow it end to end.`, labels: { kind: 'stack-fix', run: id, work: slug, comments: total }, requestedBy: input.requestedBy, branch: rows[0].branch });
+      const ms = modelsFor(config, work.repo);
+      const provider = input.provider || ms.default;
+      const agentId = await reviewAgent.launch(runner, { title: `Fix stack ${slug} (${total})`, provider, thinking: startThinking(ms, provider, 'high'), prompt: `Read ${brief} and follow it end to end.`, labels: { kind: 'stack-fix', run: id, work: slug, comments: total }, requestedBy: input.requestedBy, branch: rows[0].branch });
 
       const run: StackRun = {
         id,

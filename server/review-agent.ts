@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { UUID, createPaseoAgents, expandHome, launcherEnv, sameDir, worktreeFor as worktreeOf } from './paseo-agent.ts';
 import { notesSection } from './briefs.ts';
+import { modelsFor } from './config.ts';
 import { startThinking } from './models.ts';
 import { HttpError, errorMessage, errorStatus } from './core-types.ts';
 import type { Config, RepoIdentity, RepoOf } from './config.ts';
@@ -376,7 +377,8 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
       if (!pr.head) throw new HttpError(400, `${keyLabel(n)} has no head branch`);
       const runner = await pickRunner(pr);
       const runId = crypto.randomBytes(4).toString('hex');
-      const provider = input.provider || config.models.default;
+      const ms = modelsFor(config, work.repo);
+      const provider = input.provider || ms.default;
       const brief = briefFile(slug, n, runId);
       const result = resultFile(slug, n, runId);
       const text = buildBrief({ work, pr, index, stackPrs, comments: picked, personas: work.stack[index].personas || [], options: { commits, runId, resultPath: result } });
@@ -386,7 +388,7 @@ export function createReviewAgent({ DATA, REPO, config, works, comments, PERSONA
 
       const task = `Read ${brief} and follow it end to end.`;
       const prompt = typeof input.wrap === 'function' ? input.wrap(task) : task;
-      const agentId = await launch(runner, { title: `Fix review ${keyLabel(n)} (${picked.length})`, provider, ...(input.thinking ? { thinking: input.thinking } : {}), prompt, labels: { kind: 'review', run: runId, work: slug, pr: fileKey(n), comments: picked.length }, requestedBy: input.requestedBy, n, branch: pr.head });
+      const agentId = await launch(runner, { title: `Fix review ${keyLabel(n)} (${picked.length})`, provider, thinking: input.thinking || startThinking(ms, provider, 'high'), prompt, labels: { kind: 'review', run: runId, work: slug, pr: fileKey(n), comments: picked.length }, requestedBy: input.requestedBy, n, branch: pr.head });
 
       const run: Run = {
         runId,

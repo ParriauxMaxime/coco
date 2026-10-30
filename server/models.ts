@@ -1,7 +1,9 @@
 // The models and thinking levels a composer can pick, from Paseo: the providers coco's config uses first, then every other provider Paseo has ready
 // (a second Claude login such as claude-perso); a pick is checked against them on every start and say.
 import { HttpError, errorMessage } from './core-types.ts';
+import { modelsFor } from './config.ts';
 import { AGENT_MODE } from './paseo-agent.ts';
+import type { Config } from './config.ts';
 import type { DaemonClient, ModeEntry } from './paseo-agent.ts';
 
 export type Thinking = { id: string; label: string };
@@ -18,7 +20,7 @@ export type LiveModes = { mode: string | null; modes: Mode[]; defaultMode: strin
 
 type RawModel = { id: string; label?: string; description?: string; isSelectable?: boolean; aliases?: string[]; thinkingOptions?: { id: string; label?: string }[]; defaultThinkingOptionId?: string };
 export type ModelsClient = Pick<DaemonClient, 'agents' | 'providers' | 'setAgentModel' | 'setAgentThinkingOption' | 'setAgentMode'>;
-type Options = { client: () => Promise<ModelsClient>; config: { models: { default: string; fast: string } }; ttlMs?: number; retryMs?: number };
+type Options = { client: () => Promise<ModelsClient>; config: { models: Config['models']; repos?: readonly { settings?: { models?: Partial<Config['models']> } }[] }; ttlMs?: number; retryMs?: number };
 
 const TTL_MS = 10 * 60 * 1000;
 const RETRY_MS = 30 * 1000;
@@ -75,9 +77,9 @@ export function checkMode(catalog: Catalog, provider: string, mode: unknown): st
 
 export function createModels({ client, config, ttlMs = TTL_MS, retryMs = RETRY_MS }: Options) {
   let cached: { at: number; ttl: number; value: Promise<Catalog> } | null = null;
-  const families = () => [...new Set([config.models.default, config.models.fast].filter(Boolean).map(family))];
   // a list read while Paseo still discovers its providers, or without its snapshot, may miss some
   let partial = false;
+  const families = () => [...new Set([config.models, ...(config.repos || []).map((r) => modelsFor(config, r))].flatMap((m) => [m.default, m.fast, m.connectors].filter((p): p is string => Boolean(p))).map(family))];
 
   async function load(): Promise<Catalog> {
     const c = await client();

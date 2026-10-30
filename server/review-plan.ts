@@ -12,6 +12,7 @@ import type { Entry, Started } from './paseo-agent.ts';
 import { writeReviewContext } from './review-context.ts';
 import type { DismissedWatch } from './review-context.ts';
 import { HttpError, errorMessage, errorStatus, isSeverity } from './core-types.ts';
+import { modelsFor } from './config.ts';
 import type { Config, FileLayers, RepoOf } from './config.ts';
 import type { CodeApi, PrFile, ReadBody, Refs, Req, Res, Rule, RowKey, Send, Works } from './core-types.ts';
 
@@ -383,8 +384,9 @@ export function createReviewPlan({ DATA, REPO, APP, config, code, works, rules =
       note(`created Paseo workspace ${createdWorkspace}`);
       log('say', `No Paseo workspace was open for this PR: created ${createdWorkspace}.`);
     };
+    const ms = work ? modelsFor(config, work.repo) : config.models;
     (work && place ? place(slug) : (work ? workCwd({ repo, work, key: n, prInfo: works.prInfo }) : Promise.resolve(repo)).then((cwd) => ({ cwd, workspaceId: null })))
-      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: systemPrompt(OWNER, repo), provider: config.models.fast || config.models.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
+      .then((where) => agents.run({ title: `Plan review ${isLocal(n) ? branchOf(n) : `#${n}`}`, prompt, systemPrompt: systemPrompt(OWNER, repo), provider: ms.fast || ms.default, ...where, labels: { source: 'cocopilot', kind: 'review-plan', work: slug, pr: fileKey(n) }, timeoutMs: TIMEOUT_MS, onEntry, onStart }))
       .then((r) => finish(r), (e) => finish(null, e));
     return { ok: true };
   }

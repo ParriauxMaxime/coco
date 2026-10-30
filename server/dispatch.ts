@@ -3,7 +3,7 @@
 // Its first message is its task, then the brief the brief writer wrote for it (the template brief when the writer fails).
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { skillName, skillRuns } from './gates.ts';
-import { repoSetting } from './config.ts';
+import { modelsFor, repoSetting } from './config.ts';
 import { findingLine, renderBrief } from './briefs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import type { BriefDispatch, Written } from './brief-writer.ts';
@@ -173,10 +173,11 @@ export function createDispatch({ config, works, placement, agents, briefs, revie
     const args = typeof input.args === 'string' ? input.args.trim() : '';
     const title = titleOf(entry, key, edits, { prompt, persona });
     const repoId = repoIdOf(work);
-    const fallback = entry.kind === 'persona-review' ? config.models.fast : config.models.default;
+    const ms = modelsFor(config, repoFor(work));
+    const fallback = entry.kind === 'persona-review' ? ms.fast || ms.default : ms.default;
     const pick = models ? await models.check({ provider: input.provider, thinking: input.thinking }, fallback) : {};
     const provider = pick.provider || fallback;
-    const thinking = pick.thinking || startThinking(config.models, provider, 'high');
+    const thinking = pick.thinking || startThinking(ms, provider, 'high');
 
     if (entry.kind === 'fix-findings' && key !== null) {
       const given = Array.isArray(input.commentIds) ? input.commentIds.filter((x): x is string => typeof x === 'string') : [];

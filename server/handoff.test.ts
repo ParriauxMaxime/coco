@@ -38,7 +38,7 @@ function setup({ reply = null as string | null, archived = false, known = true, 
   const handoff = createHandoff({
     DATA,
     owner: 'Max',
-    defaultModel: 'claude/sonnet',
+    modelsOf: () => ({ default: 'claude/sonnet' }),
     client,
     say: async (_id, text) => {
       if (archived) throw new Error('this agent is archived');
@@ -133,7 +133,7 @@ test('two hand-offs asked at once start one agent; a refused one lets the next t
 test('a hand-off cut short by a restart reads as failed', async () => {
   const { DATA } = setup();
   fs.writeFileSync(path.join(DATA, 'handoffs.json'), JSON.stringify([{ from: OLD, fromTitle: 'x', to: null, toTitle: null, step: 'summary', source: null, note: '', file: null, error: null, archived: false, at: '2026-10-01', doneAt: null }]));
-  const again = createHandoff({ DATA, owner: 'Max', defaultModel: 'claude/sonnet', client: async () => ({}) as Pick<DaemonClient, 'agents'>, say: async () => {}, start: async () => ({ agentId: NEW }), archiveWhenDone: async () => true, archive: async () => true });
+  const again = createHandoff({ DATA, owner: 'Max', modelsOf: () => ({ default: 'claude/sonnet' }), client: async () => ({}) as Pick<DaemonClient, 'agents'>, say: async () => {}, start: async () => ({ agentId: NEW }), archiveWhenDone: async () => true, archive: async () => true });
   assert.equal(again.of(OLD).to?.step, 'failed');
 });
 
@@ -151,7 +151,7 @@ test('a hand-off cut by a restart while starting its new agent finds that agent 
     const started: unknown[] = [];
     const archived: string[] = [];
     const client = async () => ({ agents: { list, ref: () => ({ refresh: async () => ({ agent: { title: 'coco · CSV streaming', labels } }), waitForFinish: async () => ({ status: 'idle' }), timeline: { refetch: async () => ({ entries: [], hasOlder: false }) } }) } }) as unknown as Pick<DaemonClient, 'agents'>;
-    const handoff = createHandoff({ DATA, owner: 'Max', defaultModel: 'claude/sonnet', client, say: async () => {}, start: async () => (started.push(1), { agentId: 'another' }), archiveWhenDone: async (id) => (archived.push(id), true), archive: async () => false, waitMs: 10, pollMs: 5 });
+    const handoff = createHandoff({ DATA, owner: 'Max', modelsOf: () => ({ default: 'claude/sonnet' }), client, say: async () => {}, start: async () => (started.push(1), { agentId: 'another' }), archiveWhenDone: async (id) => (archived.push(id), true), archive: async () => false, waitMs: 10, pollMs: 5 });
     return { handoff, started, archived };
   };
   const found = boot(async () => ({ entries: agents.map((agent) => ({ agent })) }));

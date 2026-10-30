@@ -47,8 +47,9 @@ export type RepoIdentity ={ path: string; github: string; defaultBranch: string;
 // the repo a work lives in (repos.repoFor); a module built with one REPO defaults to config.repo at that path
 export type RepoOf = (work: { repo?: string | null } | null | undefined) => RepoIdentity;
 // settings that belong to a repo; one left out falls back to the top-level value
-export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree', 'preflight', 'land'] as const;
-export type RepoSettings = Partial<Pick<Config, (typeof REPO_SETTINGS)[number]>>;
+export const REPO_SETTINGS = ['gateSkills', 'kitKinds', 'fileLayers', 'seedRules', 'featureFlags', 'importRoots', 'botGroups', 'kitBody', 'agentWorktree', 'preflight', 'land', 'models'] as const;
+// models is a partial overlay: a key a repo leaves out falls back to the top-level models
+export type RepoSettings = Partial<Pick<Config, Exclude<(typeof REPO_SETTINGS)[number], 'models'>>> & { models?: Partial<Config['models']> };
 export type RepoConfig = RepoIdentity & { id: string; name: string; settings: RepoSettings };
 
 export interface Config {
@@ -205,6 +206,14 @@ function loadRepos(c: Config, raw: { repos?: (Partial<RepoConfig> & { path: stri
 
 // a repo's value for a repo-shaped setting, the top-level one when the repo has none
 export const repoSetting = <K extends (typeof REPO_SETTINGS)[number]>(config: Config, repo: RepoConfig | null | undefined, key: K): Config[K] => (repo?.settings[key] ?? config[key]) as Config[K];
+
+export type ModelsConfig = { default: string; fast?: string; thinking?: string; connectors?: string };
+type ModelsHolder = { id?: string; settings?: { models?: Partial<Config['models']> } };
+// the models a repo works with: its settings.models over the top-level models, key by key; a repo id is looked up in config.repos
+export const modelsFor = <M extends ModelsConfig>(config: { models: M; repos?: readonly ModelsHolder[] }, repo: string | ModelsHolder | null | undefined): M & Partial<ModelsConfig> => ({
+  ...config.models,
+  ...(typeof repo === 'string' ? config.repos?.find((r) => r.id === repo) : repo)?.settings?.models,
+});
 
 export function personaLogins(files: string[], { ignore = [], companionSuffixes = [] }: { ignore?: string[]; companionSuffixes?: string[] } = {}): string[] {
   const companion = companionSuffixes.length ? new RegExp(`-(${companionSuffixes.join('|')})\\.md$`) : null;

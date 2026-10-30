@@ -6,6 +6,8 @@ import { decisionSummary, isLive } from './decisions.ts';
 import type { Decision } from './decisions.ts';
 import { branchOf, fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
 import { capitalize, fenced, listText } from './review-agent.ts';
+import { modelsFor } from './config.ts';
+import { startThinking } from './models.ts';
 import type { Config, RepoIdentity, RepoOf } from './config.ts';
 import { errorMessage, httpStatus } from './core-types.ts';
 import type { ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, StackRow, Work } from './core-types.ts';
@@ -290,7 +292,8 @@ export function createBriefs({ DATA, REPO, config, works, comments, reviewAgent,
     const saved = store(slug, ctx.n, text, handoff ? '-handoff' : '');
     const runner = ctx.worktree ? { mode: 'cwd', cwd: ctx.worktree, repo: ctx.repo.path } : { mode: isLocal(ctx.n) ? 'checkout-branch' : 'checkout-pr', repo: ctx.repo.path };
     const title = `${handoff ? 'Handoff ' : ''}PR ${ctx.index + 1}: ${ctx.work.stack[ctx.index].planned?.title || ctx.pr.title || ctx.pr.head}`;
-    const agentId = await reviewAgent.launch(runner, { title, provider: config.models.default, prompt: `Read ${saved.path} and follow it end to end; it is your full task brief.`, labels: { kind: handoff ? 'handoff' : 'brief', work: slug, pr: fileKey(ctx.n) }, n: ctx.n, branch: isLocal(ctx.n) ? branchOf(ctx.n) : ctx.pr.head });
+    const ms = modelsFor(config, ctx.work.repo);
+    const agentId = await reviewAgent.launch(runner, { title, provider: ms.default, thinking: startThinking(ms, ms.default, 'high'), prompt: `Read ${saved.path} and follow it end to end; it is your full task brief.`, labels: { kind: handoff ? 'handoff' : 'brief', work: slug, pr: fileKey(ctx.n) }, n: ctx.n, branch: isLocal(ctx.n) ? branchOf(ctx.n) : ctx.pr.head });
     reviewAgent.timeline(slug, 'agent', `${handoff ? `handoff ${keyLabel(ctx.n)} from ${agent ? agent.id.slice(0, 8) : 'no agent'}` : `brief ${keyLabel(ctx.n)}`}: started agent ${String(agentId || '').slice(0, 8) || '?'} with ${saved.name}`);
     return { ...saved, agentId, mode: runner.mode };
   }

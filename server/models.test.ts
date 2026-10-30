@@ -108,5 +108,21 @@ test('the starting thinking level is models.thinking on the default provider fam
   assert.equal(startThinking(models, 'claude/claude-opus-5-5', 'high'), 'high');
   assert.equal(startThinking(models, 'claude/claude-opus-5-5'), undefined);
   assert.equal(startThinking({ default: 'omp/x' }, 'omp/y', 'high'), 'high');
-  assert.equal(startThinking({ default: 'omp/y' }, 'claude/x', 'high'), 'high');
+  assert.equal(startThinking({ default: 'omp/x' }, 'omp/y'), undefined);
+});
+
+test('a repo’s own models put their providers in the list, next to the global ones', async () => {
+  const listed: string[] = [];
+  const deepseek = [{ id: '@preset/dev-deepseek', thinkingOptions: levels('auto', 'low', 'high', 'max') }];
+  const client = {
+    providers: {
+      snapshot: async () => ({ entries: [{ provider: 'omp', status: 'ready' }, { provider: 'claude', status: 'ready' }] }),
+      listModels: async (id: string) => (listed.push(id), { models: id === 'claude' ? RAW : deepseek }),
+    },
+  } as unknown as ModelsClient;
+  const repos = [{ id: 'perso', settings: { models: { default: 'claude/claude-opus-5-5' } } }];
+  const cat = await createModels({ client: async () => client, config: { models: { default: 'omp/openrouter-deepseek', fast: 'omp/openrouter-deepseek' }, repos } }).list();
+  assert.deepEqual(listed, ['omp', 'claude']);
+  assert.deepEqual(cat.providers.map((p) => p.id), ['omp', 'claude']);
+  assert.deepEqual(cat.defaults, { default: 'omp/openrouter-deepseek', fast: 'omp/openrouter-deepseek' });
 });

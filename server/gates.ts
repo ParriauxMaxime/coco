@@ -3,13 +3,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileKey, isLocal, keyLabel, parseKey, rowKey } from './stack.ts';
-import { skillFor } from './config.ts';
+import { modelsFor, skillFor } from './config.ts';
 import { sameSha } from './kit.ts';
 import { cacheFile, swrCache } from './swr.ts';
 import type { Config, RepoOf } from './config.ts';
 import { conflictBody } from './jobs.ts';
 import type { Jobs } from './jobs.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
+import { startThinking } from './models.ts';
 import type { Comment, GateRecord, PrInfo, ReadBody, Req, Res, ReviewAgentApi, RowKey, Send, StackRow, Work } from './core-types.ts';
 
 const SETTLE_MS = 15000;
@@ -253,13 +254,14 @@ export function createGates({ DATA, config, works, reviewAgent, kit, comments, f
       const names = (gate.skills || []).map(skillName);
       if (!skill || !names.includes(skill)) throw new HttpError(400, `${id} runs ${names.join(', ') || 'no skill'}`);
       const title = `${RUN_LABEL[id] || gate.label}: /${skill} ${keyLabel(n)}`;
+      const ms = modelsFor(config, work.repo);
       const launch = async () => {
         const pr = await reviewAgent.rowPr(work, index);
         const runner = await reviewAgent.pickRunner(pr);
         const busy = runner.mode === 'send' && (await reviewAgent.agentsList()).find((a) => a.id === runner.agentId)?.status === 'running';
         if (busy) throw new HttpError(409, `agent ${String(runner.agentId).slice(0, 8)} is mid-turn in the PR worktree; wait for it`);
         const prompt = `/${skill} ${String(args).trim() || (isLocal(n) ? '' : n)}`.trim();
-        const agentId = await reviewAgent.launch(runner, { title, provider: config.models.default, prompt, labels: { kind: 'gate', gate: id, work: slug, pr: fileKey(n) }, n, branch: pr.head });
+        const agentId = await reviewAgent.launch(runner, { title, provider: ms.default, thinking: startThinking(ms, ms.default, 'high'), prompt, labels: { kind: 'gate', gate: id, work: slug, pr: fileKey(n) }, n, branch: pr.head });
         saveGate(slug, index, id, { state: 'running', at, skill, agentId });
         if (agentId && runner.mode !== 'send') agents?.archiveWhenDone(agentId).catch(() => {});
         reviewAgent.timeline(slug, 'gate', `${keyLabel(n)} ${id}: started ${prompt} in ${runner.mode} agent ${String(agentId || '').slice(0, 8)}`);

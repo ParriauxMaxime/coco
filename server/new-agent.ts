@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { fileKey, keyLabel, parseKey, rowKey } from './stack.ts';
 import { firstMessage, workFacts } from './dispatch.ts';
 import { renderBrief } from './briefs.ts';
+import { modelsFor } from './config.ts';
+import { startThinking } from './models.ts';
 import { HttpError, errorMessage, httpStatus } from './core-types.ts';
 import { FILES_ONLY, agentInput, uploadRef } from './uploads.ts';
-import { startThinking } from './models.ts';
 import type { Upload, Uploads } from './uploads.ts';
 import type { Config, RepoConfig } from './config.ts';
 import type { PrInfo, ReadBody, Req, Res, RowKey, Send, Work } from './core-types.ts';
@@ -89,7 +90,8 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
 
   async function start(input: NewAgentInput) {
     const { place, files, prompt } = check(input);
-    const fallback = config.models.default;
+    const ms = modelsFor(config, place.kind === 'repo' || place.kind === 'fresh' ? place.repoId : works.get(place.slug)?.repo ?? null);
+    const fallback = ms.default;
     const pick = models ? await models.check({ provider: input.provider, thinking: input.thinking }, fallback) : {};
     const provider = pick.provider || fallback;
     const mode = models ? await models.mode(provider, input.mode) : undefined;
@@ -102,7 +104,7 @@ export function createNewAgent({ config, works, placement, agents, briefs, prInf
     const slug = place.kind === 'work' || place.kind === 'row' ? place.slug : null;
     const key = place.kind === 'row' ? place.key : null;
     const labels = { source: 'cocopilot', kind: 'agent', ...(slug ? { work: slug } : {}), ...(key === null ? {} : { pr: fileKey(key) }) };
-    const thinking = pick.thinking || startThinking(config.models, provider);
+    const thinking = pick.thinking || startThinking(ms, provider);
     const started = await agents.start({ title, provider, ...(thinking ? { thinking } : {}), ...(mode ? { mode } : {}), prompt: message, ...(messageId ? { input: { ...agentInput(files), messageId } } : {}), labels, workspaceId: placed.workspaceId, cwd: placed.cwd });
     if (messageId) uploads?.record(started.agentId, { messageId, text: message, at: new Date().toISOString(), attachments: files.map(uploadRef) });
     if (edits) readier?.started(started.agentId, placed.cwd, { slug: slug ?? undefined, key });

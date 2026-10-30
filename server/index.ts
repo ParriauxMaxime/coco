@@ -52,7 +52,7 @@ import { createDictation } from './dictation.ts';
 import { fillTemplate } from './schedule-view.ts';
 import { createPurge } from './purge.ts';
 import { SWEEP_AGE, createUploads, servePaseoAttachment } from './uploads.ts';
-import { loadConfig, personaLogins } from './config.ts';
+import { loadConfig, modelsFor, personaLogins } from './config.ts';
 import type { RepoConfig } from './config.ts';
 import { createPaseoAgents, daemonServerId, daemonUrl } from './paseo-agent.ts';
 import type { ProviderUsage } from './paseo-agent.ts';
@@ -302,7 +302,7 @@ works.hooks.onRekeyed = (slug, from, to) => {
   void gates.summarize(slug).catch(() => {});
 };
 const agentControls = createAgentControls({ client: paseoAgents.client, models, renamed: (agentId, title) => void ask.rename(agentId, title) });
-const handoff = createHandoff({ DATA, owner: config.owner.name, defaultModel: config.models.default, client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), models, link: paseoLink });
+const handoff = createHandoff({ DATA, owner: config.owner.name, modelsOf: (work) => modelsFor(config, work ? works.get(work)?.repo ?? null : null), client: paseoAgents.client, say: (id, text) => workAgents.say(id, text), start: paseoAgents.start, archiveWhenDone: paseoAgents.archiveWhenDone, archive: paseoAgents.archive, handedOff: (agentId) => cards.handedOff(agentId), models, link: paseoLink });
 const finished = createFinishedAgents({ client: paseoAgents.client, agents: permissions.agents, linked: () => paseoLink.linked(), successors: handoff.successors, maxAgeMs: LAST_WORD_MS });
 const waiting = createWaiting({ DATA, works, cards, threads: { queue: threads.queue, ready: threads.ready, link: threadLink }, ask, permissions, finished, convOf: (agentId) => { const c = ask.convOf(agentId); return c ? { id: c.id, workSlug: c.workSlug } : null; } });
 for (const on of [cards.onChange, threads.onChange, ask.onChange, permissions.onChange]) on(() => waiting.touch());
@@ -575,7 +575,7 @@ async function launchRitual(body: { kind: string; provider?: string; [key: strin
     const repoId = typeof body.repo === 'string' ? body.repo : config.repos[0].id;
     const pr = Number(String(body.pr ?? '').replace(/^#/, ''));
     const where = await placement.place(spec.scope === 'global' ? { kind: 'global' } : Number.isInteger(pr) && pr > 0 ? { kind: 'pr', repoId, number: pr, edits: false } : { kind: 'repo', repoId });
-    const ms = config.models;
+    const ms = spec.scope === 'global' ? config.models : modelsFor(config, repoId);
     const provider = body.provider || ms.default;
     started = await paseoAgents.start({ title, provider, thinking: startThinking(ms, provider, 'high'), ...where, labels: { source: 'cockpit', ritual: body.kind }, prompt });
   } catch (e) {
