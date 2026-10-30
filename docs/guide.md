@@ -1,11 +1,11 @@
-# cocopilot guide
+# coco guide
 
 The full reference: every surface, what it reads and writes, and the HTTP
 routes agents call. Start with the [README](../README.md) to install, and
 [configuration.md](configuration.md) for the keys named below
 (`repo.path`, `dataDir`, `personasDir`, …).
 
-cocopilot drives the reviewer personas, the works (long-term context per PR
+coco drives the reviewer personas, the works (long-term context per PR
 stack) and the local Paseo agents. Node + Vite + React front, Node stdlib API
 server over the file system, `git`, `gh` and the `paseo` CLI. Single user,
 local.
@@ -863,7 +863,7 @@ box: **Start agent** sends the text to a small scoped agent (`models.fast` by
 default; the composer's model and thinking pickers choose another); on a comment, **✓ Resolve** / **✕ Decline** close it
 with the text as reason (saved in the work notes). There is no separate
 remark box. The agent answers inline and suggests a change; you approve or
-dismiss it in the thread. cocopilot is the
+dismiss it in the thread. coco is the
 orchestration layer (`server/threads.ts`):
 
 - Groups. Items on the same subject share one agent: a comment joins the
@@ -943,7 +943,7 @@ orchestration layer (`server/threads.ts`):
 - Replies. The agent calls the cocopilot `post_reply({ blocks, thread })`
   tool (blocks checked like `post_blocks`, a refusal names the field), which
   writes `threads/<key>-<msg>-reply.json` for it; writing that file itself
-  stays the fallback. Typed blocks (see the Findings board above); cocopilot reads it on the thread poll (3 s while waiting) and when the
+  stays the fallback. Typed blocks (see the Findings board above); coco reads it on the thread poll (3 s while waiting) and when the
   Paseo plugin reports the agent's turn ended. One message at a time per
   thread.
 - Questions. To have you pick, the agent asks with `cocopilot.ask` and the
@@ -1250,7 +1250,7 @@ commit and note show on the comment); the rest stay `sent`. The agent may
 not push: the brief forbids `git push`, `gh pr comment|review|edit`, and the
 server records the remote head before the run. If the remote head changes
 without a click on **I pushed**, the run gets a red "remote head moved" chip
-and a timeline entry. **I pushed** (on the run row) tells cocopilot that you
+and a timeline entry. **I pushed** (on the run row) tells coco that you
 did it; the new head then flows through re-anchoring.
 
 ## Waiting on you
@@ -1306,7 +1306,7 @@ Pull based, no webhooks:
 - Review comments: any mounted tab of a PR polls every 30 s while the page is
   visible, re-resolves the head, and re-anchors the comments when it moved.
   Opening the tab, focusing the window or coming back to the page asks
-  GitHub again (`fresh=1`), so a push made outside cocopilot shows at once.
+  GitHub again (`fresh=1`), so a push made outside coco shows at once.
 - Agent turns: the Paseo plugin's `agent.turn_ended` posts the agent's cwd to
   `/api/paseo-link/turn-ended`. When that branch is a row of a live work (PR
   or local `b:<branch>`), every row of the work re-reads its head (fresh for
@@ -1328,7 +1328,7 @@ Pull based, no webhooks:
   `b:<branch>` resolve to the number. A `propose_stack_edit` that gives a
   planned row its PR moves the same way.
 - Landed rows, in a repo whose `land` setting is `"main"` or `"auto"` (the
-  cocopilot repo is `"auto"`; others ship rows as PRs): a planned row shipped
+  coco repo is `"auto"`; others ship rows as PRs): a planned row shipped
   straight to the default branch, with no PR, reads **landed** (merged colors)
   everywhere a row's state shows, and gets no PR nudges. Its agent says so with
   the MCP `mark_row_landed` right after it fast-forwards the branch, you with
@@ -1572,12 +1572,12 @@ its task calls `archive_me` and is archived once its turn ends, unless one of it
 
 When you ask any coco agent for a change to coco itself ("read local head, not
 origin"), it calls `flag_coco_issue` instead of saying another session owns it:
-a finding with no file or line lands on the cocopilot work's first row (the work
+a finding with no file or line lands on the first row of coco's own work (the work
 whose repo is `cocopilot`, or `cocoWork` in the config) with your words, the
 agent and work that raised it, and the agent answers with its link
 (`#/work/<slug>/findings-<row>/f-<id>`, opening the Findings tab on it). The same
 title updates the finding. Nothing is dispatched until you accept it: then its
-fix agent starts in the cocopilot repo like any accepted finding; stack fix
+fix agent starts in the coco repo like any accepted finding; stack fix
 runs skip these findings.
 
 ### Screenshots (agents see coco)
@@ -1962,10 +1962,10 @@ commit them.
 - Skills: those named with `skillPrefix`, `methodSkill`, the targets of
   `skillOverrides`, the skills in `gateSkills`, and the `/skill` commands of `rituals` that exist in
   `skillsDir`. Symlinks, `node_modules`, `.git`, `dist`, `data`, `*.bak`, the
-  cocopilot app folder and `personasDir` are left out of a skill folder.
+  coco app folder and `personasDir` are left out of a skill folder.
 - Team config: the raw JSON of your config file minus personal keys
-  (`owner`, `dataDir`, `briefsDir`, `skillsDir`, `personasDir`, `baseUrl`,
-  `importRoots`, `repo.path`).
+  (`owner`, `brand`, `dataDir`, `briefsDir`, `skillsDir`, `personasDir`,
+  `baseUrl`, `importRoots`, `repo.path`).
 - Feature-flag provider: the `featureFlags.provider` module.
 
 The zip holds `coco-pack.json` (manifest: `format: 1`, `createdAt`, `by`, the
@@ -2132,7 +2132,7 @@ Colours go through the `--dp-*` CSS variables set on `.dp` in `src/preview/previ
 A persona is a markdown file per reviewer in `personasDir`: `<login>.md`,
 plus an optional `<login>.json` overview and companion `<login>-<suffix>.md`
 files (suffixes and ignored names in `personaFiles`).
-cocopilot reads the `# Name — \`login\`` title, a `Mined YYYY-MM-DD` date
+coco reads the `# Name — \`login\`` title, a `Mined YYYY-MM-DD` date
 (stale after 60 days), the `## Surfaces` YAML block (path globs used to
 suggest owners for a PR's files), and counts the items under `## What they
 check` and `## Calibration`. A file containing "message-writer" is a writer

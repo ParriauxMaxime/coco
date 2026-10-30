@@ -6,6 +6,7 @@ type ConfigState = Config & { loaded: boolean };
 
 const FALLBACK: ConfigState = {
   owner: { name: '', login: '' },
+  brand: { name: 'coco', tagline: 'ADE, but your way.' },
   repo: { github: '', defaultBranch: '' },
   baseUrl: '',
   models: { default: '', fast: '' },
@@ -17,7 +18,10 @@ const FALLBACK: ConfigState = {
 
 // fetched once per page load; components render with FALLBACK until it lands
 export const useConfig = create<ConfigState>(() => FALLBACK);
-api.config().then((c) => useConfig.setState({ ...FALLBACK, ...c, loaded: true }), () => useConfig.setState({ loaded: true }));
+api.config().then((c) => {
+  useConfig.setState({ ...FALLBACK, ...c, loaded: true });
+  document.title = useConfig.getState().brand.name;
+}, () => useConfig.setState({ loaded: true }));
 
 // a ritual asks for its `fields`, else for the {login} {pr} {paths} {text} placeholders of its prompt
 export const ritualFields = (r: Ritual) => r.fields || [...new Set([...(r.prompt || '').matchAll(/\{(login|pr|paths|text)\}/g)].map((m) => m[1]))];

@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const { ov, err } = useOverview();
   const owed = useWaiting()?.count ?? 0;
   const rituals = useConfig((s) => s.rituals);
+  const tagline = useConfig((s) => s.brand.tagline);
   if (!ov) return <Page>{err ? <ErrorNote>{err}</ErrorNote> : <Loading what="Loading your works…" />}</Page>;
 
   const live = ov.works.filter((w) => !w.archived);
@@ -57,7 +58,7 @@ export default function DashboardPage() {
       <PageHead
         icon="home"
         title="Dashboard"
-        sub="Copiloting the copilots: works, personas, skills and Paseo agents in one place. Runs on your machine; agents never push, post or send on their own."
+        sub={`${tagline} Works, personas, skills and Paseo agents in one place. Runs on your machine; agents never push, post or send on their own.`}
         actions={<><a className="dp-btn" href="#/repos/new"><Icon name="plus" size={14} />New repo</a><a className="dp-btn dp-primary" href="#/ask"><Icon name="message-square" size={14} />Ask coco</a></>}
       />
       <Onboarding />

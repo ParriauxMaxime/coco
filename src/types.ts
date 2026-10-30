@@ -7,6 +7,7 @@ export type Ritual = { kind: string; label?: string; title?: string; prompt?: st
 
 export type Config = {
   owner: { name: string; login: string };
+  brand: { name: string; tagline: string };
   repo: { github: string; defaultBranch: string };
   baseUrl: string;
   models: { default: string; fast: string };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, agentMcpFor, mcpServersFor, modelsFor } from './config.ts';
+import { DEFAULTS, agentMcpFor, brandOf, mcpServersFor, modelsFor } from './config.ts';
 import type { Config, RepoConfig } from './config.ts';
 
 const repo = (id: string, settings: RepoConfig['settings'] = {}): RepoConfig => ({
@@ -23,6 +23,13 @@ test('models.thinking starts unset and no connector server ships in the defaults
   assert.equal(DEFAULTS.models.thinking, undefined);
   assert.deepEqual(DEFAULTS.mcpServers, {});
   assert.deepEqual(DEFAULTS.agentMcp, []);
+});
+
+test('brand defaults to coco and its line, and a blank or non-string value keeps the default', () => {
+  assert.deepEqual(brandOf(undefined), { name: 'coco', tagline: 'ADE, but your way.' });
+  assert.deepEqual(brandOf('lemlist'), DEFAULTS.brand);
+  assert.deepEqual(brandOf({ name: ' lemlist copilot ', tagline: 'The ADE, but yours.' }), { name: 'lemlist copilot', tagline: 'The ADE, but yours.' });
+  assert.deepEqual(brandOf({ name: '  ', tagline: 42 }), DEFAULTS.brand);
 });
 
 test('a repo without settings.models runs on the top-level models', () => {

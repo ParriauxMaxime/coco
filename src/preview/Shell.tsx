@@ -326,6 +326,7 @@ function ShellView({ ov, root, crumbs, slug, attention, titleRight, views, repo,
   const owed = queue?.count || 0;
   useEffect(() => desktop?.setWaiting(owed), [owed]);
   const hasRituals = useConfig((s) => s.rituals.length > 0);
+  const brandName = useConfig((s) => s.brand.name);
   const [palette, setPalette] = useState(false);
   const [waitOpen, setWaitOpen] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -382,7 +383,7 @@ function ShellView({ ov, root, crumbs, slug, attention, titleRight, views, repo,
       <div className="dp-app">
         <header className="dp-titlebar">
           <button type="button" className={`dp-ibtn dp-lg dp-menu${menu ? ' dp-on' : ''}`} title="Pages and works" onClick={() => setMenu((m) => !m)}><Icon name="list" /></button>
-          <a className="dp-brandmark" href="#/" title="Dashboard"><img src={cocoMark} alt="coco" /></a>
+          <a className="dp-brandmark" href="#/" title="Dashboard"><img src={cocoMark} alt="" /><span>{brandName}</span></a>
           <div className="dp-crumbs">
             {crumbs.map((c, i) => (
               <React.Fragment key={`${c.label}-${i}`}>

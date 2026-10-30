@@ -1,6 +1,6 @@
-# Set up cocopilot (for the agent)
+# Set up coco (for the agent)
 
-You are a coding agent installing or updating cocopilot for the user. Do
+You are a coding agent installing or updating coco for the user. Do
 every step you can on your own; ask the user only for what you cannot
 detect. Never push, never post, never bind the server to anything but
 `127.0.0.1`.
@@ -131,7 +131,7 @@ plugin they edited. Not found: this is a **fresh install**.
    `docs/examples/personas/alice.md` and the `personasDir` key; do not
    write personas for them.
 
-6. **Start.** If a cocopilot server already runs on port 8777
+6. **Start.** If a coco server already runs on port 8777
    (`curl -s http://127.0.0.1:8777/api/setup`), tell the user to restart it
    (`npm start` in `$APP`, which also rebuilds the UI): an update or a new
    config only applies after a restart. Never kill it yourself. Otherwise

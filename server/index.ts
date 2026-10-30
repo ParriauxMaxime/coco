@@ -693,7 +693,7 @@ async function api(req: Req, res: Res, url: URL) {
     if (root === 'mcp') return send(res, 200, mcpStatus.list());
     if (root === 'models') return send(res, 200, await models.list());
     if (root === 'server') return self.handle(req, res, parts, send);
-    if (root === 'config') return send(res, 200, { owner: config.owner, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider), cloneDir: config.cloneDir });
+    if (root === 'config') return send(res, 200, { owner: config.owner, brand: config.brand, repo: { github: config.repo.github, defaultBranch: config.repo.defaultBranch }, baseUrl: config.baseUrl, models: config.models, kitKinds: config.kitKinds, rituals: config.rituals, featureFlags: Boolean(config.featureFlags?.provider), cloneDir: config.cloneDir });
     if (root === 'client-error' && req.method === 'POST') {
       const line = `${new Date().toISOString()} ${(await readBody(req)).slice(0, 20000)}\n`;
       fs.appendFileSync(path.join(DATA, 'client-errors.log'), line);

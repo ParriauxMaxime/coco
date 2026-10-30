@@ -42,7 +42,7 @@ const putText = <T>(url: string, body: string) => fetch(url, { method: 'PUT', bo
 
 // a server started before threads existed answers thread routes with the work itself
 const asThread = (t: Thread) => {
-  if (!Array.isArray(t.messages)) throw new Error('the cocopilot server predates threads: restart it');
+  if (!Array.isArray(t.messages)) throw new Error('the coco server predates threads: restart it');
   return t;
 };
 

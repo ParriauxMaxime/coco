@@ -63,6 +63,8 @@ export const expandServer = (s: McpServer): McpServer =>
 
 export interface Config {
   owner: { name: string; login: string };
+  // what the server renders (tab title, title-bar wordmark, Dashboard head); the installed .app, APK and menu bar keep saying coco
+  brand: { name: string; tagline: string };
   // the default repo: the first of `repos`
   repo: RepoIdentity;
   repos: RepoConfig[];
@@ -116,6 +118,7 @@ export interface Config {
 
 export const DEFAULTS: Config = {
   owner: { name: 'the user', login: 'me' },
+  brand: { name: 'coco', tagline: 'ADE, but your way.' },
   repo: {
     path: '',
     github: '',
@@ -173,9 +176,17 @@ export const merge = (base: unknown, over: unknown): unknown => {
   return out;
 };
 
+// a name or line left out, blank or not a string keeps the default
+export const brandOf = (raw: unknown): Config['brand'] => {
+  const text = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim() : fallback);
+  const b = isObject(raw) ? raw : {};
+  return { name: text(b.name, DEFAULTS.brand.name), tagline: text(b.tagline, DEFAULTS.brand.tagline) };
+};
+
 export function loadConfig({ APP, file = process.env.COCO_CONFIG || path.join(APP, 'coco.config.json') }: { APP: string; file?: string }): Config {
   const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   const c = merge(DEFAULTS, raw) as Config;
+  c.brand = brandOf(raw.brand);
   c.repo.path = home(process.env.COCO_REPO || c.repo.path);
   // outside the checkout so a `git clean` cannot take the works; `<app>/data` stays for installs that already have it
   const legacyData = path.join(APP, 'data');

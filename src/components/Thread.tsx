@@ -565,7 +565,7 @@ export default function Thread({ slug, threadKey: key, onSettled, verdicts = [],
               <div className="dp-msg-a" id={`thr-${m.id}`}>
                 {m.role === 'system' ? <CocoAvatar /> : <span className="dp-bot dp-cv-av"><Icon name="bot" size={12} /></span>}
                 <div className="dp-thr-body">
-                  <div className="dp-who">{m.role === 'system' ? 'cocopilot' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>
+                  <div className="dp-who">{m.role === 'system' ? 'coco' : `Agent ${String(m.agentId || '').slice(0, 8)}`}</div>
                   {m.files?.length ? <SentFiles files={m.files} /> : null}
                   {m.blocks ? <Blocks blocks={m.blocks} /> : m.text && <Markdown text={m.text} />}
                   {m.choices && <OldChoices m={m} />}

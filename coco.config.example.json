@@ -1,5 +1,6 @@
 {
   "owner": { "name": "Alice", "login": "alice" },
+  "brand": { "name": "coco", "tagline": "ADE, but your way." },
   "repo": {
     "path": "~/code/widgets",
     "github": "acme/widgets",

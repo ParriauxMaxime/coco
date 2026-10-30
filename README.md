@@ -1,10 +1,12 @@
-# cocopilot
+# coco
 
-A local workbench to ship large features and PR stacks with Claude Code
-agents, run through [Paseo](https://paseo.sh). You plan the stack, agents
-build each PR in its own worktree, and cocopilot keeps what the agents
-forget: the plan, the decisions, the review comments, the findings, and
-what is left before each PR can merge.
+ADE, but your way. coco keeps what your agents forget: the plan, the
+decisions, the review comments, the findings, and what is left before each
+PR can merge. You plan a large feature as a stack of PRs, and Claude Code
+agents build each one in its own worktree, run through
+[Paseo](https://paseo.sh), on your machine.
+
+![coco: ADE, but your way.](docs/media/banner.svg)
 
 ## Get started
 
@@ -12,7 +14,7 @@ Needs Node 22+ (its built-in WebSocket talks to the Paseo daemon), `git`, the [G
 and [Paseo](https://paseo.sh) with Claude Code. Paste this in Claude Code:
 
 ```text
-Set up cocopilot for me: follow https://raw.githubusercontent.com/ParriauxMaxime/coco/main/docs/setup.md
+Set up coco for me: follow https://raw.githubusercontent.com/ParriauxMaxime/coco/main/docs/setup.md
 ```
 
 The agent checks the prerequisites, installs the skills and the Paseo
@@ -48,7 +50,7 @@ running for the agents. A menu bar parrot carries the "waiting on you" count,
 the dock badge shows it too, and ⌥⌘C brings coco forward from anywhere. Jobs
 that end while the window is in the background raise a notification.
 
-![cocopilot on a demo stack: plan and a decision, code review, findings board, checklist gates](docs/media/overview.gif)
+![coco on a demo stack: plan and a decision, code review, findings board, checklist gates](docs/media/overview.gif)
 
 *A demo stack: plan and a decision, code review, findings board, checklist
 gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
@@ -70,7 +72,7 @@ gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
   with "Accept together") that asks when unsure and suggests a commit.
 - **Agent threads.** Discuss a comment, a finding or a decision with a small
   scoped agent. It answers inline and suggests a commit; you approve, and
-  cocopilot cherry-picks it onto the PR branch.
+  coco cherry-picks it onto the PR branch.
 - **Checklist gates.** Each PR carries its gates, from self review to
   merged: skills to start in the PR agent, commands to copy, ticks derived
   from GitHub and git.
@@ -107,7 +109,7 @@ Inbox (turn a Notion page or Slack thread into a work) and the Notion sync.
 
 ## Security
 
-cocopilot has no authentication. It reads your repository, runs `git` and
+coco has no authentication. It reads your repository, runs `git` and
 `gh` with your credentials, and starts agents in auto mode. It binds
 `127.0.0.1` by default: keep it that way, and never expose it on a network
 you do not fully trust. To use it from another device, tunnel the port

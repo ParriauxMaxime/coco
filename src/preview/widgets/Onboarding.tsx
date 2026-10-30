@@ -51,7 +51,7 @@ export default function Onboarding() {
     <div className="dp-box dp-ob">
       <div className="dp-ob-h">
         <span className="dp-ob-ic"><Icon name="sparkles" size={14} /></span>
-        <b>Get cocopilot ready</b>
+        <b>Get coco ready</b>
         <span className="dp-chip">{done}/{data.steps.length}</span>
         <span className="dp-sp" />
         <button type="button" className="dp-btn dp-sm" onClick={load}><Icon name="refresh" size={12} />Recheck</button>

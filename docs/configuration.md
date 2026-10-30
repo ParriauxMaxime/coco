@@ -1,6 +1,6 @@
 # Configuration
 
-cocopilot reads its defaults from `server/config.ts`, then overlays the JSON
+coco reads its defaults from `server/config.ts`, then overlays the JSON
 file at `$COCO_CONFIG`, or `coco.config.json` at the app root (gitignored).
 Start from the example:
 
@@ -24,7 +24,7 @@ Paths starting with `~` resolve to your home directory.
 
 A [team pack](guide.md#team-pack-share-with-teammates) import merges a
 teammate's config into this file: their values fill in and override team
-keys, while your personal keys (`owner`, `dataDir`, `briefsDir`, `skillsDir`,
+keys, while your personal keys (`owner`, `brand`, `dataDir`, `briefsDir`, `skillsDir`,
 `personasDir`, `baseUrl`, `importRoots`, `repo.path`) always stay yours.
 
 The server port and bind address are command-line arguments, not config:
@@ -39,6 +39,18 @@ The server port and bind address are command-line arguments, not config:
 | `owner.name` | `"the user"` | How prompts and briefs name the person driving the work. |
 | `owner.login` | `"me"` | Author id of your own local review comments, and "me" in the findings board. Changing it later detaches comments written under the old login. |
 
+### Brand
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `brand.name` | `"coco"` | The name in the browser tab and the title-bar wordmark. |
+| `brand.tagline` | `"ADE, but your way."` | The line that opens the Dashboard head. |
+
+A blank value keeps the default. `brand` changes what the server renders, not
+the installed bundle: the macOS `.app`, the Android APK label and the menu bar
+keep saying coco. A team pack never carries it, so an import never renames
+your coco.
+
 ### Repository
 
 | Key | Default | Meaning |
@@ -51,14 +63,14 @@ The server port and bind address are command-line arguments, not config:
 | `repo.reviewsDir` | `".claude/reviews"` | Repo-relative folder where review pages (markdown) are written; read by the findings board. |
 | `repo.commitConvention` | `""` | One line describing the commit message format, quoted in briefs. Empty: no convention named. |
 | `cloneDir` | the folder holding the default repo's clone | Where "New repo" looks for a clone of a GitHub slug (by its `origin` remote), and clones it with `gh repo clone` when none matches. The new repo is appended to `repos` in this file. |
-| `cocoWork` | the work whose `repo` is `cocopilot` | Slug of the work that owns cocopilot itself. `flag_coco_issue` files the changes users ask of coco as findings on its first row. |
+| `cocoWork` | the work whose `repo` is `cocopilot` | Slug of the work that owns coco itself. `flag_coco_issue` files the changes users ask of coco as findings on its first row. |
 
 ### Server and storage
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `baseUrl` | `"http://127.0.0.1:8777"` | URL agents use to call cocopilot back (briefs, skills). Match the port you start the server on, and keep it on loopback: anything else needs a paired device (see Phone). |
-| `hosts` | `[]` | Extra Host names a reverse proxy serves cocopilot under, e.g. `["coco.local", "coco.tail1234.ts.net"]`. The server refuses any request whose Host is not `127.0.0.1`/`localhost` on its port or the vite port, the `baseUrl` host, or one of these; a write from a browser must also come from one of them (http or https Origin). A request through any of these hosts, or carrying a proxy header (`X-Forwarded-For`…), also needs a paired device (see Phone). |
+| `baseUrl` | `"http://127.0.0.1:8777"` | URL agents use to call coco back (briefs, skills). Match the port you start the server on, and keep it on loopback: anything else needs a paired device (see Phone). |
+| `hosts` | `[]` | Extra Host names a reverse proxy serves coco under, e.g. `["coco.local", "coco.tail1234.ts.net"]`. The server refuses any request whose Host is not `127.0.0.1`/`localhost` on its port or the vite port, the `baseUrl` host, or one of these; a write from a browser must also come from one of them (http or https Origin). A request through any of these hosts, or carrying a proxy header (`X-Forwarded-For`…), also needs a paired device (see Phone). |
 | `screenshot` | `{ "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "hosts": [] }` | The headless Chrome behind `/api/screenshot` and the agents' `screenshot` tool (guide: Screenshots). `chrome`: its binary; a missing one fails the capture with that path. `hosts`: host names it may open beyond coco and loopback, e.g. `["dev.example.com"]`. |
 | `browserHost` | `"auto"` | `"auto"`: while the Paseo desktop app is closed, coco hosts the agents' `browser_*` tools in that same headless Chrome, and steps down once the app is back (guide: Browser host). `"off"`: never. |
 | `dataDir` | `~/.cocopilot/data` (`<app>/data` when that folder exists, for older installs) | Where works, comments, findings, threads and caches are stored. Back it up; it is the only state. Keep it outside the checkout: `git clean -x` there would delete it. |
@@ -87,7 +99,7 @@ The server port and bind address are command-line arguments, not config:
 | `importRoots` | `["/tmp", "/private/tmp", "~/.paseo/worktrees"]` | Folders files may be imported from as work artifacts. Add your repo or another scratch folder if agents write kit files there. |
 | `agentWorktree` | `null` | How coco readies the worktree of a code-writing agent and checks its commits; per repo too (`repos[].settings`). See [Agent worktrees](#agent-worktrees). |
 | `preflight` | `null` | Checks shown on a kit-video dispatch and injected in its brief; per repo too. See [Preflight](#preflight). |
-| `land` | `"pr"` | How a planned row ships; per repo too. `"pr"`: a row is a PR, done when GitHub merges it. `"main"`: a row may also land straight on the local default branch with no PR, marked by its agent (`mark_row_landed`), by you (**Mark landed**) or seen in git, and its work auto-archives once every row landed or merged. `"auto"`: the same, and a finished row lands itself — the press (`land_row`, the merge arrow on the row) fast-forwards the checkout, restarts coco and marks the row landed only once the restarted server answers on that sha, rolling back if it does not; it never pushes. The cocopilot repo coco adds on its own uses `"auto"`. |
+| `land` | `"pr"` | How a planned row ships; per repo too. `"pr"`: a row is a PR, done when GitHub merges it. `"main"`: a row may also land straight on the local default branch with no PR, marked by its agent (`mark_row_landed`), by you (**Mark landed**) or seen in git, and its work auto-archives once every row landed or merged. `"auto"`: the same, and a finished row lands itself — the press (`land_row`, the merge arrow on the row) fast-forwards the checkout, restarts coco and marks the row landed only once the restarted server answers on that sha, rolling back if it does not; it never pushes. The repo coco adds for itself (`cocopilot`) uses `"auto"`. |
 | `rituals` | `[]` | Buttons on the Rituals page, each starting a Paseo agent in your repo. Item: `{ "kind", "label", "prompt", "hint"?, "fields"? }`. `prompt` may hold `{login}`, `{pr}`, `{paths}`, `{text}` placeholders, which become form fields unless `fields` lists them. |
 
 ### Connectors on any provider
@@ -121,7 +133,7 @@ Gmail's MCP takes an OAuth client of your own, since Google has no dynamic clien
 | `fileLayers` | `null` (built-in lists) | Overrides the file classifier of the review plan. Object with optional `layers`, `wiring` and `other` lists of `[regexSource, label]`; each given list replaces the built-in one. `layers` order is the reading order of core files (e.g. controller before service before domain). |
 | `botGroups` | `{ "sentry": "sentry" }` | Reviewer groups for bot comments on the findings board: group name → case-insensitive pattern matched against the GitHub login. |
 | `seedRules` | `[]` | Global rules written as kept to the rules ledger once, when `data/rules.json` does not exist yet; each `["rule text", "source"]`. Kept rules go into every brief and review plan. |
-| `featureFlags` | `null` | Optional `{ "provider": "<path to an ES module>" }`. The module exports `createFeatureFlags({ config, REPO })` returning `{ forRow(work, n), known() }`, so cocopilot can say how to switch on each feature flag a work lists. Without it, briefs and PR cards show no feature flag line. |
+| `featureFlags` | `null` | Optional `{ "provider": "<path to an ES module>" }`. The module exports `createFeatureFlags({ config, REPO })` returning `{ forRow(work, n), known() }`, so coco can say how to switch on each feature flag a work lists. Without it, briefs and PR cards show no feature flag line. |
 
 ## Feature flag provider
 

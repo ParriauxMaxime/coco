@@ -16,6 +16,7 @@ const read = (file: string) => fs.readFileSync(file, 'utf8');
 test('team config drops personal keys and points the provider inside the pack', () => {
   const raw = {
     owner: { name: 'Alice', login: 'alice' },
+    brand: { name: 'widgets copilot', tagline: 'Ours.' },
     repo: { path: '~/code/widgets', github: 'acme/widgets' },
     dataDir: '~/.cocopilot/data',
     baseUrl: 'http://127.0.0.1:8777',
@@ -48,6 +49,7 @@ test('merge keeps the user owner and repo path and takes the team gate skills', 
   const team = { owner: { name: 'Alice', login: 'alice' }, repo: { path: '~/code/widgets', defaultBranch: 'main' }, gateSkills: { 'self-review': ['coco-review'] } };
   const merged = mergeConfig(user, team);
   assert.deepEqual(merged.owner, user.owner);
+  assert.equal(mergeConfig(user, { ...team, brand: { name: 'widgets copilot' } }).brand, undefined);
   assert.deepEqual(merged.repo, { path: '/src/widgets', github: 'acme/widgets', defaultBranch: 'main' });
   assert.deepEqual(merged.gateSkills, { 'self-review': ['coco-review'] });
 });
