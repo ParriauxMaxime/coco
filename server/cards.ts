@@ -20,6 +20,7 @@ export type CardEffect = { type: 'take_decision'; option: string } | { type: 'di
 // diagram: Mermaid source, on the options of a choice card only
 export type CardOption = { key: string; label: string; details?: string; consequence?: string; recommended?: boolean; confidence?: number; effect?: CardEffect; diagram?: string };
 export type CardField = { key: string; label: string; type: FieldType; options?: string[]; default?: CardValue; required?: boolean; placeholder?: string };
+// recommended: with rowOptions, the option key to pre-pick; without them, true (Yes) or false (No) derives a Yes/No picker
 export type CardRow = { key: string; cells: Cell[]; recommended?: string | boolean };
 // chat: closed by a message the owner typed to the agent instead of answering the card
 export type CardAnswer = { at: string; picked?: string[]; rows?: string[]; rowPicks?: Record<string, string>; values?: Record<string, CardValue>; approved?: boolean; other?: string; chat?: boolean };
@@ -162,16 +163,26 @@ const field = (f: Raw, at: string): CardField => {
   return f.default == null || f.default === '' ? out : { ...out, default: fieldValue(out, f.default, `${at}.default`) };
 };
 
-const rowsOf = (c: Raw, columns: string[], rowOptions: CardOption[] | undefined): CardRow[] => {
-  const rows = list(c.rows, 1, 40, 'rows').map((r, i): CardRow => {
+export const YES_NO: CardOption[] = [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }];
+// no rowOptions: the rows you marked make the table a Yes/No picker; a rows card nothing could pick would reach the owner unanswerable
+const derivedPick = (rows: Raw[]): CardOption[] => {
+  if (!rows.some((r) => r?.recommended != null)) throw new Error('rows must be pickable: give rowOptions (2-4 options picked per row), or recommended: true or false on the rows you advise and a Yes/No picker is derived');
+  return YES_NO;
+};
+const rowsOf = (raw: Raw[], columns: string[], given: CardOption[] | undefined): { rows: CardRow[]; rowOptions: CardOption[] } => {
+  const table = raw.map((r, i) => {
     const at = `rows[${i}]`;
     if (!Array.isArray(r?.cells) || r.cells.length !== columns.length) throw new Error(`${at}.cells must hold ${columns.length} cells`);
-    const cells = r.cells.map((x: Raw | string | number, j: number) => cell(x, `${at}.cells[${j}]`));
-    if (r.recommended != null && rowOptions && !rowOptions.some((o) => o.key === r.recommended)) throw new Error(`${at}.recommended must be a rowOptions key`);
-    return strip({ key: key(r.key, `${at}.key`), cells, recommended: rowOptions ? r.recommended ?? undefined : bool(r.recommended, `${at}.recommended`) });
+    return { at, key: key(r.key, `${at}.key`), cells: r.cells.map((x: Raw | string | number, j: number) => cell(x, `${at}.cells[${j}]`)), recommended: r.recommended as string | boolean | undefined };
   });
-  unique(rows.map((r) => r.key), 'rows');
-  return rows;
+  unique(table.map((r) => r.key), 'rows');
+  const rowOptions = given ?? derivedPick(raw);
+  const rows = table.map((r): CardRow => {
+    const side = typeof r.recommended === 'boolean' ? (r.recommended ? 'yes' : 'no') : r.recommended;
+    if (side != null && !rowOptions.some((o) => o.key === side)) throw new Error(`${r.at}.recommended must be a rowOptions key`);
+    return strip({ key: r.key, cells: r.cells, recommended: side });
+  });
+  return { rows, rowOptions };
 };
 
 // what an agent may post: throws on the first bad field, naming it
@@ -193,9 +204,9 @@ export function validateCard(c: Raw): CardBody {
   }
   if (kind === 'rows') {
     const columns = list(c.columns, 1, 8, 'columns').map((x, i) => str(String(x ?? ''), 60, `columns[${i}]`));
-    const rowOptions = c.rowOptions == null ? undefined : options(c.rowOptions, 2, 4, 'rowOptions');
-    const select = rowOptions ? undefined : c.select == null ? 'many' : oneOf(c.select, ['many', 'one'] as const, 'select');
-    return strip({ ...head, columns, rows: rowsOf(c, columns, rowOptions), select, rowOptions, other });
+    const listed = list(c.rows, 1, 40, 'rows');
+    const { rows, rowOptions } = rowsOf(listed, columns, c.rowOptions == null ? undefined : options(c.rowOptions, 2, 4, 'rowOptions'));
+    return strip({ ...head, columns, rows, rowOptions, other });
   }
   if (kind === 'form') return strip({ ...head, fields: fieldsOf(c.fields, 1), other });
   return strip({ ...head, fields: c.fields == null ? undefined : fieldsOf(c.fields, 0), confirmLabel: opt(c.confirmLabel, 40, 'confirmLabel'), rejectLabel: opt(c.rejectLabel, 40, 'rejectLabel'), other });

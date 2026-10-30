@@ -3,13 +3,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createCards, validateAnswer, validateCard } from './cards.ts';
+import { answerSummary, createCards, validateAnswer, validateCard } from './cards.ts';
+import type { CardRow } from './cards.ts';
 import { createWaiting } from './waiting.ts';
 
 const AGENT = '11111111-2222-3333-4444-555555555555';
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cards-test-'));
 const choice = { kind: 'choice', title: 'Export format', question: 'Which format ships first?', options: [{ key: 'csv', label: 'CSV', recommended: true }, { key: 'xlsx', label: 'Excel' }] };
-const rows = { kind: 'rows', title: 'Findings to fix', columns: ['Finding', 'Severity'], rows: [{ key: 'f1', cells: ['Missing check', { text: 'major', tone: 'risk' }] }, { key: 'f2', cells: ['Typo', 'nit'] }] };
+const picks = [{ key: 'fix', label: 'Fix now' }, { key: 'later', label: 'Later' }];
+const findings: CardRow[] = [{ key: 'f1', cells: ['Missing check', { text: 'major', tone: 'risk' }] }, { key: 'f2', cells: ['Typo', 'nit'] }];
+// a rows card always picks per row: no options of its own, it derives Yes/No from the rows it marks
+const rows = { kind: 'rows', title: 'Findings to fix', columns: ['Finding', 'Severity'], rows: [{ ...findings[0], recommended: true }, findings[1]] };
 
 test('a card is refused with the field that broke, and gets its kind defaults', () => {
   assert.throws(() => validateCard({ ...choice, options: [choice.options[0]] }), /options must hold 2-8 entries/);
@@ -18,13 +22,28 @@ test('a card is refused with the field that broke, and gets its kind defaults', 
   assert.throws(() => validateCard({ kind: 'form', title: 'Name it', fields: [{ key: 'n', label: 'Name', type: 'select', options: ['a'], default: 'b' }] }), /fields\[0\]\.default must be one of a/);
   assert.throws(() => validateCard({ kind: 'post', title: 'Result' }), /blocks required on a post card/);
   assert.deepEqual(validateCard(choice), { ...choice, other: true });
-  assert.equal(validateCard(rows).select, 'many');
-  assert.equal(validateCard({ ...rows, rowOptions: [{ key: 'fix', label: 'Fix' }, { key: 'skip', label: 'Skip' }] }).select, undefined);
+  assert.deepEqual(validateCard(rows).rowOptions, [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }]);
+  const perRow = validateCard({ kind: 'rows', title: 'Findings to fix', columns: ['Finding', 'Severity'], rows: [{ ...findings[0], recommended: 'fix' }, findings[1]], rowOptions: picks });
+  assert.deepEqual([perRow.rowOptions?.map((o) => o.key), perRow.rows?.map((r) => r.recommended)], [['fix', 'later'], ['fix', undefined]]);
   assert.equal(validateCard({ kind: 'form', title: 'Name it', fields: [{ key: 'n', label: 'Name', type: 'text' }] }).other, false);
   const decides = { ...choice.options[0], effect: { type: 'take_decision', option: 'csv' } };
   assert.throws(() => validateCard({ ...choice, multi: true, options: [decides, choice.options[1]] }), /options\[0\]\.effect is only for the options of a single choice card/);
   assert.throws(() => validateCard({ ...choice, options: [{ ...decides, effect: { type: 'merge' } }, choice.options[1]] }), /options\[0\]\.effect\.type must be one of take_decision, dismiss_finding/);
   assert.deepEqual(validateCard({ ...choice, options: [decides, choice.options[1]] }).options?.[0].effect, { type: 'take_decision', option: 'csv' });
+});
+
+test('a rows card is never unanswerable: with no options of its own it derives Yes/No from the rows it marks, and neither is refused naming the fix', async () => {
+  const c = validateCard({ kind: 'rows', title: 'Ship these?', columns: ['Finding'], rows: [{ key: 'f1', cells: ['Missing check'], recommended: true }, { key: 'f2', cells: ['Typo'], recommended: false }, { key: 'f3', cells: ['Nit'] }] });
+  assert.deepEqual([c.rowOptions, c.select], [[{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }], undefined]);
+  assert.deepEqual(c.rows?.map((r) => r.recommended), ['yes', 'no', undefined]);
+  assert.throws(() => validateCard({ kind: 'rows', title: 'Ship these?', columns: ['Finding', 'Severity'], rows: findings }), /rows must be pickable: give rowOptions/);
+  assert.deepEqual(validateAnswer(c, { rowPicks: { f1: 'yes', f3: 'no' } }), { rowPicks: { f1: 'yes', f3: 'no' } });
+  assert.throws(() => validateAnswer(c, { rowPicks: { f1: 'maybe' } }), /rowPicks\.f1 must map a row key to one of yes, no/);
+  assert.throws(() => validateAnswer(c, {}), /pick an option on a row or write an answer/);
+  const cards = createCards({ DATA: tmpDir(), deliver: async () => {} });
+  const answered = await cards.answer((await cards.create({ ...c, agentId: AGENT })).id, { rowPicks: { f1: 'yes', f2: 'no' } });
+  assert.equal(answered.status, 'answered');
+  assert.deepEqual(answerSummary(answered).split('\n'), ['Missing check: Yes', 'Typo: No']);
 });
 
 test('an answer must fit its card', () => {
@@ -33,7 +52,8 @@ test('an answer must fit its card', () => {
   assert.throws(() => validateAnswer(c, { picked: ['csv', 'xlsx'] }), /pick one option/);
   assert.throws(() => validateAnswer(c, { picked: ['pdf'] }), /picked must list keys among csv, xlsx/);
   assert.deepEqual(validateAnswer(c, { other: 'Both, CSV first' }), { picked: [], other: 'Both, CSV first' });
-  assert.throws(() => validateAnswer(validateCard({ ...rows, select: 'one' }), { rows: ['f1', 'f2'] }), /tick exactly one row/);
+  // a card stored before pickers per row still answers by ticks
+  assert.throws(() => validateAnswer({ kind: 'rows', title: 'Findings to fix', columns: ['Finding'], rows: findings, select: 'one' }, { rows: ['f1', 'f2'] }), /tick exactly one row/);
   const form = validateCard({ kind: 'form', title: 'Limits', fields: [{ key: 'max', label: 'Max rows', type: 'number', required: true }, { key: 'zip', label: 'Zip it', type: 'toggle' }] });
   assert.throws(() => validateAnswer(form, { values: { zip: true } }), /Max rows is required/);
   assert.throws(() => validateAnswer(form, { values: { max: 10, extra: 1 } }), /values\.extra is not a field/);
@@ -56,7 +76,7 @@ test('an answer is stored then sent to the agent with its summary and JSON; a di
     sent.push([agentId, text]);
   } });
   cards.onChange((id) => changed.push(id));
-  const asked = await cards.create({ ...rows, agentId: AGENT, rowOptions: [{ key: 'fix', label: 'Fix now' }, { key: 'later', label: 'Later' }] });
+  const asked = await cards.create({ ...rows, agentId: AGENT, rows: [{ ...findings[0], recommended: 'fix' }, { ...findings[1], recommended: 'later' }], rowOptions: picks });
   assert.equal(asked.status, 'open');
   assert.deepEqual([asked.work, asked.pr], ['csv', 'b:feat/x']);
   assert.equal(cards.openCount(AGENT), 1);

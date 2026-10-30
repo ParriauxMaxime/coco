@@ -85,9 +85,9 @@ type Card = {
   diagram?: string;               // Mermaid source of today, ≤ 4000, shown above the options
   // rows
   columns?: string[];             // 1-8
-  rows?: CardRow[];               // 1-40
-  select?: 'many' | 'one';        // tick rows (default many)
-  rowOptions?: CardOption[];      // instead of ticks: one pick per row (decision-style), 2-4
+  rows?: CardRow[];               // 1-40; recommended: the option key, or true / false (Yes / No) when the card has no rowOptions
+  rowOptions?: CardOption[];      // one pick per row (decision-style), 2-4; without them the marked rows derive a Yes/No picker
+  select?: 'many' | 'one';        // cards stored before pickers per row: tick rows; never written any more
   // form
   fields?: CardField[];           // 1-8; a confirm card may carry 0-8, sent with the approval
   // confirm
@@ -172,9 +172,13 @@ read-only.
 
 Validation lives on the server (`server/cards.ts`), reusing `server/blocks.ts`
 for `blocks` and cells. A `choice` answer needs ≥ 1 pick or `other` (one pick
-at most unless `multi`); `one` row select needs exactly one row (or `other`
-alone); `rowOptions` needs ≥ 1 row pick or `other`; required fields need a
-value (on a `confirm`, only to approve); `confirm` needs `approved` or `other`. Option, row and field keys are
+at most unless `multi`); a rows card picks per row: `rowOptions` needs ≥ 1
+pick or `other`, and without `rowOptions` a row's `recommended: true` or
+`false` derives a Yes/No picker with that side pre-picked (a card with
+neither is refused: `rows must be pickable: give rowOptions … or recommended …`);
+a card stored before that rule still answers by ticks (`one` needs exactly one
+row, or `other` alone); required fields need a value (on a `confirm`, only to
+approve); `confirm` needs `approved` or `other`. Option, row and field keys are
 short ids (`[\w.:~-]{1,60}`), unique per card. A `post` card needs `blocks`.
 A `diagram` (on a choice card or its options, refused elsewhere) is Mermaid
 source checked like a `diagram` block's `mermaid` (`mermaid()` of
