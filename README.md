@@ -50,14 +50,15 @@ running for the agents. A menu bar parrot carries the "waiting on you" count,
 the dock badge shows it too, and ⌥⌘C brings coco forward from anywhere. Jobs
 that end while the window is in the background raise a notification.
 
-https://github.com/user-attachments/assets/9330c4f7-2039-4fe3-b1dc-1bdec33a8ae0
-
 ![coco on a demo stack: the work and its progress, a decision taken, code review, the findings board](docs/media/demo.gif)
 
 *A 32 s demo: the work and its progress, a decision taken, code review, the
-findings board and the agent that answers it. The player above carries the
-same cut (GitHub folds it); the GIF plays on its own. Download:
-[mp4](docs/media/demo.mp4) · [webm](docs/media/demo.webm).*
+findings board and the agent that answers it. With controls, the same cut as
+a video (GitHub keeps it folded):*
+
+https://github.com/user-attachments/assets/9330c4f7-2039-4fe3-b1dc-1bdec33a8ae0
+
+[mp4](docs/media/demo.mp4) · [webm](docs/media/demo.webm)
 
 ## What it does
 
