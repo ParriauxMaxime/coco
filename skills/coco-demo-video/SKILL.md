@@ -15,7 +15,8 @@ instead of a card standing in front of it.
 ## Scope
 
 - Writes `docs/media/demo.{gif,mp4,webm,jpg}` and `stack-plan.png`,
-  `code-review.png`, `findings-board.png`, `agent-thread.png`.
+  `code-review.png`, `findings-board.png`, `agent-thread.png`; the vertical
+  take writes `demo-vertical.{mp4,jpg}`.
 - Reads `scripts/record-demo.ts`, `demo/`, `README.md`. Edits the recorder
   when a beat hits a UI that moved.
 - Never the real server: no persona name, token, card or personal work may
@@ -91,7 +92,33 @@ Paste that URL alone on a line above the GIF. GitHub folds it into a player
 (a `<video>` inside a `<details>`); the asset outlives the issue, but keep
 one named host issue so the next take has somewhere to land.
 
-## 5. Verify before you push
+## 5. The 9:16 cut (TikTok)
+
+Same pass, recorded in the phone shell instead of the desktop one:
+
+```bash
+DEMO_VIEWPORT=640x1138 COCO_URL=http://127.0.0.1:8793 node scripts/record-demo.ts video
+```
+
+640 is the widest viewport that still gets the phone layout; the recorder
+captures CSS pixels, so `encode` scales the take to 1080x1920 with lanczos.
+What `PORTRAIT` changes:
+
+- The card is the first frame (the hero breathes on the app first) and the
+  take is trimmed at 1.45 s, so the cover is the card.
+- Type for a phone: the name at 92 px, the line at 38 px, a 19 px caption
+  centered above the shell's tab bar — clear of TikTok's own chrome, which
+  covers the bottom ~300 px of a 1920-tall video.
+- The stack beat is dropped: three short rows leave a phone frame empty, so
+  the cut ends on the agent's patch instead.
+- A taken decision blanks its board for a second while it refetches, so the
+  click punches into the next beat rather than waiting on the empty bucket.
+- `demo-vertical.mp4` (h264, 1080x1920, ~27 s, ~6 MB) and its cover, no GIF
+  and no webm: a feed takes neither.
+
+The clip is silent: the sound is added where it is posted.
+
+## 6. Verify before you push
 
 ```bash
 ffprobe -v error -show_entries format=duration -of default=nw=1 docs/media/demo.mp4
@@ -108,7 +135,7 @@ caches by path, so a replaced file can keep serving the old bytes for
 minutes. A new path (a rename) is how a replaced clip starts showing up.
 Then open the repo page and look at the hero and the player.
 
-## 6. Rules
+## 7. Rules
 
 - No black frame: the title, the outro and the cuts are the app plus an
   overlay.
