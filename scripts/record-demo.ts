@@ -259,25 +259,25 @@ async function shots(browser: Browser) {
   await page.goto(`${URL}/#/work/${SLUG}/plan`);
   await page.getByText('CSV serializer and export endpoint').first().waitFor();
   await a.wait(1400);
-  await shot('plan.png');
+  await shot('stack-plan.png');
 
   await page.goto(`${URL}/#/work/${SLUG}/review-b:export-api`);
   await page.locator('.rv-card').first().waitFor();
   await a.wait(1200);
   await page.locator('.rv-card-h', { hasText: 'csv-export.ts' }).first().click();
   await a.wait(2200);
-  await shot('review.png');
+  await shot('code-review.png');
 
   await page.goto(`${URL}/#/work/${SLUG}/findings`);
   await page.locator('.dp-fi-row').first().waitFor();
   await a.wait(1200);
   await page.locator('.dp-fi-claim', { hasText: 'Customer names' }).first().click();
   await a.wait(1000);
-  await shot('findings.png');
+  await shot('findings-board.png');
 
   await a.reveal(page.locator('.dp-fi-thread').first(), 'end');
   await a.wait(900);
-  await shot('thread.png');
+  await shot('agent-thread.png');
   await ctx.close();
 }
 
@@ -365,13 +365,13 @@ async function video(browser: Browser) {
 
   const raw = await page.video().path();
   await ctx.close();
-  const webm = path.join(OUT, 'overview.raw.webm');
+  const webm = path.join(OUT, 'demo.raw.webm');
   fs.renameSync(raw, webm);
   fs.rmSync(dir, { recursive: true, force: true });
   encode(webm, 0.25);
 }
 
-// writes overview.mp4 (H.264, what GitHub plays), overview.webm (VP9), an overview.jpg poster and the README's overview.gif
+// writes demo.mp4 (H.264, what GitHub plays), demo.webm (VP9), a demo.jpg poster and the README's demo.gif
 function encode(raw: string, start: number) {
   const ff = (args: string[]) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args], { stdio: 'inherit' });
   try {
@@ -381,19 +381,19 @@ function encode(raw: string, start: number) {
     return;
   }
   const trim = ['-ss', start.toFixed(2)];
-  ff([...trim, '-i', raw, '-c:v', 'libx264', '-preset', 'slow', '-crf', '26', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', path.join(OUT, 'overview.mp4')]);
-  ff([...trim, '-i', raw, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '40', '-row-mt', '1', '-an', path.join(OUT, 'overview.webm')]);
-  ff(['-ss', (start + 17.5).toFixed(2), '-i', raw, '-frames:v', '1', '-q:v', '3', path.join(OUT, 'overview.jpg')]);
+  ff([...trim, '-i', raw, '-c:v', 'libx264', '-preset', 'slow', '-crf', '26', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', path.join(OUT, 'demo.mp4')]);
+  ff([...trim, '-i', raw, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '40', '-row-mt', '1', '-an', path.join(OUT, 'demo.webm')]);
+  ff(['-ss', (start + 17.5).toFixed(2), '-i', raw, '-frames:v', '1', '-q:v', '3', path.join(OUT, 'demo.jpg')]);
   // the GIF is the README's inline hero: 860px, 8 fps, a 192-colour palette from the clip, under 8 MB
   const palette = path.join(OUT, '.palette.png');
-  const gif = path.join(OUT, 'overview.gif');
+  const gif = path.join(OUT, 'demo.gif');
   const scale = 'scale=860:-1:flags=lanczos';
   ff([...trim, '-i', raw, '-vf', `fps=8,${scale},palettegen=max_colors=192:stats_mode=diff`, '-y', palette]);
   ff([...trim, '-i', raw, '-i', palette, '-lavfi', `fps=8,${scale}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5`, '-loop', '0', gif]);
   fs.rmSync(palette);
   fs.rmSync(raw);
   const mb = (f: string) => (fs.statSync(path.join(OUT, f)).size / 1048576).toFixed(1);
-  console.log(`wrote overview.mp4 (${mb('overview.mp4')} MB), overview.webm (${mb('overview.webm')} MB), overview.jpg, overview.gif (${mb('overview.gif')} MB)`);
+  console.log(`wrote demo.mp4 (${mb('demo.mp4')} MB), demo.webm (${mb('demo.webm')} MB), demo.jpg, demo.gif (${mb('demo.gif')} MB)`);
 }
 
 const browser = await chromium.launch();

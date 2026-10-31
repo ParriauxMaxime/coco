@@ -13,8 +13,8 @@ card, with a one-line caption under each beat.
 
 ## Scope
 
-- Writes `docs/media/overview.{gif,mp4,webm,jpg}` and `plan.png`,
-  `review.png`, `findings.png`, `thread.png`.
+- Writes `docs/media/demo.{gif,mp4,webm,jpg}` and `stack-plan.png`,
+  `code-review.png`, `findings-board.png`, `agent-thread.png`.
 - Reads `scripts/record-demo.ts`, `demo/`, `README.md`. Edits the recorder
   when a beat hits a UI that moved.
 - Never the real server: no persona name, token, card or personal work may
@@ -67,17 +67,17 @@ the app runs in its dark theme (`DEMO_THEME=light` records the other one).
   around whatever is about to be acted on, a 370 ms dip through the film
   colour between beats, and a caption chip bottom-left — a caps kicker
   (`PLAN`, `DECIDE`, `REVIEW`, `FINDINGS`) over one line.
-- Encode: `overview.mp4` (H.264, what GitHub plays), `overview.webm` (VP9),
-  a `overview.jpg` poster from the review beat, and `overview.gif` at
-  860 px / 8 fps with a palette built from the clip, so the README hero
-  stays under 8 MB — dark plus motion needs that headroom.
+- Encode: `demo.mp4` (H.264, what GitHub plays), `demo.webm` (VP9), a
+  `demo.jpg` poster from the review beat, and `demo.gif` at 860 px / 8 fps
+  with a palette built from the clip, so the README hero stays under 8 MB —
+  dark plus motion needs that headroom.
 
 ## 4. Verify before you commit
 
 ```bash
-ffprobe -v error -show_entries format=duration -of default=nw=1 docs/media/overview.mp4
-ls -l docs/media/overview.gif      # under 8 MB
-ffmpeg -v error -y -ss 12 -i docs/media/overview.mp4 -frames:v 1 /tmp/frame.png
+ffprobe -v error -show_entries format=duration -of default=nw=1 docs/media/demo.mp4
+ls -l docs/media/demo.gif      # under 8 MB
+ffmpeg -v error -y -ss 12 -i docs/media/demo.mp4 -frames:v 1 /tmp/frame.png
 ```
 
 Look at the frames: the cards are the right size, the caption matches the
