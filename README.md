@@ -50,7 +50,7 @@ running for the agents. A menu bar parrot carries the "waiting on you" count,
 the dock badge shows it too, and ⌥⌘C brings coco forward from anywhere. Jobs
 that end while the window is in the background raise a notification.
 
-https://github.com/user-attachments/assets/ad33826d-c071-4dfa-9375-9e1549df8983
+https://github.com/user-attachments/assets/9330c4f7-2039-4fe3-b1dc-1bdec33a8ae0
 
 ![coco on a demo stack: the work and its progress, a decision taken, code review, the findings board](docs/media/demo.gif)
 

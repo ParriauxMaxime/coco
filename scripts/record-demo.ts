@@ -74,7 +74,7 @@ const OVERLAY = `(() => {
     const style = document.createElement('style');
     style.textContent = \`
       #__demo_dim{position:fixed;inset:0;z-index:2147483643;display:flex;align-items:center;justify-content:center;
-        background:radial-gradient(120% 100% at 50% 42%, rgba(12,13,19,.84), rgba(8,9,13,.95));
+        background:radial-gradient(120% 100% at 50% 42%, rgba(10,11,16,.62), rgba(8,9,13,.86));
         opacity:0;transition:opacity .38s ease;pointer-events:none}
       #__demo_dim.on{opacity:1}
       .tstage{display:flex;flex-direction:column;align-items:center;gap:14px;transform:translateY(10px);opacity:0;
@@ -435,7 +435,7 @@ function encode(raw: string, start: number) {
   fs.rmSync(palette);
   // a moving camera makes every frame differ, which raw GIF stores three times over: gifsicle packs it under 8 MB
   try {
-    execFileSync('gifsicle', ['-b', '-O3', '--lossy=120', gif], { stdio: 'inherit' });
+    execFileSync('gifsicle', ['-b', '-O3', '--lossy=140', gif], { stdio: 'inherit' });
   } catch {
     console.log('no gifsicle: demo.gif keeps its raw size');
   }
