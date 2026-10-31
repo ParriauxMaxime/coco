@@ -52,15 +52,25 @@ reviewed file by file, the findings board with the agent's answer.
 
 ## 3. What the recorder draws
 
-- Palette from `docs/media/banner.svg`: cream `#f3ecdc`, ink `#1c1f29`,
-  violet `#7b7bf5`, amber `#f2b84b`, muted `#4a4d5c`.
-- Title card: the parrot mark, `coco`, "ADE, but your way.". Outro: the
-  line and the repo. Both are page content, so the recording carries them.
-- Captions: a fixed bar at the bottom of the page, one line, swapped per
-  beat and hidden before the outro.
+The look is a short dark film in coco's palette, not a raw screen capture:
+the app runs in its dark theme (`DEMO_THEME=light` records the other one).
+
+- Palette from `docs/media/banner.svg` on a near-black backdrop: cream
+  `#f3ecdc`, violet `#7b7bf5`, amber `#f2b84b`, muted `#a9abb6`, film
+  `#0b0c10`.
+- Title card: the parrot mark, `coco`, "ADE, but your way." in a violet
+  accent, a breathing violet/amber glow, and four tilted chips that pop in
+  ("one stack, many agents", "decisions you click", "every remark, one
+  board", "an agent that answers"). The outro card is the line plus the
+  repo chip. Both are page content, so the recording carries them.
+- On the app: a vignette that holds the eye on the middle, a violet ring
+  around whatever is about to be acted on, a 370 ms dip through the film
+  colour between beats, and a caption chip bottom-left — a caps kicker
+  (`PLAN`, `DECIDE`, `REVIEW`, `FINDINGS`) over one line.
 - Encode: `overview.mp4` (H.264, what GitHub plays), `overview.webm` (VP9),
-  a `overview.jpg` poster, and `overview.gif` at 900 px / 9 fps with a
-  palette built from the clip, so the README hero stays under 8 MB.
+  a `overview.jpg` poster from the review beat, and `overview.gif` at
+  860 px / 8 fps with a palette built from the clip, so the README hero
+  stays under 8 MB — dark plus motion needs that headroom.
 
 ## 4. Verify before you commit
 
