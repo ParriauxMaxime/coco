@@ -50,11 +50,11 @@ running for the agents. A menu bar parrot carries the "waiting on you" count,
 the dock badge shows it too, and ⌥⌘C brings coco forward from anywhere. Jobs
 that end while the window is in the background raise a notification.
 
-![coco on a demo stack: plan and a decision, code review, findings board, checklist gates](docs/media/overview.gif)
+![coco on a demo stack: the work and its progress, a decision taken, code review, the findings board](docs/media/overview.gif)
 
-*A demo stack: plan and a decision, code review, findings board, checklist
-gates. Full speed with better quality: [mp4](docs/media/overview.mp4) ·
-[webm](docs/media/overview.webm).*
+*A demo stack: the work and its progress, a decision taken, code review, the
+findings board and the agent that answers it. Full speed with better
+quality: [mp4](docs/media/overview.mp4) · [webm](docs/media/overview.webm).*
 
 ## What it does
 

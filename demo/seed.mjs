@@ -1,10 +1,10 @@
-// Seeds the demo cocopilot (port 8790) with one fictional work, findings, a review plan and a thread.
+// Seeds the demo cocopilot (port 8793) with one fictional work, findings, a review plan and a thread.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const APP = process.env.COCO_APP;
-const COCO = process.env.COCO_URL || 'http://127.0.0.1:8790';
+const COCO = process.env.COCO_URL || 'http://127.0.0.1:8793';
 const REPO = process.env.DEMO_REPO || '/tmp/coco-demo/widgets';
 const DATA = process.env.DEMO_DATA || '/tmp/coco-demo/data';
 const SLUG = 'invoice-csv-export';
@@ -292,7 +292,7 @@ fs.writeFileSync(path.join(threads, `${threadKey}.json`), JSON.stringify({
   ],
 }, null, 1));
 
-// checklist: export-api self review and manual test done
-for (const g of ['self-review', 'manual-test']) await api('POST', `/api/works/${SLUG}/gates/${keys.api}/${g}`, { action: 'done' });
+// checklist: export-api self review and kit done
+for (const g of ['self-review', 'kit']) await api('POST', `/api/works/${SLUG}/gates/${keys.api}/${g}`, { action: 'done' });
 
 console.log(JSON.stringify({ slug: SLUG, posted: posted.map((p) => `${p.n} ${p.id} ${p.severity} ${p.title}`), threadKey }, null, 1));

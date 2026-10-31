@@ -9,7 +9,7 @@
     "reviewsDir": ".claude/reviews",
     "commitConvention": "Conventional Commits: <type>(<scope>): <subject>"
   },
-  "baseUrl": "http://127.0.0.1:8790",
+  "baseUrl": "http://127.0.0.1:8793",
   "dataDir": "/tmp/coco-demo/data",
   "briefsDir": "/tmp/coco-demo/briefs",
   "skillsDir": "/tmp/coco-demo/skills",
